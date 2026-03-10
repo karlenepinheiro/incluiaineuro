@@ -1,0 +1,44 @@
+/* Global base */
+:root { color-scheme: light; }
+html, body { height: 100%; }
+body { margin: 0; }
+
+/* PRINT: A4 + ABNT-ish margins */
+@media print {
+  @page {
+    size: A4;
+    margin: 20mm;
+  }
+
+  html, body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background: white !important;
+  }
+
+  /* Hide app chrome on print */
+  .print\:hidden { display: none !important; }
+
+  /* Ensure printable container behaves like a page */
+  .print-page {
+    width: 170mm; /* 210 - 20mm*2 */
+    min-height: 257mm; /* 297 - 20mm*2 */
+  }
+
+  /* Avoid awkward breaks */
+  h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
+  .avoid-break { break-inside: avoid; page-break-inside: avoid; }
+  .page-break { break-before: page; page-break-before: always; }
+
+  /* Reset shadows/borders that look odd on print */
+  .shadow, .shadow-sm, .shadow-md, .shadow-lg, .shadow-xl {
+    box-shadow: none !important;
+  }
+}
+
+/* Worksheet-like primitives (usable later in Activities) */
+.ws-box { border: 1.5px solid #111; border-radius: 10px; padding: 12px; }
+.ws-card { border: 1px solid #bbb; border-radius: 10px; padding: 12px; }
+.ws-chip { border: 1px solid #999; border-radius: 999px; padding: 2px 8px; font-size: 12px; display: inline-block; }
+.ws-answer-lines { border-top: 1px solid #111; height: 34px; margin-top: 8px; }
+.ws-answer-box { border: 1px solid #111; border-radius: 10px; height: 80px; margin-top: 8px; }

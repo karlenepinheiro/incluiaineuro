@@ -1,0 +1,7 @@
+{
+  "name": "IncluiAI - Plataforma de Educação Inclusiva",
+  "description": "Plataforma para gestão de educação especial, gerando PEI, PAEE, PDI e Estudos de Caso com IA, auditáveis conforme Decreto nº 12.686/2025.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
