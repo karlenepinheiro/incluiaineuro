@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { supabase, DEMO_MODE } from '../services/supabase';
 import {
   Sparkles,
   X,
@@ -361,6 +362,7 @@ export const PedagogicalCopilot: React.FC<PedagogicalCopilotProps> = ({
   const [isOpen, setIsOpen]           = useState(false);
   const [acted, setActed]             = useState<Set<string>>(new Set());
   const [pulse, setPulse]             = useState(false);
+  const dbRecordId                    = useRef<string | null>(null);
 
   // Pulsa quando a view muda para avisar novas sugestões
   useEffect(() => {
@@ -379,9 +381,61 @@ export const PedagogicalCopilot: React.FC<PedagogicalCopilotProps> = ({
     workflowNodeIds
   );
 
+  // ── Persistência: salva no DB quando painel abre/fecha/age ────────────────
+  useEffect(() => {
+    if (DEMO_MODE || !user?.id) return;
+
+    if (isOpen) {
+      // Insere registro 'shown' quando o painel abre
+      const payload = {
+        tenant_id:    (user as any).tenant_id ?? null,
+        user_id:      user.id,
+        student_id:   viewingStudent?.id ?? null,
+        context_view: currentView,
+        context_data: { view: currentView },
+        suggestions:  suggestions.map(s => ({ id: s.id, label: s.label })),
+        status:       'shown',
+        shown_at:     new Date().toISOString(),
+      };
+      void (async () => {
+        try {
+          const { data } = await supabase.from('copilot_suggestions').insert(payload).select('id').single();
+          if (data?.id) dbRecordId.current = data.id;
+        } catch {}
+      })();
+    } else if (dbRecordId.current) {
+      // Ao fechar sem ter agido — marca como dismissed
+      const id = dbRecordId.current;
+      const hasAct = acted.size > 0;
+      if (!hasAct) {
+        void (async () => {
+          try {
+            await supabase.from('copilot_suggestions')
+              .update({ status: 'dismissed', dismissed_at: new Date().toISOString() })
+              .eq('id', id);
+          } catch {}
+        })();
+      }
+      dbRecordId.current = null;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   const handleAction = useCallback((s: CopilotSuggestion) => {
     setActed(prev => new Set([...prev, s.id]));
     s.action?.();
+
+    // Marca como 'acted' no DB
+    if (!DEMO_MODE && dbRecordId.current) {
+      const id = dbRecordId.current;
+      void (async () => {
+        try {
+          await supabase.from('copilot_suggestions')
+            .update({ status: 'acted', acted_at: new Date().toISOString() })
+            .eq('id', id);
+        } catch {}
+      })();
+    }
   }, []);
 
   const contextLabel: Record<string, string> = {

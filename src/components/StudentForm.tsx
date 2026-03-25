@@ -76,9 +76,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
     diagnosis: initialData?.diagnosis || [],
     cid: initialData?.cid || [], 
     supportLevel: initialData?.supportLevel || 'Nível 1',
-    // Simplificação do fluxo: todo aluno cadastrado aqui é tratado como "com laudo".
-    // (Triagem pode ser um módulo separado no futuro.)
-    tipo_aluno: 'com_laudo',
+    tipo_aluno: initialData?.tipo_aluno || 'com_laudo',
     medication: initialData?.medication || '',
     professionals: initialData?.professionals || [],
     abilities: initialData?.abilities || [], 
@@ -123,7 +121,6 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
       regentTeacher: prev.regentTeacher || firstRegent || regentName || '',
       aeeTeacher: prev.aeeTeacher || firstAee,
       coordinator: prev.coordinator || firstCoord,
-      tipo_aluno: 'com_laudo',
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.schoolId]);
@@ -236,11 +233,17 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.schoolId) {
-        alert("Preencha os campos obrigatórios (Nome e Escola).");
+    if (!formData.name) {
+        alert("Preencha o campo obrigatório: Nome do aluno.");
         return;
     }
-    onSave(formData);
+    // Resolve school name (text) from schoolId (UUID) for DB persistence.
+    // The DB column is school_name (text), not schoolId (UUID foreign key that doesn't exist).
+    const selectedSchool = availableSchools.find(s => s.id === formData.schoolId);
+    const resolvedSchoolName = selectedSchool?.schoolName
+      || formData.externalSchoolName
+      || (formData.isExternalStudent ? '' : '');
+    onSave({ ...formData, schoolName: resolvedSchoolName });
   };
 
   const Tooltip = ({text}: {text: string}) => (
@@ -267,18 +270,37 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         </div>
       </div>
 
-      {/* Banner de modo */}
+      {/* Banner de modo — com toggle */}
       <div className={`mb-4 p-4 rounded-xl border flex items-center gap-3 ${isModoTriagem ? 'bg-yellow-50 border-yellow-200' : 'bg-blue-50 border-blue-200'}`}>
         <span className="text-2xl">{isModoTriagem ? '🔍' : '📋'}</span>
         <div className="flex-1">
           <p className={`font-bold text-sm ${isModoTriagem ? 'text-yellow-800' : 'text-blue-800'}`}>
-            {isModoTriagem ? 'Modo: Aluno em Triagem/Observação' : 'Modo: Aluno Neurodivergente (com Laudo)'}
+            {isModoTriagem ? 'Modo: Aluno em Triagem/Observação' : 'Modo: Aluno com Laudo (diagnóstico confirmado)'}
           </p>
           <p className={`text-xs mt-0.5 ${isModoTriagem ? 'text-yellow-700' : 'text-blue-700'}`}>
             {isModoTriagem
               ? 'Dados clínicos (CID, diagnóstico, medicação) estão ocultos. Podem ser adicionados futuramente após laudo.'
               : 'Formulário completo com dados clínicos, diagnóstico e medicação.'}
           </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <p className="text-xs font-semibold text-gray-500 mb-1">Tipo de cadastro</p>
+          <div className="flex rounded-lg overflow-hidden border border-gray-300 text-xs font-bold shadow-sm">
+            <button
+              type="button"
+              onClick={() => setFormData(prev => ({ ...prev, tipo_aluno: 'em_triagem' }))}
+              className={`px-3 py-1.5 transition-colors ${isModoTriagem ? 'bg-yellow-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            >
+              🔍 Em Triagem
+            </button>
+            <button
+              type="button"
+              onClick={() => setFormData(prev => ({ ...prev, tipo_aluno: 'com_laudo' }))}
+              className={`px-3 py-1.5 transition-colors ${!isModoTriagem ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+            >
+              📋 Com Laudo
+            </button>
+          </div>
         </div>
       </div>
 

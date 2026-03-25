@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Users, FileText, AlertCircle, Zap, TrendingUp, CheckCircle2, Clock, ArrowRight, Calendar, CalendarDays, ChevronLeft, ChevronRight, MapPin, User } from 'lucide-react';
+import { Users, FileText, AlertCircle, Zap, TrendingUp, CheckCircle2, Clock, ArrowRight, Calendar, CalendarDays, ChevronLeft, ChevronRight, MapPin, User, Gift, Copy, CheckCircle as CheckCircleIcon } from 'lucide-react';
+import { ReferralService } from '../services/referralService';
+import { motion } from 'framer-motion';
 import { Student, Protocol, Appointment } from '../types';
+import { Card, CardContent, CardHeader, CardTitle } from '@/src/components/ui/card';
+import { Badge } from '@/src/components/ui/badge';
+import { NumberTicker } from '@/src/components/magicui/number-ticker';
 
 const C = {
   bg: '#F6F4EF',
@@ -25,6 +30,7 @@ interface DashboardViewProps {
   creditsAvailable?: number;
   creditsResetAt?: string | null;
   onNavigate?: (view: string) => void;
+  userId?: string;
 }
 
 function clamp(n: number, a = 0, b = 100) {
@@ -55,10 +61,10 @@ function fmtDateBR(iso?: string | null) {
 function ArcMeter({ valuePct, danger }: { valuePct: number; danger?: boolean }) {
   const v = clamp(valuePct);
   const r = 40;
-  const circumference = Math.PI * r; // half circle
+  const circumference = Math.PI * r;
   const dash = (v / 100) * circumference;
   const color = danger ? '#EF4444' : C.petrol;
-  const trackColor = danger ? '#FEE2E2' : '#E7E2D8';
+  const trackColor = danger ? '#FEE2E2' : C.border;
 
   return (
     <div className="flex flex-col items-center">
@@ -78,13 +84,7 @@ function ArcMeter({ valuePct, danger }: { valuePct: number; danger?: boolean }) 
             )}
           </linearGradient>
         </defs>
-        <path
-          d="M10,60 A50,50 0 0 1 110,60"
-          fill="none"
-          stroke={trackColor}
-          strokeWidth="10"
-          strokeLinecap="round"
-        />
+        <path d="M10,60 A50,50 0 0 1 110,60" fill="none" stroke={trackColor} strokeWidth="10" strokeLinecap="round" />
         <path
           d="M10,60 A50,50 0 0 1 110,60"
           fill="none"
@@ -106,17 +106,12 @@ function LinearMeter({ valuePct, danger }: { valuePct: number; danger?: boolean 
   const v = clamp(valuePct);
   return (
     <div className="w-full">
-      <div
-        className="w-full h-3 rounded-full overflow-hidden"
-        style={{ background: danger ? '#FEE2E2' : C.border }}
-      >
+      <div className="w-full h-3 rounded-full overflow-hidden" style={{ background: danger ? '#FEE2E2' : C.border }}>
         <div
           className="h-full rounded-full"
           style={{
             width: `${v}%`,
-            background: danger
-              ? 'linear-gradient(90deg,#EF4444,#F43F5E)'
-              : `linear-gradient(90deg,${C.petrol},${C.gold})`,
+            background: danger ? 'linear-gradient(90deg,#EF4444,#F43F5E)' : `linear-gradient(90deg,${C.petrol},${C.gold})`,
             transition: 'width 0.7s ease-out',
           }}
         />
@@ -130,22 +125,13 @@ function LinearMeter({ valuePct, danger }: { valuePct: number; danger?: boolean 
 
 // ─── Mini Calendar ─────────────────────────────────────────────────────────
 
-const MONTHS_PT = [
-  'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
-  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro',
-];
+const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const DAYS_SHORT = ['D','S','T','Q','Q','S','S'];
 
 function getDaysInMonth(year: number, month: number) { return new Date(year, month + 1, 0).getDate(); }
 function getFirstDay(year: number, month: number)    { return new Date(year, month, 1).getDay(); }
 
-function MiniCalendar({
-  appointments = [],
-  onViewAgenda,
-}: {
-  appointments: Appointment[];
-  onViewAgenda?: () => void;
-}) {
+function MiniCalendar({ appointments = [], onViewAgenda }: { appointments: Appointment[]; onViewAgenda?: () => void }) {
   const today = new Date();
   const [calYear, setCalYear]   = useState(today.getFullYear());
   const [calMonth, setCalMonth] = useState(today.getMonth());
@@ -160,91 +146,61 @@ function MiniCalendar({
     return s;
   }, [appointments, calYear, calMonth]);
 
-  const days      = getDaysInMonth(calYear, calMonth);
-  const firstDay  = getFirstDay(calYear, calMonth);
+  const days     = getDaysInMonth(calYear, calMonth);
+  const firstDay = getFirstDay(calYear, calMonth);
 
-  const prevMonth = () => {
-    if (calMonth === 0) { setCalYear(y => y - 1); setCalMonth(11); }
-    else setCalMonth(m => m - 1);
-  };
-  const nextMonth = () => {
-    if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0); }
-    else setCalMonth(m => m + 1);
-  };
+  const prevMonth = () => { if (calMonth === 0) { setCalYear(y => y - 1); setCalMonth(11); } else setCalMonth(m => m - 1); };
+  const nextMonth = () => { if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0); } else setCalMonth(m => m + 1); };
 
   return (
-    <div
-      className="rounded-2xl p-5"
-      style={{ background: C.surface, border: `1.5px solid ${C.border}`, boxShadow: '0 2px 12px rgba(31,78,95,0.06)' }}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <button onClick={prevMonth} className="p-1 rounded-lg transition hover:bg-gray-100">
-          <ChevronLeft size={14} style={{ color: C.textSec }} />
-        </button>
-        <div>
-          <div className="text-xs font-bold text-center" style={{ color: C.dark }}>
-            {MONTHS_PT[calMonth]}
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <button onClick={prevMonth} className="p-1 rounded-lg transition hover:bg-gray-100">
+            <ChevronLeft size={14} style={{ color: C.textSec }} />
+          </button>
+          <div>
+            <div className="text-xs font-bold text-center" style={{ color: C.dark }}>{MONTHS_PT[calMonth]}</div>
+            <div className="text-[10px] text-center" style={{ color: C.textSec }}>{calYear}</div>
           </div>
-          <div className="text-[10px] text-center" style={{ color: C.textSec }}>{calYear}</div>
+          <button onClick={nextMonth} className="p-1 rounded-lg transition hover:bg-gray-100">
+            <ChevronRight size={14} style={{ color: C.textSec }} />
+          </button>
         </div>
-        <button onClick={nextMonth} className="p-1 rounded-lg transition hover:bg-gray-100">
-          <ChevronRight size={14} style={{ color: C.textSec }} />
-        </button>
-      </div>
 
-      {/* Day headers */}
-      <div className="grid grid-cols-7 mb-1">
-        {DAYS_SHORT.map((d, i) => (
-          <div key={i} className="text-center text-[9px] font-bold py-0.5" style={{ color: C.textSec }}>
-            {d}
-          </div>
-        ))}
-      </div>
+        <div className="grid grid-cols-7 mb-1">
+          {DAYS_SHORT.map((d, i) => (
+            <div key={i} className="text-center text-[9px] font-bold py-0.5" style={{ color: C.textSec }}>{d}</div>
+          ))}
+        </div>
 
-      {/* Cells */}
-      <div className="grid grid-cols-7 gap-0.5">
-        {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
-        {Array.from({ length: days }).map((_, i) => {
-          const d    = i + 1;
-          const ds   = String(d).padStart(2, '0');
-          const isT  = d === today.getDate() && calMonth === today.getMonth() && calYear === today.getFullYear();
-          const hasA = aptDays.has(ds);
+        <div className="grid grid-cols-7 gap-0.5">
+          {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
+          {Array.from({ length: days }).map((_, i) => {
+            const d   = i + 1;
+            const ds  = String(d).padStart(2, '0');
+            const isT = d === today.getDate() && calMonth === today.getMonth() && calYear === today.getFullYear();
+            const hasA = aptDays.has(ds);
+            return (
+              <div key={d} className="flex flex-col items-center py-1 rounded-lg" style={{ background: isT ? C.petrol : 'transparent' }}>
+                <span className="text-[10px] font-bold leading-none" style={{ color: isT ? '#fff' : C.dark }}>{d}</span>
+                {hasA && <div className="w-1 h-1 rounded-full mt-0.5" style={{ background: isT ? 'rgba(255,255,255,0.8)' : C.gold }} />}
+              </div>
+            );
+          })}
+        </div>
 
-          return (
-            <div
-              key={d}
-              className="flex flex-col items-center py-1 rounded-lg"
-              style={{ background: isT ? C.petrol : 'transparent' }}
-            >
-              <span
-                className="text-[10px] font-bold leading-none"
-                style={{ color: isT ? '#fff' : C.dark }}
-              >
-                {d}
-              </span>
-              {hasA && (
-                <div
-                  className="w-1 h-1 rounded-full mt-0.5"
-                  style={{ background: isT ? 'rgba(255,255,255,0.8)' : C.gold }}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Link */}
-      {onViewAgenda && (
-        <button
-          onClick={onViewAgenda}
-          className="w-full mt-3 text-[10px] font-semibold text-center py-1.5 rounded-lg transition"
-          style={{ color: C.petrol, background: C.petrol + '10' }}
-        >
-          Ver agenda completa →
-        </button>
-      )}
-    </div>
+        {onViewAgenda && (
+          <button
+            onClick={onViewAgenda}
+            className="w-full mt-3 text-[10px] font-semibold text-center py-1.5 rounded-lg transition"
+            style={{ color: C.petrol, background: C.petrol + '10' }}
+          >
+            Ver agenda completa →
+          </button>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -257,219 +213,137 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   reagendado: { bg: '#FFFBEB', color: '#92400E' },
 };
 
-function TodayAppointments({
-  appointments,
-  onViewAgenda,
-}: {
-  appointments: Appointment[];
-  onViewAgenda?: () => void;
-}) {
+function TodayAppointments({ appointments, onViewAgenda }: { appointments: Appointment[]; onViewAgenda?: () => void }) {
   const today = new Date().toISOString().slice(0, 10);
   const todayApts = useMemo(
-    () => appointments
-      .filter(a => a.date.slice(0, 10) === today)
-      .sort((a, b) => a.time.localeCompare(b.time)),
+    () => appointments.filter(a => a.date.slice(0, 10) === today).sort((a, b) => a.time.localeCompare(b.time)),
     [appointments, today]
   );
 
   return (
-    <div
-      className="rounded-2xl p-5"
-      style={{ background: C.surface, border: `1.5px solid ${C.border}`, boxShadow: '0 2px 12px rgba(31,78,95,0.06)' }}
-    >
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <div className="text-sm font-bold" style={{ color: C.dark }}>
-            Atendimentos Hoje
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-sm font-bold" style={{ color: C.dark }}>Atendimentos Hoje</CardTitle>
+            <p className="text-xs mt-0.5" style={{ color: C.textSec }}>
+              {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </p>
           </div>
-          <div className="text-xs mt-0.5" style={{ color: C.textSec }}>
-            {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: C.petrol + '15' }}>
+            <CalendarDays size={16} style={{ color: C.petrol }} />
           </div>
         </div>
-        <div
-          className="w-8 h-8 rounded-xl flex items-center justify-center"
-          style={{ background: C.petrol + '15' }}
-        >
-          <CalendarDays size={16} style={{ color: C.petrol }} />
-        </div>
-      </div>
-
-      {todayApts.length === 0 ? (
-        <div
-          className="flex flex-col items-center py-6 rounded-xl"
-          style={{ background: C.bg, border: `1px dashed ${C.border}` }}
-        >
-          <Calendar size={24} style={{ color: C.border }} />
-          <p className="text-xs mt-2" style={{ color: C.textSec }}>
-            Nenhum atendimento hoje
-          </p>
-          {onViewAgenda && (
-            <button
-              onClick={onViewAgenda}
-              className="mt-2 text-[10px] font-semibold"
-              style={{ color: C.petrol }}
-            >
-              Agendar →
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {todayApts.map((apt: Appointment) => {
-            const sc = STATUS_COLORS[apt.status] ?? { bg: C.bg, color: C.dark };
-            return (
-              <div
-                key={apt.id}
-                className="flex items-start gap-3 rounded-xl p-3"
-                style={{ background: sc.bg }}
-              >
-                {/* Horário */}
-                <div
-                  className="rounded-lg px-2 py-1 text-center shrink-0"
-                  style={{ background: C.petrol, minWidth: 44 }}
-                >
-                  <div className="text-[10px] font-black text-white leading-none">{apt.time}</div>
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-bold truncate" style={{ color: C.dark }}>
-                    {apt.title}
+      </CardHeader>
+      <CardContent className="pt-0">
+        {todayApts.length === 0 ? (
+          <div className="flex flex-col items-center py-6 rounded-xl" style={{ background: C.bg, border: `1px dashed ${C.border}` }}>
+            <Calendar size={24} style={{ color: C.border }} />
+            <p className="text-xs mt-2" style={{ color: C.textSec }}>Nenhum atendimento hoje</p>
+            {onViewAgenda && (
+              <button onClick={onViewAgenda} className="mt-2 text-[10px] font-semibold" style={{ color: C.petrol }}>
+                Agendar →
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {todayApts.map((apt: Appointment) => {
+              const sc = STATUS_COLORS[apt.status] ?? { bg: C.bg, color: C.dark };
+              return (
+                <div key={apt.id} className="flex items-start gap-3 rounded-xl p-3" style={{ background: sc.bg }}>
+                  <div className="rounded-lg px-2 py-1 text-center shrink-0" style={{ background: C.petrol, minWidth: 44 }}>
+                    <div className="text-[10px] font-black text-white leading-none">{apt.time}</div>
                   </div>
-                  {apt.studentName && (
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <User size={9} style={{ color: C.textSec }} />
-                      <span className="text-[10px] truncate" style={{ color: C.textSec }}>
-                        {apt.studentName}
-                      </span>
-                    </div>
-                  )}
-                  {apt.location && (
-                    <div className="flex items-center gap-1">
-                      <MapPin size={9} style={{ color: C.textSec }} />
-                      <span className="text-[10px] truncate" style={{ color: C.textSec }}>
-                        {apt.location}
-                      </span>
-                    </div>
-                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold truncate" style={{ color: C.dark }}>{apt.title}</div>
+                    {apt.studentName && (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <User size={9} style={{ color: C.textSec }} />
+                        <span className="text-[10px] truncate" style={{ color: C.textSec }}>{apt.studentName}</span>
+                      </div>
+                    )}
+                    {apt.location && (
+                      <div className="flex items-center gap-1">
+                        <MapPin size={9} style={{ color: C.textSec }} />
+                        <span className="text-[10px] truncate" style={{ color: C.textSec }}>{apt.location}</span>
+                      </div>
+                    )}
+                  </div>
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: sc.color + '20', color: sc.color }}>
+                    {apt.status}
+                  </span>
                 </div>
-
-                <span
-                  className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
-                  style={{ background: sc.color + '20', color: sc.color }}
-                >
-                  {apt.status}
-                </span>
-              </div>
-            );
-          })}
-
-          {onViewAgenda && (
-            <button
-              onClick={onViewAgenda}
-              className="w-full text-[10px] font-semibold py-1.5 rounded-lg mt-1 transition"
-              style={{ color: C.petrol, background: C.petrol + '10' }}
-            >
-              Ver agenda completa →
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+              );
+            })}
+            {onViewAgenda && (
+              <button
+                onClick={onViewAgenda}
+                className="w-full text-[10px] font-semibold py-1.5 rounded-lg mt-1 transition"
+                style={{ color: C.petrol, background: C.petrol + '10' }}
+              >
+                Ver agenda completa →
+              </button>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
 type MeterMode = 'arc' | 'bar';
 
-function MeterCard({
-  title,
-  subtitle,
-  valuePct,
-  mode,
-  onToggle,
-  footer,
-  danger,
-}: {
-  title: string;
-  subtitle: string;
-  valuePct: number;
-  mode: MeterMode;
-  onToggle: () => void;
-  footer?: React.ReactNode;
-  danger?: boolean;
+function MeterCard({ title, subtitle, valuePct, mode, onToggle, footer, danger }: {
+  title: string; subtitle: string; valuePct: number; mode: MeterMode;
+  onToggle: () => void; footer?: React.ReactNode; danger?: boolean;
 }) {
   return (
-    <div
-      className="rounded-2xl p-6"
-      style={{
-        background: C.surface,
-        border: `1.5px solid ${C.border}`,
-        boxShadow: '0 2px 12px rgba(31,78,95,0.06)',
-      }}
-    >
-      <div className="flex items-start justify-between gap-4 mb-4">
-        <div>
-          <div className="text-sm font-bold" style={{ color: C.dark }}>
-            {title}
+    <Card>
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <div className="text-sm font-bold" style={{ color: C.dark }}>{title}</div>
+            <div className="text-xs mt-0.5" style={{ color: C.textSec }}>{subtitle}</div>
           </div>
-          <div className="text-xs mt-0.5" style={{ color: C.textSec }}>
-            {subtitle}
-          </div>
+          <button
+            onClick={onToggle}
+            className="text-xs px-3 py-1 rounded-full transition"
+            style={{ border: `1px solid ${C.border}`, color: C.textSec, background: C.bg }}
+          >
+            {mode === 'arc' ? 'Arco' : 'Barra'}
+          </button>
         </div>
-        <button
-          onClick={onToggle}
-          className="text-xs px-3 py-1 rounded-full transition"
-          style={{ border: `1px solid ${C.border}`, color: C.textSec, background: C.bg }}
-        >
-          {mode === 'arc' ? 'Arco' : 'Barra'}
-        </button>
-      </div>
-
-      {mode === 'arc' ? (
-        <ArcMeter valuePct={valuePct} danger={danger} />
-      ) : (
-        <div className="py-2">
-          <LinearMeter valuePct={valuePct} danger={danger} />
-        </div>
-      )}
-
-      {footer && <div className="mt-4 text-xs" style={{ color: C.textSec }}>{footer}</div>}
-    </div>
+        {mode === 'arc' ? <ArcMeter valuePct={valuePct} danger={danger} /> : (
+          <div className="py-2"><LinearMeter valuePct={valuePct} danger={danger} /></div>
+        )}
+        {footer && <div className="mt-4 text-xs" style={{ color: C.textSec }}>{footer}</div>}
+      </CardContent>
+    </Card>
   );
 }
 
-function KpiCard({
-  icon: Icon,
-  label,
-  value,
-  accent,
-}: {
-  icon: React.ElementType;
-  label: string;
-  value: number;
-  accent: string;
+function KpiCard({ icon: Icon, label, value, accent }: {
+  icon: React.ElementType; label: string; value: number; accent: string;
 }) {
   return (
-    <div
-      className="rounded-2xl p-5"
-      style={{
-        background: C.surface,
-        border: `1.5px solid ${C.border}`,
-        boxShadow: '0 2px 8px rgba(31,78,95,0.05)',
-      }}
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
     >
-      <div
-        className="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
-        style={{ background: accent + '18' }}
-      >
-        <Icon size={20} style={{ color: accent }} />
-      </div>
-      <div className="text-3xl font-bold mb-1" style={{ color: C.dark }}>
-        {value}
-      </div>
-      <div className="text-xs font-medium" style={{ color: C.textSec }}>
-        {label}
-      </div>
-    </div>
+      <Card className="hover:shadow-md transition-shadow">
+        <CardContent className="p-5">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style={{ background: accent + '18' }}>
+            <Icon size={20} style={{ color: accent }} />
+          </div>
+          <div className="text-3xl font-bold mb-1" style={{ color: C.dark }}>
+            <NumberTicker value={value} className="text-3xl font-bold" />
+          </div>
+          <div className="text-xs font-medium" style={{ color: C.textSec }}>{label}</div>
+        </CardContent>
+      </Card>
+    </motion.div>
   );
 }
 
@@ -483,9 +357,25 @@ export function DashboardView({
   creditsAvailable,
   creditsResetAt,
   onNavigate,
+  userId,
 }: DashboardViewProps) {
   const [modeStudents, setModeStudents] = useState<MeterMode>('arc');
   const [modeCredits, setModeCredits] = useState<MeterMode>('bar');
+
+  // Referral state
+  const [refCode, setRefCode] = useState('');
+  const [refCopied, setRefCopied] = useState(false);
+  const [refTotal, setRefTotal] = useState(0);
+  const [refCreditsEarned, setRefCreditsEarned] = useState(0);
+
+  useEffect(() => {
+    if (!userId) return;
+    ReferralService.getOrCreateReferralCode(userId).then(setRefCode).catch(() => {});
+    ReferralService.getStats(userId).then(s => {
+      setRefTotal(s.totalReferrals);
+      setRefCreditsEarned(s.creditsEarned);
+    }).catch(() => {});
+  }, [userId]);
 
   const kpis = useMemo(() => {
     const finals = protocols.filter(p => p.status === 'FINAL').length;
@@ -497,14 +387,15 @@ export function DashboardView({
     return { total: protocols.length, finals, drafts, byType };
   }, [protocols]);
 
-  const maxStudents = Number.isFinite(planMaxStudents as number) ? (planMaxStudents as number) : 0;
+  const maxStudents    = Number.isFinite(planMaxStudents as number) ? (planMaxStudents as number) : 0;
   const monthlyCredits = Number.isFinite(planMonthlyCredits as number) ? (planMonthlyCredits as number) : 0;
-  const available = Number.isFinite(creditsAvailable as number) ? (creditsAvailable as number) : 0;
+  const available      = Number.isFinite(creditsAvailable as number) ? (creditsAvailable as number) : 0;
+  const hasCredits     = available > 0 || monthlyCredits > 0;
 
-  const studentsPct = maxStudents > 0 ? (students.length / maxStudents) * 100 : 0;
-  const creditsUsed = monthlyCredits > 0 ? Math.max(0, monthlyCredits - available) : 0;
-  const creditsPct = monthlyCredits > 0 ? (creditsUsed / monthlyCredits) * 100 : 0;
-  const creditsLow = monthlyCredits > 0 && (available <= 10 || creditsPct >= 70);
+  const studentsPct  = maxStudents > 0 ? (students.length / maxStudents) * 100 : 0;
+  const creditsUsed  = monthlyCredits > 0 ? Math.max(0, monthlyCredits - available) : 0;
+  const creditsPct   = monthlyCredits > 0 ? (creditsUsed / monthlyCredits) * 100 : 0;
+  const creditsLow   = hasCredits && available <= 10;
 
   const typeBars = useMemo(() => {
     const entries = (Object.entries(kpis.byType) as [string, number][]).sort((a, b) => b[1] - a[1]).slice(0, 6);
@@ -512,12 +403,11 @@ export function DashboardView({
     return entries.map(([name, value]) => ({ name, value, pct: (value / max) * 100 }));
   }, [kpis.byType]);
 
-  const resetBR = fmtDateBR(creditsResetAt);
-  const greet = greetingByHour();
-  const emoji = greetingEmojiByHour();
+  const resetBR  = fmtDateBR(creditsResetAt);
+  const greet    = greetingByHour();
+  const emoji    = greetingEmojiByHour();
   const safeName = (userName ?? '').trim() || 'Professora';
 
-  // Recent protocols (last 4)
   const recent = useMemo(
     () => [...protocols].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 4),
     [protocols]
@@ -526,14 +416,24 @@ export function DashboardView({
   return (
     <div className="min-h-screen p-6 space-y-6" style={{ background: C.bg }}>
       {/* Header greeting */}
-      <div
-        className="rounded-2xl p-7"
+      <motion.div
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="rounded-2xl p-7 relative overflow-hidden"
         style={{
           background: `linear-gradient(135deg, ${C.petrol} 0%, ${C.dark} 100%)`,
           boxShadow: '0 4px 24px rgba(31,78,95,0.18)',
         }}
       >
-        <div className="flex items-center justify-between">
+        <div
+          className="absolute inset-0 opacity-10"
+          style={{
+            backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+            backgroundSize: '28px 28px',
+          }}
+        />
+        <div className="relative z-10 flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white mb-1">
               {emoji} {greet}, {safeName}!
@@ -550,44 +450,49 @@ export function DashboardView({
             <div style={{ color: 'rgba(255,255,255,0.6)' }}>cadastrados</div>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Meters */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <MeterCard
           title="Limite de alunos"
-          subtitle={
-            maxStudents > 0
-              ? `${students.length} de ${maxStudents} alunos`
-              : `${students.length} alunos ativos`
-          }
+          subtitle={maxStudents > 0 ? `${students.length} de ${maxStudents} alunos` : `${students.length} alunos ativos`}
           valuePct={studentsPct}
           mode={modeStudents}
           onToggle={() => setModeStudents(m => (m === 'arc' ? 'bar' : 'arc'))}
         />
         <MeterCard
           title="Créditos IA"
-          subtitle={
-            monthlyCredits > 0
-              ? `${available} disponíveis · ${monthlyCredits}/mês`
-              : 'Créditos não disponíveis neste plano'
-          }
+          subtitle={hasCredits ? `${available} disponíveis${monthlyCredits > 0 ? ` · plano: ${monthlyCredits}/mês` : ' (bônus/indicação)'}` : 'Créditos não disponíveis neste plano'}
           valuePct={creditsPct}
           mode={modeCredits}
           onToggle={() => setModeCredits(m => (m === 'arc' ? 'bar' : 'arc'))}
           danger={creditsLow}
           footer={
-            <div className="space-y-1">
-              {resetBR && (
-                <span>
-                  Renova em: <strong style={{ color: C.dark }}>{resetBR}</strong>
-                </span>
-              )}
-              {creditsLow && (
-                <div className="font-semibold" style={{ color: '#EF4444' }}>
-                  Créditos quase esgotados. Faça upgrade em Configurações.
+            <div className="space-y-2 text-xs" style={{ color: C.textSec }}>
+              {monthlyCredits > 0 && (
+                <div className="flex justify-between">
+                  <span>Consumidos este ciclo:</span>
+                  <strong style={{ color: C.dark }}>{creditsUsed} / {monthlyCredits}</strong>
                 </div>
               )}
+              {resetBR && (
+                <div className="flex justify-between">
+                  <span>Renovação:</span>
+                  <strong style={{ color: C.dark }}>{resetBR}</strong>
+                </div>
+              )}
+              {creditsLow && <div className="font-bold" style={{ color: '#EF4444' }}>⚠️ Créditos quase esgotados. Faça upgrade.</div>}
+              <div className="pt-2 mt-1" style={{ borderTop: '1px solid ' + C.border }}>
+                <p className="text-[10px] font-bold uppercase mb-1" style={{ color: C.textSec }}>Custo por documento</p>
+                <div className="grid grid-cols-2 gap-x-3" style={{ color: C.textSec }}>
+                  <span>📄 Estudo de Caso</span><span className="text-right font-semibold">2 créditos</span>
+                  <span>📋 PAEE</span><span className="text-right font-semibold">2 créditos</span>
+                  <span>📘 PEI</span><span className="text-right font-semibold">3 créditos</span>
+                  <span>📗 PDI</span><span className="text-right font-semibold">2 créditos</span>
+                  <span>📎 Modelo próprio</span><span className="text-right font-semibold">3 créditos</span>
+                </div>
+              </div>
             </div>
           }
         />
@@ -595,13 +500,81 @@ export function DashboardView({
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard icon={CheckCircle2} label="Documentos finalizados" value={kpis.finals} accent={C.petrol} />
-        <KpiCard icon={Users} label="Alunos cadastrados" value={students.length} accent={C.gold} />
-        <KpiCard icon={Clock} label="Rascunhos pendentes" value={kpis.drafts} accent="#F59E0B" />
-        <KpiCard icon={FileText} label="Total de documentos" value={kpis.total} accent={C.dark} />
+        <KpiCard icon={CheckCircle2} label="Documentos finalizados" value={kpis.finals}       accent={C.petrol} />
+        <KpiCard icon={Users}        label="Alunos cadastrados"     value={students.length}   accent={C.gold} />
+        <KpiCard icon={Clock}        label="Rascunhos pendentes"    value={kpis.drafts}        accent="#F59E0B" />
+        <KpiCard icon={FileText}     label="Total de documentos"    value={kpis.total}         accent={C.dark} />
       </div>
 
-      {/* Agenda widgets: Atendimentos Hoje + Mini Calendário */}
+      {/* Referral Card */}
+      {userId && (
+        <div
+          className="rounded-2xl overflow-hidden shadow-sm"
+          style={{ background: `linear-gradient(135deg, ${C.petrol} 0%, ${C.dark} 100%)` }}
+        >
+          <div className="p-6">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="rounded-xl p-2.5 shrink-0" style={{ background: 'rgba(255,255,255,0.12)' }}>
+                <Gift size={20} style={{ color: C.gold }} />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-white text-base">🎁 Indique e Ganhe Créditos IA</h3>
+                <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+                  PRO assinado via seu link → <strong style={{ color: C.gold }}>+10 créd.</strong> &nbsp;|&nbsp;
+                  MASTER → <strong style={{ color: C.gold }}>+20 créd.</strong>
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                <div className="text-2xl font-extrabold" style={{ color: C.gold }}>{refTotal}</div>
+                <div className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>Indicações realizadas</div>
+              </div>
+              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                <div className="text-2xl font-extrabold" style={{ color: C.gold }}>+{refCreditsEarned}</div>
+                <div className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>Créditos ganhos</div>
+              </div>
+            </div>
+
+            {refCode ? (
+              <div className="flex items-center gap-2">
+                <div className="flex-1 rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                  <p className="text-[10px] mb-0.5" style={{ color: 'rgba(255,255,255,0.45)' }}>Seu link de indicação</p>
+                  <p className="text-xs font-mono truncate" style={{ color: 'rgba(255,255,255,0.85)' }}>
+                    incluiai.app.br/?ref={refCode}
+                  </p>
+                </div>
+                <button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(`https://incluiai.app.br/?ref=${refCode}`);
+                    setRefCopied(true);
+                    setTimeout(() => setRefCopied(false), 2000);
+                  }}
+                  className="rounded-xl p-2.5 transition"
+                  style={{ background: 'rgba(255,255,255,0.15)' }}
+                  title="Copiar link"
+                >
+                  {refCopied
+                    ? <CheckCircleIcon size={16} style={{ color: '#4ade80' }} />
+                    : <Copy size={16} style={{ color: 'rgba(255,255,255,0.8)' }} />
+                  }
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => onNavigate && onNavigate('settings')}
+                className="w-full text-xs font-bold rounded-xl py-2.5 transition"
+                style={{ background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)' }}
+              >
+                Ver meu código de indicação →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Agenda widgets */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
           <TodayAppointments
@@ -615,100 +588,71 @@ export function DashboardView({
         />
       </div>
 
+      {/* Distribution + Recent */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Doc type distribution */}
-        <div
-          className="rounded-2xl p-6"
-          style={{ background: C.surface, border: `1.5px solid ${C.border}`, boxShadow: '0 2px 12px rgba(31,78,95,0.06)' }}
-        >
-          <div className="text-sm font-bold mb-1" style={{ color: C.dark }}>
-            Distribuição por tipo
-          </div>
-          <div className="text-xs mb-5" style={{ color: C.textSec }}>
-            Top 6 documentos gerados
-          </div>
-
-          <div className="space-y-3">
-            {typeBars.length === 0 && (
-              <div className="text-sm py-6 text-center" style={{ color: C.textSec }}>
-                Nenhum documento ainda.
-              </div>
-            )}
-            {typeBars.map(b => (
-              <div key={b.name} className="flex items-center gap-3">
-                <div className="w-40 text-xs truncate" style={{ color: C.textSec }}>
-                  {b.name}
-                </div>
-                <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: C.border }}>
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${b.pct}%`,
-                      background: `linear-gradient(90deg,${C.petrol},${C.gold})`,
-                      transition: 'width 0.7s ease-out',
-                    }}
-                  />
-                </div>
-                <div className="w-8 text-xs text-right font-bold" style={{ color: C.dark }}>
-                  {b.value}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent protocols */}
-        <div
-          className="rounded-2xl p-6"
-          style={{ background: C.surface, border: `1.5px solid ${C.border}`, boxShadow: '0 2px 12px rgba(31,78,95,0.06)' }}
-        >
-          <div className="text-sm font-bold mb-1" style={{ color: C.dark }}>
-            Documentos recentes
-          </div>
-          <div className="text-xs mb-5" style={{ color: C.textSec }}>
-            Últimas atividades
-          </div>
-
-          <div className="space-y-3">
-            {recent.length === 0 && (
-              <div className="text-sm py-6 text-center" style={{ color: C.textSec }}>
-                Nenhum documento ainda.
-              </div>
-            )}
-            {recent.map(p => (
-              <div
-                key={p.id}
-                className="flex items-center gap-3 rounded-xl p-3 transition"
-                style={{ background: C.bg, border: `1px solid ${C.border}` }}
-              >
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: C.petrol + '18' }}
-                >
-                  <FileText size={14} style={{ color: C.petrol }} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-bold truncate" style={{ color: C.dark }}>
-                    {p.studentName}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-bold" style={{ color: C.dark }}>Distribuição por tipo</CardTitle>
+            <p className="text-xs" style={{ color: C.textSec }}>Top 6 documentos gerados</p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {typeBars.length === 0 && (
+                <div className="text-sm py-6 text-center" style={{ color: C.textSec }}>Nenhum documento ainda.</div>
+              )}
+              {typeBars.map(b => (
+                <div key={b.name} className="flex items-center gap-3">
+                  <div className="w-40 text-xs truncate" style={{ color: C.textSec }}>{b.name}</div>
+                  <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: C.border }}>
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${b.pct}%`, background: `linear-gradient(90deg,${C.petrol},${C.gold})`, transition: 'width 0.7s ease-out' }}
+                    />
                   </div>
-                  <div className="text-xs truncate" style={{ color: C.textSec }}>
-                    {p.type}
-                  </div>
+                  <div className="w-8 text-xs text-right font-bold" style={{ color: C.dark }}>{b.value}</div>
                 </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-bold" style={{ color: C.dark }}>Documentos recentes</CardTitle>
+            <p className="text-xs" style={{ color: C.textSec }}>Últimas atividades</p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {recent.length === 0 && (
+                <div className="text-sm py-6 text-center" style={{ color: C.textSec }}>Nenhum documento ainda.</div>
+              )}
+              {recent.map(p => (
                 <div
-                  className="text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0"
-                  style={
-                    p.status === 'FINAL'
-                      ? { background: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0' }
-                      : { background: C.goldLight, color: C.gold, border: `1px solid ${C.borderMid}` }
-                  }
+                  key={p.id}
+                  className="flex items-center gap-3 rounded-xl p-3 transition"
+                  style={{ background: C.bg, border: `1px solid ${C.border}` }}
                 >
-                  {p.status === 'FINAL' ? 'Final' : 'Rascunho'}
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.petrol + '18' }}>
+                    <FileText size={14} style={{ color: C.petrol }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold truncate" style={{ color: C.dark }}>{p.studentName}</div>
+                    <div className="text-xs truncate" style={{ color: C.textSec }}>{p.type}</div>
+                  </div>
+                  <Badge
+                    variant={p.status === 'FINAL' ? 'default' : 'outline'}
+                    className="text-[10px] shrink-0"
+                    style={p.status === 'FINAL'
+                      ? { background: '#166534', color: '#fff', border: 'none' }
+                      : { color: C.gold, borderColor: C.borderMid }}
+                  >
+                    {p.status === 'FINAL' ? 'Final' : 'Rascunho'}
+                  </Badge>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

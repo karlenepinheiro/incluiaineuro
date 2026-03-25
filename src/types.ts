@@ -5,27 +5,25 @@
 export enum PlanTier {
   FREE = 'Starter (Grátis)',
   PRO = 'Profissional',
-  PREMIUM = 'Master (Clínicas/Escolas)',
-  INSTITUTIONAL = 'Institucional'
+  PREMIUM = 'MASTER',
 }
 
 // NOTE: In the database we store plan codes (e.g. 'FREE' | 'PRO' | 'MASTER'),
 // while the UI historically used the human labels above. To avoid runtime crashes
 // (e.g. PLAN_LIMITS[user.plan] === undefined), we normalize any incoming value.
-export type PlanTierCode = 'FREE' | 'PRO' | 'MASTER' | 'PREMIUM' | 'INSTITUTIONAL';
+export type PlanTierCode = 'FREE' | 'PRO' | 'MASTER' | 'PREMIUM';
 
 export const PLAN_TIER_ALIASES: Record<string, PlanTier> = {
-  // codes (DB)
-  FREE: PlanTier.FREE,
-  PRO: PlanTier.PRO,
-  MASTER: PlanTier.PREMIUM,
-  PREMIUM: PlanTier.PREMIUM,
-  INSTITUTIONAL: PlanTier.INSTITUTIONAL,
-  // legacy / already-normalized labels (UI)
-  [PlanTier.FREE]: PlanTier.FREE,
-  [PlanTier.PRO]: PlanTier.PRO,
-  [PlanTier.PREMIUM]: PlanTier.PREMIUM,
-  [PlanTier.INSTITUTIONAL]: PlanTier.INSTITUTIONAL,
+  // DB codes (string literals)
+  FREE:    PlanTier.FREE,
+  PRO:     PlanTier.PRO,
+  PREMIUM: PlanTier.PREMIUM,  // 'PREMIUM' string (não confundir com o enum)
+  // Enum values como chaves (computed) — cobre o valor atual de cada tier
+  [PlanTier.FREE]:    PlanTier.FREE,    // 'Starter (Grátis)'
+  [PlanTier.PRO]:     PlanTier.PRO,     // 'Profissional'
+  [PlanTier.PREMIUM]: PlanTier.PREMIUM, // 'MASTER' (valor atual do enum)
+  // Alias legado — valor antigo do enum PREMIUM antes da renomeação
+  'Master (Clínicas/Escolas)': PlanTier.PREMIUM,
 };
 
 export function resolvePlanTier(plan: unknown): PlanTier {
@@ -38,7 +36,14 @@ export function resolvePlanTier(plan: unknown): PlanTier {
   return PLAN_TIER_ALIASES[key] ?? PlanTier.FREE;
 }
 
-export type SubscriptionStatus = 'ACTIVE' | 'PENDING' | 'OVERDUE' | 'CANCELED';
+export type SubscriptionStatus =
+  | 'ACTIVE'
+  | 'PENDING'
+  | 'OVERDUE'
+  | 'CANCELED'
+  | 'TRIAL'
+  | 'COURTESY'
+  | 'INTERNAL_TEST';
 
 // ADMIN ROLES (RBAC)
 export type AdminRole = 'super_admin' | 'financeiro' | 'operacional' | 'viewer';
@@ -185,20 +190,6 @@ export const PLAN_LIMITS = {
     allowed_docs: ['ALL'],
   },
 
-  [PlanTier.INSTITUTIONAL]: {
-    students: 9999,
-    ai_credits: 9999,
-
-    export_word: true,
-    audit_print: true,
-    watermark: false,
-    charts: true,
-    uploads: true,
-    attendance_control: true,
-    support: 'Dedicado',
-
-    allowed_docs: ['ALL'],
-  }
 } as const;
 
 export function getPlanLimits(plan: unknown) {
@@ -388,6 +379,7 @@ export interface Student {
   guardianEmail?: string;
 
   schoolId: string;
+  schoolName?: string; // resolved from schoolId for DB persistence (school_name column)
   grade: string;
   shift: string;
   regentTeacher: string;
@@ -587,4 +579,140 @@ export interface PaymentProvider {
   validateSubscription(userId: string): Promise<boolean>;
   cancelSubscription(userId: string): Promise<void>;
   generateCustomerPortal(userId: string): Promise<string>;
+}
+
+// ============================================================================
+// CEO DASHBOARD — BILLING, SUBSCRIPTIONS, CREDITS, LANDING (v4)
+// ============================================================================
+
+/** Plano (modelo DB) */
+export interface Plan {
+  id: string;
+  code: string;
+  name: string;
+  price_monthly: number;
+  price_yearly: number;
+  credits_monthly: number;
+  max_entities: number;
+  features_json: string[];
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** Assinatura (modelo DB extendido) */
+export interface Subscription {
+  id: string;
+  tenant_id: string;
+  user_id?: string;
+  plan_code: string;
+  status: SubscriptionStatus;
+  billing_provider?: string;
+  provider_customer_id?: string;
+  provider_sub_id?: string;
+  provider_payment_link?: string;
+  provider_update_payment_link?: string;
+  current_period_start?: string;
+  next_billing?: string;
+  next_due_date?: string;
+  cancel_at_period_end: boolean;
+  last_payment_status?: string;
+  is_test_account: boolean;
+  courtesy_reason?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+/** Entrada no razão de créditos */
+export type CreditLedgerType =
+  // Novos tipos (spec v5)
+  | 'monthly_grant' | 'usage_ai' | 'bonus_manual' | 'purchase_extra' | 'courtesy'
+  // Aliases legados (schema v4 — mantidos para compatibilidade)
+  | 'renewal' | 'purchase' | 'bonus' | 'consumption' | 'refund' | 'adjustment';
+
+export interface CreditLedgerEntry {
+  id: string;
+  tenant_id: string;
+  type: CreditLedgerType;
+  amount: number;
+  description?: string;
+  reference_type?: string;
+  reference_id?: string;
+  created_by?: string;
+  created_by_name?: string;
+  created_at: string;
+}
+
+/** Evento de cobrança (webhook log) */
+export interface BillingEvent {
+  id: string;
+  provider: string;
+  event_type: string;
+  provider_event_id?: string;
+  provider_payment_id?: string;
+  provider_subscription_id?: string;
+  /** Payload bruto do webhook (coluna: payload) */
+  payload: Record<string, any>;
+  /** @deprecated use payload */
+  payload_json?: Record<string, any>;
+  processed: boolean;
+  processed_at?: string;
+  success?: boolean;
+  error_message?: string;
+  created_at: string;
+}
+
+/** Concessão manual (CEO/admin) */
+export type AdminGrantType = 'credits' | 'plan_override' | 'courtesy' | 'test_account' | 'suspension' | 'reactivation';
+
+export interface AdminGrant {
+  id: string;
+  tenant_id: string;
+  grant_type: AdminGrantType;
+  value: string;
+  reason: string;
+  granted_by?: string;
+  granted_by_name?: string;
+  created_at: string;
+}
+
+/** Seção de conteúdo da landing page */
+export interface LandingSection {
+  id: string;
+  section_key: string;
+  title?: string;
+  subtitle?: string;
+  content_json: Record<string, any>;
+  updated_by?: string;
+  updated_by_name?: string;
+  updated_at: string;
+}
+
+/** Registro expandido de assinante (view CEO) */
+export interface CeoSubscriberRow {
+  tenant_id: string;
+  tenant_name: string;
+  user_name?: string;
+  user_email?: string;
+  subscription_status: SubscriptionStatus;
+  plan_code: string;
+  credits_remaining: number;
+  credits_limit: number;
+  student_limit: number;
+  students_active: number;
+  next_due_date?: string;
+  is_test_account: boolean;
+  billing_provider?: string;
+  provider_payment_link?: string;
+  created_at: string;
+}
+
+/** KPIs financeiros (view CEO) */
+export interface CeoFinancialKpis {
+  active_subscribers: number;
+  overdue_subscribers: number;
+  trial_subscribers: number;
+  canceled_subscribers: number;
+  total_tenants: number;
+  mrr_estimated: number;
 }

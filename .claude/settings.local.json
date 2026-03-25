@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(npx tsc --noEmit)",
-      "Bash(xargs grep -l \"copilot\\\\|agenda\\\\|timeline\\\\|perfil.*cognitivo\\\\|workflow\\\\|credit\" -i)"
-    ]
-  }
-}

@@ -5,8 +5,6 @@ import { DashboardView } from './views/DashboardView';
 import { LandingPage } from './views/LandingPage';
 import { StudentForm } from './components/StudentForm';
 import { SettingsView } from './views/SettingsView';
-import { ReportsView } from './views/ReportsView';
-import { ActivitiesView } from './views/ActivitiesView';
 import { StudentProfile } from './components/StudentProfile';
 import { generateProtocolAI } from './services/geminiService';
 import {
@@ -24,26 +22,29 @@ import {
   TenantType,
   ProtocolStatus,
   ServiceRecord,
-  Appointment,
 } from './types';
 import { ShieldCheck, Menu } from 'lucide-react';
 import { DocumentBuilder } from './components/DocumentBuilder';
 import { AdminDashboard } from './views/AdminDashboard';
-import { ReferralView } from './views/ReferralView';
-import { ServiceControlView } from './views/ServiceControlView';
-import { SchoolReportView } from './views/SchoolReportView';
-import { FichasComplementaresView } from './views/FichasComplementaresView';
-import { AppointmentsView } from './views/AppointmentsView';
 import { StudentsListView } from './views/StudentsListView';
-import { IncluiLabView } from './views/IncluiLabView';
+import { ReportsView } from './views/ReportsView';
+import { SchoolTemplatesView } from './views/SchoolTemplatesView';
+import { ReferralService } from './services/referralService';
+import { FichasComplementaresView } from './views/FichasComplementaresView';
+import { TriagemView } from './views/TriagemView';
+import { ServiceControlView } from './views/ServiceControlView';
+import { SubscriptionView } from './views/SubscriptionView';
+import { EnrollmentWizard } from './components/EnrollmentWizard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LGPDModal } from './components/LGPDModal';
-import { PedagogicalCopilot } from './components/PedagogicalCopilot';
+import { ExpiredPlanBanner } from './components/ExpiredPlanBanner';
 import { PaymentService } from './services/paymentService';
+import { shouldShowExpiredBanner, getActiveSubscription, type ActiveSubscriptionInfo } from './services/subscriptionService';
 import { supabase, DEMO_MODE } from './services/supabase';
 import { databaseService } from './services/databaseService';
+import { ServiceRecordService } from './services/persistenceService';
 
-// --- Helper Functions ---
+// --- Helper ---
 const generateAuditCode = (userName: string) => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
   let random = '';
@@ -87,27 +88,109 @@ const MOCK_USER: User = {
   aiUsage: [],
 };
 
+// --- DocumentHistory View (inline simples) ---
+const DocumentsHistoryView: React.FC<{
+  protocols: Protocol[];
+  students: Student[];
+  onOpen: (p: Protocol) => void;
+}> = ({ protocols, students, onOpen }) => {
+  const [search, setSearch] = useState('');
+
+  const filtered = protocols.filter(p => {
+    const q = search.toLowerCase();
+    return (
+      p.studentName?.toLowerCase().includes(q) ||
+      p.type?.toLowerCase().includes(q) ||
+      p.auditCode?.toLowerCase().includes(q)
+    );
+  });
+
+  const docLabel: Record<string, string> = {
+    [DocumentType.ESTUDO_CASO]: 'Estudo de Caso',
+    [DocumentType.PAEE]: 'PAEE',
+    [DocumentType.PEI]: 'PEI',
+    [DocumentType.PDI]: 'PDI',
+  };
+
+  const statusColor: Record<string, string> = {
+    DRAFT: '#6B7280',
+    FINAL: '#059669',
+    ARCHIVED: '#9CA3AF',
+  };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Histórico de Documentos</h1>
+        <p className="text-gray-500 text-sm mt-1">Todos os documentos gerados para seus alunos</p>
+      </div>
+
+      <input
+        className="w-full max-w-md border border-gray-200 rounded-lg px-4 py-2 text-sm mb-6 focus:outline-none focus:ring-2 focus:ring-brand-400"
+        placeholder="Buscar por aluno, tipo ou código..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+      />
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-20 text-gray-400">
+          <p className="text-lg font-medium">Nenhum documento encontrado</p>
+          <p className="text-sm mt-1">Gere documentos na seção de Documentação</p>
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          {filtered.map(p => (
+            <div
+              key={p.id}
+              className="bg-white border border-gray-200 rounded-xl p-4 flex items-center justify-between hover:shadow-sm transition cursor-pointer"
+              onClick={() => onOpen(p)}
+            >
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-gray-800 text-sm">
+                    {docLabel[p.type] || p.type}
+                  </span>
+                  <span
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                    style={{
+                      color: statusColor[p.status] || '#6B7280',
+                      background: `${statusColor[p.status] || '#6B7280'}18`,
+                    }}
+                  >
+                    {p.status}
+                  </span>
+                </div>
+                <span className="text-gray-600 text-sm">{p.studentName}</span>
+                <span className="text-gray-400 text-xs font-mono">{p.auditCode}</span>
+              </div>
+              <div className="text-right text-xs text-gray-400">
+                <div>{new Date(p.lastEditedAt || p.createdAt).toLocaleDateString('pt-BR')}</div>
+                <div className="text-[10px] mt-0.5">{p.versions?.length ?? 1} versão(ões)</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// --- App ---
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [view, setView] = useState('landing');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [user, setUser] = useState<User>(MOCK_USER);
-
-  // Dados do app
   const [students, setStudents] = useState<Student[]>([]);
   const [protocols, setProtocols] = useState<Protocol[]>([]);
   const [serviceRecords, setServiceRecords] = useState<ServiceRecord[]>([]);
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
 
-  // Workflow AtivaIA — node IDs para o Copilot
-  const [workflowNodeIds, setWorkflowNodeIds] = useState<string[]>([]);
-
-  // Navegação
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [showEnrollmentWizard, setShowEnrollmentWizard] = useState(false);
+  const [enrollmentTipo, setEnrollmentTipo] = useState<'em_triagem' | 'com_laudo'>('em_triagem');
 
-  // Documentos
   const [generating, setGenerating] = useState(false);
   const [currentProtocol, setCurrentProtocol] = useState<Protocol | null>(null);
   const [activeDocumentType, setActiveDocumentType] = useState<DocumentType>(DocumentType.PEI);
@@ -115,16 +198,14 @@ const App: React.FC = () => {
   const [auditSearch, setAuditSearch] = useState('');
   const [showLGPD, setShowLGPD] = useState(false);
 
-  // ✅ Fonte única para limites/creditos vindos do banco
   const [tenantSummary, setTenantSummary] = useState<any | null>(null);
   const [effectivePlans, setEffectivePlans] = useState<any[]>([]);
+  const [activeSubscription, setActiveSubscription] = useState<ActiveSubscriptionInfo | null>(null);
 
   const planName = useMemo(() => {
-    // user.plan é label (PlanTier). Vamos mapear para DB code
     if (user.plan === PlanTier.PREMIUM) return 'MASTER';
     if (user.plan === PlanTier.PRO) return 'PRO';
     if (user.plan === PlanTier.FREE) return 'FREE';
-    if (user.plan === PlanTier.INSTITUTIONAL) return 'INSTITUTIONAL';
     return 'FREE';
   }, [user.plan]);
 
@@ -134,9 +215,14 @@ const App: React.FC = () => {
   }, [effectivePlans, planName]);
 
   const planMaxStudents = useMemo(() => {
-    const v = Number(planEff?.max_students ?? tenantSummary?.studentLimitBase ?? 0);
-    return Number.isFinite(v) ? v : 0;
-  }, [planEff?.max_students, tenantSummary?.studentLimitBase]);
+    const fromPlanEff = Number(planEff?.max_students);
+    if (Number.isFinite(fromPlanEff) && fromPlanEff > 0) return fromPlanEff;
+    const fromSummary = Number(tenantSummary?.studentLimitBase);
+    if (Number.isFinite(fromSummary) && fromSummary > 0) return fromSummary;
+    const fromStatic = (getPlanLimits(user.plan) as any)?.students;
+    if (typeof fromStatic === 'number' && fromStatic > 0) return fromStatic;
+    return 0;
+  }, [planEff?.max_students, tenantSummary?.studentLimitBase, user.plan]);
 
   const planMonthlyCredits = useMemo(() => {
     const v = Number(planEff?.monthly_credits ?? 0);
@@ -144,16 +230,43 @@ const App: React.FC = () => {
   }, [planEff?.monthly_credits]);
 
   const creditsAvailable = useMemo(() => {
-    const v = Number(tenantSummary?.aiCreditsRemaining ?? 0);
-    return Number.isFinite(v) ? v : 0;
-  }, [tenantSummary?.aiCreditsRemaining]);
+    // Se tenantSummary ainda não carregou, usa créditos do plano como fallback
+    // para não bloquear o usuário em contas onde a wallet ainda não foi inicializada.
+    if (tenantSummary === null) return planMonthlyCredits > 0 ? planMonthlyCredits : 999;
+    const wallet = Number(tenantSummary?.aiCreditsRemaining);
+    if (!Number.isFinite(wallet) || tenantSummary?.aiCreditsRemaining === null) {
+      // Wallet indisponível — usa limite do plano
+      return planMonthlyCredits > 0 ? planMonthlyCredits : 999;
+    }
+    return wallet;
+  }, [tenantSummary, planMonthlyCredits]);
 
   const creditsResetAt = useMemo(() => {
-    // renewalDateCredits já vem do getTenantSummary como next_billing (ISO)
     return (tenantSummary?.renewalDateCredits ?? null) as string | null;
   }, [tenantSummary?.renewalDateCredits]);
 
-  // Restaurar sessão (Supabase Auth)
+  // --- Captura ?ref= da URL para sistema de indicacao ---
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    if (ref) ReferralService.saveRefToStorage(ref);
+  }, []);
+
+  // --- Refresh de créditos após operações de IA (sem re-login) ---
+  useEffect(() => {
+    const handleCreditsChanged = async (e: Event) => {
+      const userId = (e as CustomEvent).detail?.userId || user?.id;
+      if (!userId || DEMO_MODE) return;
+      try {
+        const summaryDb = await databaseService.getTenantSummary(userId);
+        setTenantSummary(summaryDb);
+      } catch {}
+    };
+    window.addEventListener('incluiai:credits-changed', handleCreditsChanged);
+    return () => window.removeEventListener('incluiai:credits-changed', handleCreditsChanged);
+  }, [user?.id]);
+
+    // --- Restore session ---
   useEffect(() => {
     (async () => {
       if (DEMO_MODE) return;
@@ -166,49 +279,73 @@ const App: React.FC = () => {
 
       setUser(profile);
       setIsAuthenticated(true);
+      setView(profile.isAdmin ? 'admin' : 'dashboard');
 
-      const [studentsDb, protocolsDb, summaryDb, plansDb, appointmentsDb] = await Promise.all([
+      const [studentsDb, protocolsDb, summaryDb, plansDb, subInfo, serviceRecordsDb] = await Promise.all([
         databaseService.getStudents(profile.id),
         databaseService.getProtocols(profile.id),
         databaseService.getTenantSummary(profile.id),
         databaseService.getEffectivePlans(),
-        databaseService.getAppointments(profile.id),
+        profile.tenant_id ? getActiveSubscription(profile.tenant_id) : Promise.resolve(null),
+        profile.tenant_id ? ServiceRecordService.list(profile.tenant_id) : Promise.resolve([]),
       ]);
 
       setStudents(studentsDb);
       setProtocols(protocolsDb);
       setTenantSummary(summaryDb);
       setEffectivePlans(plansDb);
-      setAppointments(appointmentsDb);
+      setActiveSubscription(subInfo);
+      setServiceRecords(serviceRecordsDb);
+      if (subInfo?.status) {
+        setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status }));
+      }
     })();
   }, []);
 
-  // LOGIN
+  // --- Realtime subscription status ---
+  useEffect(() => {
+    if (!isAuthenticated || !user.tenant_id || DEMO_MODE) return;
+
+    const channel = supabase
+      .channel(`sub-status-${user.tenant_id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'subscriptions', filter: `tenant_id=eq.${user.tenant_id}` },
+        (payload) => {
+          const row = payload.new as any;
+          setActiveSubscription(prev => prev ? {
+            ...prev,
+            status: row.status ?? prev.status,
+            planCode: row.plan_code ?? prev.planCode,
+            providerPaymentLink: row.provider_payment_link ?? prev.providerPaymentLink,
+            providerUpdatePaymentLink: row.provider_update_payment_link ?? prev.providerUpdatePaymentLink,
+            currentPeriodEnd: row.next_billing ?? prev.currentPeriodEnd,
+            nextDueDate: row.next_due_date ?? prev.nextDueDate,
+            lastPaymentStatus: row.last_payment_status ?? prev.lastPaymentStatus,
+            isTestAccount: row.is_test_account ?? prev.isTestAccount,
+          } : null);
+          if (row.status) {
+            setUser(prev => ({ ...prev, subscriptionStatus: row.status as SubscriptionStatus }));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [isAuthenticated, user.tenant_id]);
+
+  // --- Login ---
   const handleLogin = async (email: string, pass: string) => {
     if (DEMO_MODE) {
-      const mockUser = {
-        ...MOCK_USER,
-        email,
-        name: 'Modo Demonstração',
-        plan: PlanTier.FREE,
-        role: UserRole.TEACHER,
-        isAdmin: false,
-      };
-      setUser(mockUser);
+      setUser({ ...MOCK_USER, email, name: 'Modo Demonstração' });
       setIsAuthenticated(true);
       setView('dashboard');
-
-      // demo: limites básicos
       setEffectivePlans([
         { name: 'FREE', max_students: 5, monthly_credits: 0 },
         { name: 'PRO', max_students: 30, monthly_credits: 50 },
         { name: 'MASTER', max_students: 999, monthly_credits: 70 },
       ]);
-      setTenantSummary({
-        aiCreditsRemaining: 0,
-        studentLimitBase: 5,
-        renewalDateCredits: null,
-      });
+      setTenantSummary({ aiCreditsRemaining: 0, studentLimitBase: 5, renewalDateCredits: null });
       return;
     }
 
@@ -220,11 +357,7 @@ const App: React.FC = () => {
       if (!userId) throw new Error('Falha ao obter usuário autenticado.');
 
       const profile = await databaseService.getUserProfile(userId);
-      if (!profile) {
-        throw new Error(
-          'Perfil não encontrado. Verifique o trigger de criação de usuário (tabela users).'
-        );
-      }
+      if (!profile) throw new Error('Perfil não encontrado.');
 
       const needsLGPD = !profile.lgpdConsent?.accepted;
       const needsSchoolSetup =
@@ -236,95 +369,96 @@ const App: React.FC = () => {
 
       setUser(profile);
       setIsAuthenticated(true);
-      setView(needsLGPD || needsSchoolSetup ? 'settings' : 'dashboard');
+      setView(profile.isAdmin ? 'admin' : needsLGPD || needsSchoolSetup ? 'settings' : 'dashboard');
 
-      const [studentsDb, protocolsDb, summaryDb, plansDb, appointmentsDb] = await Promise.all([
+      const [studentsDb, protocolsDb, summaryDb, plansDb, subInfo, serviceRecordsDb] = await Promise.all([
         databaseService.getStudents(profile.id),
         databaseService.getProtocols(profile.id),
         databaseService.getTenantSummary(profile.id),
         databaseService.getEffectivePlans(),
-        databaseService.getAppointments(profile.id),
+        profile.tenant_id ? getActiveSubscription(profile.tenant_id) : Promise.resolve(null),
+        profile.tenant_id ? ServiceRecordService.list(profile.tenant_id) : Promise.resolve([]),
       ]);
 
       setStudents(studentsDb);
       setProtocols(protocolsDb);
       setTenantSummary(summaryDb);
       setEffectivePlans(plansDb);
-      setAppointments(appointmentsDb);
+      setActiveSubscription(subInfo);
+      setServiceRecords(serviceRecordsDb);
+      if (subInfo?.status) {
+        setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status }));
+      }
+
+      // Registra indicacao pendente (silencioso)
+      const pendingRef = ReferralService.getRefFromStorage();
+      if (pendingRef && userId) {
+        ReferralService.registerReferral(userId, pendingRef).catch(() => {});
+      }
     } catch (e: any) {
       alert(e?.message || 'Erro ao entrar. Verifique email e senha.');
     }
   };
 
   const handleLGPDAccept = async () => {
-    try {
-      await databaseService.acceptLGPD(user.id, { termVersion: 'v1.0' });
-    } catch {}
-
+    try { await databaseService.acceptLGPD(user.id, { termVersion: 'v1.0' }); } catch {}
     setUser(prev => ({
       ...prev,
-      lgpdConsent: {
-        accepted: true,
-        acceptedAt: new Date().toISOString(),
-        ipAddress: '127.0.0.1',
-        termVersion: 'v1.0',
-      },
+      lgpdConsent: { accepted: true, acceptedAt: new Date().toISOString(), ipAddress: '127.0.0.1', termVersion: 'v1.0' },
     }));
     setShowLGPD(false);
     setView('settings');
   };
 
   const handleLogout = async () => {
-    try {
-      if (!DEMO_MODE) await supabase.auth.signOut();
-    } catch {}
+    try { if (!DEMO_MODE) await supabase.auth.signOut(); } catch {}
     setIsAuthenticated(false);
     setView('landing');
     setUser(MOCK_USER);
     setStudents([]);
     setProtocols([]);
-    setServiceRecords([]);
-    setAppointments([]);
     setTenantSummary(null);
     setEffectivePlans([]);
+    setActiveSubscription(null);
     setViewingStudent(null);
     setEditingStudent(null);
     setCurrentProtocol(null);
   };
 
-  // ✅ validação usa banco (planMaxStudents / creditsAvailable) e mantém PaymentService
-  const checkPermission = (feature: 'add_student' | 'ai_gen' | 'charts') => {
+  const checkPermission = (feature: 'add_student' | 'ai_gen') => {
     const access = PaymentService.checkAccess(user);
-    if (!access.allowed && access.reason === 'payment_required') {
-      alert('Sua assinatura está atrasada. Regularize para continuar.');
-      return false;
+
+    if (access.reason !== 'courtesy' && access.reason !== 'test_account') {
+      if (!access.allowed && access.reason === 'payment_required') {
+        alert('Sua assinatura está atrasada. Regularize para continuar.');
+        return false;
+      }
+      if (!access.allowed && access.reason === 'subscription_ended') {
+        alert('Sua assinatura foi cancelada. Reative para continuar.');
+        return false;
+      }
     }
 
     const legacy = getPlanLimits(user.plan);
 
     if (feature === 'add_student') {
-      const limit = planMaxStudents > 0 ? planMaxStudents : legacy.students;
-      if (students.length >= limit) return false;
-      return true;
+      const limit = planMaxStudents > 0 ? planMaxStudents : (legacy as any).students;
+      return students.length < limit;
     }
 
     if (feature === 'ai_gen') {
-      // FREE sem IA -> creditsAvailable será 0
-      if (creditsAvailable <= 0) return false;
-      return true;
-    }
-
-    if (feature === 'charts') {
-      if (!legacy.charts) return false;
-      return true;
+      // Só bloqueia se sabemos com certeza que os créditos são 0.
+      // Se tenantSummary não carregou ainda (null), libera para não travar.
+      if (tenantSummary === null) return true;
+      return creditsAvailable > 0;
     }
 
     return true;
   };
 
-  const triggerUpgrade = () => alert(`Limite do plano atingido. Faça upgrade para continuar.`);
+  const triggerUpgrade = () => alert('Limite do plano atingido. Faça upgrade para continuar.');
 
-  // --- Student Logic ---
+  // --- Student handlers ---
   const handleSelectStudent = (student: Student) => {
     setViewingStudent(student);
     setView('student_profile');
@@ -334,31 +468,15 @@ const App: React.FC = () => {
     try {
       if (editingStudent && editingStudent.id) {
         await databaseService.saveStudent(studentData);
-        const updatedList = students.map(s => (s.id === studentData.id ? studentData : s));
-        setStudents(updatedList);
+        setStudents(students.map(s => (s.id === studentData.id ? studentData : s)));
         setViewingStudent(studentData);
       } else {
         if (!checkPermission('add_student')) return triggerUpgrade();
-        const saved = await databaseService.saveStudent(studentData);
+        await databaseService.saveStudent(studentData);
         const fresh = await databaseService.getStudents();
         setStudents(fresh);
-
-        // Timeline: aluno cadastrado
-        if (!DEMO_MODE && saved?.id && user?.tenant_id) {
-          const { TimelineService } = await import('./services/persistenceService');
-          await TimelineService.add({
-            tenantId:   user.tenant_id,
-            studentId:  saved.id,
-            eventType:  'matricula',
-            title:      'Aluno cadastrado no sistema',
-            description: studentData.tipo_aluno === 'em_triagem' ? 'Em Triagem' : 'Com Laudo',
-            icon:       'User',
-            author:     user.name,
-          });
-        }
       }
 
-      // refresh summary (para bater contador/limite)
       if (!DEMO_MODE && user?.id) {
         const summaryDb = await databaseService.getTenantSummary(user.id);
         setTenantSummary(summaryDb);
@@ -372,6 +490,37 @@ const App: React.FC = () => {
     }
   };
 
+  // Salvar aluno vindo do EnrollmentWizard (retorna o aluno salvo para gerar PDFs)
+  const saveStudentFromWizard = async (
+    studentData: Partial<Student>,
+    _checklist: any[],
+    _analise: string,
+  ): Promise<Student> => {
+    if (!checkPermission('add_student')) {
+      triggerUpgrade();
+      throw new Error('Limite de alunos do plano atingido');
+    }
+    const full: Student = {
+      id: '',
+      schoolId: user.schoolConfigs?.[0]?.id ?? '1',
+      name: '', grade: '', shift: '', regentTeacher: '', guardianName: '',
+      guardianPhone: '', diagnosis: [], cid: [], supportLevel: '', medication: '',
+      professionals: [], schoolHistory: '', abilities: [], difficulties: [],
+      strategies: [], communication: [], observations: '',
+      ...studentData,
+    } as Student;
+    await databaseService.saveStudent(full);
+    const fresh = await databaseService.getStudents();
+    setStudents(fresh);
+    if (!DEMO_MODE && user?.id) {
+      const summaryDb = await databaseService.getTenantSummary(user.id);
+      setTenantSummary(summaryDb);
+    }
+    // Retorna o aluno recém-salvo (último adicionado com esse nome)
+    const saved = fresh.find(s => s.name === full.name) ?? { ...full, id: 'new' };
+    return saved;
+  };
+
   const deleteStudent = async (studentId: string) => {
     if (!window.confirm('Tem certeza?')) return;
     try {
@@ -382,28 +531,16 @@ const App: React.FC = () => {
         setViewingStudent(null);
         setView('students');
       }
-
       if (!DEMO_MODE && user?.id) {
         const summaryDb = await databaseService.getTenantSummary(user.id);
         setTenantSummary(summaryDb);
       }
     } catch (e: any) {
-      console.error(e);
       alert(e?.message || 'Erro ao excluir aluno.');
     }
   };
 
-  const updateStudentEvolution = async (updatedStudent: Student) => {
-    setStudents(students.map(s => (s.id === updatedStudent.id ? updatedStudent : s)));
-    if (viewingStudent && viewingStudent.id === updatedStudent.id) setViewingStudent(updatedStudent);
-    try {
-      await databaseService.saveStudent(updatedStudent);
-    } catch (e) {
-      console.error('[updateStudentEvolution] erro ao persistir no banco:', e);
-    }
-  };
-
-  // --- Document Logic ---
+  // --- Document handlers ---
   const initDocumentGeneration = (type: DocumentType) => {
     setActiveDocumentType(type);
     setCurrentProtocol(null);
@@ -463,7 +600,7 @@ const App: React.FC = () => {
         ...currentProtocol,
         versions: [...currentProtocol.versions, newVersion],
         structuredData: data,
-        status: status,
+        status,
         lastEditedAt: timestamp,
         lastEditedBy: user.name,
       };
@@ -478,22 +615,7 @@ const App: React.FC = () => {
           structured_data: data,
         });
       } catch (e) {
-        console.error('[handleSaveDocument] erro ao persistir no banco:', e);
-      }
-      // Timeline: documento atualizado
-      if (!DEMO_MODE && student?.id && user?.tenant_id) {
-        const { TimelineService } = await import('./services/persistenceService');
-        await TimelineService.add({
-          tenantId:    user.tenant_id,
-          studentId:   student.id,
-          eventType:   'protocolo',
-          title:       `${activeDocumentType} atualizado`,
-          description: `Status: ${status} — editado por ${user.name}`,
-          linkedId:    currentProtocol.id,
-          linkedTable: 'documents',
-          icon:        'FileText',
-          author:      user.name,
-        });
+        console.error('[handleSaveDocument] erro ao persistir:', e);
       }
     } else {
       const newVersion: DocumentVersion = {
@@ -510,7 +632,7 @@ const App: React.FC = () => {
         studentId: student.id,
         studentName: student.name,
         type: activeDocumentType,
-        status: status,
+        status,
         source_id: currentProtocol?.source_id || null,
         content: '',
         isStructured: true,
@@ -534,28 +656,13 @@ const App: React.FC = () => {
       setCurrentProtocol(newProtocol);
 
       try {
-        const saved = await databaseService.saveDocument({
+        await databaseService.saveDocument({
           ...newProtocol,
           tenant_id: user.tenant_id,
           structured_data: data,
         });
-        // Timeline: documento criado
-        if (!DEMO_MODE && student?.id && user?.tenant_id) {
-          const { TimelineService } = await import('./services/persistenceService');
-          await TimelineService.add({
-            tenantId:    user.tenant_id,
-            studentId:   student.id,
-            eventType:   'protocolo',
-            title:       `${activeDocumentType} criado`,
-            description: `Status: ${status} — gerado por ${user.name}`,
-            linkedId:    saved?.id ?? newProtocol.id,
-            linkedTable: 'documents',
-            icon:        'FileText',
-            author:      user.name,
-          });
-        }
       } catch (e) {
-        console.error('[handleSaveDocument] erro ao persistir no banco:', e);
+        console.error('[handleSaveDocument] erro ao persistir:', e);
       }
     }
   };
@@ -563,8 +670,7 @@ const App: React.FC = () => {
   const handleDeleteDocument = (protocolId: string) => {
     setProtocols(prev => prev.filter(p => p.id !== protocolId));
     setCurrentProtocol(null);
-    if (viewingStudent) setView('student_profile');
-    else setView('dashboard');
+    setView(viewingStudent ? 'student_profile' : 'dashboard');
   };
 
   const handleGenerateAI = async (student: Student) => {
@@ -573,20 +679,16 @@ const App: React.FC = () => {
 
     setGenerating(true);
 
-    const laudoDoc = student?.documents?.find(
-      d => d.type === 'Laudo' && d.url && d.url.startsWith('data:')
-    );
+    const laudoDoc = student?.documents?.find(d => d.type === 'Laudo' && d.url?.startsWith('data:'));
     const docContent = laudoDoc ? laudoDoc.url : undefined;
 
     try {
       const jsonString = await generateProtocolAI(activeDocumentType, student, user, docContent);
-
       let structuredData: DocumentData;
       try {
         const cleanJson = jsonString.replace(/```json/g, '').replace(/```/g, '');
         structuredData = JSON.parse(cleanJson);
-      } catch (e) {
-        console.error('Failed to parse AI JSON', e);
+      } catch {
         structuredData = { sections: [] };
         alert('Erro ao estruturar dados da IA. Usando template vazio.');
       }
@@ -609,36 +711,36 @@ const App: React.FC = () => {
         signatures: { regent: '', coordinator: '', aee: '', manager: '' },
       });
     } catch (e: any) {
-      console.error('[AI] generate protocol failed', e);
       alert(e?.message || 'Erro ao gerar protocolo.');
     } finally {
       setGenerating(false);
+      // Refresh créditos após geração de IA
+      if (!DEMO_MODE && user?.id) {
+        try {
+          const summaryDb = await databaseService.getTenantSummary(user.id);
+          setTenantSummary(summaryDb);
+        } catch {}
+      }
     }
   };
 
-  // --- Views ---
-  if (view === 'guest') {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full text-center">
-          <h2 className="text-xl font-bold mb-4">Acesso de Colaborador</h2>
-          <p className="text-gray-600 mb-6">
-            Você foi convidado para colaborar em um documento. (Modo Simulação)
-          </p>
-          <button
-            onClick={() => (window.location.href = '/')}
-            className="bg-blue-600 text-white w-full py-2 rounded font-bold hover:bg-blue-700"
-          >
-            Acessar Painel (Login Necessário)
-          </button>
-          <p className="text-xs text-gray-400 mt-4">
-            Em produção, isso abriria o editor restrito.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // --- Navegação com inicialização de documento ---
+  const handleSetView = (v: string) => {
+    const docMap: Record<string, DocumentType> = {
+      protocols: DocumentType.PEI,
+      pdi: DocumentType.PDI,
+      paee: DocumentType.PAEE,
+      estudo_caso: DocumentType.ESTUDO_CASO,
+    };
+    if (docMap[v]) {
+      initDocumentGeneration(docMap[v]);
+    }
+    setEditingStudent(null);
+    setView(v);
+    if (window.innerWidth < 1024) setIsSidebarOpen(false);
+  };
 
+  // --- Telas sem auth ---
   if (view === 'audit') {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -655,19 +757,13 @@ const App: React.FC = () => {
             className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold"
             onClick={() => {
               const found = protocols.find(p => p.auditCode === auditSearch);
-              if (found)
-                alert(
-                  `✅ VÁLIDO: ${found.type} - ${found.studentName}\nÚltima edição: ${found.lastEditedBy}`
-                );
+              if (found) alert(`✅ VÁLIDO: ${found.type} - ${found.studentName}\nÚltima edição: ${found.lastEditedBy}`);
               else alert('❌ Inválido ou não encontrado.');
             }}
           >
             Verificar Autenticidade
           </button>
-          <button
-            onClick={() => setView('landing')}
-            className="mt-4 text-gray-500 hover:text-gray-800 text-sm"
-          >
+          <button onClick={() => setView('landing')} className="mt-4 text-gray-500 hover:text-gray-800 text-sm">
             Voltar
           </button>
         </div>
@@ -677,11 +773,11 @@ const App: React.FC = () => {
 
   if (!isAuthenticated) {
     if (view === 'login')
-      return <LoginScreen onLogin={handleLogin} onGuest={() => alert('Modo visitante foi desativado. Faça login.')} />;
+      return <LoginScreen onLogin={handleLogin} onGuest={() => alert('Modo visitante desativado.')} />;
     return <LandingPage onLogin={() => setView('login')} onRegister={() => {}} onAudit={() => setView('audit')} />;
   }
 
-  const isDocView = ['protocols', 'pdi', 'paee', 'estudo_caso', 'ficha'].includes(view);
+  const isDocView = ['protocols', 'pdi', 'paee', 'estudo_caso'].includes(view);
 
   return (
     <ErrorBoundary>
@@ -701,30 +797,33 @@ const App: React.FC = () => {
           hasFinalCaseStudy={protocols.some(
             p => p.type === DocumentType.ESTUDO_CASO && p.status === 'FINAL'
           )}
-          setView={v => {
-            if (['protocols', 'pdi', 'paee', 'estudo_caso', 'ficha'].includes(v)) {
-              const map: any = {
-                protocols: DocumentType.PEI,
-                pdi: DocumentType.PDI,
-                paee: DocumentType.PAEE,
-                estudo_caso: DocumentType.ESTUDO_CASO,
-                ficha: DocumentType.FICHA,
-              };
-              initDocumentGeneration(map[v]);
-              if (!viewingStudent && view !== 'student_profile') setViewingStudent(null);
-            }
-            setEditingStudent(null);
-            setView(v);
-            if (window.innerWidth < 1024) setIsSidebarOpen(false);
-          }}
+          setView={handleSetView}
           isOpen={isSidebarOpen}
           onLogout={handleLogout}
           studentCount={students.length}
           protocolCount={protocols.length}
-          planMaxStudents={planMaxStudents} // ✅ banco
+          planMaxStudents={planMaxStudents}
+          triagemCount={students.filter(s => s.tipo_aluno === 'em_triagem').length}
         />
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {(() => {
+            const resolvedStatus = (activeSubscription?.status ?? user.subscriptionStatus) as SubscriptionStatus;
+            const showBanner =
+              isAuthenticated &&
+              !user.isAdmin &&
+              !activeSubscription?.isTestAccount &&
+              shouldShowExpiredBanner(resolvedStatus);
+            return showBanner ? (
+              <ExpiredPlanBanner
+                subscriptionStatus={resolvedStatus}
+                tenantSummary={tenantSummary}
+                user={user}
+                subscription={activeSubscription}
+              />
+            ) : null;
+          })()}
+
           <header className="bg-white border-b border-gray-200 h-16 flex items-center px-4 justify-between shrink-0 print:hidden">
             <div className="flex items-center gap-3">
               <button
@@ -738,37 +837,21 @@ const App: React.FC = () => {
           </header>
 
           <main className="flex-1 overflow-y-auto p-4 lg:p-8">
-            {view === 'admin' && <AdminDashboard subscribers={[]} onUpdatePlan={() => {}} />}
+            {view === 'admin' && <AdminDashboard user={user} onClose={() => setView('dashboard')} />}
 
             {view === 'dashboard' && (
               <DashboardView
                 userName={user.name}
                 students={students}
                 protocols={protocols}
-                appointments={appointments}
+                appointments={[]}
                 planMaxStudents={planMaxStudents}
                 planMonthlyCredits={planMonthlyCredits}
                 creditsAvailable={creditsAvailable}
                 creditsResetAt={creditsResetAt}
+                userId={user.id}
                 onNavigate={setView}
               />
-            )}
-
-            {view === 'encaminhamento' && (
-              <ReferralView user={user} students={students} onBack={() => setView('dashboard')} />
-            )}
-
-            {view === 'service_control' && (
-              <ServiceControlView
-                user={user}
-                students={students}
-                serviceRecords={serviceRecords}
-                onAddRecord={rec => setServiceRecords([rec, ...serviceRecords])}
-              />
-            )}
-
-            {view === 'relatorio_escola' && (
-              <SchoolReportView user={user} students={students} onBack={() => setView('dashboard')} />
             )}
 
             {view === 'student_profile' && viewingStudent && (
@@ -783,15 +866,44 @@ const App: React.FC = () => {
                 onViewProtocol={p => {
                   setCurrentProtocol(p);
                   setActiveDocumentType(p.type);
-                  setView('protocols');
+                  // Mapeia o tipo de documento para a view correta (destaca item certo na sidebar)
+                  const docViewMap: Record<string, string> = {
+                    [DocumentType.PEI]:          'protocols',
+                    [DocumentType.PAEE]:         'paee',
+                    [DocumentType.PDI]:          'pdi',
+                    [DocumentType.ESTUDO_CASO]:  'estudo_caso',
+                  };
+                  setView(docViewMap[p.type] ?? 'protocols');
                 }}
                 onCreateDerived={handleCreateDerivedProtocol}
                 userPlan={user.plan}
                 user={user}
-                serviceRecords={serviceRecords}
-                onAddServiceRecord={rec => setServiceRecords([rec, ...serviceRecords])}
+                serviceRecords={[]}
+                onAddServiceRecord={() => {}}
                 onUpdateStudent={updatedStudent => {
                   setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
+                }}
+                onNavigateTo={handleSetView}
+              />
+            )}
+
+            {view === 'triagem' && (
+              <TriagemView
+                students={students}
+                user={user}
+                onOpenStudent={handleSelectStudent}
+                onStartEnrollment={() => {
+                  setEnrollmentTipo('em_triagem');
+                  setShowEnrollmentWizard(true);
+                }}
+                onOpenEstudoCaso={s => {
+                  setViewingStudent(s);
+                  setActiveDocumentType(DocumentType.ESTUDO_CASO);
+                  setView('estudo_caso');
+                }}
+                onConvertToLaudo={s => {
+                  const updated = { ...s, tipo_aluno: 'com_laudo' as const };
+                  saveStudent(updated);
                 }}
               />
             )}
@@ -827,7 +939,7 @@ const App: React.FC = () => {
                   allStudents={students}
                   protocols={protocols}
                   user={user}
-                  initialProtocol={currentProtocol?.id !== 'temp' ? currentProtocol : null}
+                  initialProtocol={currentProtocol}
                   initialData={currentProtocol?.structuredData}
                   onSave={handleSaveDocument}
                   onDelete={handleDeleteDocument}
@@ -842,76 +954,108 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {view === 'activities' && <ActivitiesView students={students} user={user} />}
-            {view === 'incluiLab' && <IncluiLabView students={students} user={user} sidebarOpen={isSidebarOpen} onWorkflowNodesChange={setWorkflowNodeIds} />}
-            {view === 'ativaIA' && <IncluiLabView students={students} user={user} defaultTab="workflow" sidebarOpen={isSidebarOpen} onWorkflowNodesChange={setWorkflowNodeIds} />}
-            {view === 'eduLensIA' && <IncluiLabView students={students} user={user} defaultTab="scanner" sidebarOpen={isSidebarOpen} onWorkflowNodesChange={setWorkflowNodeIds} />}
-            {view === 'neuroDesign' && <IncluiLabView students={students} user={user} defaultTab="redesign" sidebarOpen={isSidebarOpen} onWorkflowNodesChange={setWorkflowNodeIds} />}
-            {view === 'relatorios' && (
+            {view === 'reports' && (
               <ReportsView
                 students={students}
-                onUpdateStudent={updateStudentEvolution}
+                onUpdateStudent={updatedStudent => {
+                  setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
+                }}
                 currentUser={user}
-                currentPlan={user.plan}
+                currentPlan={user?.plan ?? PlanTier.FREE}
               />
             )}
-            {view === 'fichas_complementares' && <FichasComplementaresView students={students} user={user} />}
-            {view === 'agenda' && (
-              <AppointmentsView
+
+            {view === 'documents' && (
+              <DocumentsHistoryView
+                protocols={protocols}
                 students={students}
-                user={user}
-                appointments={appointments}
-                onAddAppointment={async (apt: Appointment) => {
-                  // Otimista: atualiza estado imediatamente
-                  setAppointments((prev: Appointment[]) => [apt, ...prev]);
-                  if (!DEMO_MODE && user?.id) {
-                    const saved = await databaseService.saveAppointment(apt, user.id);
-                    if (saved && saved.id !== apt.id) {
-                      // Substitui o temporário pelo retorno do banco (ID real)
-                      setAppointments((prev: Appointment[]) => prev.map((a: Appointment) => a.id === apt.id ? saved : a));
-                    }
-                  }
-                }}
-                onUpdateAppointment={async (apt: Appointment) => {
-                  setAppointments((prev: Appointment[]) => prev.map((a: Appointment) => a.id === apt.id ? apt : a));
-                  if (!DEMO_MODE && user?.id) {
-                    await databaseService.saveAppointment(apt, user.id);
-                  }
-                }}
-                onDeleteAppointment={async (id: string) => {
-                  setAppointments((prev: Appointment[]) => prev.filter((a: Appointment) => a.id !== id));
-                  if (!DEMO_MODE) {
-                    await databaseService.deleteAppointment(id);
-                  }
+                onOpen={p => {
+                  setCurrentProtocol(p);
+                  setActiveDocumentType(p.type);
+                  const docViewMap: Record<string, string> = {
+                    [DocumentType.PEI]:          'protocols',
+                    [DocumentType.PAEE]:         'paee',
+                    [DocumentType.PDI]:          'pdi',
+                    [DocumentType.ESTUDO_CASO]:  'estudo_caso',
+                  };
+                  setView(docViewMap[p.type] ?? 'protocols');
                 }}
               />
             )}
-            {view === 'settings' && (
+
+            {(view === 'settings' || view === 'referrals') && (
               <SettingsView
                 user={user}
                 onUpdateUser={setUser}
                 onFinishSetup={() => setView('dashboard')}
+                initialTab={view === 'referrals' ? 'finance' : undefined}
               />
             )}
-            {view === 'guides' && <div className="text-center py-20 text-gray-500">Módulo de Guias em Desenvolvimento.</div>}
+
+            {view === 'school_templates' && (
+              <SchoolTemplatesView
+                user={user}
+                tenantSummary={tenantSummary}
+              />
+            )}
+
+            {view === 'fichas' && (
+              <FichasComplementaresView
+                students={students}
+                user={user}
+              />
+            )}
+
+            {view === 'service_control' && (
+              <ServiceControlView
+                user={user}
+                students={students}
+                serviceRecords={serviceRecords}
+                onAddRecord={async record => {
+                  setServiceRecords(prev => [record, ...prev]);
+                  if (user.tenant_id) {
+                    ServiceRecordService.save(record, user.tenant_id).catch(e =>
+                      console.error('[ServiceRecord] save error:', e)
+                    );
+                  }
+                }}
+                onUpdateRecord={async record => {
+                  setServiceRecords(prev => prev.map(r => r.id === record.id ? record : r));
+                  if (user.tenant_id) {
+                    ServiceRecordService.save(record, user.tenant_id).catch(e =>
+                      console.error('[ServiceRecord] update error:', e)
+                    );
+                  }
+                }}
+                onDeleteRecord={async id => {
+                  setServiceRecords(prev => prev.filter(r => r.id !== id));
+                  ServiceRecordService.delete(id).catch(e =>
+                    console.error('[ServiceRecord] delete error:', e)
+                  );
+                }}
+              />
+            )}
+
+            {view === 'subscription' && (
+              <SubscriptionView
+                user={user}
+                creditsAvailable={creditsAvailable}
+                onNavigate={setView}
+              />
+            )}
           </main>
         </div>
       </div>
 
-      {/* Copilot Pedagógico — flutuante, disponível em todas as telas */}
-      <PedagogicalCopilot
-        currentView={view}
-        user={user}
-        students={students}
-        protocols={protocols}
-        appointments={appointments}
-        viewingStudent={viewingStudent}
-        workflowNodeIds={workflowNodeIds}
-        onNavigate={v => {
-          setView(v);
-          if (window.innerWidth < 1024) setIsSidebarOpen(false);
-        }}
-      />
+      {/* ── Enrollment Wizard — modal global ── */}
+      {showEnrollmentWizard && (
+        <EnrollmentWizard
+          user={user}
+          initialTipo={enrollmentTipo}
+          onSave={saveStudentFromWizard}
+          onClose={() => setShowEnrollmentWizard(false)}
+        />
+      )}
     </ErrorBoundary>
   );
 };

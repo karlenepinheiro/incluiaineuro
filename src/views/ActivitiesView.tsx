@@ -1,6 +1,7 @@
 // ActivitiesView.tsx
 import React, { useState, useEffect } from 'react';
 import { Upload, Zap, Save, FileText, Image as ImageIcon, Trash2, Printer, Plus, Edit2, Lock, Search, Eye, Download, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { AudioEnhancedTextarea } from '../components/AudioEnhancedTextarea';
 import { Student, User, PlanTier, getPlanLimits, Activity } from '../types';
 import { generateActivityAI, AIService } from '../services/geminiService';
 import { GeneratedActivityService, TimelineService } from '../services/persistenceService';
@@ -211,7 +212,13 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
 
                   <div>
                       <label className="text-xs font-bold text-gray-500 uppercase">Tema da Atividade</label>
-                      <textarea className="w-full border p-2 rounded" rows={3} placeholder="Ex: Soma de frutas para autistas..." value={topic} onChange={e => setTopic(e.target.value)}/>
+                      <AudioEnhancedTextarea
+                        fieldId="motivo"
+                        value={topic}
+                        onChange={setTopic}
+                        placeholder="Ex: Soma de frutas para autistas..."
+                        rows={3}
+                      />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -293,6 +300,14 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
                       <button onClick={handleGenerateImage} disabled={generating || !generatedContent} className="bg-purple-100 hover:bg-purple-200 text-purple-800 font-bold py-2 px-3 rounded-lg flex items-center justify-center gap-2 disabled:opacity-40">
                           <ImageIcon size={16}/> Imagem
                       </button>
+                  </div>
+                  <div className="flex gap-2 text-xs" style={{ color: '#92650a' }}>
+                    <span className="flex items-center gap-1 bg-yellow-50 border border-yellow-200 rounded-full px-2 py-0.5">
+                      🪙 Texto: <strong>1 crédito</strong>
+                    </span>
+                    <span className="flex items-center gap-1 bg-yellow-50 border border-yellow-200 rounded-full px-2 py-0.5">
+                      🪙 Imagem: <strong>2 créditos</strong>
+                    </span>
                   </div>
 
                   {feedback && (

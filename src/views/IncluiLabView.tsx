@@ -81,11 +81,13 @@ const ModelSelector: React.FC<{
   </div>
 );
 
-// ─── Helper: debita créditos silenciosamente ──────────────────────────────────
+// ─── Helper: debita créditos e dispara refresh global ────────────────────────
 async function safeDeductCredits(user: User, action: string, cost: number) {
   try {
     const { AIService: AI } = await import('../services/aiService');
     await (AI as any).deductCredits(user, action, cost);
+    // Notifica App.tsx para atualizar tenantSummary sem re-login
+    window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
   } catch (e) {
     console.warn('[IncluiLabView] erro ao debitar créditos (não crítico):', e);
   }

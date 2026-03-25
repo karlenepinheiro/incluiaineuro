@@ -1,12 +1,12 @@
 /**
  * persistenceService.ts
- * Operações de persistência para tabelas Sprint 2:
+ * Operações de persistência para tabelas Sprint 2 e posteriores:
  *   tenant_appointments, student_timeline, student_documents,
  *   medical_reports, observation_forms, generated_activities,
- *   student_profiles, ai_requests, ai_outputs
+ *   student_profiles, ai_requests, ai_outputs, service_records
  */
 import { supabase } from './supabase';
-import { Appointment } from '../types';
+import { Appointment, ServiceRecord } from '../types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -540,6 +540,182 @@ export const AiAuditService = {
       }
     } catch (e) {
       console.warn('[AiAuditService.completeRequest] erro (não crítico):', e);
+    }
+  },
+};
+
+// ---------------------------------------------------------------------------
+// CONTROLE DE ATENDIMENTOS — service_records
+// ---------------------------------------------------------------------------
+export const ServiceRecordService = {
+  toRow(rec: ServiceRecord, tenantId: string) {
+    return {
+      id:           rec.id,
+      tenant_id:    tenantId,
+      student_id:   rec.studentId,
+      student_name: rec.studentName,
+      date:         rec.date,
+      type:         rec.type,
+      professional: rec.professional,
+      duration:     rec.duration,
+      observation:  rec.observation,
+      attendance:   rec.attendance,
+    };
+  },
+
+  fromRow(row: any): ServiceRecord {
+    return {
+      id:           row.id,
+      studentId:    row.student_id,
+      studentName:  row.student_name,
+      date:         row.date,
+      type:         row.type,
+      professional: row.professional,
+      duration:     row.duration,
+      observation:  row.observation ?? '',
+      attendance:   row.attendance,
+    };
+  },
+
+  /** Lista todos os atendimentos do tenant ordenados por data desc */
+  async list(tenantId: string): Promise<ServiceRecord[]> {
+    const { data, error } = await supabase
+      .from('service_records')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('date', { ascending: false });
+    if (error) {
+      console.warn('[ServiceRecordService.list]', error.message);
+      return [];
+    }
+    return (data ?? []).map(ServiceRecordService.fromRow);
+  },
+
+  /** Cria ou atualiza um atendimento (upsert por id) */
+  async save(rec: ServiceRecord, tenantId: string): Promise<void> {
+    const row = ServiceRecordService.toRow(rec, tenantId);
+    const { error } = await supabase
+      .from('service_records')
+      .upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+  },
+
+  /** Remove um atendimento */
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('service_records')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// WORKFLOW ATIVIA — workflows + workflow_nodes
+// Persiste layout e configuração do WorkflowCanvas no banco.
+// ---------------------------------------------------------------------------
+
+/** Campos serializáveis do WorkflowState (sem File, sem callbacks, sem results) */
+export interface WorkflowSerializableState {
+  prompt:          string;
+  discipline:      string;
+  grade:           string;
+  bnccCode:        string;
+  bnccDescription: string;
+  model:           string;
+  imageCount:      number;
+  pageSize:        string;
+  borders:         boolean;
+  schoolId:        string;
+  adaptationType:  string;
+  adaptarInputText: string;
+  templateType:    string;
+}
+
+export interface WorkflowSaveData {
+  workflowId:   string;
+  nodesData:    Array<{ id: string; type: string; position: { x: number; y: number } }>;
+  edgesData:    Array<{ id: string; source: string; target: string; type: string }>;
+  wfState:      WorkflowSerializableState;
+}
+
+export const WorkflowService = {
+  /**
+   * Carrega o último workflow ativaIA do usuário, ou cria um novo rascunho.
+   * Retorna null se não houver nada salvo (usar defaults).
+   */
+  async loadOrCreate(
+    userId: string,
+    tenantId: string
+  ): Promise<{ workflowId: string; data: WorkflowSaveData | null }> {
+    const { data: existing } = await supabase
+      .from('workflows')
+      .select('id, nodes_data, edges_data, description')
+      .eq('user_id', userId)
+      .eq('tenant_id', tenantId)
+      .eq('workflow_type', 'ativaIA')
+      .eq('is_template', false)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (existing?.id) {
+      let wfState: WorkflowSerializableState | null = null;
+      try { wfState = JSON.parse(existing.description ?? '{}'); } catch { /* ignore */ }
+
+      const nodesData = Array.isArray(existing.nodes_data) ? existing.nodes_data : [];
+      const edgesData = Array.isArray(existing.edges_data) ? existing.edges_data : [];
+
+      if (nodesData.length > 0) {
+        return {
+          workflowId: existing.id,
+          data: { workflowId: existing.id, nodesData, edgesData, wfState: wfState! },
+        };
+      }
+      // Exists in DB but has no nodes yet — return empty data
+      return { workflowId: existing.id, data: null };
+    }
+
+    // Cria novo rascunho
+    const { data: created, error } = await supabase
+      .from('workflows')
+      .insert({
+        tenant_id:     tenantId,
+        user_id:       userId,
+        name:          'Workflow AtivaIA',
+        workflow_type: 'ativaIA',
+        status:        'draft',
+        nodes_data:    [],
+        edges_data:    [],
+      })
+      .select('id')
+      .single();
+
+    if (error) throw error;
+    return { workflowId: created.id, data: null };
+  },
+
+  /**
+   * Salva (upsert) o estado atual do canvas.
+   * Chamado de forma debounced pelo InnerCanvas.
+   */
+  async save(workflowId: string, saveData: Omit<WorkflowSaveData, 'workflowId'>): Promise<void> {
+    const { nodesData, edgesData, wfState } = saveData;
+
+    const { error } = await supabase
+      .from('workflows')
+      .update({
+        nodes_data:  nodesData,
+        edges_data:  edgesData,
+        description: JSON.stringify(wfState),
+        status:      'draft',
+        updated_at:  new Date().toISOString(),
+      })
+      .eq('id', workflowId);
+
+    if (error) {
+      console.error('[WorkflowService.save] erro:', error.message);
+      throw error;
     }
   },
 };

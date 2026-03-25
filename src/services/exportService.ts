@@ -18,11 +18,13 @@ async function loadJsPDF(): Promise<any> {
   return (window as any).jspdf.jsPDF;
 }
 
-// ─── Cores da marca ────────────────────────────────────────────────────────────
-const BRAND = { r: 88, g: 28, b: 235 };
-const BRAND_LIGHT = { r: 237, g: 233, b: 254 };
-const DARK = { r: 17, g: 24, b: 39 };
-const GRAY = { r: 107, g: 114, b: 128 };
+// ─── Cores da marca (padrão IncluiAI v2) ─────────────────────────────────────
+const BRAND       = { r: 31,  g: 78,  b: 95  };  // petrol #1F4E5F
+const BRAND_DARK  = { r: 28,  g: 32,  b: 46  };  // dark   #1C202E
+const BRAND_LIGHT = { r: 236, g: 244, b: 247 };  // petrol light
+const DARK        = { r: 28,  g: 32,  b: 46  };
+const GRAY        = { r: 108, g: 117, b: 125 };
+const GOLD        = { r: 198, g: 146, b: 20  };  // gold  #C69214
 
 // ─── Padrão ABNT NBR 14724 ────────────────────────────────────────────────────
 // A4: 210 × 297 mm
@@ -48,11 +50,10 @@ const LINE_H = 6.5;      // espaçamento 1,5 para fonte 12pt em mm
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 async function buildQrDataUrl(auditCode: string): Promise<string | undefined> {
   try {
-    const origin = (typeof window !== 'undefined' && window.location?.origin)
-      ? window.location.origin
-      : 'https://incluiai.com';
-    const url = `${origin}/validar/${auditCode}`;
-    return await QRCode.toDataURL(url, { margin: 0, width: 256 });
+    return await QRCode.toDataURL(
+      `https://www.incluiai.app.br/validar/${auditCode}`,
+      { margin: 0, width: 256 },
+    );
   } catch (e) {
     console.warn('QR Code generation failed', e);
     return undefined;
@@ -82,225 +83,97 @@ function addWrappedText(
   return y + lines.length * lineHeight;
 }
 
-// ─── Cabeçalho institucional + do documento ───────────────────────────────────
-// Se school for fornecida (com nome), renderiza cabeçalho institucional completo
-// Retorna o Y onde o conteúdo deve começar
+// ─── Cabeçalho de execução (todas as páginas) — padrão IncluiAI v2 ────────────
+// Linha superior: escola/sistema | código de validação + regra fina
+// Retorna Y de início do conteúdo (11mm)
 function addDocHeader(
   doc: any,
   title: string,
-  subtitle: string,
-  studentName: string,
+  _subtitle: string,
+  _studentName: string,
   auditCode: string,
   school?: SchoolConfig | null
 ): number {
-  const W = doc.internal.pageSize.getWidth(); // 210mm
+  const W     = doc.internal.pageSize.getWidth();
+  const label = school?.schoolName?.trim() || 'Sistema IncluiAI';
 
-  const hasSchool = !!(school?.schoolName?.trim());
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(SMALL_SIZE);
+  doc.setTextColor(DARK.r, DARK.g, DARK.b);
+  doc.text(label, ML, 6.5);
 
-  if (hasSchool) {
-    // ── CABEÇALHO INSTITUCIONAL (0–38mm) ─────────────────────────────────────
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(SMALL_SIZE - 0.5);
+  doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+  if (title) doc.text(title, W / 2, 6.5, { align: "center" });
 
-    // Faixa roxa — 0 a 20mm
-    doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
-    doc.rect(0, 0, W, 20, "F");
+  doc.setFont("courier", "normal");
+  doc.setFontSize(SMALL_SIZE - 0.5);
+  doc.text(`Cód. Validação: ${auditCode}`, W - MR, 6.5, { align: "right" });
 
-    // Logo da escola (se houver, data URL base64)
-    const logoUrl = school!.logoUrl;
-    const logoW = 16, logoH = 16;
-    const logoX = ML;
-    const logoY = 2;
-    if (logoUrl && logoUrl.startsWith("data:")) {
-      try {
-        const fmt = logoUrl.includes("png") ? "PNG" : "JPEG";
-        doc.addImage(logoUrl, fmt, logoX, logoY, logoW, logoH);
-      } catch {}
-    }
+  doc.setDrawColor(218, 224, 229);
+  doc.setLineWidth(0.3);
+  doc.line(ML, 9, W - MR, 9);
 
-    // Nome da escola (destaque)
-    const textX = logoUrl && logoUrl.startsWith("data:") ? ML + logoW + 3 : ML;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(255, 255, 255);
-    doc.text(school!.schoolName.toUpperCase(), textX, 9);
-
-    // Cidade/Estado + CNPJ/INEP (linha menor abaixo do nome)
-    const locParts = [school!.city, school!.state].filter(Boolean).join(" – ");
-    const idParts = [
-      school!.cnpj ? `CNPJ: ${school!.cnpj}` : "",
-      school!.inepCode ? `INEP: ${school!.inepCode}` : "",
-    ].filter(Boolean).join("  |  ");
-    const infoLine = [locParts, idParts].filter(Boolean).join("     ");
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.setTextColor(220, 210, 255);
-    if (infoLine) doc.text(infoLine, textX, 16);
-
-    // Tipo do documento (direita)
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(LABEL_SIZE);
-    doc.setTextColor(255, 255, 255);
-    doc.text(title, W - MR, 8, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(SMALL_SIZE);
-    doc.text(subtitle, W - MR, 15, { align: "right" });
-
-    // Faixa cinza com dados de contato — 20 a 32mm
-    doc.setFillColor(248, 250, 252);
-    doc.rect(0, 20, W, 12, "F");
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7);
-    doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-
-    const addrParts = [
-      school!.address,
-      school!.neighborhood,
-      school!.city && school!.state ? `${school!.city}/${school!.state}` : (school!.city || school!.state),
-      school!.zipcode ? `CEP ${school!.zipcode}` : "",
-    ].filter(Boolean);
-    const contactParts = [
-      school!.email,
-      school!.instagram ? `@${school!.instagram.replace(/^@/, "")}` : "",
-      school!.contact,
-    ].filter(Boolean);
-
-    if (addrParts.length) doc.text(addrParts.join("  ·  "), ML, 26);
-    if (contactParts.length) doc.text(contactParts.join("  ·  "), ML, 30);
-
-    // Gestor/Diretor (direita da faixa cinza)
-    const resp = [
-      school!.principalName ? `Diretor(a): ${school!.principalName}` : "",
-      school!.managerName ? `Gestor(a): ${school!.managerName}` : "",
-    ].filter(Boolean).join("   ");
-    if (resp) doc.text(resp, W - MR, 27, { align: "right" });
-
-    // Faixa azul-clara com nome do aluno — 32 a 40mm
-    doc.setFillColor(237, 233, 254);
-    doc.rect(0, 32, W, 8, "F");
-
-    doc.setTextColor(DARK.r, DARK.g, DARK.b);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(LABEL_SIZE);
-    doc.text(`Aluno(a): ${studentName}`, ML, 38);
-
-    doc.setFont("courier", "normal");
-    doc.setFontSize(7);
-    doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-    doc.text(`Código: ${auditCode}`, W - MR, 38, { align: "right" });
-
-    // Linha divisória — 40mm
-    doc.setDrawColor(BRAND.r, BRAND.g, BRAND.b);
-    doc.setLineWidth(0.4);
-    doc.line(0, 40, W, 40);
-
-    return CONTENT_TOP_INST; // 50mm
-
-  } else {
-    // ── CABEÇALHO PADRÃO IncluiAI (sem escola cadastrada) ──────────────────
-
-    // Faixa roxa principal — 0 a 18mm
-    doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
-    doc.rect(0, 0, W, 18, "F");
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.setTextColor(255, 255, 255);
-    doc.text("IncluiAI", ML, 11);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.text("Plataforma Educacional Inclusiva", ML + 22, 11);
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(LABEL_SIZE);
-    doc.text(title, W - MR, 8, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(SMALL_SIZE);
-    doc.text(subtitle, W - MR, 15, { align: "right" });
-
-    // Faixa clara com nome do aluno — 18mm a 26mm
-    doc.setFillColor(248, 250, 252);
-    doc.rect(0, 18, W, 8, "F");
-
-    doc.setTextColor(DARK.r, DARK.g, DARK.b);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(LABEL_SIZE);
-    doc.text(studentName, ML, 24);
-
-    doc.setFont("courier", "normal");
-    doc.setFontSize(7);
-    doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-    doc.text(`Código: ${auditCode}`, W - MR, 24, { align: "right" });
-
-    // Linha divisória — 26mm
-    doc.setDrawColor(BRAND.r, BRAND.g, BRAND.b);
-    doc.setLineWidth(0.4);
-    doc.line(0, 26, W, 26);
-
-    return CONTENT_TOP; // 30mm
-  }
+  return 11; // RUN_HDR_H
 }
 
-// ─── Rodapé do documento (dentro da margem inferior de 20mm) ─────────────────
+// ─── Rodapé (padrão IncluiAI v2) ──────────────────────────────────────────────
 function addDocFooter(doc: any, auditCode: string, emittedBy: string, qrDataUrl?: string) {
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight(); // 297mm
+  const W      = doc.internal.pageSize.getWidth();
+  const H      = doc.internal.pageSize.getHeight();
+  const fY     = H - BOTTOM_MARGIN - FOOTER_H;
+  const cleanBy = (emittedBy || '').replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim() || emittedBy;
 
-  const footerY = H - FOOTER_H;
-
-  // Linha divisória do rodapé
+  // Separador duplo petrol + gold
   doc.setDrawColor(BRAND.r, BRAND.g, BRAND.b);
-  doc.setLineWidth(0.3);
-  doc.line(ML, footerY, W - MR, footerY);
+  doc.setLineWidth(0.6);
+  doc.line(0, fY, W, fY);
+  doc.setFillColor(GOLD.r, GOLD.g, GOLD.b);
+  doc.rect(0, fY + 0.7, W, 1.2, "F");
 
-  doc.setFillColor(248, 250, 252);
-  doc.rect(0, footerY, W, FOOTER_H, "F");
+  doc.setFillColor(248, 249, 250);
+  doc.rect(0, fY + 2, W, FOOTER_H - 2, "F");
 
-  // Usar toLocaleString (suporta hora+minuto corretamente, ao contrário de toLocaleDateString)
+  // QR Code (lado direito, 16×16 mm)
+  const qrSz  = 16;
+  const qrX   = W - MR - qrSz;
+  if (qrDataUrl) {
+    try { doc.addImage(qrDataUrl, "PNG", qrX, fY + 3, qrSz, qrSz); } catch {}
+  }
+  const textRight = qrDataUrl ? qrX - 4 : W - MR;
+  const cx        = ML + (textRight - ML) / 2;
+
   const dateStr = new Date().toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
   });
 
-  // QR Code no canto direito do rodapé (14×14 mm)
-  const qrSize = 14;
-  if (qrDataUrl) {
-    try {
-      doc.addImage(qrDataUrl, "PNG", W - MR - qrSize, footerY + 1, qrSize, qrSize);
-    } catch {}
-  }
-
-  // Largura de texto disponível (reserva espaço para o QR se presente)
-  const textRight = qrDataUrl ? W - MR - qrSize - 2 : W - MR;
-  const centerX = ML + (textRight - ML) / 2;
-
-  // Linha 1 — data/autor (esquerda) | código auditável (centro)
+  // Linha 1 — emitido por + label
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(SMALL_SIZE);
+  doc.setFontSize(6.5);
   doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-  doc.text(`Gerado em ${dateStr} por ${emittedBy}`, ML, footerY + 6);
-
-  doc.setFont("courier", "bold");
-  doc.setFontSize(SMALL_SIZE);
-  doc.text(`Cód.: ${auditCode}`, centerX, footerY + 6, { align: "center" });
-
-  // Linha 2 — link de validação (esquerda) | página (centro)
-  doc.setFont("helvetica", "normal");
+  doc.text(`Emitido por: ${cleanBy}  ·  ${dateStr}`, ML, fY + 7.5);
+  doc.setFont("helvetica", "bold");
   doc.setFontSize(6);
   doc.setTextColor(BRAND.r, BRAND.g, BRAND.b);
-  doc.text("incluiai.com/validar/" + auditCode, ML, footerY + 12);
+  doc.text("DOCUMENTO PEDAGÓGICO OFICIAL", textRight, fY + 7.5, { align: "right" });
 
+  // Linha 2 — código de auditoria
+  doc.setFont("courier", "bold");
+  doc.setFontSize(7);
+  doc.setTextColor(BRAND.r, BRAND.g, BRAND.b);
+  doc.text(auditCode, cx, fY + 14, { align: "center" });
+
+  // Linha 3 — URL + página
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(6.5);
+  doc.setTextColor(BRAND.r, BRAND.g, BRAND.b);
+  doc.text(`www.incluiai.app.br/validar/${auditCode}`, ML, fY + 20);
   doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-  doc.setFontSize(SMALL_SIZE);
   doc.text(
     `Página ${doc.internal.getCurrentPageInfo().pageNumber} de ${doc.internal.getNumberOfPages()}`,
-    centerX,
-    footerY + 12,
-    { align: "center" }
+    cx, fY + 20, { align: "center" },
   );
 }
 
@@ -312,8 +185,7 @@ function addFooterAllPages(doc: any, auditCode: string, emittedBy: string, qrDat
   }
 }
 
-// ─── Título de seção no estilo ABNT ───────────────────────────────────────────
-// Faixa colorida com texto em branco negrito (identifica a seção)
+// ─── Título de seção (faixa petrol — padrão IncluiAI v2) ─────────────────────
 function addSectionTitle(
   doc: any,
   title: string,
@@ -322,12 +194,12 @@ function addSectionTitle(
   w: number
 ): number {
   doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
-  doc.rect(x, y, w, 7, "F");
+  doc.rect(x, y, w, 8, "F");
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(SMALL_SIZE);
+  doc.setFontSize(SMALL_SIZE + 0.5);
   doc.setTextColor(255, 255, 255);
-  doc.text(title, x + 3, y + 5);
-  return y + 10;
+  doc.text(title.toUpperCase(), x + 4, y + 5.5);
+  return y + 11;
 }
 
 // ─── Renderiza campo com quebra de página automática ─────────────────────────
@@ -417,9 +289,9 @@ async function generateRadarCanvas(
     if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
   });
   ctx.closePath();
-  ctx.fillStyle = "rgba(88, 28, 235, 0.18)";
+  ctx.fillStyle = "rgba(31, 78, 95, 0.18)";
   ctx.fill();
-  ctx.strokeStyle = "rgba(88, 28, 235, 0.85)";
+  ctx.strokeStyle = "rgba(31, 78, 95, 0.85)";
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
@@ -428,7 +300,7 @@ async function generateRadarCanvas(
     const rv = (val / 5) * r;
     ctx.beginPath();
     ctx.arc(cx + rv * Math.cos(angle), cy + rv * Math.sin(angle), 5, 0, Math.PI * 2);
-    ctx.fillStyle = "rgb(88, 28, 235)";
+    ctx.fillStyle = "rgb(31, 78, 95)";
     ctx.fill();
   });
 
@@ -472,8 +344,8 @@ async function generateBarCanvas(
     const y = pad.t + chartH - barH;
 
     const grad = ctx.createLinearGradient(x, y, x, pad.t + chartH);
-    grad.addColorStop(0, "rgba(88, 28, 235, 0.9)");
-    grad.addColorStop(1, "rgba(167, 139, 250, 0.7)");
+    grad.addColorStop(0, "rgba(31, 78, 95, 0.9)");
+    grad.addColorStop(1, "rgba(100, 160, 185, 0.7)");
     ctx.fillStyle = grad;
     (ctx as any).roundRect
       ? (ctx as any).roundRect(x, y, barW, barH, [4, 4, 0, 0])
@@ -517,7 +389,7 @@ async function generateLineCanvas(
       new Date((b as any).date || (b as any).createdAt || "").getTime()
   );
 
-  const colors = ["#5b21b6", "#7c3aed", "#a78bfa", "#c4b5fd", "#2563eb"];
+  const colors = ["#1F4E5F", "#2E7D9A", "#4FA8C5", "#7CC4D8", "#C69214"];
 
   [1, 2, 3, 4, 5].forEach(v => {
     const gy = pad.t + chartH - ((v - 1) / 4) * chartH;
@@ -633,23 +505,35 @@ export const ExportService = {
       const d = new Date(student.birthDate + "T00:00:00");
       return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
     })();
+    // Largura máxima de cada coluna dentro do bloco de identidade
+    // col1 começa em infoX (66mm) e vai até col2x (113mm) → ~44mm
+    // col2 começa em col2x (113mm) e vai até W-MR (190mm) → ~74mm
+    const infoCol1W = col2x - infoX - 3;   // ~44mm — sem overlap
+    const infoCol2W = W - MR - col2x - 2;  // ~74mm
+
     const col1Info = [
       `Nascimento: ${safeBirthDate}`,
-      `Idade: ${age} anos  |  Gênero: ${student.gender || "—"}`,
-      `Série: ${student.grade || "—"}  |  Turno: ${student.shift || "—"}`,
+      `${age} anos · ${student.gender === 'M' ? 'Masc.' : student.gender === 'F' ? 'Fem.' : student.gender || '—'}`,
+      `Série: ${student.grade || "—"} · ${student.shift || "—"}`,
     ];
     const col2Info = [
-      `Nível de Suporte: ${student.supportLevel || "—"}`,
+      `Suporte: ${student.supportLevel || "—"}`,
       `CID: ${Array.isArray(student.cid) ? student.cid.join(", ") : student.cid || "—"}`,
-      `Medicação: ${student.medication || "—"}`,
+      `Medicação: ${(student.medication || "—").substring(0, 30)}`,
     ];
 
-    col1Info.forEach((line, i) =>
-      doc.text(line, infoX, y + 21 + i * 7)
-    );
-    col2Info.forEach((line, i) =>
-      doc.text(line, col2x, y + 21 + i * 7)
-    );
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(SMALL_SIZE + 1);
+    doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+
+    col1Info.forEach((line, i) => {
+      const safeLines = doc.splitTextToSize(line, infoCol1W);
+      doc.text(safeLines[0] || line, infoX, y + 20 + i * 7);
+    });
+    col2Info.forEach((line, i) => {
+      const safeLines = doc.splitTextToSize(line, infoCol2W);
+      doc.text(safeLines[0] || line, col2x, y + 20 + i * 7);
+    });
     y += 48;
 
     // Diagnósticos
@@ -778,31 +662,49 @@ export const ExportService = {
       const imgSize = 74;
       doc.addImage(radarB64, "PNG", ML, y, imgSize, imgSize);
 
+      // Legenda ao lado do radar
+      // Espaço disponível: de (ML + imgSize + 6) = 110mm até (W - MR) = 190mm → 80mm
+      const legendX = ML + imgSize + 6;   // 110mm
+      const legendMaxW = W - MR - legendX - 2; // ~78mm
+      const barW = 32;   // barra de progresso: 32mm
+      const scoreX = legendX + barW + 2; // texto de score: logo após a barra
+
       let ly = y + 4;
       doc.setFont("helvetica", "bold");
       doc.setFontSize(BODY_SIZE);
       doc.setTextColor(DARK.r, DARK.g, DARK.b);
-      doc.text("Mapa de Evolução (Radar)", ML + imgSize + 6, ly);
+      doc.text("Mapa de Evolução (Radar)", legendX, ly);
       ly += 8;
 
       criteria.forEach((c, i) => {
-        const pct = Math.round((scores[i] / 5) * 100);
-        // Barra mini de progresso
-        doc.setFillColor(230, 230, 250);
-        doc.rect(ML + imgSize + 6, ly - 3, 50, 5, "F");
-        doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
-        doc.rect(ML + imgSize + 6, ly - 3, 50 * (scores[i] / 5), 5, "F");
+        const score = scores[i] ?? 0;
+        const pct = Math.round((score / 5) * 100);
 
+        // Nome do critério (abreviado para caber na largura)
+        const nameLines = doc.splitTextToSize(c.name, legendMaxW);
         doc.setFont("helvetica", "normal");
         doc.setFontSize(SMALL_SIZE);
         doc.setTextColor(DARK.r, DARK.g, DARK.b);
-        doc.text(`${c.name}`, ML + imgSize + 6, ly + 5);
+        doc.text(nameLines[0] || c.name, legendX, ly);
+        ly += 4.5;
+
+        // Barra mini de progresso
+        doc.setFillColor(236, 244, 247);
+        doc.rect(legendX, ly - 3, barW, 4, "F");
+        const scoreColor = score >= 4 ? [22, 163, 74] : score >= 3 ? [124, 58, 237] : score >= 2 ? [217, 119, 6] : [220, 38, 38];
+        doc.setFillColor(scoreColor[0], scoreColor[1], scoreColor[2]);
+        doc.rect(legendX, ly - 3, barW * (score / 5), 4, "F");
+
+        // Score texto
         doc.setFont("helvetica", "bold");
-        doc.text(`${scores[i]}/5 (${pct}%)`, ML + imgSize + 6 + 52, ly + 5);
-        ly += 8;
+        doc.setFontSize(SMALL_SIZE);
+        doc.setTextColor(scoreColor[0], scoreColor[1], scoreColor[2]);
+        doc.text(`${score}/5  ${pct}%`, scoreX, ly);
+        ly += 5;
       });
 
-      y += imgSize + 8;
+      // y avança para o maior dos dois lados (radar ou legenda)
+      y = Math.max(y + imgSize + 8, ly + 4);
     } catch (_) {
       // Fallback texto simples
       criteria.forEach((c, i) => {
@@ -884,7 +786,7 @@ export const ExportService = {
         parecer_header();
         yP = CONTENT_TOP;
       }
-      doc.setFillColor(245, 243, 255);
+      doc.setFillColor(236, 244, 247);
       doc.roundedRect(ML, yP, maxW, 7, 2, 2, "F");
       doc.setFont("helvetica", "bold");
       doc.setFontSize(LABEL_SIZE);

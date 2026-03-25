@@ -1,0 +1,1479 @@
+// services/PDFGenerator.ts
+// IncluiAI — Design v2: Official Document Standard
+// Reference: PAEE/PEI/Estudo de Caso mockup PDFs
+import { Student, User, SchoolConfig } from '../types';
+import type { DynChecklistSection } from '../components/DynamicChecklist';
+import QRCode from 'qrcode';
+
+// ─── jsPDF CDN ────────────────────────────────────────────────────────────────
+async function loadJsPDF(): Promise<any> {
+  if ((window as any).jspdf?.jsPDF) return (window as any).jspdf.jsPDF;
+  await new Promise<void>((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Falha ao carregar jsPDF'));
+    document.head.appendChild(s);
+  });
+  return (window as any).jspdf.jsPDF;
+}
+
+// ─── Layout A4 — Padrão Visual Premium IncluiAI ───────────────────────────────
+// Margens 1.5 cm em todos os lados (A4 = 210 × 297 mm → área útil 180 × 267 mm)
+const ML = 15;
+const MR = 15;
+const MB = 10;
+const FOOTER_H  = 8;
+const RUN_HDR_H = 10;
+
+// Hierarquia tipográfica (jsPDF usa pontos tipográficos)
+const TITLE_SIZE   = 16;   // Título principal do documento
+const SECTION_SIZE = 11;   // Cabeçalho de seção (faixa petrol)
+const BODY_SIZE    = 10;   // Corpo de texto padrão
+const LABEL_SIZE   = 9.5;  // Rótulos de campos
+const TABLE_SIZE   = 9;    // Tabelas e checklists (2 colunas)
+const SMALL_SIZE   = 8;    // Texto secundário / metadados
+const TINY_SIZE    = 7.5;  // Rodapé e base legal
+// Entrelinhamento: 10pt × 0,353 mm/pt × fator = espaço em mm
+const LINE_H       = 5.0;  // Corpo: fator ~1,42 (entre 1,25 e 1,5)
+const LINE_H_LIST  = 4.5;  // Listas: fator ~1,27
+
+// ─── Palette ─────────────────────────────────────────────────────────────────
+const PETROL: [number,number,number] = [31,  78,  95];
+const GOLD:   [number,number,number] = [198, 146, 20];
+const DARK:   [number,number,number] = [28,  32,  46];
+const GRAY:   [number,number,number] = [108, 117, 125];
+const BORDER: [number,number,number] = [218, 224, 229];
+const WHITE:  [number,number,number] = [255, 255, 255];
+const GBKG:   [number,number,number] = [248, 249, 250];
+
+// ─── Noto Sans — carregamento progressivo via CDN ─────────────────────────────
+// Substitui Helvetica pelo padrão visual premium (Noto Sans).
+// Na 1ª chamada faz fetch + base64; nas seguintes usa cache em memória.
+// Fallback silencioso para Helvetica em caso de falha de rede / CORS.
+let _docFont = 'helvetica';
+const _fontB64Cache = new Map<string, string>(); // file → base64
+
+function _arrBufToB64(buf: ArrayBuffer): string {
+  let bin = '';
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.byteLength; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+async function ensureNotoSans(doc: any): Promise<void> {
+  const CDN =
+    'https://cdn.jsdelivr.net/gh/notofonts/notofonts.github.io@main/fonts/NotoSans/hinted/ttf';
+  const variants: [string, string][] = [
+    [`${CDN}/NotoSans-Regular.ttf`,     'normal'],
+    [`${CDN}/NotoSans-Bold.ttf`,        'bold'],
+    [`${CDN}/NotoSans-Italic.ttf`,      'italic'],
+    [`${CDN}/NotoSans-BoldItalic.ttf`,  'bolditalic'],
+  ];
+  try {
+    for (const [url, style] of variants) {
+      const file = url.split('/').pop()!;
+      if (!_fontB64Cache.has(file)) {
+        const resp = await fetch(url, { cache: 'force-cache' });
+        if (!resp.ok) throw new Error(`${resp.status} ${file}`);
+        _fontB64Cache.set(file, _arrBufToB64(await resp.arrayBuffer()));
+      }
+      doc.addFileToVFS(file, _fontB64Cache.get(file)!);
+      doc.addFont(file, 'NotoSans', style);
+    }
+    _docFont = 'NotoSans';
+  } catch {
+    _docFont = 'helvetica'; // rede indisponível — usa fonte padrão
+  }
+}
+
+// ─── Micro-helpers ────────────────────────────────────────────────────────────
+const sc = (d: any, c: [number,number,number]) => d.setTextColor(...c);
+const sf = (d: any, c: [number,number,number]) => d.setFillColor(...c);
+const sd = (d: any, c: [number,number,number]) => d.setDrawColor(...c);
+const cBot = (H: number) => H - MB - FOOTER_H;
+
+function getInitials(name: string): string {
+  const p = name.trim().split(/\s+/).filter(Boolean);
+  if (!p.length) return '?';
+  if (p.length === 1) return p[0][0].toUpperCase();
+  return (p[0][0] + p[p.length - 1][0]).toUpperCase();
+}
+
+async function buildQr(code: string): Promise<string | undefined> {
+  try {
+    return await QRCode.toDataURL(
+      `https://www.incluiai.app.br/validar/${code}`,
+      { margin: 0, width: 256 },
+    );
+  } catch { return undefined; }
+}
+
+// ─── RUNNING HEADER (every page) ─────────────────────────────────────────────
+// Logo (7×7 mm) + "Nome da escola"  |  "Cód. Validação: CODE"  + thin rule
+function addRunningHeader(
+  doc: any, auditCode: string, school?: SchoolConfig | null,
+): number {
+  const W = doc.internal.pageSize.getWidth();
+  const label = school?.schoolName?.trim() || 'Sistema IncluiAI';
+
+  // Logo institucional (opcional) — máx 7 × 7 mm alinhado ao topo
+  let textX = ML;
+  if (school?.logoUrl) {
+    try {
+      doc.addImage(school.logoUrl, ML, 1.5, 7, 7);
+      textX = ML + 9; // desloca texto 9 mm à direita
+    } catch { /* logo inválido — ignora */ }
+  }
+
+  doc.setFont(_docFont,'bold');
+  doc.setFontSize(SMALL_SIZE);
+  sc(doc, DARK);
+  doc.text(label, textX, 6.5);
+
+  doc.setFont('courier', 'normal');
+  doc.setFontSize(SMALL_SIZE - 0.5);
+  sc(doc, GRAY);
+  doc.text(`Cód. Validação: ${auditCode}`, W - MR, 6.5, { align: 'right' });
+
+  sd(doc, BORDER);
+  doc.setLineWidth(0.3);
+  doc.line(ML, 9, W - MR, 9);
+
+  return RUN_HDR_H;
+}
+
+// ─── COVER BLOCK (page 1 only) ────────────────────────────────────────────────
+// Large title + subtitle + metadata + QR + petrol banner
+function addCoverBlock(
+  doc: any,
+  title: string,
+  subtitle: string | null,
+  auditCode: string,
+  qrUrl: string | undefined,
+  schoolName: string,
+): number {
+  const W    = doc.internal.pageSize.getWidth();
+  const maxW = W - ML - MR;
+  const qrSz = 24;
+  
+  // PETROL BANNER
+  sf(doc, PETROL);
+  doc.rect(0, 0, W, 38, 'F');
+  
+  // GOLD LINE
+  sf(doc, GOLD);
+  doc.rect(0, 38, W, 1.5, 'F');
+  
+  // School Name / Header
+  doc.setFont(_docFont,'bold');
+  doc.setFontSize(10);
+  sc(doc, WHITE);
+  doc.text(schoolName.toUpperCase(), ML, 14);
+  
+  // Title
+  doc.setFont(_docFont,'bold');
+  doc.setFontSize(TITLE_SIZE);
+  const textW = qrUrl ? maxW - qrSz - 6 : maxW;
+  const tLines = doc.splitTextToSize(title, textW);
+  doc.text(tLines, ML, 23);
+  let y = 23 + tLines.length * 6;
+  
+  if (subtitle) {
+    doc.setFont(_docFont,'normal');
+    doc.setFontSize(11);
+    doc.text(subtitle, ML, y);
+    y += 7;
+  }
+
+  if (qrUrl) {
+    try {
+      sf(doc, WHITE);
+      doc.roundedRect(W - MR - qrSz - 2, 7, qrSz + 4, qrSz + 4, 1, 1, 'F');
+      doc.addImage(qrUrl, 'PNG', W - MR - qrSz, 9, qrSz, qrSz); 
+    } catch {}
+  }
+  
+  // Metadata row below the banner
+  y = 48;
+  const nowStr = new Date().toLocaleDateString('pt-BR');
+
+  doc.setFont(_docFont,'normal');
+  doc.setFontSize(SMALL_SIZE);
+  sc(doc, GRAY);
+  doc.text(`Data de Emissão: ${nowStr}`, ML, y);
+  
+  doc.setFont(_docFont,'bold');
+  const codeLabel = 'Cód. Validação: ';
+  doc.text(codeLabel, W / 2 - 15, y);
+  doc.setFont('courier', 'bold');
+  sc(doc, PETROL);
+  doc.text(auditCode, W / 2 - 15 + doc.getTextWidth(codeLabel), y);
+  
+  doc.setFont(_docFont,'normal');
+  sc(doc, GRAY);
+  doc.text('www.incluiai.app.br/validar', W - MR, y, { align: 'right' });
+  
+  sd(doc, BORDER);
+  doc.setLineWidth(0.3);
+  doc.line(ML, y + 4, W - MR, y + 4);
+
+  return y + 10;
+}
+
+// ─── SECTION BANNER (faixa petrol full-width — SECTION_SIZE 11 pt) ──────────
+function sectionBanner(
+  doc: any, text: string, x: number, y: number, w: number,
+): number {
+  const h = 8;
+  sf(doc, PETROL);
+  doc.roundedRect(x, y, w, h, 1, 1, 'F');
+  
+  doc.setFont(_docFont,'bold');
+  doc.setFontSize(SECTION_SIZE);
+  sc(doc, WHITE);
+  doc.text(text.toUpperCase(), x + 4, y + 5.5);
+  return y + h + 6;
+}
+
+// ─── SUB-SECTION TITLE (petrol bold text, numbered) ──────────────────────────
+let _subN = 0;
+const resetSubN = () => { _subN = 0; };
+
+function subSection(
+  doc: any, text: string, x: number, y: number, numOverride?: string,
+): number {
+  const n = numOverride ?? String(++_subN);
+  doc.setFont(_docFont,'bold');
+  doc.setFontSize(LABEL_SIZE);
+  sc(doc, PETROL);
+  doc.text(`${n}. ${text}`, x, y);
+  return y + 6.5;
+}
+
+// ─── STUDENT AVATAR CIRCLE ────────────────────────────────────────────────────
+function drawAvatar(doc: any, name: string, cx: number, cy: number, r: number): void {
+  sf(doc, PETROL);
+  sd(doc, PETROL);
+  doc.circle(cx, cy, r, 'F');
+  doc.setFont(_docFont,'bold');
+  doc.setFontSize(r * 1.3);
+  sc(doc, WHITE);
+  doc.text(getInitials(name), cx, cy + r * 0.35, { align: 'center' });
+}
+
+// ─── KEY-VALUE PAIRS IN 2-COL CARD ───────────────────────────────────────────
+function kvGrid(
+  doc: any,
+  pairs: Array<[string, string]>,
+  x: number, y: number, maxW: number,
+): number {
+  const colW = (maxW - 10) / 2;
+  const rows = Math.ceil(pairs.length / 2);
+  const rowH = LINE_H + 2.5;
+  const padding = 4;
+  const boxH = rows * rowH + padding * 2 - 2;
+
+  sf(doc, GBKG);
+  sd(doc, BORDER);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(x, y, maxW, boxH, 2, 2, 'FD');
+
+  doc.setFontSize(TABLE_SIZE);
+  
+  pairs.forEach(([k, v], i) => {
+    const col = i % 2;
+    const row = Math.floor(i / 2);
+    const cx  = x + padding + col * (colW + 5);
+    const cy  = y + padding + 4.5 + row * rowH;
+    
+    doc.setFont(_docFont,'bold');
+    sc(doc, PETROL);
+    doc.text(`${k}`, cx, cy);
+    
+    const kw = doc.getTextWidth(`${k}`);
+    doc.setFont(_docFont,'normal');
+    sc(doc, DARK);
+    const textV = String(v || '—');
+    const safeV = doc.splitTextToSize(textV, colW - kw - 2)[0] || '';
+    doc.text(` ${safeV}`, cx + kw, cy);
+  });
+  
+  return y + boxH + 5;
+}
+
+// ─── FIELD RENDERER ──────────────────────────────────────────────────────────
+function renderField(
+  doc: any, label: string, value: string,
+  x: number, y: number, maxW: number,
+  onNewPage: () => number,
+): number {
+  const H = doc.internal.pageSize.getHeight();
+  if (y > cBot(H) - 15) { doc.addPage(); y = onNewPage(); }
+
+  if (label) {
+    doc.setFont(_docFont,'bold');
+    doc.setFontSize(LABEL_SIZE);
+    sc(doc, PETROL);
+    doc.text(label.toUpperCase(), x, y);
+    y += 5;
+  }
+
+  doc.setFont(_docFont,'normal');
+  doc.setFontSize(BODY_SIZE);
+  sc(doc, DARK);
+  
+  const lineSpacing = LINE_H + 0.5;
+  const lines = doc.splitTextToSize(value || '—', maxW);
+  for (const ln of lines) {
+    if (y > cBot(H) - 6) { doc.addPage(); y = onNewPage(); }
+    doc.text(ln, x, y);
+    y += lineSpacing;
+  }
+  return y + 4;
+}
+
+// ─── TABLE RENDERER ──────────────────────────────────────────────────────────
+function renderTable(
+  doc: any,
+  headers: string[],
+  colWidths: number[],
+  rows: string[][],
+  x: number, y: number,
+  onNewPage: () => number,
+): number {
+  const H    = doc.internal.pageSize.getHeight();
+  const totW = colWidths.reduce((a, b) => a + b, 0);
+
+  if (y > cBot(H) - 14) { doc.addPage(); y = onNewPage(); }
+
+  // Header row — faixa petrol, TABLE_SIZE bold
+  sf(doc, PETROL);
+  doc.roundedRect(x, y, totW, 8, 1, 1, 'F');
+  doc.setFont(_docFont,'bold');
+  doc.setFontSize(TABLE_SIZE);
+  sc(doc, WHITE);
+  let cx = x;
+  headers.forEach((h, i) => {
+    doc.text(h, cx + 4, y + 5.5);
+    cx += colWidths[i];
+  });
+  y += 8;
+
+  rows.forEach((row, ri) => {
+    let maxH = 6;
+    row.forEach((cell, ci) => {
+      const ls = doc.splitTextToSize(cell || '—', (colWidths[ci] ?? 40) - 6);
+      maxH = Math.max(maxH, ls.length * 5 + 3);
+    });
+    if (y + maxH > cBot(H)) { doc.addPage(); y = onNewPage(); }
+    if (ri % 2 === 0) { sf(doc, GBKG); doc.rect(x, y, totW, maxH, 'F'); }
+    sd(doc, BORDER); doc.setLineWidth(0.2);
+    doc.rect(x, y, totW, maxH, 'D');
+    doc.setFont(_docFont,'normal');
+    doc.setFontSize(TABLE_SIZE);
+    sc(doc, DARK);
+    cx = x;
+    row.forEach((cell, ci) => {
+      const ls = doc.splitTextToSize(cell || '—', (colWidths[ci] ?? 40) - 6);
+      doc.text(ls, cx + 4, y + 5);
+      cx += colWidths[ci] ?? 40;
+    });
+    y += maxH;
+  });
+
+  return y + 6;
+}
+
+// ─── BULLET LIST — LINE_H_LIST (fator 1,27 para listas) ─────────────────────
+function renderBullets(
+  doc: any, items: string[],
+  x: number, y: number, maxW: number,
+  onNewPage: () => number,
+): number {
+  const H = doc.internal.pageSize.getHeight();
+  for (const item of items) {
+    if (y > cBot(H) - 10) { doc.addPage(); y = onNewPage(); }
+    const bm = item.match(/^\*\*(.+?):\*\*\s*(.*)/s);
+    doc.setFontSize(BODY_SIZE);
+    sc(doc, DARK);
+    if (bm) {
+      doc.setFont(_docFont,'normal');
+      doc.text('- ', x, y);
+      const dw = doc.getTextWidth('- ');
+      doc.setFont(_docFont,'bold');
+      doc.text(`${bm[1]}: `, x + dw, y);
+      const bw = doc.getTextWidth(`${bm[1]}: `);
+      doc.setFont(_docFont,'normal');
+      const rest = doc.splitTextToSize(bm[2] || '', maxW - dw - bw);
+      doc.text(rest[0] ?? '', x + dw + bw, y);
+      for (let i = 1; i < rest.length; i++) {
+        y += LINE_H_LIST;
+        if (y > cBot(H) - 6) { doc.addPage(); y = onNewPage(); }
+        doc.text(rest[i], x + dw, y);
+      }
+    } else {
+      doc.setFont(_docFont,'normal');
+      doc.text('- ', x, y);
+      const dw = doc.getTextWidth('- ');
+      const ls = doc.splitTextToSize(item, maxW - dw);
+      doc.text(ls, x + dw, y);
+      y += (ls.length - 1) * LINE_H_LIST;
+    }
+    y += LINE_H_LIST;
+  }
+  return y + 2;
+}
+
+// ─── CHECKLIST RENDERER ──────────────────────────────────────────────────────
+function renderChecklist(
+  doc: any, sections: DynChecklistSection[],
+  x: number, y: number, maxW: number,
+  onNewPage: () => number,
+): number {
+  const H    = doc.internal.pageSize.getHeight();
+  const colW = (maxW - 10) / 2; // Increase gutter
+
+  for (const sec of sections) {
+    if (y > cBot(H) - 20) { doc.addPage(); y = onNewPage(); }
+    y = sectionBanner(doc, sec.title, x, y, maxW);
+
+    const half = Math.ceil(sec.items.length / 2);
+    let lY = y, rY = y;
+
+    sec.items.forEach((item, idx) => {
+      const isLeft = idx < half;
+      const colX   = isLeft ? x : x + colW + 10;
+      let cy       = isLeft ? lY : rY;
+
+      if (cy > cBot(H) - 10) {
+        doc.addPage(); cy = onNewPage();
+        if (isLeft) { lY = cy; rY = cy; } else { rY = cy; }
+      }
+
+      sf(doc, item.checked ? PETROL : WHITE);
+      sd(doc, PETROL);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(colX, cy - 3.5, 4, 4, 0.5, 0.5, item.checked ? 'FD' : 'D');
+      if (item.checked) {
+        doc.setFont(_docFont,'bold'); doc.setFontSize(7);
+        sc(doc, WHITE); doc.text('✓', colX + 0.6, cy + 0.1);
+      }
+
+      const iLs = doc.splitTextToSize(item.text, colW - 6);
+      doc.setFont(_docFont,'normal');
+      doc.setFontSize(TABLE_SIZE);
+      sc(doc, item.checked ? PETROL : DARK);
+      doc.text(iLs, colX + 6, cy);
+      const adv = Math.max(iLs.length * 4.5, 6) + 3; // +3 for more breathing room
+      if (isLeft) lY = cy + adv; else rY = cy + adv;
+    });
+    y = Math.max(lY, rY) + 6;
+  }
+  return y;
+}
+
+// ─── HIGHLIGHT BOX — borda dourada, fundo âmbar claro ────────────────────────
+// Uso: orientações críticas, recomendações de alta prioridade
+const AMBER_BG:  [number,number,number] = [255, 251, 235]; // amber-50
+const AMBER_TXT: [number,number,number] = [120,  53,  15]; // amber-900
+
+function renderHighlight(
+  doc: any, label: string, text: string,
+  x: number, y: number, maxW: number,
+  onNewPage: () => number,
+): number {
+  if (!text?.trim()) return y;
+  const H     = doc.internal.pageSize.getHeight();
+  const inner = maxW - 8;
+  const lines = doc.splitTextToSize(text, inner);
+  const labelH = label ? 6 : 0;
+  const boxH   = lines.length * LINE_H + labelH + 6;
+
+  if (y > cBot(H) - boxH - 4) { doc.addPage(); y = onNewPage(); }
+
+  sf(doc, AMBER_BG); sd(doc, GOLD); doc.setLineWidth(0.5);
+  doc.roundedRect(x, y, maxW, boxH, 2, 2, 'FD');
+
+  let ty = y + 5;
+  if (label) {
+    doc.setFont(_docFont,'bold'); doc.setFontSize(LABEL_SIZE); sc(doc, AMBER_TXT);
+    doc.text(label.toUpperCase(), x + 4, ty);
+    ty += labelH;
+  }
+  doc.setFont(_docFont,'normal'); doc.setFontSize(BODY_SIZE); sc(doc, DARK);
+  doc.text(lines, x + 4, ty);
+  return y + boxH + 4;
+}
+
+// ─── INFO BOX — borda petrol, fundo azul claro ────────────────────────────────
+// Uso: informações técnicas importantes, avisos pedagógicos
+const INFO_BG: [number,number,number] = [236, 244, 247]; // petrol-50
+
+function renderInfoBox(
+  doc: any, label: string, text: string,
+  x: number, y: number, maxW: number,
+  onNewPage: () => number,
+): number {
+  if (!text?.trim()) return y;
+  const H     = doc.internal.pageSize.getHeight();
+  const inner = maxW - 8;
+  const lines = doc.splitTextToSize(text, inner);
+  const labelH = label ? 6 : 0;
+  const boxH   = lines.length * LINE_H + labelH + 6;
+
+  if (y > cBot(H) - boxH - 4) { doc.addPage(); y = onNewPage(); }
+
+  sf(doc, INFO_BG); sd(doc, PETROL); doc.setLineWidth(0.5);
+  doc.roundedRect(x, y, maxW, boxH, 2, 2, 'FD');
+
+  let ty = y + 5;
+  if (label) {
+    doc.setFont(_docFont,'bold'); doc.setFontSize(LABEL_SIZE); sc(doc, PETROL);
+    doc.text(label.toUpperCase(), x + 4, ty);
+    ty += labelH;
+  }
+  doc.setFont(_docFont,'normal'); doc.setFontSize(BODY_SIZE); sc(doc, DARK);
+  doc.text(lines, x + 4, ty);
+  return y + boxH + 4;
+}
+
+// ─── SIGNATURE BLOCK (2×2 grid — reference design) ───────────────────────────
+interface SignatureAreaOpts {
+  parentSignatureData?: string;
+  parentSignatureMode?: 'digital' | 'manual';
+  parentSignerName?: string;
+}
+
+// Base legal atualizada — inclui Decreto nº 12.686/2025 (nova PNEE)
+const LEGAL_MAP: Record<string, string> = {
+  PEI:
+    'Lei nº 9.394/1996 (LDB) art. 59; Lei nº 13.146/2015 (LBI) art. 28; Resolução CNE/CEB nº 4/2009; Decreto nº 7.611/2011; Decreto nº 12.686/2025 (PNEE).',
+  PAEE:
+    'Resolução CNE/CEB nº 4/2009 (art. 10–12); Decreto nº 7.611/2011; Lei nº 13.146/2015 (art. 28–29); Nota Técnica DPEE/MEC nº 04/2014; Portaria MEC nº 555/2007; Decreto nº 12.686/2025.',
+  PDI:
+    'Lei nº 13.146/2015 (LBI) art. 27–28; Resolução CNE/CEB nº 4/2009; Decreto nº 7.611/2011; Decreto nº 12.686/2025 (PNEE).',
+  ESTUDO_CASO:
+    'Lei nº 9.394/1996 (LDB); Lei nº 13.146/2015 (LBI); Resolução CNE/CEB nº 4/2009; Decreto nº 7.611/2011; Lei nº 14.624/2023; Decreto nº 12.686/2025 (PNEE). Sigilo conforme Lei nº 13.709/2018 (LGPD).',
+  checklist_4laudas:
+    'Resolução CNE/CEB nº 4/2009; Decreto nº 7.611/2011; Lei nº 13.146/2015 (LBI) art. 28.',
+  encaminhamento_redes:
+    'Lei nº 13.146/2015 (LBI) art. 14; Lei nº 8.069/1990 (ECA) art. 70; Resolução CNE/CEB nº 4/2009; Decreto nº 7.611/2011.',
+  convite_reuniao:
+    'Lei nº 9.394/1996 (LDB) art. 12 inc. VI; Lei nº 13.146/2015 (LBI) art. 28 inc. XVII.',
+  termo_compromisso_aee:
+    'Resolução CNE/CEB nº 4/2009; Decreto nº 7.611/2011; Lei nº 13.146/2015 (LBI) art. 28; Decreto nº 12.686/2025.',
+  declaracao_comparecimento:
+    'Lei nº 9.394/1996 (LDB) art. 12; Lei nº 8.069/1990 (ECA).',
+  termo_desligamento:
+    'Resolução CNE/CEB nº 4/2009; Decreto nº 7.611/2011; Lei nº 13.146/2015 (LBI).',
+  declaracao_matricula:
+    'Resolução CNE/CEB nº 4/2009; Decreto nº 7.611/2011; Lei nº 13.146/2015 (LBI) art. 28; Decreto nº 12.686/2025 (PNEE).',
+  DEFAULT:
+    'Lei nº 13.146/2015 (LBI); Resolução CNE/CEB nº 4/2009; Decreto nº 7.611/2011; Decreto nº 12.686/2025 (PNEE).',
+};
+
+function getDocLegal(docType: string): string {
+  return LEGAL_MAP[docType.toUpperCase()] ?? LEGAL_MAP.DEFAULT;
+}
+
+function addSignatureBlock(
+  doc: any,
+  x: number, y: number, maxW: number,
+  onNewPage: () => number,
+  docType: string,
+  auditCode: string,
+  userName: string,
+  opts?: SignatureAreaOpts,
+): number {
+  const H    = doc.internal.pageSize.getHeight();
+  const need = 85; 
+  if (y > cBot(H) - need) { doc.addPage(); y = onNewPage(); }
+
+  y += 4; 
+
+  doc.setFont(_docFont, 'bold');
+  doc.setFontSize(SECTION_SIZE + 1);
+  sc(doc, PETROL);
+  doc.text('Validação e Assinaturas', x, y);
+  y += 3;
+  sd(doc, GOLD);
+  doc.setLineWidth(0.5);
+  doc.line(x, y, x + 35, y);
+  y += 7;
+
+  // Declaration
+  const decl =
+    'Declaramos, para os devidos fins legais e pedagógicos, ciência e concordância com as informações e diretrizes estabelecidas neste documento.';
+  doc.setFont(_docFont,'italic');
+  doc.setFontSize(BODY_SIZE - 0.5);
+  sc(doc, GRAY);
+  const declLs = doc.splitTextToSize(decl, maxW);
+  doc.text(declLs, x, y);
+  y += declLs.length * LINE_H + 15; 
+
+  const colW     = (maxW - 20) / 2;
+  const cleanName = (userName || '').replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim() || userName;
+
+  const signers = [
+    { role: 'Profissional Responsável', id: 'Matrícula: _______________' },
+    { role: 'Professora(o) Regente',    id: 'Matrícula: _______________' },
+    { role: 'Coordenação Pedagógica',   id: 'Registro: _______________'  },
+    {
+      role:    opts?.parentSignerName ?? 'Responsável Legal',
+      id:      'CPF: _______________',
+      digital: opts?.parentSignatureMode === 'digital' ? opts?.parentSignatureData : undefined,
+    },
+  ];
+
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 2; col++) {
+      const si = row * 2 + col;
+      const s  = signers[si];
+      const sx = x + col * (colW + 20);
+
+      if (s.digital) {
+        try { doc.addImage(s.digital, 'PNG', sx + (colW / 2) - 15, y - 10, 30, 15); } catch {}
+      }
+
+      sd(doc, DARK);
+      doc.setLineWidth(0.2);
+      doc.line(sx, y + 10, sx + colW, y + 10);
+
+      if (s.digital && opts?.parentSignatureMode === 'digital') {
+        doc.setFont(_docFont,'bold');
+        doc.setFontSize(TINY_SIZE);
+        sc(doc, PETROL);
+        doc.text('✓ Assinado Digitalmente', sx + colW / 2, y + 14, { align: 'center' });
+      }
+
+      doc.setFont(_docFont,'bold');
+      doc.setFontSize(SMALL_SIZE + 0.5);
+      sc(doc, DARK);
+      const nameText = si === 0 ? cleanName : ''; 
+      doc.text(nameText, sx + colW / 2, y + 15, { align: 'center' });
+
+      doc.setFont(_docFont,'normal');
+      doc.setFontSize(SMALL_SIZE);
+      sc(doc, GRAY);
+      doc.text(s.role, sx + colW / 2, y + 19, { align: 'center' });
+
+      doc.setFontSize(TINY_SIZE + 0.5);
+      doc.text(s.id, sx + colW / 2, y + 23, { align: 'center' });
+    }
+    y += 40; 
+  }
+
+  y -= 5;
+  
+  sd(doc, BORDER);
+  doc.setLineWidth(0.3);
+  doc.line(x, y, x + maxW, y);
+  y += 7;
+
+  const legal = getDocLegal(docType);
+  doc.setFont(_docFont,'bold');
+  doc.setFontSize(TINY_SIZE);
+  sc(doc, PETROL);
+  doc.text('BASE LEGAL:', x, y);
+  
+  doc.setFont(_docFont,'normal');
+  sc(doc, GRAY);
+  const legalLs = doc.splitTextToSize(legal, maxW);
+  doc.text(legalLs, x, y + 4);
+  y += legalLs.length * 3.5 + 4;
+
+  const auditDate = new Date().toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+  
+  doc.setFont('courier', 'normal');
+  doc.setFontSize(TINY_SIZE);
+  sc(doc, DARK);
+  doc.text(`Documento gerado em ${auditDate} por ${cleanName}`, x, y);
+  doc.text(`Autentique a validade deste documento em: www.incluiai.app.br/validar`, x, y + 4);
+  
+  doc.setFont('courier', 'bold');
+  doc.text(`CÓDIGO DE VALIDAÇÃO: ${auditCode}`, x + maxW, y + 4, { align: 'right' });
+
+  return y + 10;
+}
+
+// ─── FOOTER (all pages) ───────────────────────────────────────────────────────
+function addFooter(doc: any): void {
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const fY = H - MB - FOOTER_H + 2;
+
+  // Gold + Petrol dual thin line
+  sf(doc, PETROL);
+  doc.rect(ML, fY, W - ML - MR, 0.5, 'F');
+  sf(doc, GOLD);
+  doc.rect(ML, fY + 0.5, W - ML - MR, 0.25, 'F');
+
+  doc.setFont(_docFont,'normal');
+  doc.setFontSize(TINY_SIZE);
+  sc(doc, GRAY);
+
+  doc.text('DOCUMENTO PEDAGÓGICO INSTITUCIONAL — USO RESTRITO', ML, fY + 5);
+  doc.setFont(_docFont,'bold');
+  doc.text('INCLUIAI.APP.BR', W / 2, fY + 5, { align: 'center' });
+  
+  doc.setFont(_docFont,'normal');
+  doc.text(
+    `Página ${doc.internal.getCurrentPageInfo().pageNumber}`,
+    W - MR, fY + 5, { align: 'right' },
+  );
+}
+
+function addFooterAllPages(doc: any): void {
+  const n = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= n; i++) { doc.setPage(i); addFooter(doc); }
+}
+
+// ─── MAIN API ────────────────────────────────────────────────────────────────
+export interface GeneratePDFParams {
+  docType:  string;
+  title?:   string;
+  student:  Student;
+  user:     User;
+  school?:  SchoolConfig | null;
+  filledData:         Record<string, string>;
+  checklistSections?: DynChecklistSection[];
+  auditCode:          string;
+  parentSignatureData?: string;
+  parentSignatureMode?: 'digital' | 'manual';
+  parentSignerName?:    string;
+}
+
+export const PDFGenerator = {
+
+  async generate(params: GeneratePDFParams): Promise<Blob> {
+    resetSubN();
+    const {
+      docType, title, student, user, school,
+      filledData, checklistSections = [], auditCode,
+      parentSignatureData, parentSignatureMode, parentSignerName,
+    } = params;
+
+    const sigOpts: SignatureAreaOpts = { parentSignatureData, parentSignatureMode, parentSignerName };
+
+    const jsPDF    = await loadJsPDF();
+    const doc      = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    await ensureNotoSans(doc);
+    const W        = doc.internal.pageSize.getWidth();
+    const maxW     = W - ML - MR;
+    const qrUrl    = await buildQr(auditCode);
+    const docTitle = title || getDocTitle(docType);
+    const dateStr  = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+    const sName    = school?.schoolName || 'Escola';
+    const halfW    = (maxW - 4) / 2;
+    const subtitle = getDocSubtitle(docType);
+
+    // Page 1: cover block only
+    let y = addCoverBlock(doc, docTitle, subtitle, auditCode, qrUrl, sName);
+
+    // Pages 2+: running header only
+    const newPage = (): number => {
+      doc.addPage();
+      return addRunningHeader(doc, auditCode, school);
+    };
+
+    // ══ SEÇÃO 1: IDENTIFICAÇÃO DO ALUNO (padrão todos os documentos) ═════════
+    y = sectionBanner(doc, 'I. Identificação do Aluno', ML, y, maxW);
+
+    const avDataX  = ML + 22;
+    const avDataW  = maxW - 22;
+    const avStartY = y;
+    drawAvatar(doc, student.name, ML + 8, y + 9, 8);
+    y = kvGrid(doc, [
+      ['Nome Completo:',      student.name],
+      ['Data de Nasc.:',      student.birthDate || '—'],
+      ['Série / Turma:',      student.grade || '—'],
+      ['Escola:',             sName],
+      ['Matrícula:',          student.id?.slice(-8) || '—'],
+      ['CID / Diagnóstico:',  (student.diagnosis || []).join(', ') || '—'],
+    ], avDataX, y, avDataW);
+    y = Math.max(y, avStartY + 24); // garante espaço abaixo do avatar
+
+    switch (docType) {
+
+      // ══ CHECKLIST DE OBSERVAÇÃO ═══════════════════════════════════════════
+      case 'checklist_4laudas': {
+        // II. Dados Técnicos
+        y = sectionBanner(doc, 'II. Dados Técnicos do Atendimento', ML, y, maxW);
+        y = kvGrid(doc, [
+          ['Data do Atendimento:', filledData.data || dateStr],
+          ['Profissional Responsável:', user.name],
+        ], ML, y, maxW);
+        y += 3;
+
+        // III. Checklist 2 colunas
+        if (checklistSections.length > 0) {
+          y = sectionBanner(doc, 'III. Checklist de Observação', ML, y, maxW);
+          y = renderChecklist(doc, checklistSections, ML, y, maxW, newPage);
+        }
+
+        // IV. Análise e Observações
+        if (filledData.observacoes) {
+          const H = doc.internal.pageSize.getHeight();
+          if (y > cBot(H) - 15) { doc.addPage(); y = newPage(); }
+          y = sectionBanner(doc, 'IV. Análise e Observações Complementares', ML, y, maxW);
+          y = renderInfoBox(doc, 'Análise Pedagógica', filledData.observacoes, ML, y, maxW, newPage);
+        }
+
+        // V. Validação
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        break;
+      }
+
+      // ══ ENCAMINHAMENTO ════════════════════════════════════════════════════
+      case 'encaminhamento_redes': {
+        // II. Dados do Encaminhamento
+        y = sectionBanner(doc, 'II. Identificação do Encaminhamento', ML, y, maxW);
+        y = kvGrid(doc, [
+          ['Responsável Legal:', filledData.responsavel || '—'],
+          ['Data:', filledData.data || dateStr],
+          ['Setor / Serviço:', `${filledData.setor || '—'}${filledData.servico ? ' — ' + filledData.servico : ''}`],
+          ['Motivo:', filledData.motivo_opcao || '—'],
+        ], ML, y, maxW);
+        y += 2;
+
+        // III. Justificativa
+        if (filledData.motivo) {
+          y = sectionBanner(doc, 'III. Justificativa do Encaminhamento', ML, y, maxW);
+          y = renderField(doc, 'Detalhamento', filledData.motivo, ML, y, maxW, newPage);
+        }
+
+        // IV. Orientações ao Serviço Receptor
+        if (filledData.observacoes) {
+          y = sectionBanner(doc, 'IV. Orientações ao Serviço Receptor', ML, y, maxW);
+          y = renderHighlight(doc, 'Orientações Técnicas ao Serviço de Referência', filledData.observacoes, ML, y, maxW, newPage);
+        }
+
+        // Texto formal de encaminhamento
+        const intro = `A ${sName} encaminha o(a) aluno(a) ${student.name} para atendimento especializado na rede de apoio indicada, conforme necessidade pedagógica e de saúde observada pela equipe escolar. Solicitamos atenção às orientações técnicas acima registradas.`;
+        doc.setFont(_docFont,'italic'); doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
+        const iLs = doc.splitTextToSize(intro, maxW);
+        if (y > cBot(doc.internal.pageSize.getHeight()) - iLs.length * LINE_H - 10) { doc.addPage(); y = newPage(); }
+        doc.text(iLs, ML, y);
+        y += iLs.length * LINE_H + 4;
+
+        // V. Validação
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        break;
+      }
+
+      // ══ CONVITE PARA REUNIÃO ══════════════════════════════════════════════
+      case 'convite_reuniao': {
+        // II. Dados da Convocação
+        y = sectionBanner(doc, 'II. Dados da Convocação', ML, y, maxW);
+        y = kvGrid(doc, [
+          ['Data e Horário:', filledData.data_horario || '—'],
+          ['Local:', filledData.local || sName],
+          ['Responsável:', filledData.profissional || user.name],
+          ['Escola:', sName],
+        ], ML, y, maxW);
+        y += 2;
+
+        // III. Pauta e Objetivo
+        y = sectionBanner(doc, 'III. Pauta e Objetivo da Reunião', ML, y, maxW);
+        y = renderField(doc, 'Pauta / Assunto', filledData.pauta || 'Acompanhamento pedagógico do(a) aluno(a)', ML, y, maxW, newPage);
+
+        if (school?.contact) {
+          doc.setFont(_docFont,'italic'); doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
+          const H = doc.internal.pageSize.getHeight();
+          if (y > cBot(H) - 10) { doc.addPage(); y = newPage(); }
+          doc.text(`Em caso de impossibilidade, entre em contato: ${school.contact}`, ML, y);
+          y += LINE_H + 4;
+        }
+
+        // IV. Validação
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        break;
+      }
+
+      // ══ TERMO DE COMPROMISSO AEE ══════════════════════════════════════════
+      case 'termo_compromisso_aee': {
+        // II. Termos e Compromissos
+        y = sectionBanner(doc, 'II. Termos e Compromissos Assumidos', ML, y, maxW);
+        y = subSection(doc, 'O(a) responsável legal compromete-se a:', ML, y);
+
+        const items = [
+          'Garantir a participação regular do(a) aluno(a) nos atendimentos agendados no AEE;',
+          'Informar à equipe escolar sobre ausências ou impossibilidades com antecedência mínima de 24 horas;',
+          'Colaborar com as orientações fornecidas pela equipe de AEE e aplicar estratégias em ambiente domiciliar;',
+          'Autorizar o uso de materiais adaptados, tecnologias assistivas e recursos de acessibilidade quando indicados;',
+          'Participar das reuniões de acompanhamento, avaliação e revisão do Plano de AEE convocadas pela escola.',
+        ];
+        y = renderBullets(doc, items, ML, y, maxW, newPage);
+        y += 3;
+
+        // III. Dados da Formalização
+        y = sectionBanner(doc, 'III. Dados da Formalização', ML, y, maxW);
+        y = kvGrid(doc, [
+          ['Início no AEE:', filledData.data_inicio || '—'],
+          ['Data de Assinatura:', filledData.data || dateStr],
+        ], ML, y, maxW);
+
+        // IV. Validação
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        break;
+      }
+
+      // ══ DECLARAÇÃO DE COMPARECIMENTO ══════════════════════════════════════
+      case 'declaracao_comparecimento': {
+        // II. Objeto da Declaração
+        y = sectionBanner(doc, 'II. Objeto da Declaração', ML, y, maxW);
+        const body = `Declaro, para os devidos fins, que o(a) Sr.(a) ${filledData.responsavel || '_______________'}, responsável legal pelo(a) aluno(a) ${student.name}, compareceu a esta instituição na data de ${filledData.data || dateStr}, no horário de ${filledData.horario || '___:___'}, para ${filledData.motivo || '_______________'}.`;
+        doc.setFont(_docFont,'normal'); doc.setFontSize(BODY_SIZE); sc(doc, DARK);
+        const bLs = doc.splitTextToSize(body, maxW);
+        doc.text(bLs, ML, y);
+        y += bLs.length * LINE_H + 4;
+
+        // III. Dados Institucionais
+        y = sectionBanner(doc, 'III. Dados Institucionais', ML, y, maxW);
+        y = kvGrid(doc, [
+          ['Instituição:', sName],
+          ['Data de Emissão:', filledData.data || dateStr],
+        ], ML, y, maxW);
+
+        doc.setFont(_docFont,'italic'); doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
+        const H = doc.internal.pageSize.getHeight();
+        if (y > cBot(H) - 8) { doc.addPage(); y = newPage(); }
+        doc.text('Esta declaração é fornecida a pedido do(a) interessado(a) para os fins que se fizerem necessários.', ML, y);
+        y += LINE_H + 4;
+
+        // IV. Validação
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        break;
+      }
+
+      // ══ TERMO DE DESLIGAMENTO ══════════════════════════════════════════════
+      case 'termo_desligamento': {
+        // II. Período de Atendimento
+        y = sectionBanner(doc, 'II. Dados do Período de Atendimento', ML, y, maxW);
+        y = kvGrid(doc, [
+          ['Primeiro Atendimento:', filledData.primeiro_dia_atendimento || '—'],
+          ['Último Atendimento:',   filledData.ultimo_dia_atendimento || '—'],
+          ['Motivo do Desligamento:', filledData.motivo_opcao || '—'],
+          ['Instituição:', sName],
+        ], ML, y, maxW);
+
+        if (filledData.motivo_complemento) {
+          y = renderField(doc, 'Detalhamento do Motivo', filledData.motivo_complemento, ML, y, maxW, newPage);
+        }
+
+        // III. Síntese da Evolução Pedagógica
+        if (filledData.evolucao) {
+          y = sectionBanner(doc, 'III. Síntese da Evolução Pedagógica', ML, y, maxW);
+          y = renderField(doc, '', filledData.evolucao, ML, y, maxW, newPage);
+        }
+
+        // IV. Recomendações Finais
+        if (filledData.recomendacoes) {
+          y = sectionBanner(doc, 'IV. Recomendações Finais', ML, y, maxW);
+          y = renderHighlight(doc, 'Recomendações para Continuidade do Processo', filledData.recomendacoes, ML, y, maxW, newPage);
+        }
+
+        y = kvGrid(doc, [['Data de Emissão:', filledData.data || dateStr]], ML, y, maxW);
+
+        // V. Validação
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        break;
+      }
+
+      // ══ DECLARAÇÃO DE MATRÍCULA AEE ═══════════════════════════════════════
+      case 'declaracao_matricula': {
+        // II. Dados da Matrícula
+        y = sectionBanner(doc, 'II. Dados da Matrícula AEE', ML, y, maxW);
+        y = kvGrid(doc, [
+          ['Data da Matrícula AEE:', filledData.data_matricula || '—'],
+          ['Turno do AEE:',          filledData.turno_aee || '—'],
+          ['NEE / Diagnóstico:',     (student.diagnosis || []).join(', ') || '—'],
+          ['Instituição:',           sName],
+        ], ML, y, maxW);
+        y += 2;
+
+        // III. Declaração Oficial
+        y = sectionBanner(doc, 'III. Declaração Oficial', ML, y, maxW);
+        const body2 = `Declaramos, para os devidos fins legais e pedagógicos, que o(a) aluno(a) ${student.name} está regularmente matriculado(a) na Sala de Recursos Multifuncionais (SRM / AEE) desta instituição, em conformidade com a Resolução CNE/CEB nº 4/2009, o Decreto nº 7.611/2011 e o Art. 28 da Lei nº 13.146/2015 (LBI).`;
+        doc.setFont(_docFont,'normal'); doc.setFontSize(BODY_SIZE); sc(doc, DARK);
+        const b2Ls = doc.splitTextToSize(body2, maxW);
+        const H2 = doc.internal.pageSize.getHeight();
+        if (y > cBot(H2) - b2Ls.length * LINE_H - 10) { doc.addPage(); y = newPage(); }
+        doc.text(b2Ls, ML, y);
+        y += b2Ls.length * LINE_H + 5;
+
+        doc.setFont(_docFont,'italic'); doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
+        doc.text(`Declaração emitida em ${dateStr} pela Coordenação do AEE de ${sName}.`, ML, y);
+        y += LINE_H + 4;
+
+        // IV. Validação
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        break;
+      }
+
+      // ══ GENÉRICO ══════════════════════════════════════════════════════════
+      default: {
+        const entries = Object.entries(filledData).filter(([, v]) => !!v);
+        if (entries.length > 0) {
+          y = sectionBanner(doc, 'II. Conteúdo do Documento', ML, y, maxW);
+          for (const [key, val] of entries) {
+            const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+            y = renderField(doc, label, val, ML, y, maxW, newPage);
+          }
+        }
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        break;
+      }
+    }
+
+    addFooterAllPages(doc);
+    return doc.output('blob') as Blob;
+  },
+
+  // ── Seções livres (PEI / PAEE / PDI / Estudo de Caso — DocumentBuilder) ──────
+  async generateFromSections(params: {
+    docType:  string;
+    title?:   string;
+    student:  Student;
+    user:     User;
+    school?:  SchoolConfig | null;
+    sections: Array<{
+      title:  string;
+      fields: Array<{ label: string; value: any; type?: string; maxScale?: number }>;
+    }>;
+    auditCode:            string;
+    parentSignatureData?: string;
+    parentSignatureMode?: 'digital' | 'manual';
+    parentSignerName?:    string;
+  }): Promise<Blob> {
+    resetSubN();
+    const {
+      docType, title, student, user, school,
+      sections, auditCode,
+      parentSignatureData, parentSignatureMode, parentSignerName,
+    } = params;
+
+    const sigOpts: SignatureAreaOpts = { parentSignatureData, parentSignatureMode, parentSignerName };
+
+    const jsPDF    = await loadJsPDF();
+    const doc      = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    await ensureNotoSans(doc);
+    const W        = doc.internal.pageSize.getWidth();
+    const maxW     = W - ML - MR;
+    const qrUrl    = await buildQr(auditCode);
+    const docTitle = title || getDocTitle(docType);
+    const subtitle = getDocSubtitle(docType);
+    const sName    = school?.schoolName || 'Escola';
+
+    let y = addCoverBlock(doc, docTitle, subtitle, auditCode, qrUrl, sName);
+
+    const newPage = (): number => {
+      doc.addPage();
+      return addRunningHeader(doc, auditCode, school);
+    };
+
+    // ══ SEÇÃO I: IDENTIFICAÇÃO DO ALUNO (padrão todos os documentos) ══════════
+    y = sectionBanner(doc, 'I. Identificação do Aluno', ML, y, maxW);
+    const avStartY = y;
+    drawAvatar(doc, student.name, ML + 8, y + 9, 8);
+    y = kvGrid(doc, [
+      ['Nome Completo:',      student.name],
+      ['Data de Nasc.:',      student.birthDate || '—'],
+      ['Série / Turma:',      student.grade || '—'],
+      ['Escola:',             sName],
+      ['Matrícula:',          student.id?.slice(-8) || '—'],
+      ['CID / Diagnóstico:',  (student.diagnosis || []).join(', ') || '—'],
+    ], ML + 22, y, maxW - 22);
+    y = Math.max(y, avStartY + 24); 
+
+    for (const sec of sections) {
+      const H = doc.internal.pageSize.getHeight();
+      if (y > cBot(H) - 20) { doc.addPage(); y = newPage(); }
+
+      y = sectionBanner(doc, sec.title, ML, y, maxW);
+
+      for (const field of sec.fields) {
+        const hasVal = field.value !== undefined && field.value !== null
+          && field.value !== ''
+          && !(Array.isArray(field.value) && field.value.length === 0);
+        if (!hasVal) continue;
+
+        if (field.type === 'scale') {
+          // Renderização visual: barra de progresso + estrelas (igual generateFicha)
+          const rat = typeof field.value === 'object' ? field.value?.rating : field.value;
+          const obs = typeof field.value === 'object' ? field.value?.observation : '';
+          const n = parseInt(String(rat)) || 0;
+          const maxScale = field.maxScale || 5;
+
+          const H2 = doc.internal.pageSize.getHeight();
+          if (y > cBot(H2) - 22) { doc.addPage(); y = newPage(); }
+
+          doc.setFont(_docFont,'bold'); doc.setFontSize(LABEL_SIZE); sc(doc, PETROL);
+          doc.text(field.label.toUpperCase(), ML, y);
+          y += 5;
+
+          const barW = halfW;
+          const barH = 5;
+          sf(doc, [236, 244, 247] as [number, number, number]);
+          sd(doc, BORDER); doc.setLineWidth(0.2);
+          doc.roundedRect(ML, y, barW, barH, 1, 1, 'FD');
+          const threshold80 = Math.ceil(maxScale * 0.8);
+          const threshold60 = Math.ceil(maxScale * 0.6);
+          const fc: [number, number, number] = n >= threshold80 ? PETROL : n >= threshold60 ? GOLD : [198, 80, 60];
+          sf(doc, fc);
+          if (n > 0) doc.roundedRect(ML, y, barW * (n / maxScale), barH, 1, 1, 'F');
+          doc.setFont(_docFont,'normal'); doc.setFontSize(12); sc(doc, GOLD);
+          doc.text('★'.repeat(n) + '☆'.repeat(maxScale - n), ML + barW + 5, y + 4.5);
+          doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
+          doc.text(`${n}/${maxScale}`, ML + barW + 5 + maxScale * 4.8 + 3, y + 4.5);
+          y += barH + 4;
+
+          if (obs) {
+            y = renderField(doc, 'Observação', String(obs), ML, y, maxW, newPage);
+          } else {
+            y += 3;
+          }
+        } else {
+          let str: string;
+          if (field.type === 'checklist' && Array.isArray(field.value)) {
+            str = field.value.map((v: string) => `• ${v}`).join('\n');
+          } else if (field.type === 'grid' && Array.isArray(field.value)) {
+            str = field.value.map((row: Record<string, string>) =>
+              Object.values(row).join(' | ')).join('\n');
+          } else {
+            str = String(field.value ?? '—');
+          }
+          // Campos de recomendação/orientação → caixa âmbar de destaque
+          const isRec = /recomenda|orienta|sug[eê]st|interven/i.test(field.label);
+          if (isRec) {
+            y = renderHighlight(doc, field.label, str, ML, y, maxW, newPage);
+          } else {
+            y = renderField(doc, field.label, str, ML, y, maxW, newPage);
+          }
+        }
+      }
+    }
+
+    y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+    addFooterAllPages(doc);
+    return doc.output('blob') as Blob;
+  },
+
+  // ── Fichas de Observação ───────────────────────────────────────────────────
+  async generateFicha(params: {
+    fichaTitle: string;
+    fichaIcon:  string;
+    fields:     { label: string; value: string; isScale?: boolean }[];
+    student:    Student;
+    user:       User;
+    school?:    SchoolConfig | null;
+    auditCode:  string;
+  }): Promise<Blob> {
+    resetSubN();
+    const { fichaTitle, fields, student, user, school, auditCode } = params;
+
+    const jsPDF = await loadJsPDF();
+    const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    await ensureNotoSans(doc);
+    const W     = doc.internal.pageSize.getWidth();
+    const maxW  = W - ML - MR;
+    const qrUrl = await buildQr(auditCode);
+    const halfW = (maxW - 4) / 2;
+
+    const newPage = (): number => {
+      doc.addPage();
+      return addRunningHeader(doc, auditCode, school);
+    };
+
+    let y = addCoverBlock(doc, fichaTitle, 'FICHA DE OBSERVAÇÃO PEDAGÓGICA', auditCode, qrUrl, school?.schoolName || 'Escola');
+
+    // ── I. Identificação do Aluno ───────────────────────────────────────────
+    y = sectionBanner(doc, 'I. Identificação do Aluno', ML, y, maxW);
+    const fichaAvStartY = y;
+    drawAvatar(doc, student.name, ML + 8, y + 9, 8);
+    y = kvGrid(doc, [
+      ['Aluno(a):',      student.name],
+      ['Data de Nasc.:', student.birthDate || '—'],
+      ['Série / Turma:', student.grade || '—'],
+      ['Profissional:',  user.name],
+    ], ML + 22, y, maxW - 22);
+    y = Math.max(y, fichaAvStartY + 24);
+
+    doc.setFont(_docFont,'normal');
+    doc.setFontSize(SMALL_SIZE);
+    sc(doc, GRAY);
+    doc.text(`Data de aplicação: ${new Date().toLocaleDateString('pt-BR')}`, ML, y);
+    y += LINE_H + 3;
+
+    // ── II. Campos de Observação ─────────────────────────────────────────────
+    y = sectionBanner(doc, 'II. Campos de Observação', ML, y, maxW);
+
+    for (const field of fields) {
+      if (y > cBot(doc.internal.pageSize.getHeight()) - 22) { doc.addPage(); y = newPage(); }
+
+      if (field.isScale) {
+        const n = parseInt(field.value) || 0;
+        doc.setFont(_docFont,'bold'); doc.setFontSize(LABEL_SIZE); sc(doc, PETROL);
+        doc.text(field.label.toUpperCase(), ML, y);
+        y += 4.5;
+
+        // Barra de progresso colorida (verde/dourado/vermelho) + estrelas
+        const barW = halfW;
+        const barH = 5;
+        sf(doc, [236, 244, 247] as [number,number,number]); sd(doc, BORDER); doc.setLineWidth(0.2);
+        doc.roundedRect(ML, y, barW, barH, 1, 1, 'FD');
+        const fc: [number,number,number] = n >= 4 ? PETROL : n >= 3 ? GOLD : [198, 80, 60];
+        sf(doc, fc);
+        if (n > 0) doc.roundedRect(ML, y, barW * (n / 5), barH, 1, 1, 'F');
+        doc.setFont(_docFont,'normal'); doc.setFontSize(11); sc(doc, GOLD);
+        doc.text('★'.repeat(n) + '☆'.repeat(5 - n), ML + barW + 4, y + 4.2);
+        doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
+        doc.text(`${n}/5`, ML + barW + 30, y + 4.2);
+        y += barH + 5;
+      } else {
+        y = renderField(doc, field.label, field.value, ML, y, maxW, newPage);
+      }
+    }
+
+    y = addSignatureBlock(doc, ML, y, maxW, newPage, 'FICHA', auditCode, user.name);
+    addFooterAllPages(doc);
+    return doc.output('blob') as Blob;
+  },
+
+  download(blob: Blob, filename: string): void {
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement('a');
+    a.href    = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  // ── Documentos automáticos de matrícula (sem código de auditoria) ────────
+  // Gerados ao finalizar a matrícula no EnrollmentWizard.
+  // Tipo: 'termo_aee' | 'declaracao_matricula_srm' | 'declaracao_compromisso'
+  async generateMatriculaDoc(
+    tipo: 'termo_aee' | 'declaracao_matricula_srm' | 'declaracao_compromisso',
+    student: Student,
+    user: User,
+    school: SchoolConfig | null,
+  ): Promise<Blob> {
+    const jsPDF   = await loadJsPDF();
+    const doc     = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    await ensureNotoSans(doc);
+    const W       = doc.internal.pageSize.getWidth();
+    const H       = doc.internal.pageSize.getHeight();
+    const maxW    = W - ML - MR;
+    const halfW   = (maxW - 4) / 2;
+    const sName   = school?.schoolName || 'Escola não informada';
+    const dateStr = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+    const profName = user.name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim();
+
+    // Cabeçalho institucional reutilizável em novas páginas
+    const drawMatriculaHeader = (): number => {
+      sf(doc, PETROL); doc.rect(0, 0, W, 8, 'F');
+      sf(doc, GOLD);   doc.rect(0, 8, W, 1.5, 'F');
+      doc.setFont(_docFont,'bold'); doc.setFontSize(9); sc(doc, DARK);
+      doc.text(sName, ML, 20);
+      doc.setFont('courier', 'normal'); doc.setFontSize(7.5); sc(doc, GRAY);
+      doc.text('www.incluiai.app.br', W - MR, 20, { align: 'right' });
+      sd(doc, BORDER); doc.setLineWidth(0.3);
+      doc.line(ML, 26, W - MR, 26);
+      return 36; // y de início do conteúdo
+    };
+
+    const newPage = (): number => { doc.addPage(); return drawMatriculaHeader(); };
+
+    const TITLES: Record<typeof tipo, string> = {
+      termo_aee:               'TERMO DE COMPROMISSO DO ALUNO NO AEE',
+      declaracao_matricula_srm:'DECLARAÇÃO DE MATRÍCULA NA SALA DE RECURSOS MULTIFUNCIONAIS',
+      declaracao_compromisso:  'DECLARAÇÃO DE COMPROMISSO FAMILIAR',
+    };
+    const title = TITLES[tipo];
+
+    let y = drawMatriculaHeader();
+
+    // Título — TITLE_SIZE centrado
+    doc.setFont(_docFont,'bold'); doc.setFontSize(TITLE_SIZE); sc(doc, PETROL);
+    const titleLines: string[] = doc.splitTextToSize(title, maxW);
+    doc.text(titleLines, W / 2, y, { align: 'center' });
+    y += titleLines.length * 7 + 3;
+
+    // Subtítulo
+    doc.setFont(_docFont,'normal'); doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
+    doc.text(`Atendimento Educacional Especializado — AEE | Ano Letivo ${new Date().getFullYear()}`, W / 2, y, { align: 'center' });
+    y += 12;
+
+    // ── I. Identificação do Aluno ───────────────────────────────────────────
+    sf(doc, PETROL); doc.roundedRect(ML, y, maxW, 7.5, 1.5, 1.5, 'F');
+    doc.setFont(_docFont,'bold'); doc.setFontSize(SECTION_SIZE); sc(doc, WHITE);
+    doc.text('I. IDENTIFICAÇÃO DO ALUNO', ML + 4, y + 5.5);
+    y += 11;
+
+    const kvData: [string, string][] = [
+      ['Aluno(a):', student.name || '—'],
+      ['Data de Nascimento:', student.birthDate || '—'],
+      ['Série / Turma:', student.grade || '—'],
+      ['Turno:', student.shift || '—'],
+      ['Responsável Legal:', student.guardianName || '—'],
+      ['Telefone:', student.guardianPhone || '—'],
+    ];
+    y = kvGrid(doc, kvData, ML, y, maxW);
+    y += 6;
+
+    // ── Corpo do documento por tipo ────────────────────────────────────────
+    if (tipo === 'termo_aee') {
+      sf(doc, PETROL); doc.roundedRect(ML, y, maxW, 7.5, 1.5, 1.5, 'F');
+      doc.setFont(_docFont,'bold'); doc.setFontSize(SECTION_SIZE); sc(doc, WHITE);
+      doc.text('II. TERMOS E CONDIÇÕES', ML + 4, y + 5.5);
+      y += 12;
+
+      const clausulas = [
+        `1. O(A) aluno(a) ${student.name} é formalmente matriculado(a) no Atendimento Educacional Especializado (AEE) da instituição ${sName}, conforme previsto pela Resolução CNE/CEB nº 4, de 2 de outubro de 2009 e pela Política Nacional de Educação Especial na Perspectiva da Educação Inclusiva.`,
+        `2. O responsável legal declara ciência de que o AEE é um serviço complementar e não substitutivo ao ensino regular, sendo realizado preferencialmente na Sala de Recursos Multifuncionais (SRM) no contraturno escolar.`,
+        `3. O responsável compromete-se a colaborar com as orientações do professor do AEE, participar das reuniões de acompanhamento e comunicar à instituição qualquer alteração relevante nas condições de saúde ou desenvolvimento do(a) aluno(a).`,
+        `4. A instituição compromete-se a garantir atendimento individualizado, elaboração de Plano de AEE e comunicação regular com a família sobre o desenvolvimento do(a) aluno(a).`,
+        `5. Este termo tem validade pelo ano letivo vigente, podendo ser renovado mediante nova avaliação pedagógica.`,
+      ];
+
+      for (const cl of clausulas) {
+        doc.setFont(_docFont,'normal'); doc.setFontSize(10); sc(doc, DARK);
+        const lines: string[] = doc.splitTextToSize(cl, maxW);
+        if (y + lines.length * LINE_H > cBot(H) - 30) { y = newPage(); }
+        doc.text(lines, ML, y);
+        y += lines.length * LINE_H + 5;
+      }
+    }
+
+    if (tipo === 'declaracao_matricula_srm') {
+      sf(doc, PETROL); doc.roundedRect(ML, y, maxW, 7.5, 1.5, 1.5, 'F');
+      doc.setFont(_docFont,'bold'); doc.setFontSize(SECTION_SIZE); sc(doc, WHITE);
+      doc.text('II. DECLARAÇÃO OFICIAL', ML + 4, y + 5.5);
+      y += 12;
+
+      const body = `Declaramos, para os devidos fins, que o(a) aluno(a) ${student.name}, regularmente matriculado(a) no Ensino Regular na série ${student.grade || 'não informada'}, turno ${student.shift || 'não informado'}, encontra-se igualmente matriculado(a) na Sala de Recursos Multifuncionais (SRM) desta instituição, conforme deliberado pelo Conselho Pedagógico e registrado em ${dateStr}.
+
+O Atendimento Educacional Especializado (AEE) prestado na SRM tem como objetivo eliminar as barreiras que possam obstruir o processo de escolarização dos alunos público-alvo da Educação Especial, em conformidade com a Resolução CNE/CEB nº 4/2009 e o Decreto nº 7.611/2011.
+
+Esta declaração é fornecida a pedido do(a) interessado(a) para os fins que se fizerem necessários.`;
+
+      doc.setFont(_docFont,'normal'); doc.setFontSize(10); sc(doc, DARK);
+      const bodyLines: string[] = doc.splitTextToSize(body, maxW);
+      if (y + bodyLines.length * LINE_H > cBot(H) - 10) { y = newPage(); }
+      doc.text(bodyLines, ML, y);
+      y += bodyLines.length * LINE_H + 10;
+    }
+
+    if (tipo === 'declaracao_compromisso') {
+      sf(doc, PETROL); doc.roundedRect(ML, y, maxW, 7.5, 1.5, 1.5, 'F');
+      doc.setFont(_docFont,'bold'); doc.setFontSize(SECTION_SIZE); sc(doc, WHITE);
+      doc.text('II. DECLARAÇÃO DE COMPROMISSO FAMILIAR', ML + 4, y + 5.5);
+      y += 12;
+
+      const body = `Eu, ${student.guardianName || '______________________________'}, responsável legal pelo(a) aluno(a) ${student.name}, declaro estar ciente e de acordo com as condições do Atendimento Educacional Especializado (AEE) oferecido pela instituição ${sName}, comprometendo-me a:
+
+• Comparecer às reuniões de acompanhamento convocadas pela equipe pedagógica;
+• Manter a frequência regular do(a) aluno(a) nos atendimentos do AEE;
+• Comunicar à instituição quaisquer mudanças relevantes na condição de saúde, medicação ou contexto familiar do(a) aluno(a);
+• Colaborar com as orientações e estratégias definidas no Plano de AEE;
+• Respeitar e contribuir com o processo pedagógico especializado.
+
+Declaro ainda ter recebido orientações claras sobre o funcionamento do AEE e sobre os direitos e deveres previstos na legislação vigente de Educação Especial Inclusiva.`;
+
+      doc.setFont(_docFont,'normal'); doc.setFontSize(10); sc(doc, DARK);
+      const bodyLines: string[] = doc.splitTextToSize(body, maxW);
+      if (y + bodyLines.length * LINE_H > cBot(H) - 10) { y = newPage(); }
+      doc.text(bodyLines, ML, y);
+      y += bodyLines.length * LINE_H + 10;
+    }
+
+    // ── Bloco de assinatura simplificado ──────────────────────────────────
+    y += 6;
+    if (y > H - MB - FOOTER_H - 40) { y = newPage(); }
+
+    doc.setFont(_docFont,'normal'); doc.setFontSize(9); sc(doc, DARK);
+    doc.text(`${sName}, ${dateStr}`, ML, y);
+    y += 16;
+
+    // Linha responsável legal
+    sd(doc, DARK); doc.setLineWidth(0.3);
+    doc.line(ML, y, ML + 80, y);
+    y += 4;
+    doc.setFont(_docFont,'bold'); doc.setFontSize(8.5); sc(doc, DARK);
+    doc.text(student.guardianName || 'Responsável Legal', ML, y);
+    y += 4;
+    doc.setFont(_docFont,'normal'); doc.setFontSize(7.5); sc(doc, GRAY);
+    doc.text('Responsável Legal do Aluno', ML, y);
+
+    // Linha profissional
+    const sigColX = ML + halfW + 8;
+    sd(doc, DARK); doc.setLineWidth(0.3);
+    doc.line(sigColX, y - 12, sigColX + halfW - 8, y - 12);
+    doc.setFont(_docFont,'bold'); doc.setFontSize(SMALL_SIZE + 0.5); sc(doc, DARK);
+    doc.text(profName, sigColX, y - 8);
+    doc.setFont(_docFont,'normal'); doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
+    doc.text('Professor(a) de AEE / Profissional Responsável', sigColX, y - 4);
+
+    // ── Base Legal e LGPD ──────────────────────────────────────────────────
+    y += 12;
+    sd(doc, BORDER); doc.setLineWidth(0.3); doc.line(ML, y, W - MR, y);
+    y += 4;
+    doc.setFont(_docFont,'bold'); doc.setFontSize(TINY_SIZE); sc(doc, PETROL);
+    doc.text('BASE LEGAL:', ML, y);
+    
+    doc.setFont(_docFont,'normal'); sc(doc, GRAY);
+    const legalM = 'Resolução CNE/CEB nº 4/2009; Decreto nº 7.611/2011; Lei nº 13.146/2015 (LBI); Lei nº 9.394/1996 (LDB Art. 59).';
+    const legalLsM: string[] = doc.splitTextToSize(legalM, maxW);
+    doc.text(legalLsM, ML, y + 4);
+    y += legalLsM.length * 3.5 + 4;
+    
+    doc.setFont(_docFont,'italic'); doc.setFontSize(TINY_SIZE); sc(doc, GRAY);
+    doc.text('Documento pedagógico institucional. Dados pessoais protegidos pela Lei nº 13.709/2018 (LGPD). Uso restrito à equipe escolar.', ML, y);
+
+    addFooterAllPages(doc);
+    return doc.output('blob') as Blob;
+  },
+};
+
+// ─── Public helpers ───────────────────────────────────────────────────────────
+export function getDocTitle(docType: string): string {
+  const map: Record<string, string> = {
+    checklist_4laudas:         'Checklist de Observação',
+    encaminhamento_redes:      'Encaminhamento às Redes de Apoio',
+    convite_reuniao:           'Convite para Reunião',
+    termo_compromisso_aee:     'Termo de Compromisso AEE',
+    declaracao_comparecimento: 'Declaração de Comparecimento',
+    termo_desligamento:        'Termo de Desligamento',
+    declaracao_matricula:      'Declaração de Matrícula AEE',
+    PEI:                       'Plano Educacional Individualizado (PEI)',
+    PAEE:                      'Plano de Atendimento Educacional Especializado (PAEE)',
+    PDI:                       'Plano de Desenvolvimento Individual (PDI)',
+    ESTUDO_CASO:               'Estudo de Caso',
+  };
+  return map[docType] || docType;
+}
+
+export function getDocSubtitle(docType: string): string | null {
+  const ano = new Date().getFullYear();
+  const map: Record<string, string> = {
+    // Protocolos pedagógicos
+    PEI:                       `PLANO EDUCACIONAL INDIVIDUALIZADO — ANO LETIVO ${ano}`,
+    PAEE:                      `SALA DE RECURSOS MULTIFUNCIONAIS (SRM) — ANO LETIVO ${ano}`,
+    PDI:                       `PLANO DE DESENVOLVIMENTO INDIVIDUAL — ANO LETIVO ${ano}`,
+    ESTUDO_CASO:               'DOCUMENTO CONFIDENCIAL — CIRCULAÇÃO RESTRITA À EQUIPE PEDAGÓGICA',
+    // Fichas e checklists
+    checklist_4laudas:         'FICHA DE OBSERVAÇÃO PEDAGÓGICA — AEE',
+    // Documentos administrativos
+    encaminhamento_redes:      'ENCAMINHAMENTO INTERSETORIAL — AEE',
+    convite_reuniao:           'CONVOCAÇÃO PARA REUNIÃO PEDAGÓGICA',
+    termo_compromisso_aee:     `TERMO DE COMPROMISSO — ANO LETIVO ${ano}`,
+    declaracao_comparecimento: 'DECLARAÇÃO INSTITUCIONAL',
+    termo_desligamento:        'REGISTRO DE ENCERRAMENTO DO ATENDIMENTO AEE',
+    declaracao_matricula:      'DECLARAÇÃO DE MATRÍCULA — SALA DE RECURSOS MULTIFUNCIONAIS',
+  };
+  return map[docType] ?? null;
+}

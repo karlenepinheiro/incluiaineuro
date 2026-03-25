@@ -30,6 +30,7 @@ import {
   GraduationCap, Brain, ScanText, AlertTriangle, TrendingDown, History
 } from 'lucide-react';
 import { AIService } from '../../services/aiService';
+import { WorkflowService, type WorkflowSerializableState } from '../../services/persistenceService';
 import { User, SchoolConfig, Student } from '../../types';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -1217,6 +1218,103 @@ const InnerCanvas: React.FC<{
   const [remainingCredits, setRemainingCredits] = useState<number>(-1);
   const [execSummary, setExecSummary] = useState<{ credits: number; remaining: number } | null>(null);
 
+  // ── Persistência DB ────────────────────────────────────────────────────────
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Carrega workflow salvo na primeira renderização */
+  useEffect(() => {
+    if (!user.id || !user.tenant_id) return;
+    WorkflowService.loadOrCreate(user.id, user.tenant_id)
+      .then(({ workflowId: wid, data }) => {
+        setWorkflowId(wid);
+        if (!data) return; // sem dados salvos — usa defaults (template TEA)
+        // Restaura layout
+        if (data.nodesData.length > 0) {
+          setNodes(data.nodesData.map(n => ({
+            id:   n.id,
+            type: n.type,
+            position: n.position,
+            data: makeNodeData({ nodeStatus: 'idle' }),
+            dragHandle: '.node-drag-handle',
+          })));
+          setEdges(data.edgesData.map(e => ({
+            id:     e.id,
+            source: e.source,
+            target: e.target,
+            type:   e.type ?? 'premiumEdge',
+            data:   { active: false, done: false },
+          })));
+        }
+        // Restaura estado de configuração (sem File, sem results)
+        if (data.wfState) {
+          setWf(prev => ({
+            ...prev,
+            prompt:          data.wfState.prompt          ?? prev.prompt,
+            discipline:      data.wfState.discipline      ?? prev.discipline,
+            grade:           data.wfState.grade           ?? prev.grade,
+            bnccCode:        data.wfState.bnccCode        ?? prev.bnccCode,
+            bnccDescription: data.wfState.bnccDescription ?? prev.bnccDescription,
+            model:           (data.wfState.model          ?? prev.model) as any,
+            imageCount:      data.wfState.imageCount      ?? prev.imageCount,
+            pageSize:        (data.wfState.pageSize       ?? prev.pageSize) as any,
+            borders:         data.wfState.borders         ?? prev.borders,
+            schoolId:        data.wfState.schoolId        ?? prev.schoolId,
+            adaptationType:  data.wfState.adaptationType  ?? prev.adaptationType,
+            adaptarInputText: data.wfState.adaptarInputText ?? prev.adaptarInputText,
+            templateType:    data.wfState.templateType    ?? prev.templateType,
+          }));
+        }
+        setTimeout(() => fitView({ padding: 0.15 }), 200);
+      })
+      .catch(e => console.warn('[WorkflowCanvas] load error (não crítico):', e?.message));
+  }, []); // eslint-disable-line
+
+  /** Auto-save debounced (1,5s após última mudança) */
+  const triggerAutoSave = useCallback((
+    currentNodes: typeof nodes,
+    currentEdges: typeof edges,
+    currentWf: typeof wf
+  ) => {
+    if (!workflowId) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSaveStatus('saving');
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        const nodesData = currentNodes.map(n => ({ id: n.id, type: n.type ?? '', position: n.position }));
+        const edgesData = currentEdges.map(e => ({ id: e.id, source: e.source, target: e.target, type: e.type ?? 'premiumEdge' }));
+        const wfState: WorkflowSerializableState = {
+          prompt: currentWf.prompt, discipline: currentWf.discipline,
+          grade: currentWf.grade, bnccCode: currentWf.bnccCode,
+          bnccDescription: currentWf.bnccDescription, model: currentWf.model,
+          imageCount: currentWf.imageCount, pageSize: currentWf.pageSize,
+          borders: currentWf.borders, schoolId: currentWf.schoolId,
+          adaptationType: currentWf.adaptationType,
+          adaptarInputText: currentWf.adaptarInputText, templateType: currentWf.templateType,
+        };
+        await WorkflowService.save(workflowId, { nodesData, edgesData, wfState });
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } catch {
+        setSaveStatus('idle');
+      }
+    }, 1500);
+  }, [workflowId]);
+
+  // Dispara auto-save quando nodes ou edges mudam (excluindo mudanças de nodeStatus/progress)
+  const nodesKey = nodes.map(n => `${n.id}:${n.position.x.toFixed(0)},${n.position.y.toFixed(0)}`).join('|');
+  const edgesKey = edges.map(e => `${e.source}->${e.target}`).join('|');
+  useEffect(() => {
+    triggerAutoSave(nodes, edges, wf);
+  }, [nodesKey, edgesKey]); // eslint-disable-line
+
+  // Dispara auto-save quando wf state serializável muda
+  const wfKey = `${wf.prompt}|${wf.discipline}|${wf.grade}|${wf.model}|${wf.templateType}`;
+  useEffect(() => {
+    triggerAutoSave(nodes, edges, wf);
+  }, [wfKey]); // eslint-disable-line
+
   // Fetch remaining credits on mount and keep ref for refresh
   const refreshCredits = useCallback(async () => {
     const n = await AIService.getRemainingCredits(user);
@@ -1852,6 +1950,14 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
               </span>
             )}
           </div>
+          {/* Auto-save indicator */}
+          {saveStatus !== 'idle' && (
+            <span style={{ fontSize: 11, color: saveStatus === 'saved' ? C.ok : C.textSec, display: 'flex', alignItems: 'center', gap: 4 }}>
+              {saveStatus === 'saving'
+                ? <><Loader size={11} className="animate-spin" /> Salvando…</>
+                : <><CheckCircle size={11} /> Salvo</>}
+            </span>
+          )}
           {/* Execute button — opens confirm modal */}
           <button onClick={() => setShowConfirmModal(true)} disabled={running}
             style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 18px', background: running ? C.border : C.petrol, color: running ? C.textSec : '#fff', border: 'none', borderRadius: 9, fontSize: 12, fontWeight: 800, cursor: running ? 'not-allowed' : 'pointer', boxShadow: running ? 'none' : `0 4px 16px ${C.petrol}40`, transition: 'all .2s' }}>

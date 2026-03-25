@@ -47,7 +47,7 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
 
   const filtered = useMemo(() => {
     return students.filter(s => {
-      const matchSearch = s.name.toLowerCase().includes(search.toLowerCase()) ||
+      const matchSearch = (s.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
         (s.diagnosis || []).join(' ').toLowerCase().includes(search.toLowerCase());
       if (!matchSearch) return false;
       if (filter === 'em_triagem') return s.tipo_aluno === 'em_triagem';
@@ -273,7 +273,7 @@ function StudentCard({
             {s.photoUrl ? (
               <img src={s.photoUrl} className="w-full h-full object-cover" alt={s.name} />
             ) : (
-              s.name.charAt(0).toUpperCase()
+              (s.name ?? '?').charAt(0).toUpperCase()
             )}
           </div>
           <div className="flex-1 min-w-0">

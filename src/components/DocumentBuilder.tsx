@@ -6,11 +6,20 @@ import {
   X, AlertCircle, ArrowUp, ArrowDown, GripVertical, Settings, Mic
 } from 'lucide-react';
 import { DocumentType, DocumentData, DocSection, Student, User as UserType, Protocol, PlanTier, getPlanLimits, ProtocolStatus, DocField } from '../types';
-import { SmartTextarea } from './SmartTextarea';
+import { AudioEnhancedTextarea } from './AudioEnhancedTextarea';
 import { AudioRecorder } from './AudioRecorder';
 import { ExportService } from '../services/exportService';
+import { PDFGenerator } from '../services/PDFGenerator';
 import { StorageService } from '../services/storageService';
 import { AIService } from '../services/aiService';
+
+// Seções esperadas por tipo de documento — contexto para análise via upload
+const STANDARD_DOC_FIELDS: Record<string, string> = {
+  PEI:           'Identificação do Aluno, Diagnóstico e CID, Habilidades e Potencialidades, Dificuldades e Desafios, Objetivos Pedagógicos Individualizados, Estratégias e Adaptações, Recursos e Materiais, Avaliação e Monitoramento, Assinaturas',
+  PAEE:          'Identificação do Aluno, Demanda e Encaminhamento, Avaliação Pedagógica Especializada, Plano de AEE (Objetivos, Atividades, Recursos), Articulação com Sala Regular, Periodicidade, Avaliação dos Resultados',
+  PDI:           'Identificação, Diagnóstico, Perfil de Aprendizagem, Objetivos de Desenvolvimento, Estratégias de Intervenção, Recursos Necessários, Metas de Curto e Longo Prazo, Avaliação',
+  estudo_de_caso:'Identificação, Motivo do Encaminhamento, Histórico Escolar, Avaliação Multidisciplinar, Diagnóstico Funcional, Intervenções Realizadas, Análise e Conclusões, Recomendações',
+};
 
 interface DocumentBuilderProps {
   type: DocumentType;
@@ -26,6 +35,29 @@ interface DocumentBuilderProps {
   onGenerateAI: (student: Student) => void;
   onDerive: (source: Protocol, targetType: DocumentType) => void;
   isGenerating?: boolean;
+}
+
+// Custo de créditos por tipo de documento
+const DOC_CREDIT_COSTS: Record<string, number> = {
+  'Estudo de Caso': 2,
+  'PEI':            3,
+  'PAEE':           2,
+  'PDI':            2,
+};
+
+function CreditBadge({ type }: { type: string }) {
+  const cost = DOC_CREDIT_COSTS[type] ?? 2;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      fontSize: 11, fontWeight: 700,
+      color: '#92650a', background: '#fefce8',
+      border: '1px solid #fde68a', borderRadius: 20,
+      padding: '2px 8px', marginTop: 6, whiteSpace: 'nowrap',
+    }}>
+      🪙 {cost} crédito{cost !== 1 ? 's' : ''}
+    </span>
+  );
 }
 
 const generateSecureAuditCode = (userName: string): string => {
@@ -226,8 +258,8 @@ const planLimits = getPlanLimits(user.plan);
               allowAudio: 'optional' },
           ]},
           { id: 'eval', title: 'Avaliação Funcional', fields: [
-            { id: 'e1', label: 'Habilidades e Potencialidades', type: 'textarea', value: selectedStudent.abilities.join('\n'), allowAudio: 'optional', placeholder: 'O que o aluno já sabe fazer?' },
-            { id: 'e2', label: 'Dificuldades e Barreiras', type: 'textarea', value: selectedStudent.difficulties.join('\n'), allowAudio: 'optional', placeholder: 'Principais dificuldades observadas?' },
+            { id: 'e1', label: 'Habilidades e Potencialidades', type: 'textarea', value: (selectedStudent.abilities || []).join('\n'), allowAudio: 'optional', placeholder: 'O que o aluno já sabe fazer?' },
+            { id: 'e2', label: 'Dificuldades e Barreiras', type: 'textarea', value: (selectedStudent.difficulties || []).join('\n'), allowAudio: 'optional', placeholder: 'Principais dificuldades observadas?' },
           ]},
           { id: 'concl', title: 'Conclusão e Encaminhamento', fields: [
             { id: 'c1', label: 'Parecer Final da Equipe', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Hipótese diagnóstica e encaminhamentos sugeridos...' },
@@ -404,7 +436,7 @@ const planLimits = getPlanLimits(user.plan);
                         id: 'e1',
                         label: 'Habilidades e Potencialidades',
                         type: 'textarea',
-                        value: selectedStudent.abilities.join('\n'),
+                        value: (selectedStudent.abilities || []).join('\n'),
                         allowAudio: 'optional',
                         placeholder: 'O que o aluno já sabe fazer? Quais seus interesses?'
                     },
@@ -412,7 +444,7 @@ const planLimits = getPlanLimits(user.plan);
                         id: 'e2',
                         label: 'Dificuldades e Barreiras',
                         type: 'textarea',
-                        value: selectedStudent.difficulties.join('\n'),
+                        value: (selectedStudent.difficulties || []).join('\n'),
                         allowAudio: 'optional',
                         placeholder: 'Quais as principais dificuldades observadas?'
                     }
@@ -619,344 +651,170 @@ const planLimits = getPlanLimits(user.plan);
 
   const handleUploadExternal = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if(!file || !selectedStudent) return;
+      if (!file || !selectedStudent) return;
       setIsUploading(true);
+
       try {
-          // 1. Upload file to storage (keep existing logic)
+          // 1. Upload arquivo para Storage (mantido igual)
           const url = await StorageService.uploadFile(file, 'documentos_pdf', `ext/${file.name}`);
-          
-          // 2. Read file as Base64 for AI processing
-          const reader = new FileReader();
-          reader.onload = async () => {
-              const base64 = reader.result as string;
-              
-              try {
-                  // 3. Call AI Service to analyze and map to fields
-                  const generatedData = await AIService.analyzeUploadedDocument(base64, file.type, type, selectedStudent, user) as any;
 
-                  if (generatedData && generatedData.sections) {
-                      setSections(generatedData.sections);
-                      setStep('editor');
-                      setIsEditing(true);
+          // 2. Determina se é DOCX/DOC (extração de texto via mammoth)
+          const isDocx =
+              file.name.endsWith('.docx') ||
+              file.name.endsWith('.doc') ||
+              file.type.includes('wordprocessingml') ||
+              file.type.includes('msword');
 
-                      // Auto-save as draft
-                      const dataToSave = { sections: generatedData.sections, externalUrl: url || '' };
-                      onSave(dataToSave, selectedStudent, `Gerado via Upload: ${file.name}`, 'DRAFT');
-                      alert("Documento gerado a partir do arquivo e salvo como rascunho!");
-                  } else {
-                      throw new Error("Formato inválido retornado pela IA");
+          try {
+              let sectionsJson: string;
+
+              if (isDocx) {
+                  // ── DOCX: extrai texto com mammoth, envia só texto para Gemini ──
+                  const arrayBuffer = await file.arrayBuffer();
+                  const mammoth = await import('mammoth');
+                  const { value: docText } = await mammoth.extractRawText({ arrayBuffer });
+
+                  if (!docText || docText.trim().length < 20) {
+                      throw new Error(
+                          'O documento parece estar vazio ou ser uma imagem escaneada. ' +
+                          'Verifique se o arquivo contém texto editável.'
+                      );
                   }
-              } catch (aiError: any) {
-                  console.error(aiError);
-                  alert("Erro na análise do arquivo pela IA: " + aiError.message);
-              } finally {
-                  setIsUploading(false);
+
+                  const tagList = STANDARD_DOC_FIELDS[type] ?? 'Identificação, Diagnóstico, Objetivos, Estratégias, Avaliação';
+
+                  const prompt = `Você é especialista em educação inclusiva e documentação pedagógica brasileira.
+O texto abaixo foi extraído de um documento Word (tipo: ${type}) do aluno ${selectedStudent.name}.
+Analise o conteúdo e reorganize-o em seções estruturadas para o sistema IncluiAI.
+
+TEXTO DO DOCUMENTO:
+${docText.slice(0, 8000)}
+
+SEÇÕES ESPERADAS PARA DOCUMENTOS DO TIPO ${type}:
+${tagList}
+
+RETORNE SOMENTE JSON válido, sem markdown, sem texto antes ou depois:
+{
+  "sections": [
+    {
+      "id": "sec1",
+      "title": "Nome da Seção",
+      "fields": [
+        {
+          "id": "f1",
+          "label": "Nome do Campo",
+          "type": "textarea",
+          "value": "Conteúdo extraído do documento..."
+        }
+      ]
+    }
+  ]
+}
+
+Regras obrigatórias:
+- Mantenha o conteúdo ORIGINAL do documento sempre que possível (não invente)
+- Use type "textarea" para textos longos (narrativas, objetivos, pareceres)
+- Use type "text" para dados curtos (nome, data, CID, código)
+- Mínimo 3 seções, máximo 8. Cada seção: 2 a 6 campos
+- Aluno: ${selectedStudent.name} | Diagnóstico: ${(selectedStudent.diagnosis || []).join(', ') || 'não informado'}
+- Idioma: português brasileiro formal`;
+
+                  sectionsJson = await AIService.generateFromPrompt(prompt, user);
+
+              } else {
+                  // ── PDF / imagem: envia como base64 para Gemini Vision ──
+                  const arrayBuffer = await file.arrayBuffer();
+                  const bytes = new Uint8Array(arrayBuffer);
+                  let binary = '';
+                  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+                  const base64 = btoa(binary);
+                  const dataUrl = `data:${file.type};base64,${base64}`;
+
+                  const prompt = `Analise este documento (tipo: ${type}) do aluno ${selectedStudent.name}.
+Extraia todo o conteúdo relevante e organize em seções estruturadas.
+
+RETORNE SOMENTE JSON:
+{"sections":[{"id":"sec1","title":"Seção","fields":[{"id":"f1","label":"Campo","type":"textarea","value":"conteúdo extraído"}]}]}
+
+Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma: português.`;
+
+                  sectionsJson = await AIService.generateFromPromptWithImage(prompt, dataUrl, user);
               }
-          };
-          reader.readAsDataURL(file);
-          
-      } catch(e) { 
-          alert("Erro ao enviar arquivo."); 
+
+              // 3. Limpeza e parsing do JSON retornado pela IA
+              const cleaned = sectionsJson
+                  .replace(/^```json\s*/i, '')
+                  .replace(/^```\s*/i, '')
+                  .replace(/```\s*$/i, '')
+                  .replace(/^\uFEFF/, '')
+                  .trim();
+
+              let parsed: any;
+              try {
+                  parsed = JSON.parse(cleaned);
+              } catch {
+                  const match = cleaned.match(/\{[\s\S]*\}/);
+                  if (match) {
+                      try { parsed = JSON.parse(match[0]); } catch { /* segue */ }
+                  }
+              }
+
+              if (parsed?.sections && Array.isArray(parsed.sections) && parsed.sections.length > 0) {
+                  setSections(parsed.sections);
+                  setStep('editor');
+                  setIsEditing(true);
+                  const dataToSave = { sections: parsed.sections, externalUrl: url || '' };
+                  onSave(dataToSave, selectedStudent, `Importado via Upload: ${file.name}`, 'DRAFT');
+                  alert('Documento importado e salvo como rascunho! Revise e edite antes de finalizar.');
+              } else {
+                  throw new Error(
+                      'A IA não conseguiu estruturar o documento em seções. ' +
+                      'Verifique se o arquivo contém conteúdo de texto legível.'
+                  );
+              }
+
+          } catch (aiError: any) {
+              console.error('[DocumentBuilder] handleUploadExternal IA error:', aiError);
+              alert('Erro na análise do arquivo pela IA: ' + aiError.message);
+          } finally {
+              setIsUploading(false);
+          }
+
+      } catch (e: any) {
+          console.error('[DocumentBuilder] handleUploadExternal storage error:', e);
+          alert('Erro ao enviar arquivo: ' + (e?.message ?? 'Verifique sua conexão e tente novamente.'));
           setIsUploading(false);
       }
   };
 
   const handlePrint = () => window.print();
 
-  // ── Geração de PDF profissional via jsPDF (sem screenshot) ──────────────────
-  // Lê diretamente o estado `sections` e gera PDF estruturado com margens ABNT.
+  // ── Geração de PDF via PDFGenerator (design unificado) ──────────────────────
   const handleGeneratePDF = async () => {
       if (!selectedStudent || sections.length === 0) {
           alert('Nenhum conteúdo para exportar. Preencha ou gere o documento primeiro.');
           return;
       }
-
       try {
-          if (!(window as any).jspdf) {
-              await new Promise<void>((res, rej) => {
-                  const s = document.createElement('script');
-                  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
-                  s.onload = () => res();
-                  s.onerror = () => rej(new Error('Falha ao carregar jsPDF'));
-                  document.head.appendChild(s);
-              });
-          }
-
-          const jsPDF = (window as any).jspdf.jsPDF;
-          const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-          const W = doc.internal.pageSize.getWidth();   // 210mm
-          const H = doc.internal.pageSize.getHeight();  // 297mm
-
-          // ── Constantes ABNT NBR 14724 ──────────────────────────────────────
-          const ML = 30;          // margem esquerda 3cm
-          const MR = 20;          // margem direita 2cm
-          const maxW = W - ML - MR; // 160mm
-          const CONTENT_TOP = 30; // margem superior 3cm
-          const FOOTER_H = 16;
-          const BOTTOM_MARGIN = 20;
-          const contentBottom = H - BOTTOM_MARGIN - FOOTER_H; // ~261mm
-
-          const BRAND = { r: 88, g: 28, b: 235 };
-          const DARK  = { r: 17,  g: 24,  b: 39  };
-          const GRAY  = { r: 107, g: 114, b: 128 };
-          const LINE_H    = 6.5;  // entrelinhas 1,5 para 12pt
-          const BODY_SIZE = 12;
-          const LABEL_SIZE = 10;
-          const SMALL_SIZE = 8;
-
-          const auditCode  = currentAuditCode || 'RASCUNHO';
-          const docTitle   = type.toUpperCase();
-          const studentName = selectedStudent.name;
-          const emitDate   = new Date().toLocaleDateString('pt-BR');
-          const authorName = user?.name || '—';
-
-          // ── Escola (primeira escola cadastrada do usuário) ──────────────────
           const schoolCfg = user?.schoolConfigs?.[0] ?? null;
-          const hasSchool = !!(schoolCfg?.schoolName?.trim());
-
-          // ── Cabeçalho institucional (reutilizado em cada página) ───────────
-          const addHeader = (subtitle = 'Documento Pedagógico'): number => {
-              if (hasSchool) {
-                  // Faixa roxa — 0 a 20mm
-                  doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
-                  doc.rect(0, 0, W, 20, 'F');
-
-                  // Logo
-                  if (schoolCfg!.logoUrl?.startsWith('data:')) {
-                      try {
-                          const fmt = schoolCfg!.logoUrl.includes('png') ? 'PNG' : 'JPEG';
-                          doc.addImage(schoolCfg!.logoUrl, fmt, ML, 2, 16, 16);
-                      } catch {}
-                  }
-                  const textX = schoolCfg!.logoUrl?.startsWith('data:') ? ML + 19 : ML;
-
-                  doc.setFont('helvetica', 'bold');
-                  doc.setFontSize(11);
-                  doc.setTextColor(255, 255, 255);
-                  doc.text(schoolCfg!.schoolName.toUpperCase(), textX, 9);
-
-                  const locParts = [schoolCfg!.city, schoolCfg!.state].filter(Boolean).join(' – ');
-                  const idParts = [
-                      schoolCfg!.cnpj ? `CNPJ: ${schoolCfg!.cnpj}` : '',
-                      schoolCfg!.inepCode ? `INEP: ${schoolCfg!.inepCode}` : '',
-                  ].filter(Boolean).join('  |  ');
-                  const infoLine = [locParts, idParts].filter(Boolean).join('     ');
-                  doc.setFont('helvetica', 'normal');
-                  doc.setFontSize(7);
-                  doc.setTextColor(220, 210, 255);
-                  if (infoLine) doc.text(infoLine, textX, 16);
-
-                  doc.setFont('helvetica', 'bold');
-                  doc.setFontSize(LABEL_SIZE);
-                  doc.setTextColor(255, 255, 255);
-                  doc.text(docTitle, W - MR, 8, { align: 'right' });
-                  doc.setFont('helvetica', 'normal');
-                  doc.setFontSize(SMALL_SIZE);
-                  doc.text(subtitle, W - MR, 15, { align: 'right' });
-
-                  // Faixa cinza contatos — 20 a 32mm
-                  doc.setFillColor(248, 250, 252);
-                  doc.rect(0, 20, W, 12, 'F');
-                  doc.setFont('helvetica', 'normal');
-                  doc.setFontSize(7);
-                  doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-                  const addrStr = [schoolCfg!.address, schoolCfg!.city, schoolCfg!.zipcode ? `CEP ${schoolCfg!.zipcode}` : ''].filter(Boolean).join(' · ');
-                  const contactStr = [schoolCfg!.email, schoolCfg!.contact].filter(Boolean).join(' · ');
-                  if (addrStr) doc.text(addrStr, ML, 26);
-                  if (contactStr) doc.text(contactStr, ML, 30);
-                  if (schoolCfg!.managerName) doc.text(`Gestor(a): ${schoolCfg!.managerName}`, W - MR, 27, { align: 'right' });
-
-                  // Faixa violeta clara com aluno — 32 a 40mm
-                  doc.setFillColor(237, 233, 254);
-                  doc.rect(0, 32, W, 8, 'F');
-                  doc.setTextColor(DARK.r, DARK.g, DARK.b);
-                  doc.setFont('helvetica', 'bold');
-                  doc.setFontSize(LABEL_SIZE);
-                  doc.text(`Aluno(a): ${studentName}`, ML, 38);
-                  doc.setFont('courier', 'normal');
-                  doc.setFontSize(7);
-                  doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-                  doc.text(`Código: ${auditCode}`, W - MR, 38, { align: 'right' });
-                  doc.setDrawColor(BRAND.r, BRAND.g, BRAND.b);
-                  doc.setLineWidth(0.4);
-                  doc.line(0, 40, W, 40);
-                  return 50; // contentTop institucional
-              } else {
-                  // Cabeçalho padrão IncluiAI
-                  doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
-                  doc.rect(0, 0, W, 18, 'F');
-                  doc.setFont('helvetica', 'bold');
-                  doc.setFontSize(13);
-                  doc.setTextColor(255, 255, 255);
-                  doc.text('IncluiAI', ML, 11);
-                  doc.setFont('helvetica', 'normal');
-                  doc.setFontSize(9);
-                  doc.text('Plataforma Educacional Inclusiva', ML + 22, 11);
-                  doc.setFont('helvetica', 'bold');
-                  doc.setFontSize(LABEL_SIZE);
-                  doc.text(docTitle, W - MR, 8, { align: 'right' });
-                  doc.setFont('helvetica', 'normal');
-                  doc.setFontSize(SMALL_SIZE);
-                  doc.text(subtitle, W - MR, 15, { align: 'right' });
-                  doc.setFillColor(248, 250, 252);
-                  doc.rect(0, 18, W, 8, 'F');
-                  doc.setTextColor(DARK.r, DARK.g, DARK.b);
-                  doc.setFont('helvetica', 'bold');
-                  doc.setFontSize(LABEL_SIZE);
-                  doc.text(studentName, ML, 24);
-                  doc.setFont('courier', 'normal');
-                  doc.setFontSize(7);
-                  doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-                  doc.text(`Código: ${auditCode}`, W - MR, 24, { align: 'right' });
-                  doc.setDrawColor(BRAND.r, BRAND.g, BRAND.b);
-                  doc.setLineWidth(0.4);
-                  doc.line(0, 26, W, 26);
-                  return CONTENT_TOP;
-              }
-          };
-
-          // ── Rodapé (aplicado em todas as páginas ao final) ─────────────────
-          const addFooter = () => {
-              const footerY = H - FOOTER_H;
-              doc.setDrawColor(BRAND.r, BRAND.g, BRAND.b);
-              doc.setLineWidth(0.3);
-              doc.line(ML, footerY, W - MR, footerY);
-              doc.setFillColor(248, 250, 252);
-              doc.rect(0, footerY, W, FOOTER_H, 'F');
-              doc.setFont('helvetica', 'normal');
-              doc.setFontSize(SMALL_SIZE);
-              doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-              doc.text(`Emitido em ${emitDate} por ${authorName}`, ML, footerY + 6);
-              doc.setFont('courier', 'bold');
-              doc.setFontSize(SMALL_SIZE);
-              doc.text(`Código Auditável: ${auditCode}`, W / 2, footerY + 6, { align: 'center' });
-              doc.setFont('helvetica', 'normal');
-              doc.text('incluiai.com/validar/' + auditCode, W - MR, footerY + 6, { align: 'right' });
-              doc.text(
-                  `Página ${doc.internal.getCurrentPageInfo().pageNumber} de ${doc.internal.getNumberOfPages()}`,
-                  W / 2, footerY + 12, { align: 'center' }
-              );
-          };
-
-          // ── Texto com quebra automática de linha ───────────────────────────
-          const wrappedText = (text: string, x: number, y: number, w: number): number => {
-              const lines = doc.splitTextToSize(text || '—', w);
-              doc.text(lines, x, y);
-              return y + lines.length * LINE_H;
-          };
-
-          // ── Verifica quebra de página e retorna novo y ─────────────────────
-          const checkBreak = (y: number, needed = 20): number => {
-              if (y + needed > contentBottom) {
-                  doc.addPage();
-                  return addHeader('(continuação)');
-              }
-              return y;
-          };
-
-          // ── Renderiza valor de um campo conforme seu tipo ──────────────────
-          const renderValue = (field: DocField, x: number, y: number, w: number): number => {
-              doc.setFont('helvetica', 'normal');
-              doc.setFontSize(BODY_SIZE);
-              doc.setTextColor(DARK.r, DARK.g, DARK.b);
-
-              let val: string;
-              if (field.type === 'checklist' && Array.isArray(field.value)) {
-                  val = field.value.length > 0
-                      ? field.value.map((v: string) => `• ${v}`).join('\n')
-                      : '—';
-              } else if (field.type === 'scale') {
-                  const rating = typeof field.value === 'object' ? field.value?.rating : field.value;
-                  const obs    = typeof field.value === 'object' ? field.value?.observation : '';
-                  val = `Pontuação: ${rating ?? '—'}/5${obs ? `\nObservação: ${obs}` : ''}`;
-              } else if (field.type === 'grid' && Array.isArray(field.value)) {
-                  val = field.value.map((row: Record<string, string>) =>
-                      Object.values(row).join(' | ')
-                  ).join('\n');
-              } else {
-                  val = String(field.value ?? '—');
-              }
-
-              const newY = wrappedText(val, x, y, w);
-              return newY + 3;
-          };
-
-          // ── RENDERIZAÇÃO PRINCIPAL ─────────────────────────────────────────
-          let y = addHeader('Documento Pedagógico');
-
-          // Linha de identificação
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(SMALL_SIZE);
-          doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-          doc.text(`Emitido em ${emitDate}  |  Profissional: ${authorName}`, ML, y);
-          y += LINE_H + 4;
-
-          // Seções e campos
-          sections.forEach(section => {
-              y = checkBreak(y, 30);
-
-              // Título da seção — faixa colorida ABNT
-              doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
-              doc.rect(ML, y, maxW, 7, 'F');
-              doc.setFont('helvetica', 'bold');
-              doc.setFontSize(SMALL_SIZE);
-              doc.setTextColor(255, 255, 255);
-              doc.text(section.title.toUpperCase(), ML + 3, y + 5);
-              y += 11;
-
-              section.fields.forEach(field => {
-                  // Ignora campos sem valor
-                  const hasValue = field.value !== undefined && field.value !== null && field.value !== ''
-                      && !(Array.isArray(field.value) && field.value.length === 0);
-                  if (!hasValue) return;
-
-                  y = checkBreak(y, 22);
-
-                  // Rótulo do campo
-                  doc.setFont('helvetica', 'bold');
-                  doc.setFontSize(LABEL_SIZE);
-                  doc.setTextColor(BRAND.r, BRAND.g, BRAND.b);
-                  doc.text(field.label.toUpperCase(), ML, y);
-                  y += 5;
-
-                  // Valor do campo
-                  y = renderValue(field, ML, y, maxW);
-              });
-
-              y += 4;
+          const auditCode = currentAuditCode || 'RASCUNHO';
+          const blob = await PDFGenerator.generateFromSections({
+              docType: type,
+              student: selectedStudent,
+              user,
+              school: schoolCfg,
+              sections: sections.map(sec => ({
+                  title:  sec.title,
+                  fields: sec.fields.map(f => ({
+                      label:    f.label,
+                      value:    f.value,
+                      type:     f.type,
+                      maxScale: (f as any).maxScale,
+                  })),
+              })),
+              auditCode,
           });
-
-          // Bloco de assinaturas (se couber na página atual)
-          if (y < contentBottom - 40) {
-              y += 8;
-              doc.setFont('helvetica', 'bold');
-              doc.setFontSize(LABEL_SIZE);
-              doc.setTextColor(DARK.r, DARK.g, DARK.b);
-              doc.text('ASSINATURAS', ML, y);
-              y += 8;
-              const sigLabels = ['Professor Regente', 'Professor AEE', 'Coordenação', 'Responsável'];
-              const sigW = maxW / sigLabels.length;
-              sigLabels.forEach((label, i) => {
-                  const sx = ML + i * sigW;
-                  doc.setDrawColor(GRAY.r, GRAY.g, GRAY.b);
-                  doc.setLineWidth(0.3);
-                  doc.line(sx, y + 14, sx + sigW - 4, y + 14);
-                  doc.setFont('helvetica', 'normal');
-                  doc.setFontSize(SMALL_SIZE);
-                  doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-                  doc.text(label, sx + (sigW - 4) / 2, y + 19, { align: 'center' });
-              });
-          }
-
-          // Rodapé em todas as páginas
-          const totalPages = doc.internal.getNumberOfPages();
-          for (let i = 1; i <= totalPages; i++) {
-              doc.setPage(i);
-              addFooter();
-          }
-
-          doc.save(`${type}_${studentName.replace(/\s+/g, '_')}.pdf`);
-
+          PDFGenerator.download(blob, `${type}_${selectedStudent.name.replace(/\s+/g, '_')}.pdf`);
       } catch (e) {
           console.error(e);
           alert('Erro ao gerar PDF.');
@@ -1166,6 +1024,7 @@ const planLimits = getPlanLimits(user.plan);
                         <div className="bg-brand-50 p-4 rounded-full mb-4 group-hover:bg-brand-100 transition"><Sparkles size={24} className="text-brand-600"/></div>
                         <h3 className="text-lg font-bold text-gray-900">Gerar com IA</h3>
                         <p className="text-xs text-gray-500 mt-2">Cria um rascunho com base nos dados do aluno.</p>
+                        <CreditBadge type={type} />
                         {isGenerating && <span className="text-brand-600 text-xs font-bold mt-2 animate-pulse">Gerando...</span>}
                     </button>
 
@@ -1471,7 +1330,13 @@ const planLimits = getPlanLimits(user.plan);
                                 {f.allowAudio !== 'only' && (
                                     isEditing ? (
                                         f.type === 'textarea' ? (
-                                            <SmartTextarea value={f.value} onChange={(v) => handleFieldChange(i, j, v)} placeholder={f.placeholder} />
+                                            <AudioEnhancedTextarea
+                                              fieldId={f.id}
+                                              value={String(f.value ?? '')}
+                                              onChange={(v) => handleFieldChange(i, j, v)}
+                                              placeholder={f.placeholder}
+                                              rows={5}
+                                            />
                                         ) : f.type === 'scale' ? (
                                             <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                                                 <div className="flex gap-6 items-center mb-4 justify-center">
@@ -1495,11 +1360,12 @@ const planLimits = getPlanLimits(user.plan);
                                                     })}
                                                     <span className="text-xs font-bold text-gray-400 uppercase">Avançado</span>
                                                 </div>
-                                                <textarea 
-                                                    className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-500 outline-none min-h-[80px]"
+                                                <AudioEnhancedTextarea
+                                                    fieldId="observacoes"
                                                     placeholder="Observações sobre o nível de desempenho..."
-                                                    value={typeof f.value === 'object' ? f.value.text : ''}
-                                                    onChange={e => handleFieldChange(i, j, { ...(typeof f.value === 'object' ? f.value : { rating: Number(f.value) }), text: e.target.value })}
+                                                    value={typeof f.value === 'object' ? (f.value.text ?? '') : ''}
+                                                    onChange={v => handleFieldChange(i, j, { ...(typeof f.value === 'object' ? f.value : { rating: Number(f.value) }), text: v })}
+                                                    rows={3}
                                                 />
                                             </div>
                                         ) : f.type === 'checklist' ? (

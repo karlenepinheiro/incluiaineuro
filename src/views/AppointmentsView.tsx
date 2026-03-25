@@ -15,6 +15,7 @@ import {
   Edit2,
 } from 'lucide-react';
 import { Appointment, Student, User as UserType } from '../types';
+import { AudioEnhancedTextarea } from '../components/AudioEnhancedTextarea';
 
 const C = {
   bg: '#F6F4EF',
@@ -578,13 +579,12 @@ export const AppointmentsView: React.FC<AppointmentsViewProps> = ({
               </Field>
 
               <Field label="Observações">
-                <textarea
-                  rows={3}
-                  className="w-full rounded-xl px-4 py-2.5 text-sm outline-none resize-none"
-                  style={{ border: `1.5px solid ${C.border}`, background: C.bg }}
+                <AudioEnhancedTextarea
+                  fieldId="observacoes"
                   value={form.notes ?? ''}
-                  onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                  onChange={v => setForm(f => ({ ...f, notes: v }))}
                   placeholder="Informações adicionais..."
+                  rows={3}
                 />
               </Field>
             </div>

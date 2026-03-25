@@ -1,3 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Shadcn/ui CSS variables — mapeados para a paleta IncluiAI */
+    --background: 40 20% 97%;        /* bg-app #F6F4EF */
+    --foreground: 220 30% 25%;       /* dark #2E3A59 */
+    --card: 0 0% 100%;
+    --card-foreground: 220 30% 25%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 30% 25%;
+    --primary: 196 51% 24%;          /* petrol #1F4E5F */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 40 20% 92%;
+    --secondary-foreground: 196 51% 24%;
+    --muted: 40 15% 90%;
+    --muted-foreground: 220 20% 50%;
+    --accent: 43 79% 42%;            /* gold #C69214 */
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 36 22% 87%;            /* border #E7E2D8 */
+    --input: 36 22% 87%;
+    --ring: 196 51% 24%;
+    --radius: 0.625rem;
+    --chart-1: 196 51% 24%;
+    --chart-2: 43 79% 42%;
+    --chart-3: 25 95% 53%;
+    --chart-4: 220 30% 25%;
+    --chart-5: 196 40% 50%;
+  }
+}
+
 /* Global base */
 :root { color-scheme: light; }
 html, body { height: 100%; }

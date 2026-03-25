@@ -1,13 +1,45 @@
 // aiService.ts
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { supabase } from "./supabase";
 import { User, DocumentType, Student, DocumentAnalysis } from "../types";
+import { AiAuditService } from "./persistenceService";
+
+// Ignora o aviso de tipos do TypeScript para o mammoth
+// @ts-ignore
+import * as mammoth from 'mammoth';
+
+// ─── FUNÇÃO GLOBAL DE LIMPEZA DE JSON ─────────────────────────────────────────
+export function cleanJsonString(raw: string): string {
+  let s = raw.trim();
+  s = s.replace(/\uFEFF/g, '');
+  
+  const start = s.indexOf('{');
+  const startArr = s.indexOf('[');
+  if (start !== -1 || startArr !== -1) {
+    const firstBrace = start >= 0 ? start : Infinity;
+    const firstBracket = startArr >= 0 ? startArr : Infinity;
+    const startIndex = Math.min(firstBrace, firstBracket);
+    
+    const end = s.lastIndexOf('}');
+    const endArr = s.lastIndexOf(']');
+    const lastBrace = end >= 0 ? end : -Infinity;
+    const lastBracket = endArr >= 0 ? endArr : -Infinity;
+    const endIndex = Math.max(lastBrace, lastBracket);
+    
+    if (endIndex > startIndex) {
+      s = s.substring(startIndex, endIndex + 1);
+    } else {
+      s = s.substring(startIndex);
+    }
+  }
+  return s;
+}
 
 // --- CONFIGURAÇÃO DE IA (MULTI PROVIDER) ---
 export interface AIProvider {
   generateText(prompt: string, imageBase64?: string): Promise<string>;
   generateJSON(prompt: string): Promise<string>;
-  generateImage(prompt: string): Promise<string>; // New method
+  generateImage(prompt: string): Promise<string>; 
 }
 
 export interface ActivityGenOptions {
@@ -16,7 +48,7 @@ export interface ActivityGenOptions {
   grade?: string;
   period?: string;
   teacherActivity?: boolean;
-  imageBase64?: string; // optional image context (upload) to help generation
+  imageBase64?: string;
 }
 
 export interface ActivityImageOptions {
@@ -26,89 +58,97 @@ export interface ActivityImageOptions {
   period?: string;
 }
 
-// 1. PROVIDER: GOOGLE GEMINI
+// 1. PROVIDER: GOOGLE GEMINI (Atualizado para a biblioteca correta)
 class GeminiProvider implements AIProvider {
-  private client: GoogleGenAI | null;
-  private modelId = "gemini-1.5-flash"; // modelo estável e disponível via API
-  private imageModelId = "gemini-1.5-flash"; // fallback seguro
+  private client: GoogleGenerativeAI | null;
+  private modelId = "gemini-2.5-flash"; 
 
   constructor() {
     const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (import.meta as any).env?.VITE_GOOGLE_API_KEY || (import.meta as any).env?.VITE_API_KEY || (process as any)?.env?.API_KEY;
-    this.client = apiKey ? new GoogleGenAI({ apiKey }) : null;
+    this.client = apiKey ? new GoogleGenerativeAI(apiKey) : null;
   }
 
   async generateText(prompt: string, imageBase64?: string): Promise<string> {
-    if (!this.client) return "ERRO: Chave API do Google Gemini não configurada.";
-    
+    if (!this.client) {
+      throw new Error(
+        'Chave de API do Gemini não encontrada. Verifique VITE_GEMINI_API_KEY no arquivo .env e reinicie o servidor.'
+      );
+    }
+
     const parts: any[] = [{ text: prompt }];
+    
     if (imageBase64) {
-      parts.push({
-        inlineData: {
-            mimeType: "image/jpeg",
-            data: imageBase64.split(',')[1] || imageBase64
+      const mimeMatch = imageBase64.match(/^data:([^;]+);base64,/);
+      const mimeType = mimeMatch?.[1] || 'image/jpeg';
+      const data = imageBase64.split(',')[1] || imageBase64;
+
+      // Intercepta qualquer documento DOCX antes de chegar à IA
+      if (mimeType.includes('wordprocessingml') || mimeType.includes('officedocument.wordprocessingml.document')) {
+        console.info('[Gemini] Arquivo DOCX detectado no generateText. Extraindo texto com Mammoth...');
+        try {
+          const binaryString = atob(data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          
+          const result = await mammoth.extractRawText({ arrayBuffer: bytes.buffer });
+          const docText = result.value.trim();
+
+          if (!docText) throw new Error("Documento vazio.");
+
+          parts[0].text += `\n\n[CONTEÚDO DO DOCUMENTO ANEXADO]:\n${docText}`;
+        } catch (e) {
+          console.error('[Gemini] Falha ao ler DOCX:', e);
+          throw new Error("Não foi possível ler o documento Word. O arquivo pode estar corrompido.");
         }
-      });
+      } else {
+        parts.push({ inlineData: { mimeType, data } });
+      }
     }
 
     try {
-        const response = await this.client.models.generateContent({
-            model: this.modelId,
-            contents: { parts }
-        });
-        return response.text || "";
-    } catch (e) {
-        console.error("Gemini Error", e);
-        throw new Error("Falha na geração com Gemini");
+      const model = this.client.getGenerativeModel({ model: this.modelId });
+      const response = await model.generateContent(parts);
+      const text = response.response.text();
+      return text;
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      console.error('[Gemini] generateText ERRO:', msg, e);
+      throw new Error(`Gemini (${this.modelId}): ${msg}`);
     }
   }
 
   async generateJSON(prompt: string): Promise<string> {
-      if (!this.client) return "{}";
-      const parts = [{ text: prompt }];
+    if (!this.client) {
+      throw new Error(
+        'Chave de API do Gemini não encontrada. Verifique VITE_GEMINI_API_KEY no arquivo .env e reinicie o servidor.'
+      );
+    }
+
+    try {
+      const model = this.client.getGenerativeModel({
+        model: this.modelId,
+        generationConfig: { responseMimeType: 'application/json' },
+      });
+      const response = await model.generateContent(prompt);
+      return cleanJsonString(response.response.text());
+    } catch (e: any) {
+      console.warn('[Gemini] generateJSON com responseMimeType falhou, tentando sem:', e?.message);
       try {
-        const response = await this.client.models.generateContent({
-            model: this.modelId,
-            contents: { parts },
-            config: { responseMimeType: "application/json" }
-        });
-        return response.text || "{}";
-    } catch (e) {
-        console.error("Gemini JSON Error", e);
-        throw new Error("Falha na geração JSON com Gemini");
+        const fallbackModel = this.client.getGenerativeModel({ model: this.modelId });
+        const response2 = await fallbackModel.generateContent(prompt + '\n\nResposta em JSON puro:');
+        return cleanJsonString(response2.response.text());
+      } catch (e2: any) {
+        const msg = e2?.message || String(e2);
+        console.error('[Gemini] generateJSON ERRO final:', msg);
+        throw new Error(`Gemini JSON (${this.modelId}): ${msg}`);
+      }
     }
   }
 
   async generateImage(prompt: string): Promise<string> {
-      if (!this.client) return "";
-      try {
-          // Try Imagen 3 for text-to-image generation
-          const response = await (this.client.models as any).generateImages({
-              model: 'imagen-3.0-generate-001',
-              prompt,
-              config: { numberOfImages: 1, aspectRatio: '1:1' },
-          });
-          const img = response?.generatedImages?.[0]?.image?.imageBytes;
-          if (img) return `data:image/png;base64,${img}`;
-
-          // Fallback: gemini multimodal with image output request
-          const r2 = await this.client.models.generateContent({
-              model: 'gemini-2.0-flash-exp',
-              contents: { parts: [{ text: `Generate an educational illustration: ${prompt}` }] },
-              config: { responseModalities: ['IMAGE', 'TEXT'] } as any,
-          });
-          if (r2.candidates?.[0]?.content?.parts) {
-              for (const part of r2.candidates[0].content.parts) {
-                  if ((part as any).inlineData) {
-                      const d = (part as any).inlineData;
-                      return `data:${d.mimeType};base64,${d.data}`;
-                  }
-              }
-          }
-          return "";
-      } catch (e) {
-          console.error("[GeminiProvider] generateImage error:", e);
-          return "";
-      }
+      return ""; // O Gemini via GenerativeAI requer configurações adicionais para imagens. Mantemos o fallback vazio por segurança.
   }
 }
 
@@ -122,42 +162,62 @@ class OpenAIProvider implements AIProvider {
     }
 
     async generateText(prompt: string, imageBase64?: string): Promise<string> {
-        if (!this.apiKey) return "ERRO: Chave API da OpenAI não configurada.";
-        const messages: any[] = [{ role: "user", content: [] }];
-        messages[0].content.push({ type: "text", text: prompt });
-        if (imageBase64) {
-            messages[0].content.push({ type: "image_url", image_url: { url: imageBase64 } });
+        if (!this.apiKey) {
+            throw new Error('Chave de API da OpenAI não encontrada. Verifique VITE_OPENAI_API_KEY no .env.');
         }
+        const messages: any[] = [{ role: 'user', content: [] }];
+        messages[0].content.push({ type: 'text', text: prompt });
+        if (imageBase64) {
+            messages[0].content.push({ type: 'image_url', image_url: { url: imageBase64 } });
+        }
+        console.info(`[OpenAI] generateText — modelo: ${this.modelId}`);
         try {
-            const response = await fetch("https://api.openai.com/v1/chat/completions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${this.apiKey}` },
-                body: JSON.stringify({ model: this.modelId, messages: messages })
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
+                body: JSON.stringify({ model: this.modelId, messages }),
             });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(`HTTP ${response.status}: ${(err as any)?.error?.message || response.statusText}`);
+            }
             const data = await response.json();
-            return data.choices?.[0]?.message?.content || "";
-        } catch (e) { console.error(e); throw new Error("Falha na geração"); }
+            return data.choices?.[0]?.message?.content || '';
+        } catch (e: any) {
+            console.error('[OpenAI] generateText ERRO:', e?.message);
+            throw new Error(`OpenAI (${this.modelId}): ${e?.message || e}`);
+        }
     }
 
     async generateJSON(prompt: string): Promise<string> {
-        if (!this.apiKey) return "{}";
+        if (!this.apiKey) {
+            throw new Error('Chave de API da OpenAI não encontrada. Verifique VITE_OPENAI_API_KEY no .env.');
+        }
+        console.info(`[OpenAI] generateJSON — modelo: ${this.modelId}`);
         try {
-            const response = await fetch("https://api.openai.com/v1/chat/completions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${this.apiKey}` },
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
                 body: JSON.stringify({
                     model: this.modelId,
-                    messages: [{ role: "user", content: prompt }],
-                    response_format: { type: "json_object" }
-                })
+                    messages: [{ role: 'user', content: prompt }],
+                    response_format: { type: 'json_object' },
+                }),
             });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(`HTTP ${response.status}: ${(err as any)?.error?.message || response.statusText}`);
+            }
             const data = await response.json();
-            return data.choices?.[0]?.message?.content || "{}";
-        } catch (e) { console.error(e); throw new Error("Falha na geração JSON"); }
+            const raw = data.choices?.[0]?.message?.content || '{}';
+            return cleanJsonString(raw);
+        } catch (e: any) {
+            console.error('[OpenAI] generateJSON ERRO:', e?.message);
+            throw new Error(`OpenAI JSON (${this.modelId}): ${e?.message || e}`);
+        }
     }
 
     async generateImage(_prompt: string): Promise<string> {
-        // Not implemented for OpenAI in this project scope
         return "";
     }
 }
@@ -176,22 +236,16 @@ class FallbackProvider implements AIProvider {
 
     async generateText(prompt: string, imageBase64?: string): Promise<string> {
         if (this.hasGemini) {
-            try { return await this.gemini.generateText(prompt, imageBase64); } catch {}
+            return this.gemini.generateText(prompt, imageBase64);
         }
-        if (this.hasOpenAI) {
-            return this.openai.generateText(prompt, imageBase64);
-        }
-        return "ERRO: Nenhuma chave de API configurada (Gemini ou OpenAI).";
+        throw new Error('Chave de API do Gemini não encontrada.');
     }
 
     async generateJSON(prompt: string): Promise<string> {
         if (this.hasGemini) {
-            try { return await this.gemini.generateJSON(prompt); } catch {}
+            return this.gemini.generateJSON(prompt);
         }
-        if (this.hasOpenAI) {
-            return this.openai.generateJSON(prompt);
-        }
-        return "{}";
+        throw new Error('Chave de API do Gemini não encontrada.');
     }
 
     async generateImage(prompt: string): Promise<string> {
@@ -202,36 +256,38 @@ class FallbackProvider implements AIProvider {
     }
 }
 
-// --- SELECTOR DO PROVIDER (FALLBACK: Gemini → OpenAI) ---
 const aiProvider: AIProvider = new FallbackProvider();
 
-// --- TABELA DE CUSTOS (CRÉDITOS) ---
-const CREDIT_COSTS: Record<string, number> = {
-  ESTUDO_DE_CASO: 2,
-  PEI: 2,
-  PAEE: 2,
-  PDI: 2,
-  ATIVIDADE: 1,
-  ATIVIDADE_IMAGEM: 2,
+export const CREDIT_COSTS: Record<string, number> = {
+  // Documentos pedagogicos
+  ESTUDO_DE_CASO:    2,
+  PEI:               3,   // PEI e mais complexo — 3 creditos
+  PAEE:              2,
+  PDI:               2,
+  // Atividades
+  ATIVIDADE:         1,
+  ATIVIDADE_IMAGEM:  2,
+  // Analise e adaptacao
   ANALISE_DOCUMENTO: 2,
-  OCR: 1,
+  OCR:               1,
   ADAPTAR_ATIVIDADE: 2,
-  RELATORIO: 2,
+  RELATORIO:         2,
+  // Modelo personalizado
+  TEMPLATE:          3,
 };
 
 export const AIService = {
 
-  /** Retorna créditos restantes do tenant. Retorna -1 se não for possível obter. */
   async getRemainingCredits(user: User): Promise<number> {
     if (!user || !user.tenant_id) return -1;
     try {
       const { data, error } = await supabase
-        .from('tenants')
-        .select('creditos_ia_restantes, credits')
-        .eq('id', user.tenant_id)
+        .from('credits_wallet')
+        .select('balance')
+        .eq('tenant_id', user.tenant_id)
         .maybeSingle();
       if (error) return -1;
-      const val = Number((data as any)?.creditos_ia_restantes ?? (data as any)?.credits ?? -1);
+      const val = Number((data as any)?.balance ?? -1);
       return Number.isFinite(val) ? val : -1;
     } catch {
       return -1;
@@ -239,18 +295,19 @@ export const AIService = {
   },
 
   async checkCredits(user: User, cost: number = 1): Promise<boolean> {
-      // In production deployments, credit columns vary. Prefer creditos_ia_restantes;
-      // fall back to credits if present. If table/column is missing, do NOT block generation.
       if (!user || !(user as any).tenant_id) return true;
       try {
-        const { data: tenant, error } = await supabase
-          .from('tenants')
-          .select('creditos_ia_restantes, credits')
-          .eq('id', (user as any).tenant_id)
+        const { data, error } = await supabase
+          .from('credits_wallet')
+          .select('balance')
+          .eq('tenant_id', (user as any).tenant_id)
           .maybeSingle();
-        if (error) throw error;
-        const remaining = Number((tenant as any)?.creditos_ia_restantes ?? (tenant as any)?.credits ?? 0);
-        // If remaining is NaN, allow (better UX than blocking on schema mismatch)
+        if (error) {
+          console.warn('[AIService] credit check error:', error.message);
+          return true; 
+        }
+        if (!data) return true; 
+        const remaining = Number((data as any)?.balance ?? 0);
         if (Number.isNaN(remaining)) return true;
         return remaining >= cost;
       } catch (e) {
@@ -262,37 +319,44 @@ export const AIService = {
   async deductCredits(user: User, action: string, cost: number) {
       if (!user || !(user as any).tenant_id) return;
       try {
-        const { data: tenant, error } = await supabase
-          .from('tenants')
-          .select('creditos_ia_restantes, credits')
-          .eq('id', (user as any).tenant_id)
+        const tenantId  = (user as any).tenant_id;
+        const userId    = (user as any).id ?? null;
+
+        // 1. Atualiza credits_wallet
+        const { data: wallet, error: readErr } = await supabase
+          .from('credits_wallet')
+          .select('id, balance')
+          .eq('tenant_id', tenantId)
           .maybeSingle();
-        if (error) throw error;
 
-        const current = Number((tenant as any)?.creditos_ia_restantes ?? (tenant as any)?.credits ?? 0);
-        if (!Number.isFinite(current)) return;
-        const next = Math.max(0, current - cost);
+        if (readErr) console.warn('[AIService] deductCredits read error:', readErr.message);
 
-        // Prefer updating creditos_ia_restantes; fall back to credits.
-        const patch: any = {};
-        if ((tenant as any)?.creditos_ia_restantes !== undefined) patch.creditos_ia_restantes = next;
-        else patch.credits = next;
+        if (wallet) {
+          const current = Number((wallet as any).balance ?? 0);
+          const next    = Math.max(0, current - cost);
+          const { error: updateErr } = await supabase
+            .from('credits_wallet')
+            .update({ balance: next, updated_at: new Date().toISOString() })
+            .eq('id', (wallet as any).id);
+          if (updateErr) console.warn('[AIService] deductCredits wallet update error:', updateErr.message);
+        } else {
+          console.warn('[AIService] credits_wallet nao encontrado para tenant', tenantId);
+        }
 
-        await supabase.from('tenants').update(patch).eq('id', (user as any).tenant_id);
-
-        // credit_usage may not exist in some schemas; ignore failures.
-        await supabase.from('credit_usage').insert({
-          tenant_id: (user as any).tenant_id,
-          user_id: user.id,
-          action,
-          cost,
-          created_at: new Date().toISOString(),
+        // 2. Registra no ledger com todos os campos obrigatorios
+        const { error: ledgerErr } = await supabase.from('credits_ledger').insert({
+          tenant_id:   tenantId,
+          user_id:     userId,
+          type:        'usage_ai',
+          amount:      -cost,
+          description: 'IA: ' + action,
         });
+        if (ledgerErr) console.warn('[AIService] credits_ledger insert error:', ledgerErr.message);
+
       } catch (e) {
-        console.warn('[AIService] credit deduction skipped due to schema/config error', e);
+        console.warn('[AIService] deductCredits unexpected error:', e);
       }
   },
-
   async generateProtocol(type: any, student: Student, user: User, laudo?: string): Promise<string> {
       const cost = CREDIT_COSTS[type] || 1;
       if (!(await this.checkCredits(user, cost))) throw new Error(`Saldo insuficiente.`);
@@ -307,6 +371,16 @@ export const AIService = {
   async generateProtocolJSON(type: any, student: Student, user: User): Promise<string> {
       const cost = CREDIT_COSTS[type] || 1;
       if (!(await this.checkCredits(user, cost))) throw new Error(`Saldo insuficiente.`);
+
+      const auditId = await AiAuditService.logRequest({
+        tenantId: (user as any).tenant_id ?? '',
+        userId: user.id,
+        requestType: `protocol_${String(type).toLowerCase()}`,
+        model: 'gemini-2.5-flash',
+        creditsConsumed: cost,
+        inputData: { studentId: student.id, studentName: student.name, docType: type },
+      });
+      const t0 = Date.now();
 
       const docLabel = String(type);
       const diagnosis = (student.diagnosis || []).join(', ') || 'Não informado';
@@ -359,12 +433,50 @@ Regras obrigatórias:
 - O conteúdo deve ser completo, útil e pronto para uso educacional
 - Baseie-se nas melhores práticas de educação inclusiva brasileira e na LDBEN/Lei Brasileira de Inclusão`;
 
-      const jsonResult = await aiProvider.generateJSON(prompt);
+      let jsonResult: string;
+      try {
+        jsonResult = await aiProvider.generateJSON(prompt);
+      } catch (e: any) {
+        const msg = e?.message || String(e);
+        console.error('[AIService.generateProtocolJSON] Falha na geração:', msg);
+        if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0 });
+        throw new Error(msg);
+      }
+
+      try {
+        JSON.parse(jsonResult);
+      } catch (parseErr) {
+        console.warn('[AIService.generateProtocolJSON] Resposta não é JSON válido após limpeza:', jsonResult.slice(0, 300));
+        const fallback = {
+          sections: [
+            {
+              id: 'sec1',
+              title: 'Identificação do Aluno',
+              fields: [
+                { id: 'f1', label: 'Nome', type: 'text', value: student.name },
+                { id: 'f2', label: 'Diagnóstico', type: 'text', value: (student.diagnosis || []).join(', ') || '—' },
+                { id: 'f3', label: 'Nível de Suporte', type: 'text', value: student.supportLevel || 'Nível 1' },
+              ],
+            },
+            {
+              id: 'sec2',
+              title: 'Objetivo do Documento',
+              fields: [
+                { id: 'f4', label: 'Objetivo Geral', type: 'textarea', value: `Documento ${docLabel} para acompanhamento pedagógico de ${student.name}. Preencha os campos conforme as necessidades observadas.` },
+              ],
+            },
+          ],
+        };
+        await this.deductCredits(user, type, Math.floor(cost / 2));
+        if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: 'parse_error_fallback' });
+        return JSON.stringify(fallback);
+      }
+
       await this.deductCredits(user, type, cost);
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'json', content: jsonResult.slice(0, 500) });
       return jsonResult;
   },
 
-  // Análise de documento por nome/URL — interface simplificada usada pelo StudentProfile
   async analyzeDocument(name: string, _urlOrBase64: string | undefined, student: Student, user: User): Promise<any> {
       const cost = CREDIT_COSTS.ANALISE_DOCUMENTO || 2;
       if (!(await this.checkCredits(user, cost))) throw new Error("Saldo insuficiente para análise.");
@@ -418,6 +530,16 @@ Gere uma análise pedagógica completa. RETORNE SOMENTE o JSON válido:
       const cost = 1;
       if (!(await this.checkCredits(user, cost))) throw new Error(`Saldo insuficiente.`);
 
+      const auditId = await AiAuditService.logRequest({
+        tenantId: (user as any).tenant_id ?? '',
+        userId: user.id,
+        requestType: 'activity',
+        model: 'gemini-2.5-flash',
+        creditsConsumed: cost,
+        inputData: { studentId: student.id, topic },
+      });
+      const t0 = Date.now();
+
       const normalized: ActivityGenOptions = (() => {
         if (!options) return {};
         if (typeof options === 'string') return { imageBase64: options };
@@ -429,7 +551,7 @@ Gere uma análise pedagógica completa. RETORNE SOMENTE o JSON válido:
       const grade = normalized.grade?.trim();
       const period = normalized.period?.trim();
 
-      const asTeacher = normalized.teacherActivity !== false; // default true
+      const asTeacher = normalized.teacherActivity !== false; 
 
       const formatTeacher = asTeacher ? `
 Inclua também:
@@ -479,22 +601,27 @@ Regras:
 - Linguagem direta, adequada ao aluno e à família.
 - Se BNCC estiver vazio, sugira **1–2** códigos plausíveis e marque como "Sugestão".`;
 
-      const textResult = await aiProvider.generateText(prompt, normalized.imageBase64);
+      let textResult: string;
+      try {
+        textResult = await aiProvider.generateText(prompt, normalized.imageBase64);
+      } catch (e: any) {
+        if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0 });
+        throw e;
+      }
       await this.deductCredits(user, 'ATIVIDADE', cost);
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'text', content: textResult.slice(0, 500) });
       return textResult;
   },
 
   async generateActivityImage(description: string, student: Student, user: User, options?: ActivityImageOptions): Promise<{imageUrl: string, guidance: string}> {
-      const cost = 2; // Higher cost for image
+      const cost = 2; 
       if (!(await this.checkCredits(user, cost))) throw new Error("Saldo insuficiente para imagem.");
 
-      // 1. Generate Guidance
       const bncc = (options?.bnccCodes || []).filter(Boolean);
       const discipline = options?.discipline?.trim();
       const grade = options?.grade?.trim();
       const period = options?.period?.trim();
 
-      // 1. Generate Guidance (teacher-facing)
       const guidancePrompt = `Você é professora AEE/inclusão. Crie orientações de aplicação para uma atividade visual sobre "${description}".
 Estudante:
 - Nome: ${student.name}
@@ -514,7 +641,6 @@ Entregue em Markdown com:
 4) **Checklist de evidências para avaliação**`;
       const guidance = await aiProvider.generateText(guidancePrompt);
 
-      // 2. Generate Image
       const imagePrompt = `Ilustração educativa infantil para impressão (A4), traço limpo, alto contraste, poucos elementos, sem texto.
 Tema: ${description}
 Estilo: material pedagógico, amigável, inclusivo, cores suaves, fundo branco, foco no conteúdo principal.`;
@@ -534,7 +660,6 @@ Retorne JSON com: resumo, achados, recomendações, sinais de alerta, e sugestõ
       const analysisText = await aiProvider.generateText(prompt, fileBase64);
       await this.deductCredits(user, 'ANALISE_DOCUMENTO', cost);
 
-      // Best-effort parse to DocumentAnalysis; fallback minimal
       try {
           const parsed = JSON.parse(analysisText);
           return parsed;
@@ -543,7 +668,6 @@ Retorne JSON com: resumo, achados, recomendações, sinais de alerta, e sugestõ
       }
   },
 
-  // ─── IncluiLab helpers ────────────────────────────────────────────────────
   async generateFromPrompt(prompt: string, _user: User): Promise<string> {
       return aiProvider.generateJSON(prompt);
   },
@@ -552,7 +676,6 @@ Retorne JSON com: resumo, achados, recomendações, sinais de alerta, e sugestõ
       return aiProvider.generateText(prompt, imageBase64);
   },
 
-  /** Gera uma imagem via provider e debita créditos */
   async generateImageFromPrompt(prompt: string, user: User): Promise<string> {
       const cost = CREDIT_COSTS.ATIVIDADE_IMAGEM || 2;
       if (!(await this.checkCredits(user, cost))) throw new Error('Saldo de créditos insuficiente.');
@@ -561,12 +684,10 @@ Retorne JSON com: resumo, achados, recomendações, sinais de alerta, e sugestõ
       return result;
   },
 
-  /** Gera apenas texto (sem JSON) — usado pelo IncluiLAB */
   async generateTextFromPrompt(prompt: string, _user: User): Promise<string> {
       return aiProvider.generateText(prompt);
   },
 
-  /** Extrai texto de uma imagem via OCR usando LLM visão */
   async extractTextFromImage(base64: string, user: User): Promise<string> {
       const cost = CREDIT_COSTS.OCR || 1;
       if (!(await this.checkCredits(user, cost))) throw new Error('Saldo insuficiente para OCR.');
@@ -578,7 +699,6 @@ Retorne somente o texto extraído, sem comentários adicionais.`;
       return result;
   },
 
-  /** Gera relatório pedagógico a partir de contexto extraído + instrução */
   async generateReport(context: string, instruction: string, user: User): Promise<string> {
       const cost = CREDIT_COSTS.RELATORIO || 2;
       if (!(await this.checkCredits(user, cost))) throw new Error('Saldo insuficiente para gerar relatório.');
@@ -592,7 +712,6 @@ Retorne somente o texto extraído, sem comentários adicionais.`;
       return result;
   },
 
-  /** Adapta texto de atividade para um diagnóstico específico */
   async adaptActivityText(text: string, diagnosis: string, grade: string, user: User): Promise<string> {
       const cost = CREDIT_COSTS.ADAPTAR_ATIVIDADE || 2;
       if (!(await this.checkCredits(user, cost))) throw new Error('Saldo insuficiente para adaptar atividade.');
@@ -631,18 +750,6 @@ Retorne SOMENTE a atividade adaptada, pronta para uso.`;
       return result;
   },
 
-  /**
-   * Salva atividade gerada pelo AtivaIA no Supabase.
-   * Requer tabela `generated_activities` com colunas:
-   *   id uuid default gen_random_uuid(), tenant_id uuid, user_id uuid,
-   *   student_id uuid nullable, title text, template_type text,
-   *   content text, image_count int default 0, credits_used int default 0,
-   *   created_at timestamptz default now()
-   *
-   * Se student_id fornecido, insere também em `timeline_events`:
-   *   id uuid, tenant_id uuid, student_id uuid, type text, title text,
-   *   description text, linked_id uuid, author text, date date, created_at timestamptz
-   */
   async saveGeneratedActivity(params: {
     user: User;
     title: string;
@@ -654,9 +761,6 @@ Retorne SOMENTE a atividade adaptada, pronta para uso.`;
   }): Promise<{ id: string }> {
     const { user, title, templateType, content, imageCount, creditsUsed, studentId } = params;
 
-    // Colunas corretas conforme schema_additions.sql:
-    //   title, content, tags[], is_adapted, credits_used
-    //   NÃO existem: template_type, image_count
     const { data, error } = await supabase
       .from('generated_activities')
       .insert({
@@ -675,7 +779,6 @@ Retorne SOMENTE a atividade adaptada, pronta para uso.`;
 
     if (error) throw new Error('Erro ao salvar atividade: ' + error.message);
 
-    // Timeline via student_timeline (tabela correta, não timeline_events)
     if (studentId && data?.id) {
       try {
         await supabase.from('student_timeline').insert({
@@ -690,7 +793,7 @@ Retorne SOMENTE a atividade adaptada, pronta para uso.`;
           author:      user.name,
           event_date:  new Date().toISOString().split('T')[0],
         });
-      } catch {} // non-fatal
+      } catch {} 
     }
 
     return { id: data.id };
