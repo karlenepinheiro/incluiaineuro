@@ -135,15 +135,16 @@ export type ProtocolType = DocumentType;
 // PLAN LIMITS (UI GATES)
 // =====================
 // IMPORTANT:
-// - AQUI NÃO PODE TER 20/40/400.
-// - Estes valores precisam bater com o que você definiu:
-//   FREE: 5 alunos / 0 IA
-//   PRO: 30 alunos / 50 créditos/mês
-//   MASTER: 999 alunos / 70 créditos/mês
+// - Estes valores são lidos de SUBSCRIPTION_PLANS (src/config/aiCosts.ts — fonte única de verdade):
+//   FREE:    5 alunos / 60 créditos/mês
+//   PRO:     30 alunos / 500 créditos/mês
+//   PREMIUM: 9999 alunos (ilimitado) / 700 créditos/mês
+import { SUBSCRIPTION_PLANS } from './config/aiCosts';
+
 export const PLAN_LIMITS = {
   [PlanTier.FREE]: {
-    students: 5,
-    ai_credits: 0,
+    students: SUBSCRIPTION_PLANS.FREE.students,
+    ai_credits: SUBSCRIPTION_PLANS.FREE.credits,
 
     export_word: false,
     audit_print: false,     // free sem código auditável (upsell)
@@ -158,8 +159,8 @@ export const PLAN_LIMITS = {
   },
 
   [PlanTier.PRO]: {
-    students: 30,
-    ai_credits: 50,
+    students: SUBSCRIPTION_PLANS.PRO.students,
+    ai_credits: SUBSCRIPTION_PLANS.PRO.credits,
 
     export_word: false,     // PRO sem Word (se quiser liberar depois, muda aqui)
     audit_print: true,      // PRO com código auditável
@@ -174,9 +175,9 @@ export const PLAN_LIMITS = {
   },
 
   [PlanTier.PREMIUM]: {
-    // PREMIUM = MASTER
-    students: 999,
-    ai_credits: 70,
+    // PREMIUM = MASTER (ilimitado na prática)
+    students: SUBSCRIPTION_PLANS.MASTER.students,
+    ai_credits: SUBSCRIPTION_PLANS.MASTER.credits,
 
     export_word: true,
     audit_print: true,
@@ -421,6 +422,15 @@ export interface Student {
   fichasComplementares?: FichaComplementar[];
 }
 
+export interface ServiceDailyChecklist {
+  desempenho: 1 | 2 | 3 | 4 | 5;        // Desempenho na atividade (1-5)
+  interacao: 1 | 2 | 3 | 4 | 5;          // Interação com pares/profissional (1-5)
+  comportamento: 'adequado' | 'regular' | 'necessita_suporte'; // Comportamento geral
+  progressoAtividade: string;             // Descrição do progresso na atividade
+  estrategiasUsadas: string;              // Estratégias que funcionaram no dia
+  proximosPassos: string;                 // Próximos passos / encaminhamentos
+}
+
 export interface ServiceRecord {
   id: string;
   studentId: string;
@@ -431,6 +441,7 @@ export interface ServiceRecord {
   duration: number;
   observation: string;
   attendance: 'Presente' | 'Falta' | 'Reposição';
+  dailyChecklist?: ServiceDailyChecklist; // Ficha avaliativa diária (opcional)
 }
 
 export interface DocField {
@@ -523,7 +534,14 @@ export interface TenantSummary {
   tenantName?: string;
   subscriptionStatus: SubscriptionStatus;
   planTier: PlanTier;
+  /** Saldo real da carteira (credits_wallet.balance) */
   aiCreditsRemaining: number;
+  /** Créditos mensais incluídos no plano vigente */
+  planCreditsMonthly: number;
+  /** Créditos avulsos adquiridos (sum de purchase_extra no ledger) */
+  creditsPurchased: number;
+  /** Créditos consumidos no ciclo atual (sum de usage_ai no ledger) */
+  creditsConsumedCycle: number;
   studentLimitBase: number;
   studentLimitExtra: number;
   studentsActive: number;
@@ -715,4 +733,30 @@ export interface CeoFinancialKpis {
   canceled_subscribers: number;
   total_tenants: number;
   mrr_estimated: number;
+}
+
+// =====================
+// AI MODEL SELECTION
+// =====================
+
+/** Tipo de saída do modelo: somente texto ou texto com imagem */
+export type AIOutputType = 'text' | 'text_image';
+
+/** Contextos onde cada modelo pode ser utilizado */
+export type AIModelContext = 'reports' | 'activities' | 'incluilab' | 'protocols';
+
+/**
+ * Configuração de um modelo de IA disponível no sistema.
+ * Inclui custo em créditos, tipo de saída e contextos permitidos.
+ */
+export interface AIModelConfig {
+  id: string;
+  name: string;
+  provider: 'gemini' | 'openai' | 'fallback';
+  output_type: AIOutputType;
+  credit_cost: number;
+  active: boolean;
+  allowed_contexts: AIModelContext[];
+  description: string;
+  warning?: string;
 }

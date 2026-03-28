@@ -1,10 +1,10 @@
-// Sprint 5A — Módulo de Triagem
-// Porta de entrada do Estudo de Caso. Módulo próprio com destaque no menu.
+// Sprint 5A — Módulo de Triagem (simplificado)
+// Porta de entrada do Estudo de Caso. Fluxo simplificado: cadastro → laudo sim/não.
 import React, { useMemo, useState } from 'react';
 import {
-  Search, AlertCircle, CheckCircle2, Clock, ArrowRight,
-  FileSearch, UserPlus, ChevronRight, Filter, Zap, Eye,
-  GraduationCap, Users, XCircle,
+  Search, CheckCircle2, Clock, ArrowRight,
+  FileSearch, UserPlus, Eye,
+  GraduationCap, Users, XCircle, FileCheck,
 } from 'lucide-react';
 import { Student, User } from '../types';
 
@@ -22,50 +22,41 @@ const C = {
   green: '#10B981',
 };
 
-// Estágios da triagem — cada aluno avança nessa máquina de estados
+// Estágios simplificados da triagem
 export type TriagemStage =
-  | 'aguardando_checklist'   // recém-cadastrado
-  | 'checklist_preenchido'   // checklist salvo
-  | 'em_analise'             // em análise (IA ou manual)
-  | 'decisao_pendente'       // aguardando decisão institucional
-  | 'concluida_laudo'        // convertido para com_laudo
-  | 'concluida_sem_laudo';   // triagem encerrada sem laudo
+  | 'aguardando_confirmacao'  // recém-cadastrado, laudo não informado
+  | 'sem_laudo'               // confirmado: não possui laudo
+  | 'concluida_laudo'         // convertido para com_laudo
+  | 'concluida_sem_laudo';    // triagem encerrada sem laudo
 
 const STAGE_LABEL: Record<TriagemStage, string> = {
-  aguardando_checklist:  'Aguardando Checklist',
-  checklist_preenchido:  'Checklist Preenchido',
-  em_analise:            'Em Análise',
-  decisao_pendente:      'Decisão Pendente',
-  concluida_laudo:       'Convertido c/ Laudo',
-  concluida_sem_laudo:   'Encerrado s/ Laudo',
+  aguardando_confirmacao: 'Aguardando Confirmação',
+  sem_laudo:              'Sem Laudo',
+  concluida_laudo:        'Convertido c/ Laudo',
+  concluida_sem_laudo:    'Encerrado s/ Laudo',
 };
 
 const STAGE_COLOR: Record<TriagemStage, { bg: string; text: string; border: string }> = {
-  aguardando_checklist: { bg: '#FEF3C7', text: '#92400E', border: '#FDE68A' },
-  checklist_preenchido: { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE' },
-  em_analise:           { bg: '#F0FDF4', text: '#065F46', border: '#A7F3D0' },
-  decisao_pendente:     { bg: '#FFF7ED', text: '#9A3412', border: '#FDBA74' },
-  concluida_laudo:      { bg: '#F0FDF4', text: '#166534', border: '#BBF7D0' },
-  concluida_sem_laudo:  { bg: '#FEF2F2', text: '#991B1B', border: '#FECACA' },
+  aguardando_confirmacao: { bg: '#FEF3C7', text: '#92400E', border: '#FDE68A' },
+  sem_laudo:              { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE' },
+  concluida_laudo:        { bg: '#F0FDF4', text: '#166534', border: '#BBF7D0' },
+  concluida_sem_laudo:    { bg: '#FEF2F2', text: '#991B1B', border: '#FECACA' },
 };
 
 const STAGE_ICON: Record<TriagemStage, React.ReactNode> = {
-  aguardando_checklist: <Clock size={12} />,
-  checklist_preenchido: <CheckCircle2 size={12} />,
-  em_analise:           <Zap size={12} />,
-  decisao_pendente:     <AlertCircle size={12} />,
-  concluida_laudo:      <GraduationCap size={12} />,
-  concluida_sem_laudo:  <XCircle size={12} />,
+  aguardando_confirmacao: <Clock size={12} />,
+  sem_laudo:              <XCircle size={12} />,
+  concluida_laudo:        <GraduationCap size={12} />,
+  concluida_sem_laudo:    <CheckCircle2 size={12} />,
 };
 
-// Derivar estágio atual de um aluno (pode ser refinado com campos futuros)
 function deriveStage(s: Student): TriagemStage {
   if (s.tipo_aluno === 'com_laudo') return 'concluida_laudo';
-  const obs = (s as any).triagem_stage as TriagemStage | undefined;
-  if (obs) return obs;
-  const hasFicha = Array.isArray(s.fichasComplementares) && s.fichasComplementares.length > 0;
-  if (hasFicha) return 'checklist_preenchido';
-  return 'aguardando_checklist';
+  const obs = (s as any).triagem_stage as string | undefined;
+  if (obs && (obs === 'sem_laudo' || obs === 'concluida_sem_laudo')) return obs as TriagemStage;
+  // Se tem diagnóstico informado mas ainda em triagem, consideramos sem_laudo
+  if (Array.isArray(s.diagnosis) && s.diagnosis.length > 0) return 'sem_laudo';
+  return 'aguardando_confirmacao';
 }
 
 interface TriagemViewProps {
@@ -90,7 +81,6 @@ export const TriagemView: React.FC<TriagemViewProps> = ({
   const [search, setSearch] = useState('');
   const [filterStage, setFilterStage] = useState<FilterStage>('all');
 
-  // Apenas alunos em triagem (não inclui com_laudo confirmados, exceto se quiser histórico)
   const triagemStudents = useMemo(() =>
     students.filter(s => s.tipo_aluno === 'em_triagem'),
   [students]);
@@ -107,23 +97,19 @@ export const TriagemView: React.FC<TriagemViewProps> = ({
 
   const stats = useMemo(() => {
     const stages: Record<TriagemStage, number> = {
-      aguardando_checklist: 0,
-      checklist_preenchido: 0,
-      em_analise:           0,
-      decisao_pendente:     0,
-      concluida_laudo:      0,
-      concluida_sem_laudo:  0,
+      aguardando_confirmacao: 0,
+      sem_laudo: 0,
+      concluida_laudo: 0,
+      concluida_sem_laudo: 0,
     };
     triagemStudents.forEach(s => { stages[deriveStage(s)]++; });
     return { total: triagemStudents.length, stages };
   }, [triagemStudents]);
 
   const FILTER_OPTIONS: { id: FilterStage; label: string; count: number }[] = [
-    { id: 'all',                  label: 'Todos',           count: stats.total },
-    { id: 'aguardando_checklist', label: 'Aguardando',      count: stats.stages.aguardando_checklist },
-    { id: 'checklist_preenchido', label: 'Checklist OK',    count: stats.stages.checklist_preenchido },
-    { id: 'em_analise',           label: 'Em Análise',      count: stats.stages.em_analise },
-    { id: 'decisao_pendente',     label: 'Dec. Pendente',   count: stats.stages.decisao_pendente },
+    { id: 'all',                   label: 'Todos',        count: stats.total },
+    { id: 'aguardando_confirmacao', label: 'Aguardando',  count: stats.stages.aguardando_confirmacao },
+    { id: 'sem_laudo',             label: 'Sem Laudo',    count: stats.stages.sem_laudo },
   ];
 
   return (
@@ -145,7 +131,7 @@ export const TriagemView: React.FC<TriagemViewProps> = ({
               </h1>
             </div>
             <p style={{ fontSize: 13, color: C.muted, margin: 0 }}>
-              Acompanhe o processo de triagem de cada aluno · Porta de entrada do Estudo de Caso
+              Cadastre alunos e informe se possuem laudo · Porta de entrada do Estudo de Caso
             </p>
           </div>
           <button
@@ -163,13 +149,12 @@ export const TriagemView: React.FC<TriagemViewProps> = ({
           </button>
         </div>
 
-        {/* ── Estatísticas pipeline ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 28 }}>
+        {/* ── Estatísticas ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 24 }}>
           {([
-            { label: 'Total em Triagem', value: stats.total, color: C.petrol, bg: '#EFF9FF' },
-            { label: 'Aguardando Checklist', value: stats.stages.aguardando_checklist, color: '#92400E', bg: '#FEF3C7' },
-            { label: 'Em Análise', value: stats.stages.em_analise + stats.stages.checklist_preenchido, color: '#065F46', bg: '#F0FDF4' },
-            { label: 'Decisão Pendente', value: stats.stages.decisao_pendente, color: '#9A3412', bg: '#FFF7ED' },
+            { label: 'Total em Triagem',   value: stats.total,                          color: C.petrol,  bg: '#EFF9FF' },
+            { label: 'Aguardando',          value: stats.stages.aguardando_confirmacao,  color: '#92400E', bg: '#FEF3C7' },
+            { label: 'Sem Laudo',           value: stats.stages.sem_laudo,              color: '#1D4ED8', bg: '#EFF6FF' },
           ] as const).map((s, i) => (
             <div key={i} style={{
               background: C.surface, borderRadius: 14, padding: '16px 18px',
@@ -182,36 +167,17 @@ export const TriagemView: React.FC<TriagemViewProps> = ({
           ))}
         </div>
 
-        {/* ── Pipeline visual ── */}
+        {/* ── Fluxo simplificado ── */}
         <div style={{
-          background: C.surface, borderRadius: 14, padding: '16px 20px',
-          border: `1.5px solid ${C.border}`, marginBottom: 24,
-          display: 'flex', alignItems: 'center', gap: 0, overflowX: 'auto',
+          background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12,
+          padding: '14px 18px', marginBottom: 24,
+          display: 'flex', alignItems: 'center', gap: 12,
         }}>
-          {(['aguardando_checklist','checklist_preenchido','em_analise','decisao_pendente'] as TriagemStage[]).map((stage, i, arr) => {
-            const count = stats.stages[stage];
-            const col = STAGE_COLOR[stage];
-            return (
-              <React.Fragment key={stage}>
-                <button
-                  onClick={() => setFilterStage(filterStage === stage ? 'all' : stage)}
-                  style={{
-                    flex: '1 1 0', minWidth: 100, padding: '10px 8px', borderRadius: 8, border: 'none',
-                    background: filterStage === stage ? col.bg : 'transparent',
-                    cursor: 'pointer', textAlign: 'center', transition: 'background 0.15s',
-                  }}
-                >
-                  <div style={{ fontSize: 20, fontWeight: 800, color: col.text }}>{count}</div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: C.muted, whiteSpace: 'nowrap' }}>
-                    {STAGE_LABEL[stage]}
-                  </div>
-                </button>
-                {i < arr.length - 1 && (
-                  <ChevronRight size={14} style={{ color: C.border, flexShrink: 0, margin: '0 2px' }} />
-                )}
-              </React.Fragment>
-            );
-          })}
+          <FileCheck size={18} color={C.amber} style={{ flexShrink: 0 }} />
+          <p style={{ fontSize: 13, color: '#92400E', margin: 0, lineHeight: 1.5 }}>
+            <strong>Fluxo de triagem:</strong> Cadastre o aluno → informe se possui laudo →
+            inicie o Estudo de Caso para gerar documentos pedagógicos.
+          </p>
         </div>
 
         {/* ── Busca + filtro ── */}
@@ -261,7 +227,7 @@ export const TriagemView: React.FC<TriagemViewProps> = ({
             background: C.surface, borderRadius: 16, padding: '60px 24px',
             border: `2px dashed ${C.border}`, textAlign: 'center',
           }}>
-            <Search size={40} style={{ color: C.border, margin: '0 auto 12px' }} />
+            <Users size={40} style={{ color: C.border, margin: '0 auto 12px' }} />
             <p style={{ fontWeight: 600, color: C.muted, margin: '0 0 4px' }}>
               {search ? 'Nenhum aluno encontrado' : 'Nenhum aluno em triagem'}
             </p>
@@ -271,8 +237,8 @@ export const TriagemView: React.FC<TriagemViewProps> = ({
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {filtered.map(s => {
-              const card = (
+            {filtered.map(s => (
+              <div key={s.id}>
                 <TriagemCard
                   student={s}
                   stage={deriveStage(s)}
@@ -280,9 +246,8 @@ export const TriagemView: React.FC<TriagemViewProps> = ({
                   onEstudoCaso={() => onOpenEstudoCaso(s)}
                   onConvert={() => onConvertToLaudo(s)}
                 />
-              );
-              return React.cloneElement(card, { key: s.id });
-            })}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -306,6 +271,8 @@ function TriagemCard({
 }) {
   const stageCol = STAGE_COLOR[stage];
   const isConcluded = stage === 'concluida_laudo' || stage === 'concluida_sem_laudo';
+  const hasLaudo = stage === 'concluida_laudo';
+  const semLaudo = stage === 'sem_laudo';
 
   return (
     <div style={{
@@ -316,10 +283,8 @@ function TriagemCard({
       {/* Faixa lateral de status */}
       <div style={{
         width: 5, flexShrink: 0,
-        background: stage === 'aguardando_checklist' ? C.amber :
-                    stage === 'checklist_preenchido'  ? '#3B82F6' :
-                    stage === 'em_analise'             ? C.green :
-                    stage === 'decisao_pendente'       ? '#F97316' :
+        background: stage === 'aguardando_confirmacao' ? C.amber :
+                    stage === 'sem_laudo'              ? '#3B82F6' :
                     stage === 'concluida_laudo'        ? C.green : C.red,
       }} />
 
@@ -341,11 +306,16 @@ function TriagemCard({
             {s.grade || 'Série não informada'}
             {s.birthDate ? ` · ${s.birthDate}` : ''}
           </div>
-          {(s.diagnosis || []).length > 0 && (
-            <div style={{ fontSize: 10, color: C.petrol, marginTop: 2 }}>
-              {s.diagnosis.slice(0, 2).join(', ')}
-            </div>
-          )}
+          {/* Campo "Possui laudo?" */}
+          <div style={{ fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ color: C.muted }}>Possui laudo?</span>
+            <span style={{
+              fontWeight: 700,
+              color: hasLaudo ? C.green : semLaudo ? '#3B82F6' : C.muted,
+            }}>
+              {hasLaudo ? 'Sim' : semLaudo ? 'Não' : 'Não informado'}
+            </span>
+          </div>
         </div>
 
         {/* Badge de estágio */}

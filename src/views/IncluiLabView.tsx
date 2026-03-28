@@ -8,7 +8,8 @@ import {
   ArrowLeft, Sparkles, Coins,
 } from 'lucide-react';
 import { User, Student } from '../types';
-import { AIService } from '../services/aiService';
+import { AIService, getModelsForContext, getModelConfig, modelGeneratesImage, friendlyAIError } from '../services/aiService';
+import { CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { WorkflowCanvas as AtivaIACanvas } from '../components/ativaIA/WorkflowCanvas';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -24,8 +25,10 @@ interface RedesignedActivity {
   suggestions: string[];
 }
 
-type Tab     = 'workflow' | 'scanner' | 'redesign';
-type AIModel = 'gemini' | 'openai';
+type Tab             = 'workflow' | 'scanner' | 'redesign';
+type ActivityModelId = 'texto_apenas' | 'nano_banana_pro' | 'chatgpt_imagem';
+
+const ACTIVITY_MODELS = getModelsForContext('incluilab');
 
 const ADAPTATION_TYPES = [
   { id: 'autismo', label: 'Autismo (TEA)' },
@@ -35,8 +38,9 @@ const ADAPTATION_TYPES = [
   { id: 'geral', label: 'Simplificação Geral' },
 ];
 
-function calcCredits(model: AIModel, _count: number, isText = false) {
-  return isText ? (model === 'openai' ? 2 : 1) : (model === 'openai' ? 3 : 2) * _count;
+/** Retorna o custo em créditos do modelo selecionado. */
+function calcCredits(modelId: ActivityModelId): number {
+  return getModelConfig(modelId).credit_cost;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -58,28 +62,63 @@ function exportAsText(content: string, filename: string) {
 }
 
 
-// ─── Seletor de Modelo ────────────────────────────────────────────────────────
+// ─── Seletor de Modelo de Atividade (3 opções) ───────────────────────────────
+const MC = { petrol: '#1F4E5F', dark: '#2E3A59', gold: '#C69214', goldLight: '#FDF6E3', surface: '#FFFFFF', border: '#E7E2D8', textSec: '#667085' };
+
 const ModelSelector: React.FC<{
-  model: AIModel;
-  onChange: (m: AIModel) => void;
-  credits: number;
-  compact?: boolean;
-}> = ({ model, onChange, credits, compact }) => (
-  <div className={`flex items-center gap-2 ${compact ? '' : 'bg-white border border-gray-100 rounded-xl px-3 py-2 shadow-sm'}`}>
-    {!compact && <Coins size={14} className="text-brand-500 shrink-0" />}
-    <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
-      {(['gemini', 'openai'] as AIModel[]).map(m => (
-        <button key={m} onClick={() => onChange(m)}
-          className={`px-3 py-1.5 rounded-md text-xs font-bold transition ${model === m ? 'bg-white shadow text-gray-900' : 'text-gray-400 hover:text-gray-700'}`}>
-          {m === 'gemini' ? 'Gemini' : 'ChatGPT'}
-        </button>
-      ))}
+  model: ActivityModelId;
+  onChange: (m: ActivityModelId) => void;
+}> = ({ model, onChange }) => {
+  const selectedCfg = getModelConfig(model);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${ACTIVITY_MODELS.length}, 1fr)`, gap: 8 }}>
+        {ACTIVITY_MODELS.map(m => {
+          const isSel = model === m.id;
+          return (
+            <button
+              key={m.id}
+              onClick={() => onChange(m.id as ActivityModelId)}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4,
+                padding: '10px 12px', borderRadius: 12, cursor: 'pointer', outline: 'none',
+                border: `2px solid ${isSel ? MC.petrol : MC.border}`,
+                background: isSel ? MC.petrol : MC.surface,
+                boxShadow: isSel ? '0 2px 8px rgba(31,78,95,0.18)' : '0 1px 3px rgba(0,0,0,0.04)',
+                transition: 'all 0.15s', textAlign: 'left',
+              }}
+            >
+              <span style={{ fontSize: 12, fontWeight: 700, color: isSel ? '#fff' : MC.dark, lineHeight: 1.2 }}>
+                {m.name}
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 500, color: isSel ? 'rgba(255,255,255,0.75)' : MC.textSec }}>
+                {m.output_type === 'text_image' ? 'texto + imagem' : 'somente texto'}
+              </span>
+              <span style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.65)' : MC.textSec, lineHeight: 1.3, marginTop: 2 }}>
+                {m.description}
+              </span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 6,
+                padding: '2px 7px', borderRadius: 20, fontSize: 10, fontWeight: 700,
+                background: isSel ? 'rgba(255,255,255,0.18)' : MC.goldLight,
+                color: isSel ? '#fff' : MC.gold,
+                border: `1px solid ${isSel ? 'rgba(255,255,255,0.25)' : MC.border}`,
+              }}>
+                <Coins size={9} />
+                {m.credit_cost} crédito{m.credit_cost !== 1 ? 's' : ''}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {selectedCfg.warning && (
+        <p style={{ fontSize: 10, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '6px 10px', margin: 0, lineHeight: 1.4 }}>
+          ⚠️ {selectedCfg.warning}
+        </p>
+      )}
     </div>
-    <div className="flex items-center gap-1 text-xs font-bold text-brand-600">
-      <Coins size={12} /> {credits} crédito{credits !== 1 ? 's' : ''}
-    </div>
-  </div>
-);
+  );
+};
 
 // ─── Helper: debita créditos e dispara refresh global ────────────────────────
 async function safeDeductCredits(user: User, action: string, cost: number) {
@@ -219,12 +258,13 @@ const ScannerTab: React.FC<{ user: User }> = ({ user }) => {
   const [file, setFile]                   = useState<File | null>(null);
   const [preview, setPreview]             = useState<string | null>(null);
   const [adaptationType, setAdaptationType] = useState('autismo');
-  const [model, setModel]                 = useState<AIModel>('gemini');
+  const [model, setModel]                 = useState<ActivityModelId>('texto_apenas');
   const [loading, setLoading]             = useState(false);
   const [result, setResult]               = useState<AdaptedActivity | null>(null);
+  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraRef    = useRef<HTMLInputElement>(null);
-  const credits = calcCredits(model, 1, true);
+  const credits = calcCredits(model);
 
   const handleFileChange = async (f: File) => {
     setFile(f); setResult(null);
@@ -234,7 +274,15 @@ const ScannerTab: React.FC<{ user: User }> = ({ user }) => {
 
   const handleAdapt = async () => {
     if (!file) { alert('Envie um arquivo primeiro.'); return; }
-    setLoading(true); setResult(null);
+    // Valida contexto: modelos de imagem não são permitidos sem texto base
+    const modelCfg = getModelConfig(model);
+    // Valida saldo ANTES de chamar a API
+    const hasCredits = await AIService.checkCredits(user, credits);
+    if (!hasCredits) {
+      alert(CREDIT_INSUFFICIENT_MSG);
+      return;
+    }
+    setLoading(true); setResult(null); setGeneratedImageUrl(null);
     try {
       const base64 = await fileToBase64(file);
       const adaptLabel = ADAPTATION_TYPES.find(a => a.id === adaptationType)?.label || adaptationType;
@@ -259,22 +307,35 @@ Retorne SOMENTE um JSON válido:
       } catch { parsed = { original: '', adapted: raw, adaptationType: adaptLabel }; }
       setResult(parsed);
 
-      // Debitar créditos após sucesso
-      await safeDeductCredits(user, 'EDULEISIA_ADAPTAR', credits);
+      // Pipeline visual: só chamar se o modelo gera imagem
+      if (modelGeneratesImage(model)) {
+        try {
+          const imgPrompt = `Ilustração educativa inclusiva para atividade sobre "${adaptLabel}", estilo pedagógico infantil, traço limpo, alto contraste, fundo branco, sem texto.`;
+          const imgUrl = await AIService.generateImageFromPrompt(imgPrompt, user, credits);
+          setGeneratedImageUrl(imgUrl);
+        } catch (imgErr: any) {
+          console.warn('[EduLensIA] imagem não gerada:', imgErr?.message);
+        }
+      }
+
+      // Debitar créditos após sucesso (pipeline texto; imagem é debitada dentro de generateImageFromPrompt)
+      if (!modelGeneratesImage(model)) {
+        await safeDeductCredits(user, `EDULEISIA_ADAPTAR:${model}`, credits);
+      }
     } catch (e: any) {
-      alert('Erro ao adaptar: ' + (e?.message || 'verifique a chave de API.'));
+      alert(friendlyAIError(e));
     } finally { setLoading(false); }
   };
 
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h2 className="font-bold text-gray-800 text-lg flex items-center gap-2">
             <Camera size={18} className="text-brand-600" /> Scanner Pedagógico
           </h2>
-          <ModelSelector model={model} onChange={setModel} credits={credits} compact />
         </div>
+        <ModelSelector model={model} onChange={setModel} />
 
         <div onClick={() => fileInputRef.current?.click()}
           className="border-2 border-dashed border-orange-200 rounded-2xl p-8 text-center cursor-pointer hover:border-brand-400 hover:bg-orange-50 transition mb-4">
@@ -315,9 +376,12 @@ Retorne SOMENTE um JSON válido:
         </div>
 
         {/* Credit notice */}
-        <div className="mb-4 flex items-center gap-2 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2 text-xs">
+        <div className="mb-4 mt-3 flex items-center gap-2 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2 text-xs">
           <Coins size={13} className="text-brand-500 shrink-0" />
-          <span className="text-gray-600">Consumirá <strong className="text-brand-700">{credits} crédito{credits !== 1 ? 's' : ''}</strong> — {model === 'gemini' ? 'Gemini' : 'ChatGPT'}</span>
+          <span className="text-gray-600">
+            Consumirá <strong className="text-brand-700">{credits} crédito{credits !== 1 ? 's' : ''}</strong>
+            {' '}— saída: <strong>{modelGeneratesImage(model) ? 'texto + imagem' : 'somente texto'}</strong>
+          </span>
         </div>
 
         <button onClick={handleAdapt} disabled={loading || !file}
@@ -327,25 +391,40 @@ Retorne SOMENTE um JSON válido:
       </div>
 
       {result && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <FileText size={15} className="text-gray-500" />
-              <span className="text-xs font-bold text-gray-500 uppercase">Original</span>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <FileText size={15} className="text-gray-500" />
+                <span className="text-xs font-bold text-gray-500 uppercase">Original</span>
+              </div>
+              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{result.original || '(texto extraído da imagem)'}</p>
             </div>
-            <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{result.original || '(texto extraído da imagem)'}</p>
-          </div>
-          <div className="bg-orange-50 rounded-2xl border border-orange-100 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <CheckCircle size={15} className="text-brand-600" />
-              <span className="text-xs font-bold text-brand-700 uppercase">Adaptada — {result.adaptationType}</span>
-              <button onClick={() => exportAsText(result.adapted, 'atividade_adaptada.txt')}
-                className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">
-                <Download size={10} /> Exportar
-              </button>
+            <div className="bg-orange-50 rounded-2xl border border-orange-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <CheckCircle size={15} className="text-brand-600" />
+                <span className="text-xs font-bold text-brand-700 uppercase">Adaptada — {result.adaptationType}</span>
+                <button onClick={() => exportAsText(result.adapted, 'atividade_adaptada.txt')}
+                  className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">
+                  <Download size={10} /> Exportar
+                </button>
+              </div>
+              <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{result.adapted}</p>
             </div>
-            <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{result.adapted}</p>
           </div>
+          {generatedImageUrl && (
+            <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles size={15} className="text-brand-600" />
+                <span className="text-xs font-bold text-brand-700 uppercase">Imagem Pedagógica Gerada</span>
+                <a href={generatedImageUrl} download="imagem_atividade.png"
+                  className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-600 font-bold hover:bg-brand-100">
+                  <Download size={10} /> Baixar
+                </a>
+              </div>
+              <img src={generatedImageUrl} alt="Imagem gerada para atividade" className="max-h-64 mx-auto rounded-xl object-contain border border-gray-100" />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -356,15 +435,23 @@ Retorne SOMENTE um JSON válido:
 // NEURODESIGN — Redesenho Inclusivo
 // ═══════════════════════════════════════════════════════════════════════════════
 const RedesignTab: React.FC<{ user: User }> = ({ user }) => {
-  const [inputText, setInputText] = useState('');
-  const [model, setModel]         = useState<AIModel>('gemini');
-  const [loading, setLoading]     = useState(false);
-  const [result, setResult]       = useState<RedesignedActivity | null>(null);
-  const credits = calcCredits(model, 1, true);
+  const [inputText, setInputText]         = useState('');
+  const [model, setModel]                 = useState<ActivityModelId>('texto_apenas');
+  const [loading, setLoading]             = useState(false);
+  const [result, setResult]               = useState<RedesignedActivity | null>(null);
+  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
+  const credits = calcCredits(model);
 
   const handleRedesign = async () => {
     if (!inputText.trim()) { alert('Cole o conteúdo da atividade que deseja redesenhar.'); return; }
-    setLoading(true); setResult(null);
+    const modelCfg = getModelConfig(model);
+    // Valida saldo ANTES de chamar a API
+    const hasCredits = await AIService.checkCredits(user, credits);
+    if (!hasCredits) {
+      alert(CREDIT_INSUFFICIENT_MSG);
+      return;
+    }
+    setLoading(true); setResult(null); setGeneratedImageUrl(null);
     try {
       const prompt = `Você é um designer instrucional especialista em educação inclusiva.
 Receba esta atividade e faça um REDESENHO PEDAGÓGICO INCLUSIVO completo.
@@ -392,10 +479,23 @@ Retorne SOMENTE um JSON válido:
       } catch { parsed = { original: inputText, redesigned: raw, suggestions: [] }; }
       setResult(parsed);
 
-      // Debitar créditos após sucesso
-      await safeDeductCredits(user, 'NEURODESIGN_REDESIGN', credits);
+      // Pipeline visual: só chamar se o modelo gera imagem
+      if (modelGeneratesImage(model)) {
+        try {
+          const imgPrompt = `Ilustração educativa inclusiva para atividade pedagógica redesenhada, estilo visual acessível, traço limpo, alto contraste, fundo branco, sem texto.`;
+          const imgUrl = await AIService.generateImageFromPrompt(imgPrompt, user, credits);
+          setGeneratedImageUrl(imgUrl);
+        } catch (imgErr: any) {
+          console.warn('[NeuroDesign] imagem não gerada:', imgErr?.message);
+        }
+      }
+
+      // Debitar créditos após sucesso (imagem é debitada dentro de generateImageFromPrompt)
+      if (!modelGeneratesImage(model)) {
+        await safeDeductCredits(user, `NEURODESIGN_REDESIGN:${model}`, credits);
+      }
     } catch (e: any) {
-      alert('Erro ao redesenhar: ' + (e?.message || ''));
+      alert(friendlyAIError(e));
     } finally { setLoading(false); }
   };
 
@@ -406,9 +506,9 @@ Retorne SOMENTE um JSON válido:
           <h2 className="font-bold text-gray-800 text-lg flex items-center gap-2">
             <Layers size={18} className="text-brand-600" /> Redesenho Inclusivo
           </h2>
-          <ModelSelector model={model} onChange={setModel} credits={credits} compact />
         </div>
-        <p className="text-sm text-gray-500 mb-5">Cole qualquer atividade existente e a IA vai redesenhá-la com layout pedagógico acessível.</p>
+        <p className="text-sm text-gray-500 mb-4">Cole qualquer atividade existente e a IA vai redesenhá-la com layout pedagógico acessível.</p>
+        <ModelSelector model={model} onChange={setModel} />
 
         <textarea value={inputText} onChange={e => setInputText(e.target.value)}
           placeholder="Cole aqui o texto da atividade que deseja redesenhar…"
@@ -418,7 +518,10 @@ Retorne SOMENTE um JSON válido:
         {/* Credit notice */}
         <div className="mt-3 mb-4 flex items-center gap-2 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2 text-xs">
           <Coins size={13} className="text-brand-500 shrink-0" />
-          <span className="text-gray-600">Consumirá <strong className="text-brand-700">{credits} crédito{credits !== 1 ? 's' : ''}</strong> — {model === 'gemini' ? 'Gemini' : 'ChatGPT'}</span>
+          <span className="text-gray-600">
+            Consumirá <strong className="text-brand-700">{credits} crédito{credits !== 1 ? 's' : ''}</strong>
+            {' '}— saída: <strong>{modelGeneratesImage(model) ? 'texto + imagem' : 'somente texto'}</strong>
+          </span>
         </div>
 
         <button onClick={handleRedesign} disabled={loading}
@@ -473,6 +576,19 @@ Retorne SOMENTE um JSON válido:
               <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{result.redesigned}</div>
             </div>
           </div>
+          {generatedImageUrl && (
+            <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles size={15} className="text-brand-600" />
+                <span className="text-xs font-bold text-brand-700 uppercase">Imagem Pedagógica Gerada</span>
+                <a href={generatedImageUrl} download="imagem_redesenhada.png"
+                  className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-600 font-bold hover:bg-brand-100">
+                  <Download size={10} /> Baixar
+                </a>
+              </div>
+              <img src={generatedImageUrl} alt="Imagem gerada para atividade redesenhada" className="max-h-64 mx-auto rounded-xl object-contain border border-gray-100" />
+            </div>
+          )}
         </div>
       )}
     </div>

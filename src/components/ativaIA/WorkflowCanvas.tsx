@@ -27,10 +27,12 @@ import {
   Sparkles, Loader, CheckCircle, AlertCircle, Download,
   X, Star, Coins, Play, RefreshCw, Printer,
   Plus, Search, ArrowRight, Image as ImageIcon, Zap,
-  GraduationCap, Brain, ScanText, AlertTriangle, TrendingDown, History
+  GraduationCap, Brain, ScanText, AlertTriangle, TrendingDown, History,
+  Maximize2, Minimize2
 } from 'lucide-react';
 import { AIService } from '../../services/aiService';
 import { WorkflowService, type WorkflowSerializableState } from '../../services/persistenceService';
+import { AI_CREDIT_COSTS, CREDIT_INSUFFICIENT_MSG } from '../../config/aiCosts';
 import { User, SchoolConfig, Student } from '../../types';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -104,7 +106,7 @@ const fileToBase64 = (f: File): Promise<string> =>
   new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(f); });
 
 const calcCredits = (model: AIModel, imageCount: number) =>
-  (model === 'openai' ? 3 : 2) * imageCount;
+  (model === 'openai' ? AI_CREDIT_COSTS.IMAGEM_PREMIUM : AI_CREDIT_COSTS.IMAGEM_LEVE) * imageCount;
 
 const DISCIPLINES = ['Língua Portuguesa','Matemática','Ciências','História','Geografia','Arte','Educação Física','Inglês','Educação Especial'];
 const GRADES = ['1º Ano EF','2º Ano EF','3º Ano EF','4º Ano EF','5º Ano EF','6º Ano EF','7º Ano EF','8º Ano EF','9º Ano EF','1º Ano EM','2º Ano EM','3º Ano EM'];
@@ -121,7 +123,7 @@ const PAGE_SIZES: PageSize[] = ['A4','A5','Quadrado digital','Vertical digital']
 const BLOCK_CATALOG = [
   { type: 'uploadNode',      label: 'Enviar Atividade',   icon: Upload,      desc: 'Faça upload de imagem ou PDF' },
   { type: 'ocrNode',         label: 'OCR / Extrair Texto',icon: ScanText,    desc: 'Extrai texto de imagem via IA (1 crédito)' },
-  { type: 'adaptarNode',     label: 'Adaptar Atividade',  icon: Brain,       desc: 'Adapta para TEA, TDAH, DI etc. (2 créditos)' },
+  { type: 'adaptarNode',     label: 'Adaptar Atividade',  icon: Brain,       desc: `Adapta para TEA, TDAH, DI etc. (${AI_CREDIT_COSTS.ADAPTAR_ATIVIDADE} créditos)` },
   { type: 'promptNode',      label: 'Prompt IA',          icon: MessageSquare, desc: 'Instrução para a IA gerar' },
   { type: 'bnccNode',        label: 'BNCC Smart',         icon: BookOpen,    desc: 'Identifica habilidade BNCC com IA' },
   { type: 'composicaoNode',  label: 'Composição Visual',  icon: Palette,     desc: 'Configure layout, imagens e escola' },
@@ -400,13 +402,39 @@ const ComposicaoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
       {/* Model */}
       <div>
         <Label>Modelo de IA</Label>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {(['gemini', 'openai'] as AIModel[]).map(m => (
-            <button key={m} onClick={() => d.onUpdate({ model: m })}
-              style={{ flex: 1, padding: '7px 0', border: `1.5px solid ${model === m ? C.petrol : C.border}`, borderRadius: 8, fontSize: 11, fontWeight: 700, background: model === m ? C.petrol : C.surface, color: model === m ? '#fff' : C.textSec, cursor: 'pointer', transition: 'all .2s' }}>
-              {m === 'gemini' ? 'Gemini' : 'ChatGPT'}
-            </button>
-          ))}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          {(['gemini', 'openai'] as AIModel[]).map(m => {
+            const isSel = model === m;
+            const costPerImg = m === 'openai' ? AI_CREDIT_COSTS.IMAGEM_PREMIUM : AI_CREDIT_COSTS.IMAGEM_LEVE;
+            const desc = m === 'gemini' ? 'Qualidade balanceada' : 'Alta qualidade visual';
+            return (
+              <button key={m} onClick={() => d.onUpdate({ model: m })}
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3,
+                  padding: '8px 10px', borderRadius: 10, cursor: 'pointer', outline: 'none',
+                  border: `2px solid ${isSel ? C.petrol : C.border}`,
+                  background: isSel ? C.petrol : C.surface,
+                  boxShadow: isSel ? '0 2px 6px rgba(31,78,95,0.2)' : 'none',
+                  transition: 'all 0.15s', textAlign: 'left',
+                }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: isSel ? '#fff' : C.dark }}>
+                  {m === 'gemini' ? 'Gemini' : 'ChatGPT'}
+                </span>
+                <span style={{ fontSize: 9, color: isSel ? 'rgba(255,255,255,0.72)' : C.textSec }}>
+                  {desc}
+                </span>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 4,
+                  padding: '1px 6px', borderRadius: 20, fontSize: 9, fontWeight: 700,
+                  background: isSel ? 'rgba(255,255,255,0.18)' : C.goldLight,
+                  color: isSel ? '#fff' : C.gold,
+                  border: `1px solid ${isSel ? 'rgba(255,255,255,0.25)' : C.border}`,
+                }}>
+                  <Coins size={8} />{costPerImg} cr./img
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -1193,7 +1221,9 @@ const InnerCanvas: React.FC<{
   onTemplateLoaded: () => void;
   onStarted: () => void;
   onWorkflowNodesChange?: (nodeIds: string[]) => void;
-}> = ({ user, students, templateToLoad, onTemplateLoaded, onStarted, onWorkflowNodesChange }) => {
+  focusMode?: boolean;
+  onToggleFocus?: () => void;
+}> = ({ user, students, templateToLoad, onTemplateLoaded, onStarted, onWorkflowNodesChange, focusMode, onToggleFocus }) => {
   const schools: SchoolConfig[] = user.schoolConfigs ?? [];
   const { screenToFlowPosition, fitView } = useReactFlow();
 
@@ -1302,19 +1332,6 @@ const InnerCanvas: React.FC<{
     }, 1500);
   }, [workflowId]);
 
-  // Dispara auto-save quando nodes ou edges mudam (excluindo mudanças de nodeStatus/progress)
-  const nodesKey = nodes.map(n => `${n.id}:${n.position.x.toFixed(0)},${n.position.y.toFixed(0)}`).join('|');
-  const edgesKey = edges.map(e => `${e.source}->${e.target}`).join('|');
-  useEffect(() => {
-    triggerAutoSave(nodes, edges, wf);
-  }, [nodesKey, edgesKey]); // eslint-disable-line
-
-  // Dispara auto-save quando wf state serializável muda
-  const wfKey = `${wf.prompt}|${wf.discipline}|${wf.grade}|${wf.model}|${wf.templateType}`;
-  useEffect(() => {
-    triggerAutoSave(nodes, edges, wf);
-  }, [wfKey]); // eslint-disable-line
-
   // Fetch remaining credits on mount and keep ref for refresh
   const refreshCredits = useCallback(async () => {
     const n = await AIService.getRemainingCredits(user);
@@ -1363,6 +1380,19 @@ const InnerCanvas: React.FC<{
       data: { active: false, done: false },
     }))
   );
+
+  // Dispara auto-save quando nodes ou edges mudam (excluindo mudanças de nodeStatus/progress)
+  const nodesKey = nodes.map(n => `${n.id}:${n.position.x.toFixed(0)},${n.position.y.toFixed(0)}`).join('|');
+  const edgesKey = edges.map(e => `${e.source}->${e.target}`).join('|');
+  useEffect(() => {
+    triggerAutoSave(nodes, edges, wf);
+  }, [nodesKey, edgesKey]); // eslint-disable-line
+
+  // Dispara auto-save quando wf state serializável muda
+  const wfKey = `${wf.prompt}|${wf.discipline}|${wf.grade}|${wf.model}|${wf.templateType}`;
+  useEffect(() => {
+    triggerAutoSave(nodes, edges, wf);
+  }, [wfKey]); // eslint-disable-line
 
   // ── Emite IDs dos nodes ao parent (para o Copilot) ─────────────────────────
   useEffect(() => {
@@ -1492,6 +1522,19 @@ Retorne SOMENTE JSON: {"code":"EF00XX00","description":"Descrição completa","j
       }
     }
 
+    // Estima custo total ANTES de iniciar — bloqueia se saldo insuficiente
+    const estimatedCost =
+      (hasOcr        ? AI_CREDIT_COSTS.OCR               : 0) +
+      (hasAdaptar    ? AI_CREDIT_COSTS.ADAPTAR_ATIVIDADE  : 0) +
+      (hasBnccNode2  ? AI_CREDIT_COSTS.TEXTO_SIMPLES      : 0) +
+      (hasComposicao ? calcCredits(cur.model, cur.imageCount) : 0) +
+      (hasPromptNode && !hasComposicao && !hasAdaptar ? AI_CREDIT_COSTS.RELATORIO_PADRAO : 0);
+
+    if (estimatedCost > 0 && !(await AIService.checkCredits(user, estimatedCost))) {
+      alert(CREDIT_INSUFFICIENT_MSG);
+      return;
+    }
+
     setRunning(true);
     setExecSummary(null);
     setEdgesActive(true);
@@ -1619,11 +1662,11 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
       step('folhapronta', 'done');
 
       // ── 8. Resultado ──────────────────────────────────────────────────────
-      const ocrC      = nodes.some(n => n.id === 'ocr')      ? 1 : 0;
-      const adaptarC  = nodes.some(n => n.id === 'adaptar')  ? 2 : 0;
-      const bnccC     = nodes.some(n => n.id === 'bncc')     ? 1 : 0;
+      const ocrC      = nodes.some(n => n.id === 'ocr')      ? AI_CREDIT_COSTS.OCR              : 0;
+      const adaptarC  = nodes.some(n => n.id === 'adaptar')  ? AI_CREDIT_COSTS.ADAPTAR_ATIVIDADE : 0;
+      const bnccC     = nodes.some(n => n.id === 'bncc')     ? AI_CREDIT_COSTS.TEXTO_SIMPLES     : 0;
       const imageC    = nodes.some(n => n.id === 'composicao') ? calcCredits(wfRef.current.model, wfRef.current.imageCount) : 0;
-      const relatorioC = (nodes.some(n => n.id === 'prompt') && !nodes.some(n => n.id === 'composicao') && !nodes.some(n => n.id === 'adaptar')) ? 2 : 0;
+      const relatorioC = (nodes.some(n => n.id === 'prompt') && !nodes.some(n => n.id === 'composicao') && !nodes.some(n => n.id === 'adaptar')) ? AI_CREDIT_COSTS.RELATORIO_PADRAO : 0;
       const totalCredits = ocrC + adaptarC + bnccC + imageC + relatorioC;
       updateWf({ creditsUsed: totalCredits });
       step('resultado', 'done');
@@ -1856,15 +1899,20 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
   const handleSaveActivity = useCallback(async (title: string, studentId?: string) => {
     const cur = wfRef.current;
     const content = cur.adaptedText || cur.prompt || cur.extractedText;
-    await AIService.saveGeneratedActivity({
-      user,
-      title,
-      templateType: cur.templateType || 'custom',
-      content,
-      imageCount: cur.results.length,
-      creditsUsed: cur.creditsUsed,
-      studentId,
-    });
+    try {
+      await AIService.saveGeneratedActivity({
+        user,
+        title,
+        templateType: cur.templateType || 'custom',
+        content,
+        imageCount: cur.results.length,
+        creditsUsed: cur.creditsUsed,
+        studentId,
+      });
+    } catch (err: any) {
+      const msg = err?.message ?? 'Erro ao salvar atividade.';
+      alert(msg);
+    }
   }, [user]);
 
   // ── Add block ─────────────────────────────────────────────────────────────
@@ -1907,11 +1955,11 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
   const hasBnccNode     = nodes.some(n => n.id === 'bncc');
   const hasComposicaoN  = nodes.some(n => n.id === 'composicao');
   const hasPromptN      = nodes.some(n => n.id === 'prompt');
-  const ocrCost         = hasOcrNode ? 1 : 0;
-  const adaptarCost     = hasAdaptarNode ? 2 : 0;
-  const bnccCost        = hasBnccNode ? 1 : 0;
+  const ocrCost         = hasOcrNode ? AI_CREDIT_COSTS.OCR              : 0;
+  const adaptarCost     = hasAdaptarNode ? AI_CREDIT_COSTS.ADAPTAR_ATIVIDADE : 0;
+  const bnccCost        = hasBnccNode ? AI_CREDIT_COSTS.TEXTO_SIMPLES     : 0;
   const imageCost       = hasComposicaoN ? calcCredits(wf.model, wf.imageCount) : 0;
-  const relatorioCost   = (hasPromptN && !hasComposicaoN && !hasAdaptarNode) ? 2 : 0;
+  const relatorioCost   = (hasPromptN && !hasComposicaoN && !hasAdaptarNode) ? AI_CREDIT_COSTS.RELATORIO_PADRAO : 0;
   const credits = imageCost + ocrCost + adaptarCost + bnccCost + relatorioCost;
   const isDone = Object.values(stepStatus).some(s => s === 'done');
 
@@ -1928,6 +1976,15 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
             <button onClick={resetFlow}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', border: `1.5px solid ${C.border}`, borderRadius: 9, background: C.surface, fontSize: 12, fontWeight: 600, color: C.textSec, cursor: 'pointer', transition: 'all .2s' }}>
               <RefreshCw size={12} /> Reiniciar
+            </button>
+          )}
+          {onToggleFocus && (
+            <button
+              onClick={onToggleFocus}
+              title={focusMode ? 'Sair do Modo Foco (Esc)' : 'Modo Foco — tela cheia'}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', border: `1.5px solid ${focusMode ? C.petrol : C.border}`, borderRadius: 9, background: focusMode ? `${C.petrol}18` : C.surface, fontSize: 12, fontWeight: 600, color: focusMode ? C.petrol : C.textSec, cursor: 'pointer', transition: 'all .2s' }}>
+              {focusMode ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              {focusMode ? 'Sair Foco' : 'Modo Foco'}
             </button>
           )}
         </div>
@@ -1978,6 +2035,7 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
           fitView fitViewOptions={{ padding: 0.15 }}
           minZoom={0.25} maxZoom={1.5}
           deleteKeyCode={['Delete', 'Backspace']}
+          proOptions={{ hideAttribution: true }}
           onNodesDelete={deleted => setStepStatus(prev => {
             const n = { ...prev };
             deleted.forEach(node => delete n[node.id]);
@@ -2311,23 +2369,37 @@ export const WorkflowCanvas: React.FC<{
 }> = ({ user, students = [], sidebarOpen = true, onWorkflowNodesChange }) => {
   const [templateToLoad, setTemplateToLoad] = useState<keyof typeof TEMPLATES | null>(null);
   const [started, setStarted] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
 
-  // Auto-expand when sidebar collapses
+  // Resize tracking for normal mode height
   const [windowH, setWindowH] = useState(window.innerHeight);
   useEffect(() => {
     const onResize = () => setWindowH(window.innerHeight);
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
+
+  // ESC exits focus mode
+  useEffect(() => {
+    if (!focusMode) return;
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFocusMode(false); };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [focusMode]);
+
   const canvasHeight = sidebarOpen ? 720 : Math.max(720, windowH - 280);
+
+  const canvasWrapStyle: React.CSSProperties = focusMode
+    ? { position: 'fixed', inset: 0, zIndex: 9900, borderRadius: 0, border: 'none', overflow: 'hidden', background: C.bg }
+    : { borderRadius: 18, border: `1.5px solid ${C.border}`, overflow: 'hidden', height: canvasHeight, background: C.bg, position: 'relative', boxShadow: '0 4px 28px rgba(0,0,0,0.09)', transition: 'height 0.35s ease' };
 
   return (
     <div>
       {/* Canvas */}
-      <div style={{ borderRadius: 18, border: `1.5px solid ${C.border}`, overflow: 'hidden', height: canvasHeight, background: C.bg, position: 'relative', boxShadow: '0 4px 28px rgba(0,0,0,0.09)', transition: 'height 0.35s ease' }}>
+      <div style={canvasWrapStyle}>
         {/* Empty state overlay */}
         {!started && (
-          <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${C.bg}F0`, backdropFilter: 'blur(2px)', borderRadius: 18 }}>
+          <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${C.bg}F0`, backdropFilter: 'blur(2px)', borderRadius: focusMode ? 0 : 18 }}>
             <EmptyState
               onStart={() => setStarted(true)}
               onTemplate={id => { setTemplateToLoad(id); setStarted(true); }}
@@ -2342,13 +2414,19 @@ export const WorkflowCanvas: React.FC<{
             onTemplateLoaded={() => setTemplateToLoad(null)}
             onStarted={() => setStarted(true)}
             onWorkflowNodesChange={onWorkflowNodesChange}
+            focusMode={focusMode}
+            onToggleFocus={() => setFocusMode(v => !v)}
           />
         </ReactFlowProvider>
       </div>
 
-      {/* Templates + Guide (outside canvas) */}
-      <TemplatesSection onLoad={id => { setTemplateToLoad(id); setStarted(true); }} />
-      <StepGuide />
+      {/* Templates + Guide — hidden in focus mode */}
+      {!focusMode && (
+        <>
+          <TemplatesSection onLoad={id => { setTemplateToLoad(id); setStarted(true); }} />
+          <StepGuide />
+        </>
+      )}
     </div>
   );
 };

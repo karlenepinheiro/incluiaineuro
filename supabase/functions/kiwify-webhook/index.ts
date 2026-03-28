@@ -28,8 +28,9 @@ const KIWIFY_SECRET         = Deno.env.get('KIWIFY_WEBHOOK_SECRET') ?? '';
 
 // Planos: quantos créditos conceder na ativação/renovação
 const PLAN_CREDITS: Record<string, number> = {
-  PRO:    50,
-  MASTER: 200,
+  PRO:     500,
+  MASTER:  700,
+  PREMIUM: 700,  // alias de MASTER
 };
 
 Deno.serve(async (req: Request) => {
@@ -122,7 +123,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     // ── Processar evento ─────────────────────────────────────────────────
-    if (event === 'order_approved' || event === 'approved') {
+    if (event === 'order_approved' || event === 'approved' || event === 'subscription_first_charge') {
 
       if (productType === 'subscription' && planCode) {
         // Ativar/atualizar assinatura
@@ -145,8 +146,8 @@ Deno.serve(async (req: Request) => {
             provider_sub_id:     order?.subscription?.id ?? null,
           }, { onConflict: 'tenant_id' });
 
-        // Creditar créditos mensais do plano
-        const credits = PLAN_CREDITS[planCode] ?? 50;
+        // Creditar créditos mensais do plano — fallback 0 (não 50) para não conceder créditos errados
+        const credits = PLAN_CREDITS[planCode] ?? 0;
         await addCredits(db, tenantId, credits, `Ativação plano ${planCode}`);
 
         action = `subscription_activated:${planCode}`;
@@ -166,7 +167,7 @@ Deno.serve(async (req: Request) => {
         .eq('tenant_id', tenantId);
 
       if (planCode) {
-        const credits = PLAN_CREDITS[planCode] ?? 50;
+        const credits = PLAN_CREDITS[planCode] ?? 0;
         await addCredits(db, tenantId, credits, `Renovação mensal ${planCode}`);
       }
 

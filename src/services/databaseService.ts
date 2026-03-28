@@ -82,9 +82,11 @@ function mapDocTypeToUi(type: string): DocumentType {
   }
 }
 
-function mapDocStatus(status: string | null | undefined) {
+function mapDocStatus(status: string | null | undefined): 'FINAL' | 'DRAFT' {
   const s = String(status ?? '').toUpperCase();
-  return s === 'FINAL' ? 'FINAL' : 'DRAFT';
+  // Reconhece todos os sinônimos de "concluído" para retrocompatibilidade
+  const FINAL_VALUES = new Set(['FINAL', 'SIGNED', 'ASSINADO', 'APPROVED', 'APROVADO']);
+  return FINAL_VALUES.has(s) ? 'FINAL' : 'DRAFT';
 }
 
 // ---------------------------------------------------------------------------
@@ -149,11 +151,23 @@ export const databaseService = {
 
     // Colunas REAIS confirmadas pelo schema (CSVs exportados do Supabase).
     // users: id, tenant_id, nome, full_name, email, role, is_super_admin, is_active
-    const { data: userRow, error: userErr } = await supabase
+    let { data: userRow, error: userErr } = await supabase
       .from('users')
       .select('id, tenant_id, nome, full_name, email, role, is_super_admin, is_active')
       .eq('id', uid)
       .maybeSingle();
+
+    // Fallback: se 'nome' não existir no ambiente (código 42703 = column not found),
+    // refaz a query sem ela — full_name será usado como name.
+    if (userErr?.code === '42703') {
+      const fallback = await supabase
+        .from('users')
+        .select('id, tenant_id, full_name, email, role, is_super_admin, is_active')
+        .eq('id', uid)
+        .maybeSingle();
+      userErr = fallback.error;
+      userRow = fallback.data as any;
+    }
 
     if (userErr) throw userErr;
     if (!userRow) return null;
@@ -222,6 +236,41 @@ export const databaseService = {
     (profile as any).aiCreditsRemaining = walletBalance ?? 0;
     (profile as any).providerPaymentLink = null;
     (profile as any).nextDueDate = subRow?.current_period_end ?? null;
+
+    // Escolas do tenant (tabela `schools`)
+    try {
+      const { data: schoolRows, error: schoolErr } = await supabase
+        .from('schools')
+        .select('*')
+        .eq('tenant_id', userRow.tenant_id)
+        .eq('active', true)
+        .order('created_at', { ascending: true });
+      if (!schoolErr && schoolRows && schoolRows.length > 0) {
+        profile.schoolConfigs = schoolRows.map((r: any) => ({
+          id:                r.id,
+          schoolName:        r.name              ?? '',
+          inepCode:          r.inep_code         ?? '',
+          cnpj:              r.cnpj              ?? '',
+          contact:           r.phone             ?? '',
+          email:             r.email             ?? '',
+          instagram:         r.instagram         ?? '',
+          logoUrl:           r.logo_url          ?? '',
+          address:           r.address           ?? '',
+          neighborhood:      r.neighborhood      ?? '',
+          city:              r.city              ?? '',
+          state:             r.state             ?? '',
+          zipcode:           r.zipcode           ?? '',
+          principalName:     r.principal_name    ?? '',
+          managerName:       r.manager_name      ?? '',
+          coordinatorName:   r.coordinator_name  ?? '',
+          aeeRepresentative: r.aee_representative ?? '',
+          aeeRepName:        r.aee_rep_name      ?? '',
+          team:              [],
+        }));
+      }
+    } catch {
+      // não crítico — schoolConfigs permanece []
+    }
 
     return profile;
   },
@@ -392,16 +441,94 @@ export const databaseService = {
     if (error) throw error;
   },
 
+  /**
+   * Persiste as escolas do tenant na tabela `schools` (relacional).
+   * Cada entrada em `schools` é um SchoolConfig do frontend.
+   * Faz upsert por id (preserva registros existentes).
+   */
   async saveSchoolConfigs(userId: string, schools: any[]) {
     const tenantId = await getTenantIdForUser(userId);
-    try {
+    if (!schools || schools.length === 0) return;
+
+    for (const sc of schools) {
+      const row: any = {
+        id:                sc.id,
+        tenant_id:         tenantId,
+        name:              sc.schoolName || sc.name || '',
+        inep_code:         sc.inepCode   || sc.inep_code   || null,
+        cnpj:              sc.cnpj       || null,
+        phone:             sc.contact    || sc.phone       || null,
+        email:             sc.email      || null,
+        instagram:         sc.instagram  || null,
+        logo_url:          sc.logoUrl    || sc.logo_url    || null,
+        address:           sc.address    || null,
+        neighborhood:      sc.neighborhood || null,
+        city:              sc.city       || null,
+        state:             sc.state      || null,
+        zipcode:           sc.zipcode    || null,
+        principal_name:    sc.principalName || sc.principal_name || null,
+        manager_name:      sc.managerName   || sc.manager_name   || null,
+        coordinator_name:  sc.coordinatorName || sc.coordinator_name || null,
+        aee_representative: sc.aeeRepresentative || sc.aee_representative || null,
+        aee_rep_name:       sc.aeeRepName || sc.aee_rep_name || null,
+        active:             true,
+        updated_at:         new Date().toISOString(),
+      };
+
+      // Garante UUID válido
+      if (!row.id || typeof row.id !== 'string' || row.id.length < 8) {
+        row.id = crypto.randomUUID();
+      }
+
+      if (!row.name.trim()) continue; // não salva escola sem nome
+
       const { error } = await supabase
-        .from('tenants')
-        .update({ school_configs: schools, updated_at: new Date().toISOString() } as any)
-        .eq('id', tenantId);
+        .from('schools')
+        .upsert(row, { onConflict: 'id' });
+
+      if (error) {
+        throw new Error(`Erro ao salvar escola "${row.name}": ${error.message}`);
+      }
+    }
+  },
+
+  /**
+   * Carrega todas as escolas ativas do tenant, mapeadas para SchoolConfig.
+   */
+  async getSchoolConfigs(userId: string): Promise<any[]> {
+    try {
+      const tenantId = await getTenantIdForUser(userId);
+      const { data, error } = await supabase
+        .from('schools')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('active', true)
+        .order('created_at', { ascending: true });
       if (error) throw error;
-    } catch {
-      // ambiente ainda sem coluna: não quebra o app
+      return (data ?? []).map((r: any) => ({
+        id:                r.id,
+        schoolName:        r.name            ?? '',
+        inepCode:          r.inep_code       ?? '',
+        cnpj:              r.cnpj            ?? '',
+        contact:           r.phone           ?? '',
+        email:             r.email           ?? '',
+        instagram:         r.instagram       ?? '',
+        logoUrl:           r.logo_url        ?? '',
+        address:           r.address         ?? '',
+        neighborhood:      r.neighborhood    ?? '',
+        city:              r.city            ?? '',
+        state:             r.state           ?? '',
+        zipcode:           r.zipcode         ?? '',
+        principalName:     r.principal_name  ?? '',
+        managerName:       r.manager_name    ?? '',
+        coordinatorName:   r.coordinator_name ?? '',
+        aeeRepresentative: r.aee_representative ?? '',
+        aeeRepName:        r.aee_rep_name    ?? '',
+        team:              [],
+      }));
+    } catch (e) {
+      console.error('[getSchoolConfigs]', e);
+      return [];
     }
   },
 
@@ -505,13 +632,14 @@ export const databaseService = {
     };
     const docType = docTypeMap[rawType] ?? rawType;
 
-    // BUG FIX 3: normalize status — 'FINAL' → 'SIGNED', unknown → 'DRAFT'
+    // Normaliza status para os valores aceitos pelo DB: 'DRAFT' | 'REVIEW' | 'APPROVED' | 'SIGNED'
     const rawStatus = (doc.status ?? 'DRAFT').toString().toUpperCase().trim();
     const statusMap: Record<string, string> = {
       'DRAFT': 'DRAFT', 'RASCUNHO': 'DRAFT',
       'REVIEW': 'REVIEW', 'REVISÃO': 'REVIEW', 'REVISAO': 'REVIEW',
-      'APPROVED': 'APPROVED', 'APROVADO': 'APPROVED',
-      'FINAL': 'SIGNED', 'SIGNED': 'SIGNED', 'ASSINADO': 'SIGNED',
+      // 'FINAL' é o conceito de UI para "concluído" → mapeia para APPROVED no banco
+      'FINAL': 'APPROVED', 'APROVADO': 'APPROVED', 'APPROVED': 'APPROVED',
+      'SIGNED': 'SIGNED', 'ASSINADO': 'SIGNED',
     };
     const docStatus = statusMap[rawStatus] ?? 'DRAFT';
 
@@ -592,25 +720,27 @@ export const databaseService = {
   async getTenantSummary(userId: string): Promise<TenantSummary> {
     const tenantId = await getTenantIdForUser(userId);
 
-    // tenants: colunas reais — id, name, plan_id, is_active
-    const { data: tenant, error: tErr } = await supabase
-      .from('tenants')
-      .select('id, name, plan_id, is_active')
-      .eq('id', tenantId)
-      .single();
-    if (tErr) throw tErr;
+    // Paraleliza as 3 queries independentes
+    const [tenantResult, studentsResult, sub] = await Promise.all([
+      supabase
+        .from('tenants')
+        .select('id, name, plan_id, is_active')
+        .eq('id', tenantId)
+        .single(),
+      supabase
+        .from('students')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .is('deleted_at', null),
+      getActiveSubscriptionForTenant(tenantId),
+    ]);
 
-    // Conta alunos ativos (is_active = true e sem soft-delete)
-    const { count: studentsCount, error: sErr } = await supabase
-      .from('students')
-      .select('*', { count: 'exact', head: true })
-      .eq('tenant_id', tenantId)
-      .eq('is_active', true)
-      .is('deleted_at', null);
-    if (sErr) throw sErr;
+    if (tenantResult.error) throw tenantResult.error;
+    if (studentsResult.error) throw studentsResult.error;
 
-    // Subscription mais recente
-    const sub = await getActiveSubscriptionForTenant(tenantId);
+    const tenant = tenantResult.data;
+    const studentsCount = studentsResult.count;
     const subscriptionStatus = ((sub as any)?.status ?? 'ACTIVE') as any;
 
     // Resolve plano via plan_id (subscription → tenant)
@@ -638,7 +768,7 @@ export const databaseService = {
     // Se a wallet ainda não existe (conta nova) mas o plano dá créditos mensais,
     // inicializa a wallet automaticamente para não bloquear o usuário.
     if (walletAvail === null) {
-      const planCredits = Number((planEff as any)?.monthly_credits ?? (hardcodedLimits as any)?.ai_credits ?? 0);
+      const planCredits = Number((planEff as any)?.ai_credits_per_month ?? (hardcodedLimits as any)?.ai_credits ?? 0);
       if (planCredits > 0) {
         try {
           const { data: existingWallet } = await supabase
@@ -665,16 +795,57 @@ export const databaseService = {
       }
     }
 
+    // Créditos mensais do plano (lê do banco; fallback nos limites estáticos)
+    const planCreditsMonthly = Number(
+      (planEff as any)?.ai_credits_per_month
+      ?? (hardcodedLimits as any)?.ai_credits
+      ?? 0
+    );
+
+    // ── Ledger: consumo e compras do ciclo ────────────────────────────────────
+    // Período: início do ciclo atual (inicio do mês ou data da assinatura)
+    const cycleStart: string = (() => {
+      const periodStart = (sub as any)?.current_period_start;
+      if (periodStart) return periodStart;
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    })();
+
+    let creditsConsumedCycle = 0;
+    let creditsPurchased = 0;
+    try {
+      const { data: ledgerRows } = await supabase
+        .from('credits_ledger')
+        .select('type, amount')
+        .eq('tenant_id', tenantId)
+        .gte('created_at', cycleStart);
+
+      for (const row of ledgerRows ?? []) {
+        const amt = Number((row as any).amount ?? 0);
+        const type = String((row as any).type ?? '');
+        if (type === 'usage_ai' && amt < 0) {
+          creditsConsumedCycle += Math.abs(amt);
+        } else if (['purchase_extra', 'bonus_manual', 'courtesy'].includes(type) && amt > 0) {
+          creditsPurchased += amt;
+        }
+      }
+    } catch {
+      // ledger opcional — não bloqueia
+    }
+
     return {
       tenantId,
       tenantName: (tenant as any)?.name,
       subscriptionStatus,
       planTier,
       aiCreditsRemaining: walletAvail,
+      planCreditsMonthly,
+      creditsPurchased,
+      creditsConsumedCycle,
       studentLimitBase: (planEff as any)?.max_students ?? hardcodedLimits.students,
       studentLimitExtra: 0 as any,
       studentsActive: studentsCount ?? 0,
-      renewalDatePlan: undefined,
+      renewalDatePlan: (sub as any)?.current_period_end ?? undefined,
       renewalDateCredits: (sub as any)?.current_period_end ?? undefined,
     };
   },

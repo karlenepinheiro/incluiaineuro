@@ -18,6 +18,7 @@ import type {
   Plan,
 } from '../types';
 import { BillingPlansService, SubscriptionService } from './billingService';
+import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
 import { AdminGrantService, CreditLedgerService } from './creditService';
 import { LandingService } from './landingService';
 
@@ -52,10 +53,10 @@ let MOCK_LOGS: AdminLog[] = [
 ];
 
 const MOCK_SUBSCRIBERS: Subscriber[] = [
-  { id: 'u1', tenant_id: 't1', name: 'Maria Silva', email: 'maria@prof.com', phone: '(11) 99999-1111', plan: 'PRO' as PlanTier, cycle: 'MENSAL', status: 'ACTIVE', creditsUsed: 15, creditsLimit: 50, studentsActive: 12, studentsLimit: 30, nextBilling: '2024-06-15' },
-  { id: 'u2', tenant_id: 't2', name: 'Clínica Aprender', email: 'contato@aprender.com', phone: '(21) 98888-2222', plan: 'MASTER' as PlanTier, cycle: 'ANUAL', status: 'ACTIVE', creditsUsed: 45, creditsLimit: 70, studentsActive: 38, studentsLimit: 999, nextBilling: '2025-01-10' },
-  { id: 'u3', tenant_id: 't3', name: 'João Teacher', email: 'joao@school.com', plan: 'FREE' as PlanTier, cycle: 'MENSAL', status: 'ACTIVE', creditsUsed: 0, creditsLimit: 0, studentsActive: 1, studentsLimit: 5, nextBilling: '-' },
-  { id: 'u4', tenant_id: 't4', name: 'Escola Futuro', email: 'dir@futuro.edu', plan: 'MASTER' as PlanTier, cycle: 'MENSAL', status: 'OVERDUE', creditsUsed: 55, creditsLimit: 70, studentsActive: 40, studentsLimit: 999, nextBilling: '2024-05-20' },
+  { id: 'u1', tenant_id: 't1', name: 'Maria Silva', email: 'maria@prof.com', phone: '(11) 99999-1111', plan: 'PRO' as PlanTier, cycle: 'MENSAL', status: 'ACTIVE', creditsUsed: 15, creditsLimit: SUBSCRIPTION_PLANS.PRO.credits, studentsActive: 12, studentsLimit: SUBSCRIPTION_PLANS.PRO.students, nextBilling: '2024-06-15' },
+  { id: 'u2', tenant_id: 't2', name: 'Clínica Aprender', email: 'contato@aprender.com', phone: '(21) 98888-2222', plan: 'MASTER' as PlanTier, cycle: 'ANUAL', status: 'ACTIVE', creditsUsed: 45, creditsLimit: SUBSCRIPTION_PLANS.MASTER.credits, studentsActive: 38, studentsLimit: SUBSCRIPTION_PLANS.MASTER.students, nextBilling: '2025-01-10' },
+  { id: 'u3', tenant_id: 't3', name: 'João Teacher', email: 'joao@school.com', plan: 'FREE' as PlanTier, cycle: 'MENSAL', status: 'ACTIVE', creditsUsed: 0, creditsLimit: SUBSCRIPTION_PLANS.FREE.credits, studentsActive: 1, studentsLimit: SUBSCRIPTION_PLANS.FREE.students, nextBilling: '-' },
+  { id: 'u4', tenant_id: 't4', name: 'Escola Futuro', email: 'dir@futuro.edu', plan: 'MASTER' as PlanTier, cycle: 'MENSAL', status: 'OVERDUE', creditsUsed: 55, creditsLimit: SUBSCRIPTION_PLANS.MASTER.credits, studentsActive: 40, studentsLimit: SUBSCRIPTION_PLANS.MASTER.students, nextBilling: '2024-05-20' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -228,9 +229,9 @@ export const AdminService = {
   async getPlans(): Promise<Plan[]> {
     if (DEMO_MODE) {
       return [
-        { id: '1', code: 'FREE', name: 'Starter (Grátis)', price_monthly: 0, price_yearly: 0, credits_monthly: 0, max_entities: 5, features_json: ['5 alunos', 'Docs básicos'], is_active: true },
-        { id: '2', code: 'PRO', name: 'Profissional', price_monthly: 99, price_yearly: 78, credits_monthly: 50, max_entities: 30, features_json: ['30 alunos', '50 créditos/mês'], is_active: true },
-        { id: '3', code: 'MASTER', name: 'Master', price_monthly: 147, price_yearly: 118, credits_monthly: 70, max_entities: 999, features_json: ['999 alunos', '70 créditos/mês', 'Export Word'], is_active: true },
+        { id: '1', code: 'FREE', name: SUBSCRIPTION_PLANS.FREE.name, price_monthly: 0, price_yearly: 0, credits_monthly: SUBSCRIPTION_PLANS.FREE.credits, max_entities: SUBSCRIPTION_PLANS.FREE.students, features_json: [`${SUBSCRIPTION_PLANS.FREE.students} alunos`, 'Docs básicos'], is_active: true },
+        { id: '2', code: 'PRO', name: SUBSCRIPTION_PLANS.PRO.name, price_monthly: 99, price_yearly: 78, credits_monthly: SUBSCRIPTION_PLANS.PRO.credits, max_entities: SUBSCRIPTION_PLANS.PRO.students, features_json: [`${SUBSCRIPTION_PLANS.PRO.students} alunos`, `${SUBSCRIPTION_PLANS.PRO.credits} créditos/mês`], is_active: true },
+        { id: '3', code: 'MASTER', name: SUBSCRIPTION_PLANS.MASTER.name, price_monthly: 147, price_yearly: 118, credits_monthly: SUBSCRIPTION_PLANS.MASTER.credits, max_entities: SUBSCRIPTION_PLANS.MASTER.students, features_json: [`${SUBSCRIPTION_PLANS.MASTER.students} alunos`, `${SUBSCRIPTION_PLANS.MASTER.credits} créditos/mês`, 'Export Word'], is_active: true },
         { id: '4', code: 'INSTITUTIONAL', name: 'Institucional', price_monthly: 297, price_yearly: 247, credits_monthly: 9999, max_entities: 9999, features_json: ['Ilimitado'], is_active: true },
       ];
     }

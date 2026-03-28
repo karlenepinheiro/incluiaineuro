@@ -4,8 +4,8 @@
  * cancelada ou em período de cortesia expirado.
  *
  * Prioridade de links de pagamento:
- *   1. provider_payment_link / provider_update_payment_link do banco (Asaas)
- *   2. Fallback: PaymentService (Kiwify checkout genérico)
+ *   1. provider_payment_link / provider_update_payment_link do banco (Kiwify)
+ *   2. Fallback: PaymentService (checkout genérico)
  */
 
 import React, { useState } from 'react';
@@ -19,7 +19,7 @@ interface ExpiredPlanBannerProps {
   subscriptionStatus: SubscriptionStatus;
   tenantSummary: TenantSummary | null;
   user: User;
-  /** Assinatura com links diretos do gateway (Asaas). Quando presente, priorizado. */
+  /** Assinatura com links diretos do gateway (Kiwify). Quando presente, priorizado. */
   subscription?: ActiveSubscriptionInfo | null;
   onDismiss?: () => void;
 }
@@ -110,7 +110,7 @@ export const ExpiredPlanBanner: React.FC<ExpiredPlanBannerProps> = ({
   // --- Handlers de pagamento ---
 
   const handlePayNow = async () => {
-    // 1. Link direto do gateway (Asaas) — melhor opção
+    // 1. Link direto do gateway (Kiwify) — melhor opção
     if (subscription?.providerPaymentLink) {
       window.open(subscription.providerPaymentLink, '_blank', 'noopener,noreferrer');
       return;
@@ -128,7 +128,7 @@ export const ExpiredPlanBanner: React.FC<ExpiredPlanBannerProps> = ({
   };
 
   const handleUpdatePayment = async () => {
-    // 1. Link de atualização do gateway (Asaas)
+    // 1. Link de atualização do gateway (Kiwify)
     if (subscription?.providerUpdatePaymentLink) {
       window.open(subscription.providerUpdatePaymentLink, '_blank', 'noopener,noreferrer');
       return;

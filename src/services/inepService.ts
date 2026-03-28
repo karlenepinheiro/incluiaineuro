@@ -3,11 +3,17 @@
  *
  * Estratégia (tentada em ordem de confiabilidade):
  *  1. BrasilAPI (CORS aberto, base INEP/Educacenso, mais confiável)
- *  2. QEdu API
- *  3. INEP Data via proxy corsproxy.io
- *  4. allorigins.win → INEP Data
- *  5. Retorna null → usuário preenche manualmente
+ *  2. INEP Data via corsproxy.io
+ *  3. allorigins.win → INEP Data
+ *  4. Retorna null → usuário preenche manualmente
+ *
+ * Erros classificados:
+ *  - 'invalid'   → código fora do padrão (não 8 dígitos)
+ *  - 'not_found' → fontes consultadas, escola não localizada
+ *  - 'network'   → falha de rede (sem internet / timeout generalizado)
  */
+
+export type INEPFetchError = 'invalid' | 'not_found' | 'network';
 
 export interface INEPSchoolData {
   schoolName?: string;
@@ -26,38 +32,43 @@ export function validateINEPCode(code: string): boolean {
   return /^\d{8}$/.test(code.replace(/\D/g, ''));
 }
 
+/**
+ * Busca escola pelo código INEP.
+ * Lança um objeto `{ type: INEPFetchError }` ao falhar — use em catch para
+ * distinguir código inválido, escola não encontrada e falha de rede.
+ */
 export async function fetchSchoolByINEP(inepCode: string): Promise<INEPSchoolData | null> {
   const code = inepCode.replace(/\D/g, '');
   if (!validateINEPCode(code)) {
-    throw new Error('Código INEP inválido. Deve conter exatamente 8 dígitos.');
+    const err: any = new Error('Código INEP inválido. Deve conter exatamente 8 dígitos.');
+    err.type = 'invalid' as INEPFetchError;
+    throw err;
   }
 
+  let networkErrors = 0;
+
   // 1. BrasilAPI — CORS aberto, mais confiável
+  // Resposta usa nomenclatura INEP: noEntidade (nome), dsEndereco, noMunicipio, sgUf, nrCep…
   try {
     const res = await fetch(
       `https://brasilapi.com.br/api/escola/v1/${code}`,
       { signal: AbortSignal.timeout(6000) }
     );
-    if (res.ok) {
+    if (res.status === 404) {
+      // código bem formado mas escola não cadastrada na BrasilAPI — tenta próxima fonte
+    } else if (res.ok) {
       const d = await res.json();
-      if (d?.nome_da_escola || d?.nome) return mapBrasilAPI(d);
+      // Aceita tanto nomenclatura INEP (noEntidade) quanto variantes camelCase/snake_case
+      const name =
+        d?.noEntidade ?? d?.nomeEscola ?? d?.nome_da_escola ?? d?.nome ?? d?.school_name;
+      if (name) return mapBrasilAPI(d);
+      // Último recurso: tenta mapeamento genérico INEP sobre o mesmo payload
+      const fallback = mapINEPData(d);
+      if (fallback) return fallback;
     }
-  } catch { /* segue */ }
+  } catch { networkErrors++; }
 
-  // 2. QEdu API
-  try {
-    const res = await fetch(
-      `https://api.qedu.org.br/v1/escolas?inep=${code}`,
-      { signal: AbortSignal.timeout(6000), headers: { Accept: 'application/json' } }
-    );
-    if (res.ok) {
-      const json = await res.json();
-      const d = Array.isArray(json?.data) ? json.data[0] : (json?.data ?? json);
-      if (d?.name || d?.nome) return mapQEdu(d);
-    }
-  } catch { /* segue */ }
-
-  // 3. INEP Data via corsproxy.io
+  // 2. INEP Data via corsproxy.io
   try {
     const inepUrl = `https://inepdata.inep.gov.br/analytics/api/v1/escola?codigoInep=${code}`;
     const res = await fetch(`https://corsproxy.io/?${encodeURIComponent(inepUrl)}`, {
@@ -69,9 +80,9 @@ export async function fetchSchoolByINEP(inepCode: string): Promise<INEPSchoolDat
       const mapped = mapINEPData(data);
       if (mapped) return mapped;
     }
-  } catch { /* segue */ }
+  } catch { networkErrors++; }
 
-  // 4. allorigins.win → INEP Data
+  // 3. allorigins.win → INEP Data
   try {
     const inepUrl = `https://inepdata.inep.gov.br/analytics/api/v1/escola?codigoInep=${code}`;
     const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(inepUrl)}`, {
@@ -84,44 +95,51 @@ export async function fetchSchoolByINEP(inepCode: string): Promise<INEPSchoolDat
         if (mapped) return mapped;
       }
     }
-  } catch { /* esgotado */ }
+  } catch { networkErrors++; }
 
+  // Todas as fontes falharam com erro de rede?
+  if (networkErrors === 3) {
+    const err: any = new Error('Sem conexão com as fontes INEP. Verifique sua internet.');
+    err.type = 'network' as INEPFetchError;
+    throw err;
+  }
+
+  // Fontes responderam mas escola não foi localizada
   return null;
 }
 
 function mapBrasilAPI(d: any): INEPSchoolData {
+  // BrasilAPI retorna nomenclatura INEP (noEntidade, dsEndereco, noMunicipio, sgUf…)
+  // mas também pode retornar variantes camelCase/snake_case
+  const name   = d.noEntidade   ?? d.nomeEscola    ?? d.nome_da_escola ?? d.nome    ?? undefined;
+  const street = d.dsEndereco   ?? d.logradouro    ?? d.endereco       ?? undefined;
+  const number = d.nrPredio     ?? d.numero        ?? d.numeroEndereco ?? undefined;
+  const address = street && number ? `${street}, ${number}` : street;
+  const ddd    = d.nuDdd        ?? d.ddd;
+  const tel    = d.nuTelefone   ?? d.telefone;
   return {
-    schoolName:    d.nome_da_escola ?? d.nome ?? undefined,
-    address:       d.logradouro && d.numero ? `${d.logradouro}, ${d.numero}` : (d.logradouro ?? d.endereco ?? undefined),
-    neighborhood:  d.bairro ?? undefined,
-    city:          d.municipio ?? d.nome_municipio ?? undefined,
-    state:         d.uf ?? d.sigla_uf ?? undefined,
-    zipcode:       formatZip(d.cep) ?? undefined,
-    contact:       d.telefone ?? undefined,
-    principalName: d.nome_diretor ?? undefined,
-    type:          d.dependencia_administrativa ?? undefined,
-    stage:         d.etapas_ensino ?? undefined,
+    schoolName:    name,
+    address,
+    neighborhood:  d.dsBairro    ?? d.bairro         ?? d.bairroEndereco   ?? undefined,
+    city:          d.noMunicipio ?? d.municipio       ?? d.nomeMunicipio    ?? d.nome_municipio ?? undefined,
+    state:         d.sgUf        ?? d.uf              ?? d.siglaUf          ?? d.sigla_uf       ?? undefined,
+    zipcode:       formatZip(d.nrCep ?? d.cep ?? d.cepEndereco)            ?? undefined,
+    contact:       (ddd && tel) ? `(${ddd}) ${tel}` : (tel ?? undefined),
+    principalName: d.noGestor    ?? d.nomeGestor      ?? d.nome_diretor     ?? undefined,
+    type:          d.tpDependencia ?? d.dependenciaAdministrativa ?? d.dependencia_administrativa ?? undefined,
+    stage:         d.etapasEnsino  ?? d.etapas_ensino ?? undefined,
   };
 }
 
-function mapQEdu(d: any): INEPSchoolData {
-  return {
-    schoolName: d.name ?? d.nome ?? undefined,
-    address:    d.address ?? d.endereco ?? undefined,
-    city:       d.city ?? d.municipio ?? undefined,
-    state:      d.state ?? d.uf ?? undefined,
-    zipcode:    formatZip(d.zipcode ?? d.cep) ?? undefined,
-  };
-}
 
 function mapINEPData(data: any): INEPSchoolData | null {
   if (!data) return null;
   const d = Array.isArray(data) ? data[0] : data;
   if (!d) return null;
-  const hasAny = d.noEscola || d.nome_escola || d.name || d.dsEndereco || d.endereco;
+  const hasAny = d.noEntidade || d.noEscola || d.nome_escola || d.name || d.dsEndereco || d.endereco;
   if (!hasAny) return null;
   return {
-    schoolName:   d.noEscola    ?? d.nome_escola ?? d.name       ?? undefined,
+    schoolName:   d.noEntidade  ?? d.noEscola   ?? d.nome_escola ?? d.name ?? undefined,
     address:      d.dsEndereco  ?? d.endereco    ?? d.address     ?? undefined,
     neighborhood: d.dsBairro    ?? d.bairro      ?? undefined,
     city:         d.noMunicipio ?? d.municipio   ?? d.city        ?? undefined,

@@ -8,14 +8,17 @@ import {
   ShieldCheck, Clock, Edit, ArrowLeft, Eye,
   Printer, CheckCircle, FilePlus, AlertCircle, Save, Sparkles, FileSearch,
   ClipboardCheck, Trash2, X, Download, Paperclip, BookOpen, BarChart2,
-  TrendingUp, Users, Tag, Send, LogOut,
+  TrendingUp, Users, Tag, Send, LogOut, Zap, Image, Copy, RefreshCw,
 } from 'lucide-react';
 import { SmartTextarea } from './SmartTextarea';
 import { AIService } from '../services/aiService';
 import { ExportService } from '../services/exportService';
 import { databaseService } from '../services/databaseService';
 import { StorageService } from '../services/storageService';
-import { StudentDocumentService, MedicalReportService, TimelineService } from '../services/persistenceService';
+import {
+  StudentDocumentService, MedicalReportService, TimelineService,
+  ObservationFormService, StudentProfileService, GeneratedActivityService,
+} from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
 import { QuickDocModal, QuickDocType } from './QuickDocModal';
 
@@ -154,7 +157,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   onUpdateStudent,
   onNavigateTo,
 }) => {
-  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline';
+  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades';
   const [activeTab, setActiveTab] = useState<Tab>('ficha');
   const [fichas, setFichas] = useState<FichaComplementar[]>(student.fichasComplementares || []);
   const [quickDocType, setQuickDocType] = useState<QuickDocType | null>(null);
@@ -168,23 +171,96 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     setLoadingDocs(true);
     try {
       const rows = await StudentDocumentService.getForStudent(student.id);
-      // Normaliza para o formato esperado pela UI
-      setDbDocs(rows.map((r: any) => ({
+      const bankDocs = rows.map((r: any) => ({
         id:   r.id,
         name: r.name,
         date: r.created_at ? new Date(r.created_at).toLocaleDateString('pt-BR') : '',
         type: r.document_type ?? 'Laudo',
         url:  r.file_url  ?? undefined,
         path: r.file_path ?? undefined,
-      })));
+        fromBank: true,
+      }));
+
+      // Merge documentos legados (student.documents) que ainda não estejam no banco
+      const bankNames = new Set(bankDocs.map((d: any) => d.name));
+      const legacyDocs = (student.documents ?? [])
+        .filter((d) => d?.name && !bankNames.has(d.name))
+        .map((d, i) => ({
+          id:   (d as any).id ?? `legacy_${i}`,
+          name: d.name,
+          date: d.date ?? '',
+          type: d.type ?? 'Laudo',
+          url:  d.url ?? undefined,
+          path: d.path ?? undefined,
+          fromBank: false,
+        }));
+
+      setDbDocs([...bankDocs, ...legacyDocs]);
     } catch (err) {
       console.error('[StudentProfile] loadDbDocs error:', err);
     } finally {
       setLoadingDocs(false);
     }
-  }, [student.id]);
+  }, [student.id, student.documents]);
 
   useEffect(() => { loadDbDocs(); }, [loadDbDocs]);
+
+  // ── Dados do banco: fichas de observação, perfis cognitivos, laudos, linha do tempo ──
+  const [dbObsForms, setDbObsForms]             = useState<any[]>([]);
+  const [dbCogProfiles, setDbCogProfiles]       = useState<any[]>([]);
+  const [dbTimeline, setDbTimeline]             = useState<any[]>([]);
+  const [dbMedicalReports, setDbMedicalReports] = useState<any[]>([]);
+  const [dbActivities, setDbActivities]         = useState<any[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(false);
+
+  useEffect(() => {
+    if (!student.id) return;
+    ObservationFormService.getForStudent(student.id)
+      .then(setDbObsForms)
+      .catch(e => console.error('[StudentProfile] obs_forms load:', e));
+    StudentProfileService.getForStudent(student.id)
+      .then(setDbCogProfiles)
+      .catch(e => console.error('[StudentProfile] cog_profiles load:', e));
+    TimelineService.getForStudent(student.id)
+      .then(setDbTimeline)
+      .catch(e => console.error('[StudentProfile] timeline load:', e));
+    MedicalReportService.getForStudent(student.id)
+      .then(setDbMedicalReports)
+      .catch(e => console.error('[StudentProfile] medical_reports load:', e));
+  }, [student.id]);
+
+  // Carrega atividades geradas ao abrir a aba (lazy load)
+  useEffect(() => {
+    if (activeTab !== 'atividades' || !student.id) return;
+    setLoadingActivities(true);
+    GeneratedActivityService.getForStudent(student.id)
+      .then(setDbActivities)
+      .catch(e => console.error('[StudentProfile] activities load:', e))
+      .finally(() => setLoadingActivities(false));
+  }, [activeTab, student.id]);
+
+  // Converte student_profiles rows → formato StudentEvolution (para reutilizar gráficos)
+  const dbEvolutions = dbCogProfiles.map((p: any) => ({
+    id:          p.id,
+    date:        p.evaluated_at ? `${p.evaluated_at}T00:00:00` : p.created_at,
+    createdAt:   p.created_at,
+    createdBy:   p.evaluated_by ?? 'Profissional',
+    author:      p.evaluated_by ?? 'Profissional',
+    observation: p.observation ?? '',
+    scores: [
+      p.comunicacao_expressiva ?? 1, p.interacao_social    ?? 1,
+      p.autonomia_avd          ?? 1, p.autorregulacao      ?? 1,
+      p.atencao_sustentada     ?? 1, p.compreensao         ?? 1,
+      p.motricidade_fina       ?? 1, p.motricidade_grossa  ?? 1,
+      p.participacao           ?? 1, p.linguagem_leitura   ?? 1,
+    ],
+    customFields: [],
+  }));
+
+  // Usa dados do banco quando disponíveis; senão, usa legacy student.evolutions[]
+  const effectiveEvolutions = dbEvolutions.length > 0
+    ? dbEvolutions
+    : [...(student.evolutions ?? [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   // doc upload
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -209,7 +285,50 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   const handleDownloadFiche = () => {
     const school = user?.schoolConfigs?.[0] ?? null;
+    // Sempre usa a ficha atual do aluno (dados mais recentes)
     ExportService.generateStudentProfilePDF(student, user?.name || 'Sistema', school);
+  };
+
+  // ── Geração em Lote ────────────────────────────────────────────────────────
+  const BATCH_TYPES: { id: DocumentType; label: string; order: number }[] = [
+    { id: 'ESTUDO_DE_CASO' as any, label: 'Estudo de Caso', order: 1 },
+    { id: 'PAEE'           as any, label: 'PAEE',           order: 2 },
+    { id: 'PEI'            as any, label: 'PEI',            order: 3 },
+  ];
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchSelected, setBatchSelected] = useState<string[]>(['ESTUDO_DE_CASO', 'PAEE', 'PEI']);
+  const [batchProgress, setBatchProgress] = useState<{ type: string; status: 'pending' | 'generating' | 'done' | 'error'; msg?: string }[]>([]);
+  const [batchRunning, setBatchRunning] = useState(false);
+
+  const handleBatchGenerate = async () => {
+    if (!user || !batchSelected.length) return;
+    const ordered = BATCH_TYPES.filter(t => batchSelected.includes(t.id as string)).sort((a, b) => a.order - b.order);
+    setBatchProgress(ordered.map(t => ({ type: t.id as string, status: 'pending' })));
+    setBatchRunning(true);
+
+    for (let i = 0; i < ordered.length; i++) {
+      const t = ordered[i];
+      setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'generating' } : p));
+      try {
+        const jsonStr = await AIService.generateProtocolJSON(t.id, student, user as any);
+        const parsed = JSON.parse(jsonStr);
+        await databaseService.saveDocument({
+          tenant_id:  (user as any).tenant_id,
+          studentId:  student.id,
+          userId:     (user as any).id,
+          doc_type:   t.id,
+          title:      `${t.label} — ${student.name}`,
+          content:    jsonStr,
+          sections:   parsed?.sections ?? [],
+          status:     'DRAFT',
+          generatedBy: (user as any).name || 'Sistema',
+        });
+        setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'done' } : p));
+      } catch (err: any) {
+        setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'error', msg: err?.message || 'Erro' } : p));
+      }
+    }
+    setBatchRunning(false);
   };
 
   const handleSaveHistory = async () => {
@@ -228,7 +347,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   };
 
   const handleAnalyzeDoc = async (doc: { name: string; url?: string; path?: string }, index: number) => {
-    if (!confirm('Analisar este documento com IA? (Custo: 2 créditos)')) return;
+    if (!confirm('Analisar este documento com IA? (Custo: 5 créditos)')) return;
     setAnalyzingDocId(index.toString());
     try {
       const effectiveUser: any = user ?? { id: 'local', tenant_id: student.tenant_id ?? 'default', plan: userPlan };
@@ -395,18 +514,24 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const presentServices = serviceRecords.filter(r => r.attendance === 'Presente').length;
   const presenceRate = totalServices > 0 ? Math.round((presentServices / totalServices) * 100) : 0;
 
-  // last evolution (most recent)
-  const sortedEvolutions: StudentEvolution[] = [...(student.evolutions ?? [])].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
-  const latestEvolution = sortedEvolutions[0] ?? null;
+  // Evoluções: prefere dados do banco, cai para legacy
+  const sortedEvolutions = effectiveEvolutions as any[];
+  const latestEvolution  = sortedEvolutions[0] ?? null;
+
+  // Controla qual avaliação está selecionada no histórico (0 = mais recente)
+  const [selectedEvoIndex, setSelectedEvoIndex] = useState(0);
+  const selectedEvolution = sortedEvolutions[selectedEvoIndex] ?? latestEvolution;
+
+  // Mantém índice válido quando lista muda
+  const safeEvoIndex = Math.min(selectedEvoIndex, Math.max(0, sortedEvolutions.length - 1));
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'ficha',      label: 'Ficha do Aluno',    icon: <User size={13}/> },
-    { id: 'evolucao',   label: 'Evolução',           icon: <TrendingUp size={13}/> },
-    { id: 'agenda',     label: 'Agenda',             icon: <Calendar size={13}/> },
-    { id: 'documentos', label: 'Documentos',         icon: <FileText size={13}/> },
-    { id: 'timeline',   label: 'Linha do Tempo',     icon: <Activity size={13}/> },
+    { id: 'ficha',      label: 'Ficha do Aluno',      icon: <User size={13}/> },
+    { id: 'evolucao',   label: 'Evolução',             icon: <TrendingUp size={13}/> },
+    { id: 'agenda',     label: 'Agenda',               icon: <Calendar size={13}/> },
+    { id: 'documentos', label: 'Documentos',           icon: <FileText size={13}/> },
+    { id: 'atividades', label: 'Atividades Geradas',   icon: <Zap size={13}/> },
+    { id: 'timeline',   label: 'Linha do Tempo',       icon: <Activity size={13}/> },
   ];
 
   return (
@@ -416,9 +541,15 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         <button onClick={onBack} className="flex items-center gap-2 text-gray-500 hover:text-brand-600 transition text-sm">
           <ArrowLeft size={18}/> Voltar para Lista
         </button>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={onEdit} className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 transition shadow-sm">
             <Edit size={15}/> Editar Dados
+          </button>
+          <button
+            onClick={() => { setBatchSelected(['ESTUDO_DE_CASO', 'PAEE', 'PEI']); setBatchProgress([]); setBatchRunning(false); setShowBatchModal(true); }}
+            className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 transition shadow-sm"
+          >
+            <Sparkles size={15}/> Gerar em Lote
           </button>
           <button onClick={handleDownloadFiche} className="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-700 transition shadow-sm flex items-center gap-2">
             <Printer size={15}/> Baixar Ficha PDF
@@ -492,9 +623,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               }`}
             >
               {t.icon}{t.label}
-              {t.id === 'documentos' && dbDocs.length + studentProtocols.length + fichas.length > 0 && (
+              {t.id === 'documentos' && dbDocs.length + studentProtocols.length + (dbObsForms.length || fichas.length) > 0 && (
                 <span className="ml-1 text-[9px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full font-bold">
-                  {dbDocs.length + studentProtocols.length + fichas.length}
+                  {dbDocs.length + studentProtocols.length + (dbObsForms.length || fichas.length)}
                 </span>
               )}
             </button>
@@ -697,30 +828,43 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
          ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'evolucao' && (
         <div className="space-y-5">
+          {/* Origem dos dados */}
+          {dbEvolutions.length > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-50 border border-green-100 text-xs text-green-700 font-semibold">
+              <CheckCircle size={13} className="text-green-500"/>
+              {dbEvolutions.length} avaliação{dbEvolutions.length !== 1 ? 'ões' : ''} carregada{dbEvolutions.length !== 1 ? 's' : ''} com sucesso
+            </div>
+          )}
           {/* Charts */}
-          {sortedEvolutions.length > 0 && latestEvolution ? (
+          {sortedEvolutions.length > 0 && selectedEvolution ? (
             <>
-              {/* Last evaluation header */}
+              {/* Selected evaluation header */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-                <SectionHeader
-                  icon={<BarChart2 size={16} style={{ color: '#7c3aed' }}/>}
-                  title="5. Gráficos Evolutivos"
-                  subtitle={`Último registro: ${new Date(latestEvolution.date).toLocaleDateString('pt-BR')} · por ${latestEvolution.author || 'Profissional'}`}
-                />
+                <div className="flex items-start justify-between mb-4">
+                  <SectionHeader
+                    icon={<BarChart2 size={16} style={{ color: '#7c3aed' }}/>}
+                    title="Gráficos Evolutivos"
+                    subtitle={`Avaliação de ${new Date(selectedEvolution.date).toLocaleDateString('pt-BR')} · por ${selectedEvolution.author || 'Profissional'}`}
+                  />
+                  {safeEvoIndex > 0 && (
+                    <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-2 py-1 rounded-full border border-amber-200 shrink-0">
+                      Registro anterior
+                    </span>
+                  )}
+                </div>
 
                 {/* Radar + Bars side by side */}
                 <div className="grid md:grid-cols-2 gap-8 items-start">
                   <div className="flex flex-col items-center">
                     <p className="text-xs font-bold text-gray-500 uppercase mb-3">Perfil Radar</p>
-                    <RadarChart scores={latestEvolution.scores} />
+                    <RadarChart scores={selectedEvolution.scores} />
                   </div>
                   <div>
                     <p className="text-xs font-bold text-gray-500 uppercase mb-3">Por Dimensão</p>
-                    <EvoBarChart scores={latestEvolution.scores} labels={CRITERIA.map(c => c.name)} />
-                    {/* Legend */}
+                    <EvoBarChart scores={selectedEvolution.scores} labels={CRITERIA.map(c => c.name)} />
                     <div className="mt-4 space-y-1">
                       {CRITERIA.map((c, i) => {
-                        const score = latestEvolution.scores[i] ?? 0;
+                        const score = selectedEvolution.scores[i] ?? 0;
                         const color = score >= 4 ? '#16a34a' : score >= 3 ? '#7c3aed' : score >= 2 ? '#d97706' : '#dc2626';
                         return (
                           <div key={i} className="flex items-center justify-between text-xs">
@@ -733,38 +877,89 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   </div>
                 </div>
 
-                {latestEvolution.observation && (
+                {selectedEvolution.observation && (
                   <div className="mt-5 bg-purple-50 rounded-lg p-3 border border-purple-100">
                     <p className="text-[10px] font-bold uppercase text-purple-600 mb-1">Observação da avaliação</p>
-                    <p className="text-sm text-gray-700 italic">{latestEvolution.observation}</p>
+                    <p className="text-sm text-gray-700 italic">{selectedEvolution.observation}</p>
                   </div>
                 )}
               </div>
 
-              {/* Evolution history list */}
-              {sortedEvolutions.length > 1 && (
+              {/* Comparação de Evolução — última vs anterior */}
+              {sortedEvolutions.length >= 2 && safeEvoIndex === 0 && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+                  <SectionHeader
+                    icon={<TrendingUp size={16} style={{ color: '#16a34a' }}/>}
+                    title="Comparação de Evolução"
+                    subtitle="Última avaliação vs. avaliação anterior"
+                  />
+                  <div className="space-y-2">
+                    {CRITERIA.map((c, i) => {
+                      const curr = sortedEvolutions[0].scores[i] ?? 0;
+                      const prev = sortedEvolutions[1].scores[i] ?? 0;
+                      const delta = curr - prev;
+                      const deltaColor = delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#6b7280';
+                      const deltaIcon = delta > 0 ? '▲' : delta < 0 ? '▼' : '—';
+                      const barColor = curr >= 4 ? '#16a34a' : curr >= 3 ? '#7c3aed' : curr >= 2 ? '#d97706' : '#dc2626';
+                      return (
+                        <div key={i} className="flex items-center gap-3 py-1.5 border-b border-gray-50 last:border-0">
+                          <span className="text-xs text-gray-600 w-40 shrink-0">{c.name}</span>
+                          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${(curr / 5) * 100}%`, background: barColor }}/>
+                          </div>
+                          <span className="text-xs font-bold text-gray-700 w-8 text-right">{curr}/5</span>
+                          <span className="text-xs font-bold w-8 text-right" style={{ color: deltaColor }}>
+                            {deltaIcon}{delta !== 0 ? Math.abs(delta) : ''}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-3">
+                    Comparado com: {new Date(sortedEvolutions[1].date).toLocaleDateString('pt-BR')} · por {sortedEvolutions[1].author || 'Profissional'}
+                  </p>
+                </div>
+              )}
+
+              {/* Histórico de Avaliações — todos os registros, clicáveis */}
+              {sortedEvolutions.length > 0 && (
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
                   <SectionHeader
                     icon={<TrendingUp size={16} style={{ color: '#1F4E5F' }}/>}
-                    title="4. Histórico de Avaliações"
-                    subtitle={`${sortedEvolutions.length} registros no total`}
+                    title="Histórico de Avaliações"
+                    subtitle={`${sortedEvolutions.length} registro${sortedEvolutions.length !== 1 ? 's' : ''} — clique para visualizar`}
                   />
-                  <div className="space-y-3">
-                    {sortedEvolutions.slice(1).map((evo, i) => {
-                      const avg = (evo.scores.reduce((a, b) => a + b, 0) / evo.scores.length).toFixed(1);
+                  <div className="space-y-2">
+                    {sortedEvolutions.map((evo, i) => {
+                      const avg = (evo.scores.reduce((a: number, b: number) => a + b, 0) / evo.scores.length).toFixed(1);
+                      const isSelected = i === safeEvoIndex;
                       return (
-                        <div key={evo.id ?? i} className="flex items-center gap-4 p-3 bg-gray-50 rounded-xl border border-gray-100">
-                          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-purple-100 shrink-0">
-                            <TrendingUp size={16} className="text-purple-600"/>
+                        <button
+                          key={evo.id ?? i}
+                          onClick={() => setSelectedEvoIndex(i)}
+                          className={`w-full flex items-center gap-4 p-3 rounded-xl border transition text-left ${
+                            isSelected
+                              ? 'bg-purple-50 border-purple-200 shadow-sm'
+                              : 'bg-gray-50 border-gray-100 hover:bg-gray-100'
+                          }`}
+                        >
+                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isSelected ? 'bg-purple-600' : 'bg-purple-100'}`}>
+                            <TrendingUp size={16} className={isSelected ? 'text-white' : 'text-purple-600'}/>
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-gray-800">{new Date(evo.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-bold text-gray-800">
+                                {new Date(evo.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                              </p>
+                              {i === 0 && <span className="text-[9px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded-full">Mais recente</span>}
+                            </div>
                             <p className="text-xs text-gray-500">por {evo.author} · Média: {avg}/5</p>
                           </div>
                           {evo.observation && (
-                            <p className="text-xs text-gray-500 italic max-w-xs truncate">{evo.observation}</p>
+                            <p className="text-xs text-gray-400 italic max-w-[180px] truncate hidden md:block">{evo.observation}</p>
                           )}
-                        </div>
+                          {isSelected && <span className="text-[10px] text-purple-600 font-bold shrink-0">Exibindo ▶</span>}
+                        </button>
                       );
                     })}
                   </div>
@@ -993,7 +1188,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         <button onClick={() => handleDeleteDoc(doc)} className="text-xs bg-white border border-red-100 text-red-400 px-2 py-1.5 rounded-lg font-bold hover:bg-red-50 flex items-center gap-1"><Trash2 size={12}/></button>
                       </div>
                     </div>
-                    {/* IA analysis result */}
+                    {/* IA analysis result — legado (student.documentAnalyses) */}
                     {analyses.filter(a => a.documentName === doc.name).map(analysis => (
                       <div key={analysis.id} className="mt-3 border-t border-gray-200 pt-3">
                         <div className="bg-white p-3 rounded-lg border border-purple-100">
@@ -1016,6 +1211,33 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                         </div>
                       </div>
                     ))}
+                    {/* IA analysis result — banco (medical_reports) */}
+                    {dbMedicalReports.filter(r => r.raw_content === doc.name).map((r: any) => (
+                      <div key={r.id} className="mt-3 border-t border-gray-200 pt-3">
+                        <div className="bg-white p-3 rounded-lg border border-purple-100">
+                          <p className="text-xs font-bold text-purple-800 mb-1">Análise IA (salva):</p>
+                          {r.synthesis && <p className="text-xs text-gray-600 italic mb-2">"{r.synthesis}"</p>}
+                          <div className="grid grid-cols-2 gap-2">
+                            {Array.isArray(r.pedagogical_points) && r.pedagogical_points.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-gray-500">Pontos Pedagógicos</p>
+                                <ul className="text-[10px] list-disc pl-3 text-gray-600">
+                                  {r.pedagogical_points.slice(0, 3).map((p: string, i: number) => <li key={i}>{p}</li>)}
+                                </ul>
+                              </div>
+                            )}
+                            {Array.isArray(r.suggestions) && r.suggestions.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-gray-500">Sugestões</p>
+                                <ul className="text-[10px] list-disc pl-3 text-gray-600">
+                                  {r.suggestions.slice(0, 3).map((s: string, i: number) => <li key={i}>{s}</li>)}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -1023,87 +1245,145 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
 
           {/* ─ Fichas Complementares ─ */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-            <SectionHeader
-              icon={<ClipboardCheck size={16} style={{ color: '#1F4E5F' }}/>}
-              title="Fichas Complementares Vinculadas"
-              subtitle={`${fichas.length} ficha(s) registrada(s)`}
-            />
-            {/* Botão de atalho para a view de Fichas */}
-            <button
-              onClick={() => onNavigateTo?.('fichas')}
-              className="mb-4 flex items-center gap-2 text-sm font-bold text-brand-700 bg-brand-50 border border-brand-100 px-4 py-2 rounded-lg hover:bg-brand-100 transition"
-            >
-              <FilePlus size={14}/> Nova Ficha Complementar
-            </button>
+          {(() => {
+            // Prioridade: dados reais do banco (observation_forms) → legado (student.fichasComplementares)
+            const hasBankFichas = dbObsForms.length > 0;
+            const totalFichas   = hasBankFichas ? dbObsForms.length : fichas.length;
+            return (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+                <SectionHeader
+                  icon={<ClipboardCheck size={16} style={{ color: '#1F4E5F' }}/>}
+                  title="Fichas Complementares Vinculadas"
+                  subtitle={`${totalFichas} ficha(s) registrada(s)${hasBankFichas ? ' · dados do banco' : ''}`}
+                />
+                <button
+                  onClick={() => onNavigateTo?.('fichas')}
+                  className="mb-4 flex items-center gap-2 text-sm font-bold text-brand-700 bg-brand-50 border border-brand-100 px-4 py-2 rounded-lg hover:bg-brand-100 transition"
+                >
+                  <FilePlus size={14}/> Nova Ficha Complementar
+                </button>
 
-            {fichas.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-gray-200 p-8 text-center">
-                <ClipboardCheck size={28} className="mx-auto mb-2 text-gray-200"/>
-                <p className="text-gray-400 text-sm">Nenhuma ficha complementar registrada.</p>
-                <p className="text-xs text-gray-300 mt-0.5">Clique em "Nova Ficha Complementar" acima para criar.</p>
-              </div>
-            ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="text-[10px] text-gray-500 uppercase bg-gray-50 border-b border-gray-100">
-                      <tr>
-                        <th className="px-4 py-3 text-left font-bold">Tipo</th>
-                        <th className="px-4 py-3 text-left font-bold">Data</th>
-                        <th className="px-4 py-3 text-left font-bold">Por</th>
-                        <th className="px-4 py-3 text-left font-bold">Status</th>
-                        <th className="px-4 py-3 text-left font-bold">Código</th>
-                        <th className="px-4 py-3 font-bold"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {fichas.map(f => (
-                        <tr key={f.id} className="hover:bg-gray-50 transition">
-                          <td className="px-4 py-3 font-semibold text-gray-800">{f.titulo}</td>
-                          <td className="px-4 py-3 text-gray-500 text-xs">{new Date(f.createdAt).toLocaleDateString('pt-BR')}</td>
-                          <td className="px-4 py-3 text-gray-500 text-xs">{f.createdBy}</td>
-                          <td className="px-4 py-3">
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${f.status === 'finalizado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                              {f.status === 'finalizado' ? '✅ Finalizado' : '📝 Rascunho'}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 font-mono text-[10px] text-gray-400">{f.auditCode}</td>
-                          <td className="px-4 py-3">
-                            <button
-                              onClick={() => handleDeleteFicha(f.id)}
-                              className="text-red-400 hover:text-red-600 text-xs border border-red-100 px-2 py-1 rounded-lg flex items-center gap-1"
-                            >
-                              <Trash2 size={11}/> Excluir
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {/* Audit trail */}
-                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 mt-3">
-                  <p className="text-[10px] font-bold text-gray-500 uppercase mb-2 flex items-center gap-1.5">
-                    <ShieldCheck size={11} className="text-green-500"/> Log de Auditoria
-                  </p>
-                  <div className="space-y-1">
-                    {fichas.map(f => (
-                      <div key={f.id} className="text-[10px] text-gray-500 font-mono flex flex-wrap gap-2">
-                        <span>{new Date(f.createdAt).toLocaleString('pt-BR')}</span>
-                        <span className="text-gray-400">|</span>
-                        <span>{f.tipo}</span>
-                        <span className="text-gray-400">|</span>
-                        <span>{f.auditCode}</span>
-                        <span className="text-gray-400">|</span>
-                        <span>hash: {f.contentHash.substring(0, 12)}…</span>
-                      </div>
-                    ))}
+                {totalFichas === 0 ? (
+                  <div className="rounded-xl border border-dashed border-gray-200 p-8 text-center">
+                    <ClipboardCheck size={28} className="mx-auto mb-2 text-gray-200"/>
+                    <p className="text-gray-400 text-sm">Nenhuma ficha complementar registrada.</p>
+                    <p className="text-xs text-gray-300 mt-0.5">Clique em "Nova Ficha Complementar" acima para criar.</p>
                   </div>
-                </div>
-              </>
-            )}
-          </div>
+                ) : hasBankFichas ? (
+                  /* ── Fichas do banco (observation_forms) ── */
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-[10px] text-gray-500 uppercase bg-gray-50 border-b border-gray-100">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-bold">Tipo / Título</th>
+                          <th className="px-4 py-3 text-left font-bold">Data</th>
+                          <th className="px-4 py-3 text-left font-bold">Por</th>
+                          <th className="px-4 py-3 text-left font-bold">Status</th>
+                          <th className="px-4 py-3 text-left font-bold">Código Auditoria</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {dbObsForms.map((f: any) => (
+                          <tr key={f.id} className="hover:bg-gray-50 transition">
+                            <td className="px-4 py-3">
+                              <p className="font-semibold text-gray-800 text-sm">{f.title}</p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">{f.form_type}</p>
+                            </td>
+                            <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                              {new Date(f.created_at).toLocaleDateString('pt-BR')}
+                            </td>
+                            <td className="px-4 py-3 text-gray-500 text-xs">{f.created_by ?? '—'}</td>
+                            <td className="px-4 py-3">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${f.status === 'finalizado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                {f.status === 'finalizado' ? '✅ Finalizado' : '📝 Rascunho'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 font-mono text-[10px] text-gray-400">{f.audit_code ?? '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {/* Audit trail */}
+                    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 mt-3">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase mb-2 flex items-center gap-1.5">
+                        <ShieldCheck size={11} className="text-green-500"/> Log de Auditoria
+                      </p>
+                      <div className="space-y-1">
+                        {dbObsForms.map((f: any) => (
+                          <div key={f.id} className="text-[10px] text-gray-500 font-mono flex flex-wrap gap-2">
+                            <span>{new Date(f.created_at).toLocaleString('pt-BR')}</span>
+                            <span className="text-gray-400">|</span>
+                            <span>{f.form_type}</span>
+                            <span className="text-gray-400">|</span>
+                            <span>{f.audit_code ?? 'sem código'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* ── Fichas legadas (student.fichasComplementares) ── */
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="text-[10px] text-gray-500 uppercase bg-gray-50 border-b border-gray-100">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-bold">Tipo</th>
+                            <th className="px-4 py-3 text-left font-bold">Data</th>
+                            <th className="px-4 py-3 text-left font-bold">Por</th>
+                            <th className="px-4 py-3 text-left font-bold">Status</th>
+                            <th className="px-4 py-3 text-left font-bold">Código</th>
+                            <th className="px-4 py-3 font-bold"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {fichas.map(f => (
+                            <tr key={f.id} className="hover:bg-gray-50 transition">
+                              <td className="px-4 py-3 font-semibold text-gray-800">{f.titulo}</td>
+                              <td className="px-4 py-3 text-gray-500 text-xs">{new Date(f.createdAt).toLocaleDateString('pt-BR')}</td>
+                              <td className="px-4 py-3 text-gray-500 text-xs">{f.createdBy}</td>
+                              <td className="px-4 py-3">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${f.status === 'finalizado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                  {f.status === 'finalizado' ? '✅ Finalizado' : '📝 Rascunho'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 font-mono text-[10px] text-gray-400">{f.auditCode}</td>
+                              <td className="px-4 py-3">
+                                <button
+                                  onClick={() => handleDeleteFicha(f.id)}
+                                  className="text-red-400 hover:text-red-600 text-xs border border-red-100 px-2 py-1 rounded-lg flex items-center gap-1"
+                                >
+                                  <Trash2 size={11}/> Excluir
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 mt-3">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase mb-2 flex items-center gap-1.5">
+                        <ShieldCheck size={11} className="text-green-500"/> Log de Auditoria
+                      </p>
+                      <div className="space-y-1">
+                        {fichas.map(f => (
+                          <div key={f.id} className="text-[10px] text-gray-500 font-mono flex flex-wrap gap-2">
+                            <span>{new Date(f.createdAt).toLocaleString('pt-BR')}</span>
+                            <span className="text-gray-400">|</span>
+                            <span>{f.tipo}</span>
+                            <span className="text-gray-400">|</span>
+                            <span>{f.auditCode}</span>
+                            <span className="text-gray-400">|</span>
+                            <span>hash: {f.contentHash.substring(0, 12)}…</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {/* ─ Protocolos Gerados ─ */}
           {studentProtocols.length > 0 && (
@@ -1143,7 +1423,168 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════
-          TAB 5 — LINHA DO TEMPO
+          TAB 5 — ATIVIDADES GERADAS
+         ══════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'atividades' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <Zap size={18} className="text-brand-600"/> Atividades Geradas com IA
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">Histórico de atividades geradas para {student.name}.</p>
+            </div>
+            <button
+              onClick={() => {
+                setLoadingActivities(true);
+                GeneratedActivityService.getForStudent(student.id)
+                  .then(setDbActivities)
+                  .catch(() => {})
+                  .finally(() => setLoadingActivities(false));
+              }}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-brand-600 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-brand-300 transition"
+            >
+              <RefreshCw size={13}/> Atualizar
+            </button>
+          </div>
+
+          {loadingActivities ? (
+            <div className="flex items-center justify-center py-12 text-gray-400 gap-2">
+              <RefreshCw size={16} className="animate-spin"/> Carregando atividades…
+            </div>
+          ) : dbActivities.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-12 text-center">
+              <Zap size={36} className="mx-auto mb-3 text-gray-200"/>
+              <p className="text-sm text-gray-500 font-semibold">Nenhuma atividade gerada ainda.</p>
+              <p className="text-xs text-gray-400 mt-1">Gere atividades no IncluiLAB vinculando a este aluno.</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              {/* Cabeçalho da tabela */}
+              <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 px-5 py-3 bg-gray-50 border-b border-gray-100 text-[10px] font-bold text-gray-500 uppercase tracking-wide">
+                <span>Título / BNCC</span>
+                <span className="text-center">Formato</span>
+                <span className="text-center">Créditos</span>
+                <span className="text-center">Data</span>
+                <span className="text-center">Ações</span>
+              </div>
+
+              {/* Linhas */}
+              <div className="divide-y divide-gray-50">
+                {dbActivities.map(act => {
+                  const bncc = (act.bncc_codes ?? []).slice(0, 2).join(', ');
+                  const date = act.created_at ? new Date(act.created_at).toLocaleDateString('pt-BR') : '—';
+                  const hasImage = !!(act.image_url) || act.output_type === 'text_image';
+                  const modelLabel = act.model_used ?? 'padrão';
+
+                  const handleDownloadText = () => {
+                    if (!act.content) { alert('Sem conteúdo textual para baixar.'); return; }
+                    const blob = new Blob([act.content], { type: 'text/plain;charset=utf-8' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${act.title ?? 'atividade'}.txt`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  };
+
+                  const handleDownloadImage = () => {
+                    if (!act.image_url) { alert('Nenhuma imagem disponível para esta atividade.'); return; }
+                    const a = document.createElement('a');
+                    a.href = act.image_url;
+                    a.download = `${act.title ?? 'imagem'}.png`;
+                    a.target = '_blank';
+                    a.click();
+                  };
+
+                  const handleDuplicate = async () => {
+                    const tenantId = (user as any)?.tenant_id;
+                    if (!tenantId) return;
+                    await GeneratedActivityService.save({
+                      tenantId,
+                      userId: (user as any)?.id ?? '',
+                      studentId: student.id,
+                      title: `Cópia — ${act.title ?? 'Atividade'}`,
+                      content: act.content ?? '',
+                      imageUrl: act.image_url ?? undefined,
+                      bnccCodes: act.bncc_codes ?? [],
+                      discipline: act.discipline ?? undefined,
+                      guidance: act.guidance ?? undefined,
+                      tags: act.tags ?? [],
+                      isAdapted: act.is_adapted ?? false,
+                      creditsUsed: 0,
+                    });
+                    // Recarrega
+                    const updated = await GeneratedActivityService.getForStudent(student.id);
+                    setDbActivities(updated);
+                    alert('Atividade duplicada com sucesso!');
+                  };
+
+                  return (
+                    <div key={act.id} className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 px-5 py-3 items-center hover:bg-gray-50 transition text-sm">
+                      {/* Título + BNCC */}
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-800 truncate">{act.title ?? 'Sem título'}</p>
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {act.discipline && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand-50 text-brand-700 font-semibold">{act.discipline}</span>
+                          )}
+                          {bncc && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 font-mono">{bncc}</span>
+                          )}
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{modelLabel}</span>
+                        </div>
+                      </div>
+
+                      {/* Formato */}
+                      <div className="flex items-center gap-1 justify-center">
+                        <FileText size={13} className="text-gray-400"/>
+                        {hasImage && <Image size={13} className="text-brand-500"/>}
+                      </div>
+
+                      {/* Créditos */}
+                      <span className="text-center text-xs font-semibold text-gray-500">{act.credits_used ?? 0}</span>
+
+                      {/* Data */}
+                      <span className="text-center text-xs text-gray-400 whitespace-nowrap">{date}</span>
+
+                      {/* Ações */}
+                      <div className="flex items-center gap-1 justify-center">
+                        <button
+                          onClick={handleDownloadText}
+                          title="Baixar texto"
+                          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-brand-600 transition"
+                        >
+                          <Download size={13}/>
+                        </button>
+                        {hasImage && (
+                          <button
+                            onClick={handleDownloadImage}
+                            title="Baixar imagem"
+                            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-purple-600 transition"
+                          >
+                            <Image size={13}/>
+                          </button>
+                        )}
+                        <button
+                          onClick={handleDuplicate}
+                          title="Duplicar"
+                          className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-green-600 transition"
+                        >
+                          <Copy size={13}/>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          TAB 6 — LINHA DO TEMPO
          ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'timeline' && (
         <StudentTimeline
@@ -1151,6 +1592,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           protocols={studentProtocols}
           serviceRecords={serviceRecords}
           docs={dbDocs}
+          dbEvents={dbTimeline}
         />
       )}
 
@@ -1163,6 +1605,76 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           school={(user as any)?.schoolConfigs?.[0] ?? null}
           onClose={() => setQuickDocType(null)}
         />
+      )}
+
+      {/* ── Modal: Geração em Lote ── */}
+      {showBatchModal && (
+        <div className="fixed inset-0 z-[90] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Sparkles size={18} className="text-brand-600"/> Gerar Documentos em Lote
+              </h3>
+              {!batchRunning && <button onClick={() => setShowBatchModal(false)}><X size={20} className="text-gray-400 hover:text-gray-700"/></button>}
+            </div>
+
+            {batchProgress.length === 0 ? (
+              <>
+                <p className="text-sm text-gray-500 mb-4">Selecione os documentos a gerar para <strong>{student.name}</strong>. A ordem de geração é fixa: Estudo de Caso → PAEE → PEI.</p>
+                <div className="space-y-2 mb-5">
+                  {BATCH_TYPES.map(t => (
+                    <label key={t.id as string} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={batchSelected.includes(t.id as string)}
+                        onChange={e => setBatchSelected(prev => e.target.checked ? [...prev, t.id as string] : prev.filter(x => x !== (t.id as string)))}
+                        className="w-4 h-4 accent-brand-600"
+                      />
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">{t.label}</p>
+                        <p className="text-xs text-gray-400">3 créditos</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 mb-4 text-xs text-amber-700">
+                  Consumirá <strong>{batchSelected.length * 3} créditos</strong> no total. Os documentos serão salvos como rascunho.
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setShowBatchModal(false)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50">Cancelar</button>
+                  <button onClick={handleBatchGenerate} disabled={batchSelected.length === 0} className="flex-1 bg-brand-600 text-white py-2.5 rounded-xl font-bold hover:bg-brand-700 text-sm disabled:opacity-50">
+                    Gerar {batchSelected.length} documento{batchSelected.length !== 1 ? 's' : ''}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-gray-500 mb-4">Gerando documentos para <strong>{student.name}</strong>…</p>
+                <div className="space-y-3 mb-5">
+                  {batchProgress.map(p => {
+                    const label = BATCH_TYPES.find(t => (t.id as string) === p.type)?.label ?? p.type;
+                    const icon = p.status === 'done' ? '✓' : p.status === 'error' ? '✕' : p.status === 'generating' ? '⋯' : '·';
+                    const color = p.status === 'done' ? 'bg-green-50 border-green-200 text-green-700' : p.status === 'error' ? 'bg-red-50 border-red-200 text-red-700' : p.status === 'generating' ? 'bg-brand-50 border-brand-200 text-brand-700' : 'bg-gray-50 border-gray-200 text-gray-500';
+                    return (
+                      <div key={p.type} className={`flex items-center gap-3 p-3 rounded-xl border ${color}`}>
+                        <span className="text-base font-bold w-5 text-center">{icon}</span>
+                        <div className="flex-1">
+                          <p className="text-sm font-bold">{label}</p>
+                          {p.msg && <p className="text-xs mt-0.5 opacity-80">{p.msg}</p>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {!batchRunning && (
+                  <button onClick={() => setShowBatchModal(false)} className="w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold hover:bg-black text-sm">
+                    Concluído — Fechar
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {/* ── Modal: Visualizar Documento ── */}
@@ -1189,6 +1701,7 @@ interface TimelineProps {
   protocols: Protocol[];
   serviceRecords: ServiceRecord[];
   docs: any[];
+  dbEvents?: any[]; // eventos da tabela student_timeline
 }
 
 const TYPE_COLORS: Record<string, { bg: string; border: string; color: string }> = {
@@ -1196,45 +1709,66 @@ const TYPE_COLORS: Record<string, { bg: string; border: string; color: string }>
   atendimento: { bg: '#F0FDF4', border: '#BBF7D0', color: '#166534' },
   laudo:       { bg: '#FDF6E3', border: '#FDE68A', color: '#92400E' },
   matricula:   { bg: '#F3F4F6', border: '#E5E7EB', color: '#374151' },
+  ficha:       { bg: '#F5F3FF', border: '#DDD6FE', color: '#5B21B6' },
+  evolucao:    { bg: '#FDF4FF', border: '#E9D5FF', color: '#7C3AED' },
+  documento:   { bg: '#F0F9FF', border: '#BAE6FD', color: '#0369A1' },
 };
 
-function StudentTimeline({ student, protocols, serviceRecords, docs }: TimelineProps) {
+function StudentTimeline({ student, protocols, serviceRecords, docs, dbEvents = [] }: TimelineProps) {
   type EventType = {
     id: string;
     date: string;
-    type: 'protocolo' | 'atendimento' | 'laudo' | 'matricula';
+    type: string;
     title: string;
     subtitle?: string;
+    fromDb?: boolean;
   };
 
-  const events: EventType[] = [
+  // Eventos locais (protocolos, atendimentos, documentos, cadastro)
+  const localEvents: EventType[] = [
     ...(student.registrationDate
-      ? [{ id: 'reg', date: student.registrationDate, type: 'matricula' as const,
+      ? [{ id: 'reg', date: student.registrationDate, type: 'matricula',
            title: 'Aluno cadastrado no sistema',
            subtitle: student.tipo_aluno === 'em_triagem' ? 'Modo Triagem' : 'Com Laudo' }]
       : []),
     ...protocols.map(p => ({
-      id: p.id, date: p.createdAt, type: 'protocolo' as const,
+      id: p.id, date: p.createdAt, type: 'protocolo',
       title: String(p.type), subtitle: p.status === 'FINAL' ? 'Finalizado' : 'Rascunho',
     })),
     ...(docs ?? []).map((d, i) => ({
       id: d.id ?? `doc_${i}`,
       date: d.date ? new Date(d.date.split('/').reverse().join('-')).toISOString() : new Date().toISOString(),
-      type: 'laudo' as const, title: d.name, subtitle: d.type,
+      type: 'laudo', title: d.name, subtitle: d.type,
     })),
     ...serviceRecords.map(r => ({
-      id: r.id, date: r.date, type: 'atendimento' as const,
+      id: r.id, date: r.date, type: 'atendimento',
       title: `${r.type} — ${r.professional}`, subtitle: r.attendance,
     })),
-  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  ];
+
+  // Eventos do banco (student_timeline) — convertidos para o mesmo formato
+  const bankEvents: EventType[] = dbEvents.map((e: any) => ({
+    id:       e.id,
+    date:     e.event_date ? `${e.event_date}T00:00:00` : e.created_at,
+    type:     e.event_type ?? 'documento',
+    title:    e.title,
+    subtitle: e.description ?? (e.author ? `por ${e.author}` : undefined),
+    fromDb:   true,
+  }));
+
+  // Mescla: se há eventos do banco, usa somente eles (são mais completos);
+  // senão, usa eventos locais. Evita duplicação.
+  const events: EventType[] = (bankEvents.length > 0 ? bankEvents : localEvents)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const fmtDate = (iso: string) => {
     try { return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }); }
     catch { return iso; }
   };
 
-  const typeLabel: Record<EventType['type'], string> = {
-    protocolo: 'Documento', atendimento: 'Atendimento', laudo: 'Laudo/Relatório', matricula: 'Cadastro',
+  const typeLabel: Record<string, string> = {
+    protocolo: 'Documento', atendimento: 'Atendimento', laudo: 'Laudo/Relatório',
+    matricula: 'Cadastro', ficha: 'Ficha', evolucao: 'Evolução', documento: 'Documento',
   };
 
   return (
@@ -1246,7 +1780,14 @@ function StudentTimeline({ student, protocols, serviceRecords, docs }: TimelineP
           </h3>
           <p className="text-xs text-gray-500 mt-0.5">Histórico completo de {student.name}</p>
         </div>
-        <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-600 font-bold">{events.length} eventos</span>
+        <div className="flex items-center gap-2">
+          {bankEvents.length > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-bold">
+              banco · {bankEvents.length} eventos
+            </span>
+          )}
+          <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-600 font-bold">{events.length} eventos</span>
+        </div>
       </div>
 
       {events.length === 0 && (
@@ -1261,21 +1802,28 @@ function StudentTimeline({ student, protocols, serviceRecords, docs }: TimelineP
         <div className="space-y-3">
           {events.map((ev, i) => {
             const cfg = TYPE_COLORS[ev.type] ?? TYPE_COLORS.matricula;
+            const icon = (() => {
+              switch (ev.type) {
+                case 'protocolo':   case 'documento': return <FileText size={14} style={{ color: cfg.color }}/>;
+                case 'atendimento':                   return <CheckCircle size={14} style={{ color: cfg.color }}/>;
+                case 'laudo':                         return <Paperclip size={14} style={{ color: cfg.color }}/>;
+                case 'ficha':                         return <ClipboardCheck size={14} style={{ color: cfg.color }}/>;
+                case 'evolucao':                      return <TrendingUp size={14} style={{ color: cfg.color }}/>;
+                default:                              return <User size={14} style={{ color: cfg.color }}/>;
+              }
+            })();
             return (
               <div key={`${ev.id}_${i}`} className="flex gap-4">
                 <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10 border-2"
                   style={{ background: cfg.bg, borderColor: cfg.border }}>
-                  {ev.type === 'protocolo'   && <FileText size={14} style={{ color: cfg.color }}/>}
-                  {ev.type === 'atendimento' && <CheckCircle size={14} style={{ color: cfg.color }}/>}
-                  {ev.type === 'laudo'       && <Paperclip size={14} style={{ color: cfg.color }}/>}
-                  {ev.type === 'matricula'   && <User size={14} style={{ color: cfg.color }}/>}
+                  {icon}
                 </div>
                 <div className="flex-1 rounded-xl p-3 mb-1" style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
                         style={{ background: cfg.border, color: cfg.color }}>
-                        {typeLabel[ev.type]}
+                        {typeLabel[ev.type] ?? ev.type}
                       </span>
                       <p className="text-sm font-bold mt-1 text-gray-800">{ev.title}</p>
                       {ev.subtitle && <p className="text-xs mt-0.5 text-gray-500">{ev.subtitle}</p>}

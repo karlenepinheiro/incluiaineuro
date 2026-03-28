@@ -3,6 +3,9 @@ import { Users, FileText, AlertCircle, Zap, TrendingUp, CheckCircle2, Clock, Arr
 import { ReferralService } from '../services/referralService';
 import { motion } from 'framer-motion';
 import { Student, Protocol, Appointment } from '../types';
+import { AI_CREDIT_COSTS, SUBSCRIPTION_PLANS } from '../config/aiCosts';
+import { PaymentService } from '../services/paymentService';
+import { PlanTier } from '../types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/src/components/ui/card';
 import { Badge } from '@/src/components/ui/badge';
 import { NumberTicker } from '@/src/components/magicui/number-ticker';
@@ -28,7 +31,15 @@ interface DashboardViewProps {
   planMaxStudents?: number;
   planMonthlyCredits?: number;
   creditsAvailable?: number;
+  /** Créditos avulsos comprados (ledger) */
+  creditsPurchased?: number;
+  /** Créditos consumidos no ciclo (ledger) */
+  creditsConsumedCycle?: number;
   creditsResetAt?: string | null;
+  /** Ex: 'FREE', 'PRO', 'PREMIUM' */
+  planName?: string;
+  /** ISO date da expiração da assinatura */
+  subscriptionExpiry?: string | null;
   onNavigate?: (view: string) => void;
   userId?: string;
 }
@@ -58,43 +69,40 @@ function fmtDateBR(iso?: string | null) {
   return d.toLocaleDateString('pt-BR');
 }
 
-function ArcMeter({ valuePct, danger }: { valuePct: number; danger?: boolean }) {
+function ArcMeter({ valuePct, danger, level }: { valuePct: number; danger?: boolean; level?: MeterLevel }) {
   const v = clamp(valuePct);
   const r = 40;
   const circumference = Math.PI * r;
   const dash = (v / 100) * circumference;
-  const color = danger ? '#EF4444' : C.petrol;
-  const trackColor = danger ? '#FEE2E2' : C.border;
+  const lvl: MeterLevel = level ?? (danger ? 'danger' : 'normal');
+  const col = meterColors(lvl);
+  const gradId = `arc-${lvl}`;
 
   return (
     <div className="flex flex-col items-center">
       <svg width="120" height="70" viewBox="0 0 120 70">
         <defs>
-          <linearGradient id={danger ? 'arcDanger' : 'arcSafe'} x1="0" y1="0" x2="120" y2="0">
-            {danger ? (
-              <>
-                <stop offset="0%" stopColor="#EF4444" />
-                <stop offset="100%" stopColor="#F43F5E" />
-              </>
+          <linearGradient id={gradId} x1="0" y1="0" x2="120" y2="0">
+            {lvl === 'danger' ? (
+              <><stop offset="0%" stopColor="#EF4444" /><stop offset="100%" stopColor="#F43F5E" /></>
+            ) : lvl === 'warning' ? (
+              <><stop offset="0%" stopColor="#F59E0B" /><stop offset="100%" stopColor="#EF4444" /></>
             ) : (
-              <>
-                <stop offset="0%" stopColor={C.petrol} />
-                <stop offset="100%" stopColor={C.gold} />
-              </>
+              <><stop offset="0%" stopColor={C.petrol} /><stop offset="100%" stopColor={C.gold} /></>
             )}
           </linearGradient>
         </defs>
-        <path d="M10,60 A50,50 0 0 1 110,60" fill="none" stroke={trackColor} strokeWidth="10" strokeLinecap="round" />
+        <path d="M10,60 A50,50 0 0 1 110,60" fill="none" stroke={col.track} strokeWidth="10" strokeLinecap="round" />
         <path
           d="M10,60 A50,50 0 0 1 110,60"
           fill="none"
-          stroke={`url(#${danger ? 'arcDanger' : 'arcSafe'})`}
+          stroke={`url(#${gradId})`}
           strokeWidth="10"
           strokeLinecap="round"
           strokeDasharray={`${dash} ${circumference}`}
           style={{ transition: 'stroke-dasharray 0.7s ease-out' }}
         />
-        <text x="60" y="52" textAnchor="middle" fontSize="15" fontWeight="700" fill={color}>
+        <text x="60" y="52" textAnchor="middle" fontSize="15" fontWeight="700" fill={col.text}>
           {Math.round(v)}%
         </text>
       </svg>
@@ -102,21 +110,27 @@ function ArcMeter({ valuePct, danger }: { valuePct: number; danger?: boolean }) 
   );
 }
 
-function LinearMeter({ valuePct, danger }: { valuePct: number; danger?: boolean }) {
+type MeterLevel = 'normal' | 'warning' | 'danger';
+
+function meterColors(level: MeterLevel) {
+  if (level === 'danger')  return { track: '#FEE2E2', bar: 'linear-gradient(90deg,#EF4444,#F43F5E)', text: '#EF4444' };
+  if (level === 'warning') return { track: '#FEF3C7', bar: 'linear-gradient(90deg,#F59E0B,#EF4444)', text: '#D97706' };
+  return { track: C.border, bar: `linear-gradient(90deg,${C.petrol},${C.gold})`, text: C.petrol };
+}
+
+function LinearMeter({ valuePct, danger, level }: { valuePct: number; danger?: boolean; level?: MeterLevel }) {
   const v = clamp(valuePct);
+  const lvl: MeterLevel = level ?? (danger ? 'danger' : 'normal');
+  const col = meterColors(lvl);
   return (
     <div className="w-full">
-      <div className="w-full h-3 rounded-full overflow-hidden" style={{ background: danger ? '#FEE2E2' : C.border }}>
+      <div className="w-full h-3 rounded-full overflow-hidden" style={{ background: col.track }}>
         <div
           className="h-full rounded-full"
-          style={{
-            width: `${v}%`,
-            background: danger ? 'linear-gradient(90deg,#EF4444,#F43F5E)' : `linear-gradient(90deg,${C.petrol},${C.gold})`,
-            transition: 'width 0.7s ease-out',
-          }}
+          style={{ width: `${v}%`, background: col.bar, transition: 'width 0.7s ease-out' }}
         />
       </div>
-      <div className="text-right text-xs font-bold mt-1" style={{ color: danger ? '#EF4444' : C.petrol }}>
+      <div className="text-right text-xs font-bold mt-1" style={{ color: col.text }}>
         {Math.round(v)}%
       </div>
     </div>
@@ -294,9 +308,9 @@ function TodayAppointments({ appointments, onViewAgenda }: { appointments: Appoi
 
 type MeterMode = 'arc' | 'bar';
 
-function MeterCard({ title, subtitle, valuePct, mode, onToggle, footer, danger }: {
+function MeterCard({ title, subtitle, valuePct, mode, onToggle, footer, danger, level }: {
   title: string; subtitle: string; valuePct: number; mode: MeterMode;
-  onToggle: () => void; footer?: React.ReactNode; danger?: boolean;
+  onToggle: () => void; footer?: React.ReactNode; danger?: boolean; level?: MeterLevel;
 }) {
   return (
     <Card>
@@ -314,8 +328,8 @@ function MeterCard({ title, subtitle, valuePct, mode, onToggle, footer, danger }
             {mode === 'arc' ? 'Arco' : 'Barra'}
           </button>
         </div>
-        {mode === 'arc' ? <ArcMeter valuePct={valuePct} danger={danger} /> : (
-          <div className="py-2"><LinearMeter valuePct={valuePct} danger={danger} /></div>
+        {mode === 'arc' ? <ArcMeter valuePct={valuePct} danger={danger} level={level} /> : (
+          <div className="py-2"><LinearMeter valuePct={valuePct} danger={danger} level={level} /></div>
         )}
         {footer && <div className="mt-4 text-xs" style={{ color: C.textSec }}>{footer}</div>}
       </CardContent>
@@ -355,7 +369,11 @@ export function DashboardView({
   planMaxStudents,
   planMonthlyCredits,
   creditsAvailable,
+  creditsPurchased = 0,
+  creditsConsumedCycle,
   creditsResetAt,
+  planName,
+  subscriptionExpiry,
   onNavigate,
   userId,
 }: DashboardViewProps) {
@@ -391,11 +409,18 @@ export function DashboardView({
   const monthlyCredits = Number.isFinite(planMonthlyCredits as number) ? (planMonthlyCredits as number) : 0;
   const available      = Number.isFinite(creditsAvailable as number) ? (creditsAvailable as number) : 0;
   const hasCredits     = available > 0 || monthlyCredits > 0;
+  const purchased      = Number.isFinite(creditsPurchased) ? creditsPurchased : 0;
 
   const studentsPct  = maxStudents > 0 ? (students.length / maxStudents) * 100 : 0;
-  const creditsUsed  = monthlyCredits > 0 ? Math.max(0, monthlyCredits - available) : 0;
-  const creditsPct   = monthlyCredits > 0 ? (creditsUsed / monthlyCredits) * 100 : 0;
-  const creditsLow   = hasCredits && available <= 10;
+  // creditsUsed: usa dado real do ledger quando disponível; fallback para inferência (plan - available)
+  const creditsUsed = Number.isFinite(creditsConsumedCycle as number) && (creditsConsumedCycle as number) >= 0
+    ? (creditsConsumedCycle as number)
+    : monthlyCredits > 0 ? Math.max(0, monthlyCredits - available) : 0;
+  // total base para percentual: plan + comprados
+  const totalCreditsBase = monthlyCredits + purchased;
+  const creditsPct   = totalCreditsBase > 0 ? Math.min(100, (creditsUsed / totalCreditsBase) * 100) : 0;
+  const creditsLevel: MeterLevel = creditsPct >= 85 ? 'danger' : creditsPct >= 60 ? 'warning' : 'normal';
+  const creditsLow   = hasCredits && creditsPct >= 60;
 
   const typeBars = useMemo(() => {
     const entries = (Object.entries(kpis.byType) as [string, number][]).sort((a, b) => b[1] - a[1]).slice(0, 6);
@@ -463,40 +488,129 @@ export function DashboardView({
         />
         <MeterCard
           title="Créditos IA"
-          subtitle={hasCredits ? `${available} disponíveis${monthlyCredits > 0 ? ` · plano: ${monthlyCredits}/mês` : ' (bônus/indicação)'}` : 'Créditos não disponíveis neste plano'}
+          subtitle={
+            hasCredits && monthlyCredits > 0
+              ? `Plano: ${monthlyCredits}${purchased > 0 ? ` + ${purchased} comprados` : ''} · Usados: ${creditsUsed} · Disponível: ${available}`
+              : hasCredits
+              ? `${available} disponíveis (bônus/indicação)`
+              : 'Créditos não disponíveis neste plano'
+          }
           valuePct={creditsPct}
           mode={modeCredits}
           onToggle={() => setModeCredits(m => (m === 'arc' ? 'bar' : 'arc'))}
-          danger={creditsLow}
+          danger={creditsLevel === 'danger'}
+          level={creditsLevel}
           footer={
             <div className="space-y-2 text-xs" style={{ color: C.textSec }}>
+              {planName && (
+                <div className="flex justify-between">
+                  <span>Plano atual:</span>
+                  <strong style={{ color: C.dark }}>{planName === 'MASTER' || planName === 'PREMIUM' ? SUBSCRIPTION_PLANS.MASTER.name : planName === 'PRO' ? SUBSCRIPTION_PLANS.PRO.name : planName}</strong>
+                </div>
+              )}
               {monthlyCredits > 0 && (
                 <div className="flex justify-between">
-                  <span>Consumidos este ciclo:</span>
-                  <strong style={{ color: C.dark }}>{creditsUsed} / {monthlyCredits}</strong>
+                  <span>📅 Créditos do plano:</span>
+                  <strong style={{ color: C.dark }}>{monthlyCredits}</strong>
                 </div>
               )}
-              {resetBR && (
+              {purchased > 0 && (
                 <div className="flex justify-between">
-                  <span>Renovação:</span>
-                  <strong style={{ color: C.dark }}>{resetBR}</strong>
+                  <span>🛒 Créditos comprados:</span>
+                  <strong style={{ color: '#15803D' }}>+{purchased}</strong>
                 </div>
               )}
-              {creditsLow && <div className="font-bold" style={{ color: '#EF4444' }}>⚠️ Créditos quase esgotados. Faça upgrade.</div>}
+              {(creditsUsed > 0 || monthlyCredits > 0) && (
+                <div className="flex justify-between">
+                  <span>⚡ Consumidos (ciclo):</span>
+                  <strong style={{ color: creditsLevel === 'normal' ? C.dark : creditsLevel === 'warning' ? '#D97706' : '#EF4444' }}>−{creditsUsed}</strong>
+                </div>
+              )}
+              <div className="flex justify-between font-bold">
+                <span>💰 Saldo disponível:</span>
+                <strong style={{ color: '#D97706' }}>{available}</strong>
+              </div>
+              {resetBR && (() => {
+                const end = new Date(creditsResetAt!);
+                const start = new Date(end);
+                start.setDate(start.getDate() - 30);
+                return (
+                  <div className="flex justify-between">
+                    <span>Ciclo atual:</span>
+                    <strong style={{ color: C.dark }}>
+                      {start.toLocaleDateString('pt-BR')} → {end.toLocaleDateString('pt-BR')}
+                    </strong>
+                  </div>
+                );
+              })()}
+              {subscriptionExpiry && (
+                <div className="flex justify-between">
+                  <span>Vencimento assinatura:</span>
+                  <strong style={{ color: C.dark }}>{fmtDateBR(subscriptionExpiry)}</strong>
+                </div>
+              )}
+              {creditsLow && (
+                <div className="font-bold rounded-lg px-3 py-2 mt-1" style={{ color: creditsLevel === 'danger' ? '#EF4444' : '#D97706', background: creditsLevel === 'danger' ? '#FEE2E2' : '#FEF3C7' }}>
+                  ⚠️ Não fique sem créditos — reabasteça antes de acabar
+                </div>
+              )}
               <div className="pt-2 mt-1" style={{ borderTop: '1px solid ' + C.border }}>
                 <p className="text-[10px] font-bold uppercase mb-1" style={{ color: C.textSec }}>Custo por documento</p>
                 <div className="grid grid-cols-2 gap-x-3" style={{ color: C.textSec }}>
-                  <span>📄 Estudo de Caso</span><span className="text-right font-semibold">2 créditos</span>
-                  <span>📋 PAEE</span><span className="text-right font-semibold">2 créditos</span>
-                  <span>📘 PEI</span><span className="text-right font-semibold">3 créditos</span>
-                  <span>📗 PDI</span><span className="text-right font-semibold">2 créditos</span>
-                  <span>📎 Modelo próprio</span><span className="text-right font-semibold">3 créditos</span>
+                  <span>📄 Estudo de Caso</span><span className="text-right font-semibold">{AI_CREDIT_COSTS.ESTUDO_DE_CASO} créditos</span>
+                  <span>📋 PAEE</span><span className="text-right font-semibold">{AI_CREDIT_COSTS.PAEE} créditos</span>
+                  <span>📘 PEI</span><span className="text-right font-semibold">{AI_CREDIT_COSTS.PEI} créditos</span>
+                  <span>📗 PDI</span><span className="text-right font-semibold">{AI_CREDIT_COSTS.PDI} créditos</span>
+                  <span>📎 Modelo próprio</span><span className="text-right font-semibold">{AI_CREDIT_COSTS.TEMPLATE} créditos</span>
                 </div>
               </div>
             </div>
           }
         />
       </div>
+
+      {/* Upgrade CTA — visível apenas para FREE e PRO */}
+      {(planName === 'FREE' || planName === 'PRO') && (
+        <div
+          className="rounded-2xl p-5 flex items-center justify-between gap-4 flex-wrap"
+          style={{ background: `linear-gradient(135deg, ${C.petrol} 0%, ${C.dark} 100%)` }}
+        >
+          <div>
+            <p className="font-extrabold text-white text-sm">
+              {planName === 'FREE' ? '🚀 Desbloqueie todo o potencial — assine o PRO ou PREMIUM' : '⚡ Faça upgrade para PREMIUM e tenha ' + SUBSCRIPTION_PLANS.MASTER.credits + ' créditos/mês'}
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.6)' }}>
+              {planName === 'FREE'
+                ? `PRO: ${SUBSCRIPTION_PLANS.PRO.credits} créditos/mês · ${SUBSCRIPTION_PLANS.PRO.students} alunos`
+                : `PREMIUM: ${SUBSCRIPTION_PLANS.MASTER.credits} créditos/mês · alunos ilimitados`}
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={async () => {
+                const plan = planName === 'FREE' ? PlanTier.PRO : PlanTier.PREMIUM;
+                const url = await PaymentService.getAnnualCheckoutUrl(plan, {});
+                window.open(url, '_blank', 'noopener,noreferrer');
+              }}
+              className="px-4 py-2.5 rounded-xl font-bold text-sm text-white flex items-center gap-1.5"
+              style={{ background: C.gold }}
+            >
+              ★ Anual (melhor preço)
+            </button>
+            <button
+              onClick={async () => {
+                const plan = planName === 'FREE' ? PlanTier.PRO : PlanTier.PREMIUM;
+                const url = await PaymentService.getCheckoutUrl(plan, {});
+                window.open(url, '_blank', 'noopener,noreferrer');
+              }}
+              className="px-4 py-2 rounded-xl font-bold text-sm border"
+              style={{ borderColor: 'rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.85)' }}
+            >
+              Mensal
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -561,15 +675,12 @@ export function DashboardView({
                   }
                 </button>
               </div>
-            ) : (
-              <button
-                onClick={() => onNavigate && onNavigate('settings')}
-                className="w-full text-xs font-bold rounded-xl py-2.5 transition"
-                style={{ background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.9)' }}
-              >
-                Ver meu código de indicação →
-              </button>
-            )}
+            ) : userId ? (
+              <div className="text-xs text-center py-2 rounded-xl animate-pulse"
+                style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)' }}>
+                Carregando código…
+              </div>
+            ) : null}
           </div>
         </div>
       )}

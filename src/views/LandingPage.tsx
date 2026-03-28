@@ -21,6 +21,7 @@ interface Props {
   onLogin: () => void;
   onRegister: () => void;
   onAudit: () => void;
+  onUpgradeClick?: (planCode: 'PRO' | 'MASTER') => void;
 }
 
 function useReveal<T extends HTMLElement>() {
@@ -315,7 +316,7 @@ const CSS = `
 `;
 
 // ─── Component ───────────────────────────────────────────────────────────────
-export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister, onAudit }) => {
+export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister, onAudit, onUpgradeClick }) => {
   const [config, setConfig] = useState<SiteConfig | null>(null);
 
   useEffect(() => { AdminService.getSiteConfig().then(setConfig); }, []);
@@ -889,7 +890,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
         </section>
 
         {/* ════════════════════════ PLANOS ════════════════════════ */}
-        <PricingSection onLogin={onLogin} />
+        <PricingSection onLogin={onLogin} onRegister={_onRegister} onUpgradeClick={onUpgradeClick} />
 
         {/* ════════════════════════ CTA FINAL ════════════════════════ */}
         <section style={{ background: C.navy, padding: '120px 0' }}>

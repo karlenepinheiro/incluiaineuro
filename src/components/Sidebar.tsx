@@ -17,6 +17,7 @@ import {
   Search,
   Activity,
   CreditCard,
+  FlaskConical,
 } from 'lucide-react';
 
 import { User, getPlanLimits, PlanTier } from '../types';
@@ -212,11 +213,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Avaliação & Histórico
             </div>
             <NavItem viewId="reports"           icon={Brain}          label="Perfil Cognitivo" />
+            <NavItem viewId="incluilab"         icon={FlaskConical}   label="IncluiLAB" />
             <NavItem viewId="service_control"   icon={Activity}       label="Controle de Atendimento" />
             <NavItem viewId="documents"         icon={FolderOpen}     label="Documentos" />
             <NavItem viewId="fichas"            icon={FileEdit}       label="Fichas Complementares" />
             <NavItem viewId="school_templates"  icon={LayoutTemplate} label="Meus Modelos" />
-            <NavItem viewId="referrals"         icon={Gift}           label="Indicações" />
             <NavItem viewId="subscription"      icon={CreditCard}     label="Assinatura & Créditos" />
 
             {/* Rodapé */}

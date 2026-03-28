@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { User } from '../types';
 import { getActiveSubscription, type ActiveSubscriptionInfo } from '../services/subscriptionService';
+import { SUBSCRIPTION_PLANS, CREDIT_PACKAGES } from '../config/aiCosts';
 import {
   getSubscriptionCheckoutUrl,
   getCreditsCheckoutUrl,
@@ -31,40 +32,64 @@ const P = {
 const PLANS_INFO = [
   {
     code:         'PRO' as const,
-    name:         'Pro',
-    price:        79.90,
-    credits:      50,
-    maxStudents:  30,
+    name:         SUBSCRIPTION_PLANS.PRO.name,
+    price:        67,
+    priceAnnual:  59,
+    credits:      SUBSCRIPTION_PLANS.PRO.credits,
+    maxStudents:  SUBSCRIPTION_PLANS.PRO.students,
     color:        P.petrol,
     features: [
-      '30 alunos',
-      '50 créditos IA/mês',
-      'PEI, PAEE, PDI',
-      'Documentos auditáveis SHA-256',
+      `${SUBSCRIPTION_PLANS.PRO.students} alunos cadastrados`,
+      `${SUBSCRIPTION_PLANS.PRO.credits} créditos IA/mês`,
       'Triagem com IA',
+      'PEI, PAEE, PDI, Estudo de Caso completo',
+      'Perfil cognitivo completo',
+      'Documentos auditáveis SHA-256',
+      'Exportação PDF profissional',
+      'Relatórios prontos',
     ],
   },
   {
     code:         'MASTER' as const,
-    name:         'Master',
-    price:        149.90,
-    credits:      200,
-    maxStudents:  999,
-    color:        '#7C3AED',
+    name:         SUBSCRIPTION_PLANS.MASTER.name,
+    price:        147,
+    priceAnnual:  99,
+    credits:      SUBSCRIPTION_PLANS.MASTER.credits,
+    maxStudents:  SUBSCRIPTION_PLANS.MASTER.students,
+    color:        '#C69214',
     features: [
+      'Tudo do PRO',
       'Alunos ilimitados',
-      '200 créditos IA/mês',
-      'Tudo do Pro',
-      'Multiusuário',
+      `${SUBSCRIPTION_PLANS.MASTER.credits} créditos IA/mês`,
+      'Análise de laudos com IA (exclusivo)',
+      'Fichas complementares',
+      'Controle de atendimento',
+      'Agendamento de atendimento',
+      'Modelos personalizados',
       'Suporte prioritário',
     ],
   },
 ];
 
 const CREDIT_PACKS = [
-  { credits: 10,  price: 9.90,  label: '+10 créditos',  tag: null },
-  { credits: 30,  price: 19.90, label: '+30 créditos',  tag: 'Melhor custo' },
-  { credits: 100, price: 49.90, label: '+100 créditos', tag: 'Mais popular' },
+  {
+    credits: CREDIT_PACKAGES[0].credits, price: 9.90, sku: 'AI10',
+    label: `+${CREDIT_PACKAGES[0].credits} créditos`,
+    tag: null,
+    desc: CREDIT_PACKAGES[0].label,
+  },
+  {
+    credits: CREDIT_PACKAGES[1].credits, price: 39.90, sku: 'AI200',
+    label: `+${CREDIT_PACKAGES[1].credits} créditos`,
+    tag: 'Mais popular',
+    desc: CREDIT_PACKAGES[1].label,
+  },
+  {
+    credits: CREDIT_PACKAGES[2].credits, price: 99.90, sku: 'AI900',
+    label: `+${CREDIT_PACKAGES[2].credits} créditos`,
+    tag: 'Melhor custo',
+    desc: CREDIT_PACKAGES[2].label,
+  },
 ];
 
 // ── Status badge ──────────────────────────────────────────────────────────────
@@ -95,11 +120,17 @@ function StatusBadge({ status }: { status: string }) {
 interface Props {
   user: User;
   creditsAvailable: number;
+  /** Créditos mensais do plano vigente */
+  planCreditsMonthly?: number;
+  /** Créditos avulsos comprados (soma do ledger) */
+  creditsPurchased?: number;
+  /** Créditos consumidos no ciclo atual (soma do ledger) */
+  creditsConsumed?: number;
   onNavigate: (view: string) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, onNavigate }) => {
+export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, planCreditsMonthly, creditsPurchased = 0, creditsConsumed = 0, onNavigate }) => {
   const [sub, setSub]             = useState<ActiveSubscriptionInfo | null>(null);
   const [loading, setLoading]     = useState(true);
   const [kiwifyOk, setKiwifyOk]   = useState(false);
@@ -157,7 +188,7 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, onNa
       return;
     }
     if (isFree) {
-      setError('Pacotes avulsos estão disponíveis apenas para assinantes Pro e Master.');
+      setError('Pacotes avulsos estão disponíveis apenas para assinantes PRO e PREMIUM.');
       return;
     }
     setLoadingUrl(`credits_${credits}`);
@@ -228,7 +259,7 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, onNa
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
               <h2 style={{ fontSize: 26, fontWeight: 800, color: P.dark }}>
-                {isMaster ? 'Master' : isPro ? 'Pro' : 'Free (Teste)'}
+                {isMaster ? SUBSCRIPTION_PLANS.MASTER.name : isPro ? SUBSCRIPTION_PLANS.PRO.name : SUBSCRIPTION_PLANS.FREE.name}
               </h2>
               {sub?.status && <StatusBadge status={sub.status} />}
             </div>
@@ -253,25 +284,51 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, onNa
                 marginTop: 14, background: '#FFFBEB', border: '1px solid #FDE68A',
                 borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#92400E',
               }}>
-                Você está no plano gratuito de teste. Limite: 5 alunos, sem créditos IA.
+                Você está no plano gratuito. Limite: {SUBSCRIPTION_PLANS.FREE.students} alunos e {SUBSCRIPTION_PLANS.FREE.credits} créditos IA/mês.
                 Faça upgrade para desbloquear todos os recursos.
               </div>
             )}
           </div>
 
-          {/* Créditos */}
-          <div style={{
-            background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12,
-            padding: '16px 20px', textAlign: 'center', minWidth: 140,
-          }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
-              Créditos IA
-            </div>
-            <div style={{ fontSize: 34, fontWeight: 800, color: '#D97706', lineHeight: 1 }}>
-              {creditsAvailable}
-            </div>
-            <div style={{ fontSize: 11, color: '#92400E', marginTop: 4 }}>disponíveis</div>
-          </div>
+          {/* Créditos — breakdown detalhado */}
+          {(() => {
+            const planInfo    = PLANS_INFO.find(p => p.code === planCode) ?? null;
+            const monthlyPlan = planCreditsMonthly ?? planInfo?.credits ?? (planCode === 'FREE' ? SUBSCRIPTION_PLANS.FREE.credits : 0);
+            return (
+              <div style={{
+                background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12,
+                padding: '16px 20px', minWidth: 200,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                  Créditos IA
+                </div>
+                {/* Saldo final — destaque */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 12 }}>
+                  <span style={{ fontSize: 38, fontWeight: 800, color: '#D97706', lineHeight: 1 }}>{creditsAvailable}</span>
+                  <span style={{ fontSize: 12, color: '#92400E', fontWeight: 600 }}>disponíveis</span>
+                </div>
+                {/* Tabela de breakdown */}
+                <div style={{ fontSize: 11, color: '#78350F', display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid #FDE68A', paddingTop: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                    <span>📅 Do plano ({planCode}):</span>
+                    <strong>{monthlyPlan}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                    <span>🛒 Comprados:</span>
+                    <strong style={{ color: creditsPurchased > 0 ? '#15803D' : undefined }}>+{creditsPurchased}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
+                    <span>⚡ Consumidos:</span>
+                    <strong style={{ color: creditsConsumed > 0 ? '#B45309' : undefined }}>−{creditsConsumed}</strong>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, borderTop: '1px solid #FDE68A', paddingTop: 4, marginTop: 2 }}>
+                    <span style={{ fontWeight: 700 }}>💰 Saldo atual:</span>
+                    <strong style={{ color: '#D97706', fontSize: 12 }}>{creditsAvailable}</strong>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Pagamento atrasado */}
@@ -333,9 +390,12 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, onNa
                     </span>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                       <span style={{ fontSize: 28, fontWeight: 800, color: P.dark }}>
-                        R$ {plan.price.toFixed(2).replace('.', ',')}
+                        R$ {plan.price}
                       </span>
                       <span style={{ fontSize: 13, color: '#94A3B8' }}>/mês</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#22C55E', fontWeight: 600, marginTop: 2 }}>
+                      ou R$ {plan.priceAnnual}/mês no plano anual
                     </div>
                   </div>
                   <Zap size={24} color={plan.color} />
@@ -389,18 +449,21 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, onNa
         </div>
         <p style={{ fontSize: 13, color: '#64748B', marginBottom: 20, lineHeight: 1.6 }}>
           Sem créditos suficientes? Compre pacotes avulsos a qualquer momento.
-          Disponíveis apenas para assinantes Pro e Master.
+          Disponíveis apenas para assinantes PRO e PREMIUM.
         </p>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
           {CREDIT_PACKS.map(pack => (
             <div key={pack.credits} style={{
-              border: `1px solid ${P.border}`, borderRadius: 12, padding: '18px 16px',
+              border: `1px solid ${pack.tag === 'Mais popular' ? '#FDE68A' : P.border}`,
+              borderRadius: 12, padding: '18px 16px',
+              background: pack.tag === 'Mais popular' ? '#FFFBEB' : P.surface,
             }}>
               {pack.tag ? (
                 <div style={{
                   display: 'inline-block', fontSize: 10, fontWeight: 700,
-                  background: '#FEF3C7', color: '#92400E',
+                  background: pack.tag === 'Melhor custo' ? '#DCFCE7' : '#FEF3C7',
+                  color: pack.tag === 'Melhor custo' ? '#166534' : '#92400E',
                   padding: '2px 8px', borderRadius: 5, marginBottom: 10, letterSpacing: '0.04em',
                 }}>
                   {pack.tag.toUpperCase()}
@@ -408,9 +471,10 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, onNa
               ) : <div style={{ height: 20, marginBottom: 10 }} />}
 
               <div style={{ fontSize: 22, fontWeight: 800, color: P.dark, marginBottom: 2 }}>{pack.label}</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#D97706', marginBottom: 12 }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#D97706', marginBottom: 6 }}>
                 R$ {pack.price.toFixed(2).replace('.', ',')}
               </div>
+              <p style={{ fontSize: 11, color: '#6B7280', marginBottom: 14, lineHeight: 1.5 }}>{pack.desc}</p>
 
               <button
                 onClick={() => handleBuyCreditPack(pack.credits)}
@@ -435,10 +499,16 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, onNa
       </div>
 
       {/* ── Info ─────────────────────────────────────────────────────────────── */}
-      <div style={{ marginTop: 24, fontSize: 13, color: '#64748B', lineHeight: 1.8, background: '#F8FAFC', borderRadius: 12, padding: '16px 20px' }}>
-        <strong style={{ color: P.dark }}>Sobre os créditos:</strong> Gerar atividades simples custa 1 crédito.
-        Analisar laudos, criar PEI/PAEE/PDI ou relatórios cognitivos custa 2–3 créditos.
-        Créditos da assinatura renovam mensalmente.
+      <div style={{ marginTop: 24, fontSize: 13, color: '#64748B', lineHeight: 1.9, background: '#F8FAFC', borderRadius: 12, padding: '16px 20px' }}>
+        <strong style={{ color: P.dark }}>Sobre os créditos:</strong>
+        <ul style={{ marginTop: 6, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <li><strong>Relatórios e pareceres</strong>: 1–3 créditos (modelo Econômico a Premium)</li>
+          <li><strong>Atividades (texto)</strong>: 1 crédito (Texto apenas)</li>
+          <li><strong>Atividades com imagem</strong>: 3–50 créditos (Nano Banana Pro ou ChatGPT Imagem)</li>
+          <li><strong>PEI / PAEE / PDI / Estudo de Caso</strong>: 3–5 créditos</li>
+          <li><strong>Análise de laudos</strong>: 5 créditos</li>
+          <li>Créditos do plano renovam mensalmente. Créditos comprados acumulam sem expirar.</li>
+        </ul>
         {!kiwifyOk && (
           <span style={{ display: 'block', marginTop: 8, color: '#D97706' }}>
             ⚠️ Links de pagamento em configuração. Entre em contato com o suporte.

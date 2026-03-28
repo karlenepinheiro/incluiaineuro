@@ -1,6 +1,7 @@
 // geminiService.ts
 import { AIService } from "./aiService";
 import { ProtocolType, Student, User } from "../types";
+import type { StudentContext } from "./studentContextService";
 
 // This file is now a facade for the new AIService that enforces credits.
 // We keep it for backward compatibility if any component imports it directly.
@@ -9,14 +10,11 @@ export { AIService };
 export const generateProtocolAI = async (
   type: ProtocolType,
   student: Student,
-  user: User, 
-  laudoBase64?: string
-): Promise<string> => { 
-  // The editor flow expects a structured JSON payload (sections/fields).
-  // Returning plain text causes parsing issues and breaks the UI.
-  // Note: laudoBase64 is currently unused in the JSON flow; if you want the laudo
-  // to influence generation, we can extend generateProtocolJSON to accept it.
-  return AIService.generateProtocolJSON(type, student, user);
+  user: User,
+  laudoBase64?: string,
+  studentContext?: StudentContext
+): Promise<string> => {
+  return AIService.generateProtocolJSON(type, student, user, studentContext);
 };
 
 export interface ActivityGenOptions {

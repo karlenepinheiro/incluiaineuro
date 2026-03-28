@@ -385,6 +385,32 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudentId]);
 
+  // ─── Carrega fichas salvas do banco ao selecionar aluno ────────────────────
+  useEffect(() => {
+    if (!selectedStudentId || DEMO_MODE) {
+      setFichaValues({});
+      setSavedFichas({});
+      return;
+    }
+    ObservationFormService.getForStudent(selectedStudentId).then(forms => {
+      // forms estão ordenados por created_at DESC — o primeiro de cada tipo é o mais recente
+      const valuesFromDb: Record<string, Record<string, string>> = {};
+      const savedFromDb: Record<string, { code: string; savedAt: string }> = {};
+      forms.forEach((form: any) => {
+        if (!valuesFromDb[form.form_type]) {
+          valuesFromDb[form.form_type] = form.fields_data ?? {};
+          savedFromDb[form.form_type] = {
+            code:    form.audit_code ?? `FICHA-${form.id.substring(0, 8).toUpperCase()}`,
+            savedAt: form.created_at ?? new Date().toISOString(),
+          };
+        }
+      });
+      setFichaValues(valuesFromDb);
+      setSavedFichas(savedFromDb);
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStudentId]);
+
   // ─── Fichas helpers ─────────────────────────────────────────────────────────
   const updateFichaField = (fichaId: string, fieldId: string, value: string) => {
     setFichaValues(prev => ({
@@ -400,36 +426,51 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
     const code  = makeAuditCode(fichaId + (selectedStudentId || ''));
     const ficha = FICHAS.find(f => f.id === fichaId);
 
-    if (!DEMO_MODE && user.tenant_id && selectedStudentId) {
+    if (!DEMO_MODE) {
+      if (!user.tenant_id) {
+        alert('Erro: tenant não identificado. Faça logout e login novamente.');
+        return;
+      }
+      if (!selectedStudentId) {
+        alert('Selecione um aluno antes de salvar.');
+        return;
+      }
       try {
         const savedId = await ObservationFormService.save({
-          tenantId:  user.tenant_id,
-          studentId: selectedStudentId,
-          userId:    user.id,
-          formType:  fichaId,
-          title:     ficha?.title || fichaId,
+          tenantId:   user.tenant_id,
+          studentId:  selectedStudentId,
+          userId:     user.id,
+          formType:   fichaId,
+          title:      ficha?.title || fichaId,
           fieldsData: fichaValues[fichaId] || {},
-          auditCode: code,
-          createdBy: user.name,
-          status:    'finalizado',
+          auditCode:  code,
+          createdBy:  user.name,
+          status:     'finalizado',
         });
-        if (savedId) {
-          await TimelineService.add({
-            tenantId:    user.tenant_id,
-            studentId:   selectedStudentId,
-            eventType:   'ficha',
-            title:       `Ficha preenchida: ${ficha?.title || fichaId}`,
-            description: `Código: ${code} — por ${user.name}`,
-            linkedId:    savedId,
-            linkedTable: 'observation_forms',
-            icon:        'ClipboardCheck',
-            author:      user.name,
-          });
+        if (!savedId) {
+          alert('Erro ao salvar no banco de dados.\nVerifique sua conexão ou contate o suporte.\n(diagnóstico: savedId=null)');
+          return;
         }
-      } catch (e) { console.error('[FichasComplementaresView] erro ao salvar ficha:', e); }
+        await TimelineService.add({
+          tenantId:    user.tenant_id,
+          studentId:   selectedStudentId,
+          eventType:   'ficha',
+          title:       `Ficha preenchida: ${ficha?.title || fichaId}`,
+          description: `Código: ${code} — por ${user.name}`,
+          linkedId:    savedId,
+          linkedTable: 'observation_forms',
+          icon:        'ClipboardCheck',
+          author:      user.name,
+        });
+      } catch (e: any) {
+        console.error('[FichasComplementaresView] erro ao salvar ficha:', e);
+        alert(`Erro ao salvar ficha:\n${e?.message || 'Verifique o console para detalhes.'}`);
+        return;
+      }
     }
+
     setSavedFichas(prev => ({ ...prev, [fichaId]: { code, savedAt: new Date().toISOString() } }));
-    alert(`Ficha salva!\nCódigo: ${code}`);
+    alert(`Ficha salva com sucesso!\nCódigo: ${code}`);
   };
 
   const handlePrintFicha = async (ficha: FichaTemplate) => {

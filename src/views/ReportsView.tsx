@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   BarChart3, Save, Printer, Plus, Calendar, User as UserIcon, History,
   Lock, TrendingUp, Download, Trash2, CheckCircle, ShieldCheck,
-  Mic, X, Edit2, ChevronDown, ChevronUp, Sparkles, Type
+  Mic, X, Edit2, ChevronDown, ChevronUp, Sparkles, Type, Coins, Loader, Zap
 } from 'lucide-react';
 import { Student, StudentEvolution, PlanTier, getPlanLimits, DocField } from '../types';
 import { ExportService } from '../services/exportService';
@@ -11,6 +11,8 @@ import { SmartTextarea } from '../components/SmartTextarea';
 import { AudioRecorder } from '../components/AudioRecorder';
 import { StudentProfileService, TimelineService } from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
+import { AIService, getModelsForContext } from '../services/aiService';
+import { CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 
 const CRITERIA = [
   { name: "Comunicação Expressiva", desc: "Expressão verbal, gestual ou alternativa." },
@@ -162,6 +164,63 @@ const AddFieldModal: React.FC<{
   );
 };
 
+// ── Seletor de Modelo para Relatórios ─────────────────────────────────────────
+const REPORT_MODELS = getModelsForContext('reports');
+
+const RC = { petrol: '#1F4E5F', dark: '#2E3A59', gold: '#C69214', goldLight: '#FDF6E3', surface: '#FFFFFF', border: '#E7E2D8', textSec: '#667085' };
+
+const ReportModelSelector: React.FC<{
+  selectedId: string;
+  onChange: (id: string) => void;
+}> = ({ selectedId, onChange }) => {
+  const selected = REPORT_MODELS.find(m => m.id === selectedId) ?? REPORT_MODELS[1];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${REPORT_MODELS.length}, 1fr)`, gap: 8 }}>
+        {REPORT_MODELS.map(m => {
+          const isSel = selectedId === m.id;
+          return (
+            <button
+              key={m.id}
+              onClick={() => onChange(m.id)}
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4,
+                padding: '10px 12px', borderRadius: 12, cursor: 'pointer', outline: 'none',
+                border: `2px solid ${isSel ? RC.petrol : RC.border}`,
+                background: isSel ? RC.petrol : RC.surface,
+                boxShadow: isSel ? '0 2px 8px rgba(31,78,95,0.18)' : '0 1px 3px rgba(0,0,0,0.04)',
+                transition: 'all 0.15s', textAlign: 'left',
+              }}
+            >
+              <span style={{ fontSize: 12, fontWeight: 700, color: isSel ? '#fff' : RC.dark, lineHeight: 1.2 }}>
+                {m.name}
+              </span>
+              <span style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.65)' : RC.textSec, lineHeight: 1.3, marginTop: 2 }}>
+                {m.description}
+              </span>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 6,
+                padding: '2px 7px', borderRadius: 20, fontSize: 10, fontWeight: 700,
+                background: isSel ? 'rgba(255,255,255,0.18)' : RC.goldLight,
+                color: isSel ? '#fff' : RC.gold,
+                border: `1px solid ${isSel ? 'rgba(255,255,255,0.25)' : RC.border}`,
+              }}>
+                <Coins size={9} />
+                {m.credit_cost} crédito{m.credit_cost !== 1 ? 's' : ''}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {selected.warning && (
+        <p style={{ fontSize: 10, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '6px 10px', margin: 0, lineHeight: 1.4 }}>
+          ⚠️ {selected.warning}
+        </p>
+      )}
+    </div>
+  );
+};
+
 // ── COMPONENTE PRINCIPAL ──────────────────────────────────────────────────────
 export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStudent, currentUser, currentPlan }) => {
   const [selectedStudentId, setSelectedStudentId] = useState('');
@@ -172,20 +231,50 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
   const [auditCode, setAuditCode] = useState('');
   const [showChart, setShowChart] = useState<'radar' | 'barras'>('radar');
   const [addModal, setAddModal] = useState<'scale' | 'text' | null>(null);
+  // Histórico carregado diretamente do banco (student_profiles)
+  const [dbProfiles, setDbProfiles] = useState<any[]>([]);
+  // ── Seleção de modelo de IA ──────────────────────────────────────────────────
+  const [reportModelId, setReportModelId] = useState('padrao');
+  const [generatingParecer, setGeneratingParecer] = useState(false);
 
   const selectedStudent = students.find(s => s.id === selectedStudentId);
   const planLimits = getPlanLimits(currentPlan);
   const isReadOnly = !!selectedHistoryId;
 
+  // Carrega histórico do banco sempre que o aluno muda
+  useEffect(() => {
+    if (!selectedStudentId || DEMO_MODE) { setDbProfiles([]); return; }
+    StudentProfileService.getForStudent(selectedStudentId)
+      .then(setDbProfiles)
+      .catch(() => setDbProfiles([]));
+  }, [selectedStudentId]);
+
+  // Popula campos quando o histórico selecionado muda
   useEffect(() => {
     if (!selectedStudent) { setScores(new Array(10).fill(1)); setObservation(''); setCustomFields([]); setAuditCode(''); return; }
     if (selectedHistoryId) {
+      // Tenta primeiro no banco (student_profiles)
+      const dbP = dbProfiles.find(p => p.id === selectedHistoryId);
+      if (dbP) {
+        setScores([
+          dbP.comunicacao_expressiva ?? 1, dbP.interacao_social    ?? 1,
+          dbP.autonomia_avd          ?? 1, dbP.autorregulacao      ?? 1,
+          dbP.atencao_sustentada     ?? 1, dbP.compreensao         ?? 1,
+          dbP.motricidade_fina       ?? 1, dbP.motricidade_grossa  ?? 1,
+          dbP.participacao           ?? 1, dbP.linguagem_leitura   ?? 1,
+        ]);
+        setObservation(dbP.observation ?? '');
+        setCustomFields([]);
+        setAuditCode(`EVO-${dbP.id.substring(0, 8).toUpperCase()}`);
+        return;
+      }
+      // Fallback: evolutions legado (in-memory)
       const h = selectedStudent.evolutions?.find(e => e.id === selectedHistoryId);
       if (h) { setScores(h.scores); setObservation(h.observation); setCustomFields(h.customFields || []); setAuditCode(`EVO-${h.id.substring(0,8).toUpperCase()}`); }
     } else {
       setScores(new Array(10).fill(1)); setObservation(''); setCustomFields([]); setAuditCode('');
     }
-  }, [selectedStudentId, selectedHistoryId]);
+  }, [selectedStudentId, selectedHistoryId, dbProfiles]);
 
   const handleSave = async () => {
     if (!selectedStudent || isReadOnly) return;
@@ -224,6 +313,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
             author:      currentUser?.name || 'Usuário',
           });
         }
+
+        // 4. Recarrega histórico do banco para atualizar o seletor
+        const updated = await StudentProfileService.getForStudent(selectedStudent.id);
+        setDbProfiles(updated);
       } catch (e) {
         console.error('[ReportsView] erro ao salvar student_profile:', e);
       }
@@ -231,6 +324,40 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
 
     alert('Relatório Evolutivo salvo!');
     setScores(new Array(10).fill(1)); setObservation(''); setCustomFields([]);
+  };
+
+  const handleGenerateAIParecer = async () => {
+    if (!selectedStudent || !currentUser) return;
+    const modelCfg = REPORT_MODELS.find(m => m.id === reportModelId) ?? REPORT_MODELS[1];
+    const hasCredits = await AIService.checkCredits(currentUser, modelCfg.credit_cost);
+    if (!hasCredits) {
+      alert(CREDIT_INSUFFICIENT_MSG);
+      return;
+    }
+    setGeneratingParecer(true);
+    try {
+      const avgScore = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '0';
+      const criteriaContext = scores.map((s, i) => `${CRITERIA[i].name}: ${s}/5`).join(', ');
+      const instruction = `Você é um especialista em educação inclusiva (AEE).
+Gere um PARECER DESCRITIVO profissional e conciso para o Relatório Evolutivo do aluno abaixo.
+
+Aluno: ${selectedStudent.name}
+Diagnóstico(s): ${(selectedStudent.diagnosis || []).join(', ') || 'Não informado'}
+Nível de suporte: ${selectedStudent.supportLevel || 'Não informado'}
+
+Pontuações por critério: ${criteriaContext}
+Média geral: ${avgScore}/5
+
+Gere um parecer em 3–5 parágrafos destacando: pontos fortes, áreas de atenção, evolução observada e recomendações pedagógicas.
+Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex: "Observamos que...").`;
+
+      const parecer = await AIService.generateReport('', instruction, currentUser, reportModelId);
+      setObservation(prev => prev ? `${prev}\n\n---\n[Gerado por IA — ${modelCfg.name}]\n${parecer}` : parecer);
+    } catch (e: any) {
+      alert('Erro ao gerar parecer: ' + (e?.message || 'verifique sua conexão.'));
+    } finally {
+      setGeneratingParecer(false);
+    }
   };
 
   const addField = (f: DocField) => setCustomFields(prev => [...prev, f]);
@@ -274,9 +401,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
           </div>
           <div>
             <label className="text-xs font-bold text-gray-500 uppercase block mb-1.5">Histórico</label>
-            <select className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-brand-500 outline-none" value={selectedHistoryId || ''} onChange={e => setSelectedHistoryId(e.target.value || null)} disabled={!selectedStudent?.evolutions?.length}>
+            <select
+              className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:ring-2 focus:ring-brand-500 outline-none"
+              value={selectedHistoryId || ''}
+              onChange={e => setSelectedHistoryId(e.target.value || null)}
+              disabled={dbProfiles.length === 0 && !selectedStudent?.evolutions?.length}
+            >
               <option value="">+ Novo Relatório</option>
-              {(selectedStudent?.evolutions || []).map(e => (
+              {dbProfiles.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.evaluated_at
+                    ? new Date(p.evaluated_at).toLocaleDateString('pt-BR')
+                    : new Date(p.created_at).toLocaleDateString('pt-BR')
+                  } — {p.evaluated_by ?? 'Profissional'}
+                </option>
+              ))}
+              {dbProfiles.length === 0 && (selectedStudent?.evolutions || []).map(e => (
                 <option key={e.id} value={e.id}>{new Date(e.date || (e as any).createdAt || '').toLocaleDateString('pt-BR')} — {(e as any).createdBy || e.author}</option>
               ))}
             </select>
@@ -412,6 +552,22 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
                   </button>
                 )}
               </div>
+
+              {/* Seletor de modelo de IA */}
+              {!isReadOnly && (
+                <div className="mb-5">
+                  <ReportModelSelector selectedId={reportModelId} onChange={setReportModelId} />
+                  <button
+                    onClick={handleGenerateAIParecer}
+                    disabled={generatingParecer || !selectedStudent}
+                    className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-sm font-bold transition disabled:opacity-60"
+                  >
+                    {generatingParecer
+                      ? <><Loader size={15} className="animate-spin" /> Gerando parecer…</>
+                      : <><Sparkles size={15} /> Gerar Parecer com IA</>}
+                  </button>
+                </div>
+              )}
 
               <div className="space-y-5">
                 <div>

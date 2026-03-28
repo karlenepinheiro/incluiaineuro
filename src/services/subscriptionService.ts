@@ -9,6 +9,7 @@
 
 import { supabase } from './supabase';
 import type { SubscriptionStatus } from '../types';
+import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
 
 // ---------------------------------------------------------------------------
 // TIPOS LOCAIS
@@ -48,7 +49,7 @@ export interface SubscriptionAccessResult {
  * Retorna null se o tenant nunca teve assinatura.
  */
 export async function getActiveSubscription(tenantId: string): Promise<ActiveSubscriptionInfo | null> {
-  // Colunas após schema_asaas_etapa1.sql:
+  // Colunas da tabela subscriptions:
   // id, tenant_id, plan_id (uuid FK→plans), status,
   // current_period_start, current_period_end, provider, provider_sub_id,
   // provider_customer_id, provider_payment_link, provider_update_payment_link,
@@ -225,8 +226,9 @@ export async function processWebhookEvent(payload: {
           .eq('tenant_id', tenantId);
       }
 
-      // Creditar na carteira
-      const credits = payload.credits ?? (code === 'MASTER' ? 70 : 50);
+      // Creditar na carteira — usa SUBSCRIPTION_PLANS como fonte única de verdade
+      const planKey = (code === 'PREMIUM' ? 'MASTER' : code) as keyof typeof SUBSCRIPTION_PLANS;
+      const credits = payload.credits ?? (SUBSCRIPTION_PLANS[planKey]?.credits ?? SUBSCRIPTION_PLANS.FREE.credits);
       const { data: wallet } = await supabase
         .from('credits_wallet')
         .select('balance')

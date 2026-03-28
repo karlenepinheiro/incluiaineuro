@@ -469,7 +469,7 @@ const PlansTab = ({ adminUser }: { adminUser: AdminUser }) => {
                 rows={4}
                 value={(editing.features_json ?? []).join('\n')}
                 onChange={e => setEditing({ ...editing, features_json: e.target.value.split('\n').filter(Boolean) })}
-                placeholder="30 alunos&#10;50 créditos IA/mês&#10;Código de auditoria"
+                placeholder="30 alunos&#10;500 créditos IA/mês&#10;Código de auditoria"
               />
             </div>
           </div>

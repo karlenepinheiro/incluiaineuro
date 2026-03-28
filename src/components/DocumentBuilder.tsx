@@ -12,6 +12,8 @@ import { ExportService } from '../services/exportService';
 import { PDFGenerator } from '../services/PDFGenerator';
 import { StorageService } from '../services/storageService';
 import { AIService } from '../services/aiService';
+import { StudentContextService } from '../services/studentContextService';
+import { AI_CREDIT_COSTS } from '../config/aiCosts';
 
 // Seções esperadas por tipo de documento — contexto para análise via upload
 const STANDARD_DOC_FIELDS: Record<string, string> = {
@@ -37,12 +39,12 @@ interface DocumentBuilderProps {
   isGenerating?: boolean;
 }
 
-// Custo de créditos por tipo de documento
+// Custo de créditos por tipo de documento — fonte única: src/config/aiCosts.ts
 const DOC_CREDIT_COSTS: Record<string, number> = {
-  'Estudo de Caso': 2,
-  'PEI':            3,
-  'PAEE':           2,
-  'PDI':            2,
+  'Estudo de Caso': AI_CREDIT_COSTS.ESTUDO_DE_CASO,
+  'PEI':            AI_CREDIT_COSTS.PEI,
+  'PAEE':           AI_CREDIT_COSTS.PAEE,
+  'PDI':            AI_CREDIT_COSTS.PDI,
 };
 
 function CreditBadge({ type }: { type: string }) {
@@ -182,6 +184,76 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
 
 const planLimits = getPlanLimits(user.plan);
 
+  // ── Enriquecimento do Estudo de Caso com dados reais do banco ───────────────
+  // Chamado quando o editor abre para um novo Estudo de Caso.
+  // Busca fichas de observação e laudos analisados e injeta nos campos vazios.
+  useEffect(() => {
+    if (step !== 'editor') return;
+    if (type !== DocumentType.ESTUDO_CASO) return;
+    if (!selectedStudent?.id) return;
+    // Só enriquece documentos novos (sem initialData)
+    if (initialData && initialData.sections.length > 0) return;
+
+    StudentContextService.buildContext(selectedStudent.id).then(ctx => {
+      if (!StudentContextService.hasData(ctx)) return;
+
+      setSections(prev => prev.map(section => {
+        if (section.id === 'eval') {
+          return {
+            ...section,
+            fields: section.fields.map(field => {
+              // Enriquecer habilidades com fichas de observação e perfil cognitivo
+              if (field.id === 'e1') {
+                const extra: string[] = [];
+                if (ctx.observationForms.length > 0) {
+                  extra.push('--- Fichas de Observação ---');
+                  ctx.observationForms.slice(0, 3).forEach(f => {
+                    extra.push(`[${f.formType}] ${f.title}`);
+                    Object.entries(f.fieldsData).slice(0, 6).forEach(([k, v]) => {
+                      if (v && String(v).trim()) extra.push(`  • ${k}: ${String(v).slice(0, 200)}`);
+                    });
+                  });
+                }
+                if (ctx.cognitiveProfiles.length > 0) {
+                  const p = ctx.cognitiveProfiles[0];
+                  const avg = (p.scores.reduce((a, b) => a + b, 0) / p.scores.length).toFixed(1);
+                  extra.push(`--- Perfil Cognitivo (${p.date}) — média ${avg}/5 ---`);
+                  const dims = ['Com. Expressiva','Interação Social','Autonomia','Autorregulação','Atenção','Compreensão','Mot. Fina','Mot. Grossa','Participação','Linguagem'];
+                  p.scores.forEach((s, i) => extra.push(`  • ${dims[i]}: ${s}/5`));
+                  if (p.observation) extra.push(`  Obs: ${p.observation}`);
+                }
+                if (!extra.length) return field;
+                const base = field.value ? String(field.value) + '\n\n' : '';
+                return { ...field, value: base + extra.join('\n') };
+              }
+
+              // Enriquecer dificuldades com sínteses de laudos
+              if (field.id === 'e2') {
+                if (!ctx.medicalReports.length) return field;
+                const extra: string[] = ['--- Laudos Analisados (síntese IA) ---'];
+                ctx.medicalReports.slice(0, 3).forEach(r => {
+                  if (r.documentName) extra.push(`Documento: ${r.documentName}`);
+                  if (r.synthesis) extra.push(`Síntese: ${r.synthesis.slice(0, 400)}`);
+                  if (r.pedagogicalPoints.length) {
+                    extra.push('Pontos pedagógicos:');
+                    r.pedagogicalPoints.slice(0, 5).forEach(p => extra.push(`  - ${p}`));
+                  }
+                });
+                if (extra.length <= 1) return field;
+                const base = field.value ? String(field.value) + '\n\n' : '';
+                return { ...field, value: base + extra.join('\n') };
+              }
+
+              return field;
+            }),
+          };
+        }
+        return section;
+      }));
+    }).catch(() => { /* enriquecimento é opcional — falha silenciosa */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedStudent?.id, type]);
+
   useEffect(() => {
       // Logic to determine if we are loading an existing doc or starting fresh
       const isExistingDoc = initialData && initialData.sections.length > 0;
@@ -251,7 +323,17 @@ const planLimits = getPlanLimits(user.plan);
     // ── VERSÃO REDUZIDA (6-8 campos essenciais) ──────────────────────────────
     if (reduced) {
       if (docType === DocumentType.ESTUDO_CASO) {
+        const histValue = [
+          selectedStudent.schoolHistory ? `Histórico Escolar:\n${selectedStudent.schoolHistory}` : '',
+          selectedStudent.familyContext  ? `Contexto Familiar:\n${selectedStudent.familyContext}`  : '',
+          selectedStudent.medication     ? `Medicação: ${selectedStudent.medication}`               : '',
+        ].filter(Boolean).join('\n\n');
         template.push(
+          { id: 'hist', title: 'Histórico Escolar e Familiar', fields: [
+            { id: 'h1', label: 'Histórico Escolar, Contexto Familiar e Saúde', type: 'textarea',
+              value: histValue,
+              allowAudio: 'optional', placeholder: 'Histórico escolar, composição familiar, medicação...' },
+          ]},
           { id: 'diag', title: 'Diagnóstico e Condições', fields: [
             { id: 'd1', label: 'Diagnósticos e CID', type: 'checklist', value: selectedStudent.diagnosis || [],
               options: ['TEA', 'TDAH', 'Deficiência Intelectual', 'Síndrome de Down', 'Deficiência Auditiva', 'Deficiência Visual', 'Deficiência Física', 'Altas Habilidades', 'Outros'],

@@ -161,13 +161,28 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormData(prev => ({ ...prev, photoUrl: reader.result as string }));
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const original = reader.result as string;
+      // Compress to max 200px wide / 80% quality to keep base64 small enough for DB
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 200;
+        const scale = img.width > MAX ? MAX / img.width : 1;
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { setFormData(prev => ({ ...prev, photoUrl: original })); return; }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const compressed = canvas.toDataURL('image/jpeg', 0.8);
+        setFormData(prev => ({ ...prev, photoUrl: compressed }));
       };
-      reader.readAsDataURL(file);
-    }
+      img.onerror = () => setFormData(prev => ({ ...prev, photoUrl: original }));
+      img.src = original;
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleAddCid = () => {

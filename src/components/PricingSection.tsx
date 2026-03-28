@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
-import { CheckCircle, Zap, Star, ArrowRight, CreditCard, Info } from 'lucide-react';
+import { CheckCircle, Zap, ArrowRight, CreditCard, Flame } from 'lucide-react';
+import { getSubscriptionCheckoutUrl, getCreditsCheckoutUrl } from '../services/kiwifyService';
+import type { User } from '../types';
 
 // ─── Plan data ───────────────────────────────────────────────────────────────
 
@@ -18,7 +20,7 @@ const PLANS = [
     annual: 0,
     features: [
       '5 alunos cadastrados',
-      '10 créditos IA',
+      '60 créditos IA',
       'Perfil cognitivo básico',
       'Triagem manual',
       'Visualização de documentos',
@@ -41,7 +43,7 @@ const PLANS = [
     annual: 59,
     features: [
       '30 alunos',
-      '50 créditos IA/mês',
+      '500 créditos IA/mês',
       'Triagem com IA',
       'Geração automática de documentos',
       'Estudo de Caso completo',
@@ -71,7 +73,7 @@ const PLANS = [
     features: [
       'Tudo do Pro',
       'Alunos ilimitados',
-      '200 créditos IA/mês',
+      '700 créditos IA/mês',
       'Gestão completa de turmas',
       'Multiusuário (equipe)',
       'Relatórios avançados com filtros',
@@ -85,22 +87,64 @@ const PLANS = [
 ];
 
 const CREDIT_PACKS = [
-  { credits: 10,  price: 9.90,  label: '+10 créditos',  per: 'R$0,99/crédito',  tag: null },
-  { credits: 30,  price: 19.90, label: '+30 créditos',  per: 'R$0,66/crédito',  tag: 'Melhor custo-benefício' },
-  { credits: 100, price: 49.90, label: '+100 créditos', per: 'R$0,50/crédito',  tag: 'Mais popular' },
+  { credits: 10,  price: 9.90,  label: '+10 créditos',  tag: null },
+  { credits: 30,  price: 19.90, label: '+30 créditos',  tag: 'Melhor custo' },
+  { credits: 100, price: 49.90, label: '+100 créditos', tag: 'Mais popular' },
 ];
+
 
 interface Props {
   onLogin: () => void;
+  onRegister?: () => void;
+  /** Chamado quando usuário não autenticado clica em Pro/Premium */
+  onUpgradeClick?: (planCode: 'PRO' | 'MASTER') => void;
+  /** Usuário autenticado (opcional — vindo do App após login) */
+  user?: User | null;
+  isAuthenticated?: boolean;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export const PricingSection: React.FC<Props> = ({ onLogin }) => {
-  const [annual, setAnnual] = useState(false);
+export const PricingSection: React.FC<Props> = ({ onLogin, onRegister, onUpgradeClick, user, isAuthenticated }) => {
+  const [annual, setAnnual] = useState(true); // padrão: anual (mais vantajoso)
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
   const fmt = (v: number) =>
     v === 0 ? 'Grátis' : `R$ ${v.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
+
+  /** Abre checkout Kiwify para plano de assinatura */
+  const handlePlanClick = async (planCode: 'PRO' | 'MASTER') => {
+    if (!isAuthenticated || !user?.tenant_id) {
+      // Não logado → salva intenção e manda para cadastro
+      if (onUpgradeClick) onUpgradeClick(planCode);
+      else onLogin();
+      return;
+    }
+    setLoadingPlan(planCode);
+    try {
+      const url = await getSubscriptionCheckoutUrl(planCode, user.tenant_id);
+      if (url && url !== '#') window.open(url, '_blank');
+      else onLogin(); // fallback: sem URL configurada
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
+
+  /** Abre checkout Kiwify para pacote de créditos */
+  const handleCreditsClick = async (credits: number) => {
+    if (!isAuthenticated || !user?.tenant_id) {
+      onLogin();
+      return;
+    }
+    setLoadingPlan(`credits_${credits}`);
+    try {
+      const url = await getCreditsCheckoutUrl(credits, user.tenant_id);
+      if (url && url !== '#') window.open(url, '_blank');
+      else onLogin();
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
 
   return (
     <section id="pricing" style={{ background: '#F8FAFC', padding: '100px 0 80px' }}>
@@ -177,6 +221,19 @@ export const PricingSection: React.FC<Props> = ({ onLogin }) => {
 
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 52 }}>
+          {/* Promo Banner */}
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            background: 'linear-gradient(135deg, #DC2626, #EA580C)',
+            color: '#fff', fontSize: 13, fontWeight: 700,
+            padding: '8px 20px', borderRadius: 100, marginBottom: 18,
+            boxShadow: '0 4px 16px rgba(220,38,38,0.35)',
+            animation: 'pulse 2s infinite',
+          }}>
+            <Flame size={15} />
+            🔥 Valores promocionais por tempo limitado
+          </div>
+          <br />
           <div style={{
             display: 'inline-block',
             fontSize: 11, fontWeight: 700, color: '#1E3A5F',
@@ -210,7 +267,7 @@ export const PricingSection: React.FC<Props> = ({ onLogin }) => {
               className={`ps-tbtn ${annual ? 'ps-tbtn-on' : 'ps-tbtn-off'}`}
               onClick={() => setAnnual(true)}
             >
-              Anual&nbsp;
+              Anual ⭐&nbsp;
               <span style={{
                 fontSize: 11, fontWeight: 700,
                 background: annual ? '#DCFCE7' : '#E2E8F0',
@@ -222,11 +279,32 @@ export const PricingSection: React.FC<Props> = ({ onLogin }) => {
             </button>
           </div>
 
-          {annual && (
+          {annual ? (
+            <p style={{ fontSize: 12, color: '#15803D', fontWeight: 600, marginTop: 10 }}>
+              ✓ Melhor custo-benefício — plano anual com cobrança mensal recorrente.
+            </p>
+          ) : (
             <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 10 }}>
-              Plano anual com cobrança mensal recorrente — compromisso mínimo de 12 meses.
+              💡 Escolha o plano anual e economize até R$ 576/ano.
             </p>
           )}
+        </div>
+
+        {/* Impact phrase */}
+        <div style={{
+          maxWidth: 780, margin: '0 auto 48px',
+          background: 'linear-gradient(135deg, #1E3A5F 0%, #2D5A8E 100%)',
+          borderRadius: 18, padding: '28px 36px',
+          textAlign: 'center',
+          boxShadow: '0 8px 32px rgba(30,58,95,0.18)',
+        }}>
+          <p style={{
+            fontSize: 'clamp(15px, 2.2vw, 19px)', fontWeight: 600,
+            color: '#FFFFFF', lineHeight: 1.6, margin: 0,
+            letterSpacing: '-0.01em',
+          }}>
+            "Chega de levar o planejamento para o domingo. O Incluiai escreve seus documentos e ilustra suas atividades em segundos, devolvendo o seu tempo e o brilho nos olhos dos seus alunos."
+          </p>
         </div>
 
         {/* Cards */}
@@ -320,17 +398,38 @@ export const PricingSection: React.FC<Props> = ({ onLogin }) => {
                 </ul>
 
                 {/* CTA */}
-                {plan.ctaPrimary ? (
-                  <button onClick={onLogin} className="ps-cta-primary">
-                    {plan.cta} <ArrowRight size={16} />
+                {plan.id === 'free' ? (
+                  <button onClick={onRegister ?? onLogin} className="ps-cta-outline">
+                    Criar conta grátis
+                  </button>
+                ) : plan.ctaPrimary ? (
+                  <button
+                    onClick={() => handlePlanClick(plan.id === 'pro' ? 'PRO' : 'MASTER')}
+                    disabled={loadingPlan === (plan.id === 'pro' ? 'PRO' : 'MASTER')}
+                    className="ps-cta-primary"
+                  >
+                    {loadingPlan === (plan.id === 'pro' ? 'PRO' : 'MASTER')
+                      ? 'Aguarde...'
+                      : <>{isAuthenticated ? 'Ir para pagamento' : 'Começar agora'} <ArrowRight size={16} /></>
+                    }
                   </button>
                 ) : (plan as any).ctaPurple ? (
-                  <button onClick={onLogin} className="ps-cta-purple">
-                    {plan.cta} <ArrowRight size={16} />
+                  <button
+                    onClick={() => handlePlanClick('MASTER')}
+                    disabled={loadingPlan === 'MASTER'}
+                    className="ps-cta-purple"
+                  >
+                    {loadingPlan === 'MASTER'
+                      ? 'Aguarde...'
+                      : <>{isAuthenticated ? 'Ir para pagamento' : 'Assinar Premium'} <ArrowRight size={16} /></>
+                    }
                   </button>
                 ) : (
-                  <button onClick={onLogin} className="ps-cta-outline">
-                    {plan.cta}
+                  <button
+                    onClick={() => handlePlanClick(plan.id === 'pro' ? 'PRO' : 'MASTER')}
+                    className="ps-cta-outline"
+                  >
+                    Ir para pagamento <ArrowRight size={16} />
                   </button>
                 )}
 
@@ -342,7 +441,7 @@ export const PricingSection: React.FC<Props> = ({ onLogin }) => {
                 {(plan.id === 'pro' || plan.id === 'premium') && (
                   <p style={{ textAlign: 'center', fontSize: 12, color: '#94A3B8', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
                     <CreditCard size={12} />
-                    Cartão de crédito obrigatório
+                    Pagamento seguro via Kiwify
                   </p>
                 )}
               </div>
@@ -380,9 +479,9 @@ export const PricingSection: React.FC<Props> = ({ onLogin }) => {
               background: '#F0FDF4', border: '1px solid #BBF7D0',
               padding: '10px 16px', borderRadius: 10,
             }}>
-              <Info size={14} color="#16A34A" />
+              <Zap size={14} color="#16A34A" />
               <span style={{ fontSize: 13, color: '#15803D', fontWeight: 500 }}>
-                1–2 créditos por operação conforme a complexidade
+                Créditos adicionais ao plano — disponíveis imediatamente
               </span>
             </div>
           </div>
@@ -402,25 +501,29 @@ export const PricingSection: React.FC<Props> = ({ onLogin }) => {
                 )}
                 {!pack.tag && <div style={{ height: 22, marginBottom: 12 }} />}
 
-                <div style={{ marginBottom: 10 }}>
+                <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 26, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.03em' }}>
                     {pack.label}
                   </div>
                   <div style={{ fontSize: 22, fontWeight: 700, color: '#D97706', marginTop: 2 }}>
                     R$ {pack.price.toFixed(2).replace('.', ',')}
                   </div>
+                  <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>
+                    Créditos adicionais ao plano
+                  </div>
                 </div>
 
-                <div style={{ fontSize: 12, color: '#94A3B8', marginBottom: 16 }}>{pack.per}</div>
-
                 <button
-                  onClick={onLogin}
+                  onClick={() => handleCreditsClick(pack.credits)}
+                  disabled={loadingPlan === `credits_${pack.credits}`}
                   style={{
                     width: '100%', padding: '10px', borderRadius: 8,
-                    fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    fontSize: 13, fontWeight: 600,
+                    cursor: loadingPlan === `credits_${pack.credits}` ? 'wait' : 'pointer',
                     background: '#FFFBEB', color: '#92400E',
                     border: '1.5px solid #FDE68A', fontFamily: 'inherit',
                     transition: 'background 0.15s, border-color 0.15s',
+                    opacity: loadingPlan === `credits_${pack.credits}` ? 0.6 : 1,
                   }}
                   onMouseEnter={e => {
                     (e.target as HTMLElement).style.background = '#FEF3C7';
@@ -431,7 +534,7 @@ export const PricingSection: React.FC<Props> = ({ onLogin }) => {
                     (e.target as HTMLElement).style.borderColor = '#FDE68A';
                   }}
                 >
-                  Comprar créditos
+                  {loadingPlan === `credits_${pack.credits}` ? 'Aguarde...' : 'Comprar créditos'}
                 </button>
               </div>
             ))}
@@ -451,7 +554,7 @@ export const PricingSection: React.FC<Props> = ({ onLogin }) => {
             {[
               {
                 q: 'Como os créditos são consumidos?',
-                a: 'Cada operação com IA consome créditos de acordo com a complexidade. Gerar uma atividade simples custa 1 crédito. Analisar um laudo, gerar um PEI completo ou criar um relatório cognitivo custa 2 créditos — porque a IA processa muito mais informação.',
+                a: 'O Incluiai tem dois motores de IA: o Motor de Texto (Gemini Flash) para PDIs, PEIs, relatórios e análises — custa 3 créditos por documento. O Motor de Imagem (IncluiLab) para ilustrações pedagógicas de alto impacto — custa 50 créditos por imagem. Atividades simples custam 1 crédito.',
               },
               {
                 q: 'Quando os créditos expiram?',

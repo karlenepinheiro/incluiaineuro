@@ -256,6 +256,21 @@ export const StudentDocumentService = {
 // LAUDOS / ANÁLISE IA — medical_reports
 // ---------------------------------------------------------------------------
 export const MedicalReportService = {
+  async getForStudent(studentId: string): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('medical_reports')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    } catch (e) {
+      console.error('[MedicalReportService.getForStudent]', e);
+      return [];
+    }
+  },
+
   async save(params: {
     tenantId:          string;
     studentId:         string;
@@ -308,28 +323,26 @@ export const ObservationFormService = {
     createdBy?: string;
     status?:    'rascunho' | 'finalizado';
   }): Promise<string | null> {
-    try {
-      const { data, error } = await supabase
-        .from('observation_forms')
-        .insert({
-          tenant_id:    params.tenantId,
-          student_id:   params.studentId,
-          user_id:      params.userId,
-          form_type:    params.formType,
-          title:        params.title,
-          status:       params.status ?? 'finalizado',
-          fields_data:  params.fieldsData,
-          audit_code:   params.auditCode ?? null,
-          created_by:   params.createdBy ?? null,
-        })
-        .select('id')
-        .single();
-      if (error) throw error;
-      return data?.id ?? null;
-    } catch (e) {
-      console.error('[ObservationFormService.save]', e);
-      return null;
+    const { data, error } = await supabase
+      .from('observation_forms')
+      .insert({
+        tenant_id:    params.tenantId,
+        student_id:   params.studentId,
+        user_id:      params.userId,
+        form_type:    params.formType,
+        title:        params.title,
+        status:       params.status ?? 'finalizado',
+        fields_data:  params.fieldsData,
+        audit_code:   params.auditCode ?? null,
+        created_by:   params.createdBy ?? null,
+      })
+      .select('id')
+      .single();
+    if (error) {
+      console.error('[ObservationFormService.save]', error);
+      throw new Error(error.message);
     }
+    return data?.id ?? null;
   },
 
   async getForStudent(studentId: string): Promise<any[]> {
@@ -352,6 +365,22 @@ export const ObservationFormService = {
 // PERFIL COGNITIVO — student_profiles
 // ---------------------------------------------------------------------------
 export const StudentProfileService = {
+  /** Retorna todos os perfis cognitivos de um aluno, do mais recente ao mais antigo */
+  async getForStudent(studentId: string): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('student_profiles')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('evaluated_at', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    } catch (e) {
+      console.error('[StudentProfileService.getForStudent]', e);
+      return [];
+    }
+  },
+
   /**
    * Salva uma avaliação de perfil cognitivo (10 dimensões escala 1-5)
    * scores[0..9] mapeiam para: comunicacao_expressiva, interacao_social,
@@ -464,6 +493,23 @@ export const GeneratedActivityService = {
     }
   },
 
+  /** Carrega atividades geradas vinculadas a um aluno específico */
+  async getForStudent(studentId: string): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('generated_activities')
+        .select('id, title, content, image_url, bncc_codes, discipline, guidance, tags, credits_used, model_used, output_type, is_adapted, created_at')
+        .eq('student_id', studentId)
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return data ?? [];
+    } catch (e) {
+      console.error('[GeneratedActivityService.getForStudent]', e);
+      return [];
+    }
+  },
+
   async delete(id: string): Promise<boolean> {
     try {
       const { error } = await supabase
@@ -550,30 +596,37 @@ export const AiAuditService = {
 export const ServiceRecordService = {
   toRow(rec: ServiceRecord, tenantId: string) {
     return {
-      id:           rec.id,
-      tenant_id:    tenantId,
-      student_id:   rec.studentId,
-      student_name: rec.studentName,
-      date:         rec.date,
-      type:         rec.type,
-      professional: rec.professional,
-      duration:     rec.duration,
-      observation:  rec.observation,
-      attendance:   rec.attendance,
+      id:              rec.id,
+      tenant_id:       tenantId,
+      student_id:      rec.studentId,
+      student_name:    rec.studentName,
+      date:            rec.date,
+      type:            rec.type,
+      professional:    rec.professional,
+      duration:        rec.duration,
+      observation:     rec.observation,
+      attendance:      rec.attendance,
+      daily_checklist: rec.dailyChecklist ? JSON.stringify(rec.dailyChecklist) : null,
     };
   },
 
   fromRow(row: any): ServiceRecord {
+    let dailyChecklist: ServiceRecord['dailyChecklist'] | undefined;
+    if (row.daily_checklist) {
+      try { dailyChecklist = typeof row.daily_checklist === 'string' ? JSON.parse(row.daily_checklist) : row.daily_checklist; }
+      catch { dailyChecklist = undefined; }
+    }
     return {
-      id:           row.id,
-      studentId:    row.student_id,
-      studentName:  row.student_name,
-      date:         row.date,
-      type:         row.type,
-      professional: row.professional,
-      duration:     row.duration,
-      observation:  row.observation ?? '',
-      attendance:   row.attendance,
+      id:             row.id,
+      studentId:      row.student_id,
+      studentName:    row.student_name,
+      date:           row.date,
+      type:           row.type,
+      professional:   row.professional,
+      duration:       row.duration,
+      observation:    row.observation ?? '',
+      attendance:     row.attendance,
+      dailyChecklist,
     };
   },
 
@@ -591,13 +644,31 @@ export const ServiceRecordService = {
     return (data ?? []).map(ServiceRecordService.fromRow);
   },
 
-  /** Cria ou atualiza um atendimento (upsert por id) */
+  /** Cria ou atualiza um atendimento (upsert por id) e emite evento na timeline */
   async save(rec: ServiceRecord, tenantId: string): Promise<void> {
     const row = ServiceRecordService.toRow(rec, tenantId);
     const { error } = await supabase
       .from('service_records')
       .upsert(row, { onConflict: 'id' });
     if (error) throw error;
+
+    // Emite evento na timeline do aluno para alimentar o histórico evolutivo
+    if (rec.studentId && rec.attendance === 'Presente') {
+      const checklistDesc = rec.dailyChecklist
+        ? `Desempenho: ${rec.dailyChecklist.desempenho}/5 · Interação: ${rec.dailyChecklist.interacao}/5 · ${rec.dailyChecklist.comportamento === 'adequado' ? 'Comportamento adequado' : rec.dailyChecklist.comportamento === 'regular' ? 'Comportamento regular' : 'Necessita suporte'}`
+        : '';
+      await TimelineService.add({
+        tenantId,
+        studentId:   rec.studentId,
+        eventType:   'atendimento',
+        title:       `Atendimento ${rec.type} — ${rec.attendance}`,
+        description: [rec.observation, checklistDesc].filter(Boolean).join(' · ').slice(0, 250),
+        linkedId:    rec.id,
+        linkedTable: 'service_records',
+        icon:        'Calendar',
+        author:      rec.professional,
+      }).catch(() => { /* timeline é não-crítica */ });
+    }
   },
 
   /** Remove um atendimento */

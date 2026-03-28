@@ -1,8 +1,11 @@
 // aiService.ts
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { supabase } from "./supabase";
-import { User, DocumentType, Student, DocumentAnalysis } from "../types";
+import { User, DocumentType, Student, DocumentAnalysis, AIModelConfig, AIModelContext, AIOutputType } from "../types";
+import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from "../config/aiCosts";
 import { AiAuditService } from "./persistenceService";
+import type { StudentContext } from "./studentContextService";
+import { StudentContextService } from "./studentContextService";
 
 // Ignora o aviso de tipos do TypeScript para o mammoth
 // @ts-ignore
@@ -49,6 +52,8 @@ export interface ActivityGenOptions {
   period?: string;
   teacherActivity?: boolean;
   imageBase64?: string;
+  /** ID do modelo selecionado (ex: 'texto_apenas', 'nano_banana_pro', 'chatgpt_imagem') */
+  modelId?: string;
 }
 
 export interface ActivityImageOptions {
@@ -70,9 +75,7 @@ class GeminiProvider implements AIProvider {
 
   async generateText(prompt: string, imageBase64?: string): Promise<string> {
     if (!this.client) {
-      throw new Error(
-        'Chave de API do Gemini não encontrada. Verifique VITE_GEMINI_API_KEY no arquivo .env e reinicie o servidor.'
-      );
+      throw new Error('CONFIG_GEMINI');
     }
 
     const parts: any[] = [{ text: prompt }];
@@ -121,9 +124,7 @@ class GeminiProvider implements AIProvider {
 
   async generateJSON(prompt: string): Promise<string> {
     if (!this.client) {
-      throw new Error(
-        'Chave de API do Gemini não encontrada. Verifique VITE_GEMINI_API_KEY no arquivo .env e reinicie o servidor.'
-      );
+      throw new Error('CONFIG_GEMINI');
     }
 
     try {
@@ -147,8 +148,10 @@ class GeminiProvider implements AIProvider {
     }
   }
 
-  async generateImage(prompt: string): Promise<string> {
-      return ""; // O Gemini via GenerativeAI requer configurações adicionais para imagens. Mantemos o fallback vazio por segurança.
+  async generateImage(_prompt: string): Promise<string> {
+      // Gemini Imagen não é suportado pela biblioteca @google/generative-ai.
+      // O FallbackProvider encaminha geração de imagens para OpenAI DALL-E 3.
+      throw new Error('CONFIG_IMAGE');
   }
 }
 
@@ -163,7 +166,7 @@ class OpenAIProvider implements AIProvider {
 
     async generateText(prompt: string, imageBase64?: string): Promise<string> {
         if (!this.apiKey) {
-            throw new Error('Chave de API da OpenAI não encontrada. Verifique VITE_OPENAI_API_KEY no .env.');
+            throw new Error('CONFIG_OPENAI');
         }
         const messages: any[] = [{ role: 'user', content: [] }];
         messages[0].content.push({ type: 'text', text: prompt });
@@ -191,7 +194,7 @@ class OpenAIProvider implements AIProvider {
 
     async generateJSON(prompt: string): Promise<string> {
         if (!this.apiKey) {
-            throw new Error('Chave de API da OpenAI não encontrada. Verifique VITE_OPENAI_API_KEY no .env.');
+            throw new Error('CONFIG_OPENAI');
         }
         console.info(`[OpenAI] generateJSON — modelo: ${this.modelId}`);
         try {
@@ -217,8 +220,13 @@ class OpenAIProvider implements AIProvider {
         }
     }
 
-    async generateImage(_prompt: string): Promise<string> {
-        return "";
+    async generateImage(prompt: string): Promise<string> {
+        if (!this.apiKey) {
+            throw new Error('CONFIG_IMAGE');
+        }
+        const { ImageService } = await import('./imageService');
+        const result = await ImageService.generateActivityImage(prompt);
+        return result.url;
     }
 }
 
@@ -238,43 +246,163 @@ class FallbackProvider implements AIProvider {
         if (this.hasGemini) {
             return this.gemini.generateText(prompt, imageBase64);
         }
-        throw new Error('Chave de API do Gemini não encontrada.');
+        throw new Error('CONFIG_GEMINI');
     }
 
     async generateJSON(prompt: string): Promise<string> {
         if (this.hasGemini) {
             return this.gemini.generateJSON(prompt);
         }
-        throw new Error('Chave de API do Gemini não encontrada.');
+        throw new Error('CONFIG_GEMINI');
     }
 
     async generateImage(prompt: string): Promise<string> {
-        if (this.hasGemini) {
-            try { return await this.gemini.generateImage(prompt); } catch {}
+        // Geração de imagem usa DALL-E 3 (OpenAI) — Gemini não suporta neste SDK.
+        if (this.hasOpenAI) {
+            return this.openai.generateImage(prompt);
         }
-        return this.openai.generateImage(prompt);
+        throw new Error('CONFIG_IMAGE');
     }
 }
 
 const aiProvider: AIProvider = new FallbackProvider();
 
+// ─── Motor de Texto (Gemini 1.5 Flash) — PDIs, PEIs, relatórios ─────────────
+// ─── Motor de Imagem (IncluiLab)        — geração de ilustrações pedagógicas ─
 export const CREDIT_COSTS: Record<string, number> = {
-  // Documentos pedagogicos
-  ESTUDO_DE_CASO:    2,
-  PEI:               3,   // PEI e mais complexo — 3 creditos
-  PAEE:              2,
-  PDI:               2,
-  // Atividades
-  ATIVIDADE:         1,
-  ATIVIDADE_IMAGEM:  2,
-  // Analise e adaptacao
-  ANALISE_DOCUMENTO: 2,
-  OCR:               1,
-  ADAPTAR_ATIVIDADE: 2,
-  RELATORIO:         2,
-  // Modelo personalizado
-  TEMPLATE:          3,
+  ESTUDO_DE_CASO:    AI_CREDIT_COSTS.ESTUDO_DE_CASO,
+  PEI:               AI_CREDIT_COSTS.PEI,
+  PAEE:              AI_CREDIT_COSTS.PAEE,
+  PDI:               AI_CREDIT_COSTS.PDI,
+  ATIVIDADE:         AI_CREDIT_COSTS.ATIVIDADE_TEXTO,
+  ATIVIDADE_IMAGEM:  AI_CREDIT_COSTS.ATIVIDADE_IMAGEM,
+  INCLUILAB_IMAGE:   AI_CREDIT_COSTS.IMAGEM_PREMIUM,
+  ANALISE_DOCUMENTO: AI_CREDIT_COSTS.ANALISE_DOCUMENTO,
+  UPLOAD_MODELO:     AI_CREDIT_COSTS.UPLOAD_MODELO,
+  OCR:               AI_CREDIT_COSTS.OCR,
+  ADAPTAR_ATIVIDADE: AI_CREDIT_COSTS.ADAPTAR_ATIVIDADE,
+  RELATORIO:         AI_CREDIT_COSTS.RELATORIO_PADRAO,
+  EDULEISIA_ADAPTAR: AI_CREDIT_COSTS.EDULEISIA_ADAPTAR,
+  EDULEISIA_IMAGEM:  AI_CREDIT_COSTS.EDULEISIA_IMAGEM,
+  NEURODESIGN_REDESIGN: AI_CREDIT_COSTS.NEURODESIGN_REDESIGN,
+  NEURODESIGN_IMAGEM:   AI_CREDIT_COSTS.NEURODESIGN_IMAGEM,
+  TEMPLATE:          AI_CREDIT_COSTS.TEMPLATE,
 };
+
+// ─── REGISTRO DE MODELOS DE IA ────────────────────────────────────────────────
+export const AI_MODEL_CONFIGS: AIModelConfig[] = [
+  // ── Contexto: Relatórios ─────────────────────────────────────────────────────
+  {
+    id: 'economico',
+    name: 'Econômico',
+    provider: 'gemini',
+    output_type: 'text',
+    credit_cost: AI_CREDIT_COSTS.RELATORIO_ECONOMICO,
+    active: true,
+    allowed_contexts: ['reports'],
+    description: 'Somente texto, custo mínimo',
+  },
+  {
+    id: 'padrao',
+    name: 'Padrão',
+    provider: 'gemini',
+    output_type: 'text',
+    credit_cost: AI_CREDIT_COSTS.RELATORIO_PADRAO,
+    active: true,
+    allowed_contexts: ['reports', 'protocols'],
+    description: 'Qualidade balanceada (recomendado)',
+  },
+  {
+    id: 'premium',
+    name: 'Premium',
+    provider: 'fallback',
+    output_type: 'text',
+    credit_cost: AI_CREDIT_COSTS.RELATORIO_PREMIUM,
+    active: true,
+    allowed_contexts: ['reports'],
+    description: 'Máxima qualidade e riqueza de detalhes',
+    warning: `Consome ${AI_CREDIT_COSTS.RELATORIO_PREMIUM} créditos por geração`,
+  },
+  // ── Contexto: Atividades / IncluiLab ─────────────────────────────────────────
+  {
+    id: 'texto_apenas',
+    name: 'Texto apenas',
+    provider: 'gemini',
+    output_type: 'text',
+    credit_cost: INCLUILAB_MODEL_COSTS.TEXT,        // 3 créditos — regra oficial
+    active: true,
+    allowed_contexts: ['activities', 'incluilab'],
+    description: 'Geração exclusiva de texto pedagógico',
+  },
+  {
+    id: 'nano_banana_pro',
+    name: 'Nano Banana Pro',
+    provider: 'gemini',
+    output_type: 'text_image',
+    credit_cost: INCLUILAB_MODEL_COSTS.NANO_BANANA, // 30 créditos — regra oficial (passado como costOverride para generateImageFromPrompt)
+    active: true,
+    allowed_contexts: ['activities', 'incluilab'],
+    description: 'Texto + imagem pedagógica (Gemini + DALL-E)',
+    warning: 'A geração de imagem está disponível apenas para assinantes com integração ativa. Contate o suporte para habilitar.',
+  },
+  {
+    id: 'chatgpt_imagem',
+    name: 'ChatGPT Imagem',
+    provider: 'openai',
+    output_type: 'text_image',
+    credit_cost: INCLUILAB_MODEL_COSTS.GPT_IMAGE,   // 50 créditos — regra oficial
+    active: true,
+    allowed_contexts: ['activities', 'incluilab'],
+    description: 'Texto + DALL-E 3 alta qualidade',
+    warning: `Consome ${INCLUILAB_MODEL_COSTS.GPT_IMAGE} créditos por imagem gerada`,
+  },
+];
+
+/** Retorna a configuração de um modelo pelo id. Cai em 'padrao' se não encontrar. */
+export function getModelConfig(id: string): AIModelConfig {
+  return AI_MODEL_CONFIGS.find(m => m.id === id) ?? AI_MODEL_CONFIGS.find(m => m.id === 'padrao')!;
+}
+
+/** Retorna modelos disponíveis para um contexto específico. */
+export function getModelsForContext(context: AIModelContext): AIModelConfig[] {
+  return AI_MODEL_CONFIGS.filter(m => m.active && m.allowed_contexts.includes(context));
+}
+
+/** Verifica se o modelo selecionado gera imagem (text_image). */
+export function modelGeneratesImage(id: string): boolean {
+  return getModelConfig(id).output_type === 'text_image';
+}
+
+/** Mensagem padronizada de saldo insuficiente */
+function insufficientCreditsError(_required?: number, _balance?: number, _action?: string): Error {
+  return new Error(CREDIT_INSUFFICIENT_MSG);
+}
+
+/**
+ * Converte erros internos dos providers em mensagens amigáveis para o usuário.
+ * Nunca expõe nomes de variáveis de ambiente ou detalhes de configuração.
+ */
+export function friendlyAIError(e: unknown): string {
+  const raw = (e instanceof Error ? e.message : String(e)) || '';
+  if (raw === 'CONFIG_GEMINI' || raw.includes('CONFIG_GEMINI')) {
+    return 'O serviço de inteligência artificial não está configurado no ambiente. Entre em contato com o suporte.';
+  }
+  if (raw === 'CONFIG_OPENAI' || raw.includes('CONFIG_OPENAI')) {
+    return 'O serviço de inteligência artificial não está configurado no ambiente. Entre em contato com o suporte.';
+  }
+  if (raw === 'CONFIG_IMAGE' || raw.includes('CONFIG_IMAGE')) {
+    return 'Este modo de geração visual ainda não está configurado no ambiente.';
+  }
+  if (raw.includes('Failed to fetch') || raw.includes('NetworkError') || (e as any)?.name === 'TypeError') {
+    return 'Falha de conexão com o serviço de IA. Verifique sua internet e tente novamente.';
+  }
+  if (raw.includes('quota') || raw.includes('429') || raw.includes('rate limit')) {
+    return 'Limite de uso da IA atingido. Aguarde alguns instantes e tente novamente.';
+  }
+  // Mensagem genérica — sem expor detalhes técnicos internos
+  return 'Ocorreu um erro ao processar sua solicitação. Tente novamente ou contate o suporte.';
+}
+
 
 export const AIService = {
 
@@ -304,15 +432,30 @@ export const AIService = {
           .maybeSingle();
         if (error) {
           console.warn('[AIService] credit check error:', error.message);
-          return true; 
+          return true;
         }
-        if (!data) return true; 
+        if (!data) return true;
         const remaining = Number((data as any)?.balance ?? 0);
         if (Number.isNaN(remaining)) return true;
         return remaining >= cost;
       } catch (e) {
         console.warn('[AIService] credit check skipped due to schema/config error', e);
         return true;
+      }
+  },
+
+  /** Retorna o saldo atual (0 se não encontrado ou erro). */
+  async getCreditsBalance(user: User): Promise<number> {
+      if (!user || !(user as any).tenant_id) return 0;
+      try {
+        const { data } = await supabase
+          .from('credits_wallet')
+          .select('balance')
+          .eq('tenant_id', (user as any).tenant_id)
+          .maybeSingle();
+        return Number((data as any)?.balance ?? 0);
+      } catch {
+        return 0;
       }
   },
 
@@ -359,7 +502,10 @@ export const AIService = {
   },
   async generateProtocol(type: any, student: Student, user: User, laudo?: string): Promise<string> {
       const cost = CREDIT_COSTS[type] || 1;
-      if (!(await this.checkCredits(user, cost))) throw new Error(`Saldo insuficiente.`);
+      if (!(await this.checkCredits(user, cost))) {
+        const balance = await this.getCreditsBalance(user);
+        throw insufficientCreditsError(cost, balance, `gerar ${String(type)}`);
+      }
 
       const prompt = `Gere o protocolo ${type} para ${student.name}. Diagnóstico: ${student.diagnosis.join(', ')}. Nível de suporte: ${student.supportLevel}.`;
       const textResult = await aiProvider.generateText(prompt, laudo);
@@ -368,9 +514,12 @@ export const AIService = {
       return textResult;
   },
 
-  async generateProtocolJSON(type: any, student: Student, user: User): Promise<string> {
+  async generateProtocolJSON(type: any, student: Student, user: User, studentContext?: StudentContext): Promise<string> {
       const cost = CREDIT_COSTS[type] || 1;
-      if (!(await this.checkCredits(user, cost))) throw new Error(`Saldo insuficiente.`);
+      if (!(await this.checkCredits(user, cost))) {
+        const balance = await this.getCreditsBalance(user);
+        throw insufficientCreditsError(cost, balance, `gerar documento ${String(type)}`);
+      }
 
       const auditId = await AiAuditService.logRequest({
         tenantId: (user as any).tenant_id ?? '',
@@ -389,10 +538,21 @@ export const AIService = {
       const difficulties = (student.difficulties || []).join('; ') || 'Não informado';
       const strategies = (student.strategies || []).join('; ') || 'Não informado';
 
+      // Monta contexto consolidado do banco (se não foi fornecido externamente, tenta carregar)
+      let ctxBlock = '';
+      if (studentContext && StudentContextService.hasData(studentContext)) {
+        ctxBlock = StudentContextService.toPromptText(studentContext);
+      } else if (student.id) {
+        try {
+          const autoCtx = await StudentContextService.buildContext(student.id);
+          if (StudentContextService.hasData(autoCtx)) ctxBlock = StudentContextService.toPromptText(autoCtx);
+        } catch { /* contexto é opcional — falha silenciosa */ }
+      }
+
       const prompt = `Você é especialista em educação inclusiva e documentação pedagógica brasileira.
 Gere um documento completo do tipo "${docLabel}" para o aluno abaixo.
 
-Dados do aluno:
+Dados cadastrais do aluno:
 - Nome: ${student.name}
 - Diagnóstico(s): ${diagnosis}
 - CID: ${cid}
@@ -405,6 +565,8 @@ Dados do aluno:
 - Professor AEE: ${student.aeeTeacher || '—'}
 - Contexto familiar: ${student.familyContext || 'Não informado'}
 - Histórico escolar: ${student.schoolHistory || 'Não informado'}
+
+${ctxBlock}
 
 RETORNE SOMENTE o JSON válido abaixo, sem texto adicional, sem markdown, sem comentários:
 {
@@ -478,8 +640,11 @@ Regras obrigatórias:
   },
 
   async analyzeDocument(name: string, _urlOrBase64: string | undefined, student: Student, user: User): Promise<any> {
-      const cost = CREDIT_COSTS.ANALISE_DOCUMENTO || 2;
-      if (!(await this.checkCredits(user, cost))) throw new Error("Saldo insuficiente para análise.");
+      const cost = CREDIT_COSTS.ANALISE_DOCUMENTO;
+      if (!(await this.checkCredits(user, cost))) {
+        const balance = await this.getCreditsBalance(user);
+        throw insufficientCreditsError(cost, balance, 'analisar este laudo');
+      }
 
       const diagnosis = (student.diagnosis || []).join(', ') || 'Não informado';
 
@@ -527,24 +692,27 @@ Gere uma análise pedagógica completa. RETORNE SOMENTE o JSON válido:
   },
 
   async generateActivity(topic: string, student: Student, user: User, options?: ActivityGenOptions | string): Promise<string> {
-      const cost = 1;
-      if (!(await this.checkCredits(user, cost))) throw new Error(`Saldo insuficiente.`);
-
-      const auditId = await AiAuditService.logRequest({
-        tenantId: (user as any).tenant_id ?? '',
-        userId: user.id,
-        requestType: 'activity',
-        model: 'gemini-2.5-flash',
-        creditsConsumed: cost,
-        inputData: { studentId: student.id, topic },
-      });
-      const t0 = Date.now();
-
       const normalized: ActivityGenOptions = (() => {
         if (!options) return {};
         if (typeof options === 'string') return { imageBase64: options };
         return options;
       })();
+      const modelCfg = getModelConfig(normalized.modelId ?? 'texto_apenas');
+      const cost = modelCfg.credit_cost;
+      if (!(await this.checkCredits(user, cost))) {
+        const balance = await this.getCreditsBalance(user);
+        throw insufficientCreditsError(cost, balance, `gerar atividade (${modelCfg.name})`);
+      }
+
+      const auditId = await AiAuditService.logRequest({
+        tenantId: (user as any).tenant_id ?? '',
+        userId: user.id,
+        requestType: 'activity',
+        model: modelCfg.id,
+        creditsConsumed: cost,
+        inputData: { studentId: student.id, topic, modelId: modelCfg.id },
+      });
+      const t0 = Date.now();
 
       const bncc = (normalized.bnccCodes || []).filter(Boolean);
       const discipline = normalized.discipline?.trim();
@@ -608,14 +776,17 @@ Regras:
         if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0 });
         throw e;
       }
-      await this.deductCredits(user, 'ATIVIDADE', cost);
-      if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'text', content: textResult.slice(0, 500) });
+      await this.deductCredits(user, `ATIVIDADE:${modelCfg.id}`, cost);
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: modelCfg.output_type, content: textResult.slice(0, 500) });
       return textResult;
   },
 
   async generateActivityImage(description: string, student: Student, user: User, options?: ActivityImageOptions): Promise<{imageUrl: string, guidance: string}> {
-      const cost = 2; 
-      if (!(await this.checkCredits(user, cost))) throw new Error("Saldo insuficiente para imagem.");
+      const cost = CREDIT_COSTS.ATIVIDADE_IMAGEM; // Motor de Imagem IncluiLab: 50 créditos
+      if (!(await this.checkCredits(user, cost))) {
+        const balance = await this.getCreditsBalance(user);
+        throw insufficientCreditsError(cost, balance, 'gerar esta imagem');
+      }
 
       const bncc = (options?.bnccCodes || []).filter(Boolean);
       const discipline = options?.discipline?.trim();
@@ -650,9 +821,12 @@ Estilo: material pedagógico, amigável, inclusivo, cores suaves, fundo branco, 
       return { imageUrl, guidance };
   },
 
-  async analyzeUploadedDocument(fileBase64: string, mimeType: string, docType: DocumentType, student: Student, user: User): Promise<DocumentAnalysis> {
-      const cost = CREDIT_COSTS.ANALISE_DOCUMENTO || 2;
-      if (!(await this.checkCredits(user, cost))) throw new Error("Saldo insuficiente.");
+  async analyzeUploadedDocument(fileBase64: string, _mimeType: string, docType: DocumentType, student: Student, user: User): Promise<DocumentAnalysis> {
+      const cost = CREDIT_COSTS.ANALISE_DOCUMENTO;
+      if (!(await this.checkCredits(user, cost))) {
+        const balance = await this.getCreditsBalance(user);
+        throw insufficientCreditsError(cost, balance, 'analisar este documento');
+      }
 
       const prompt = `Analise o documento enviado (tipo ${docType}) e extraia dados úteis para educação inclusiva do aluno ${student.name}.
 Retorne JSON com: resumo, achados, recomendações, sinais de alerta, e sugestões de adaptações.`;
@@ -676,11 +850,15 @@ Retorne JSON com: resumo, achados, recomendações, sinais de alerta, e sugestõ
       return aiProvider.generateText(prompt, imageBase64);
   },
 
-  async generateImageFromPrompt(prompt: string, user: User): Promise<string> {
-      const cost = CREDIT_COSTS.ATIVIDADE_IMAGEM || 2;
-      if (!(await this.checkCredits(user, cost))) throw new Error('Saldo de créditos insuficiente.');
+  async generateImageFromPrompt(prompt: string, user: User, costOverride?: number): Promise<string> {
+      // costOverride permite que o chamador injete o custo real do modelo (ex.: 30 para Nano Banana Pro)
+      const cost = costOverride ?? CREDIT_COSTS.INCLUILAB_IMAGE;
+      if (!(await this.checkCredits(user, cost))) {
+        const balance = await this.getCreditsBalance(user);
+        throw insufficientCreditsError(cost, balance, 'gerar esta imagem');
+      }
       const result = await aiProvider.generateImage(prompt);
-      if (result) await this.deductCredits(user, 'ATIVIDADE_IMAGEM', cost);
+      if (result) await this.deductCredits(user, 'INCLUILAB_IMAGE', cost);
       return result;
   },
 
@@ -690,7 +868,7 @@ Retorne JSON com: resumo, achados, recomendações, sinais de alerta, e sugestõ
 
   async extractTextFromImage(base64: string, user: User): Promise<string> {
       const cost = CREDIT_COSTS.OCR || 1;
-      if (!(await this.checkCredits(user, cost))) throw new Error('Saldo insuficiente para OCR.');
+      if (!(await this.checkCredits(user, cost))) throw insufficientCreditsError(cost, undefined, 'OCR');
       const prompt = `Extraia e transcreva TODO o texto visível nesta imagem, exatamente como aparece.
 Se for uma atividade ou exercício escolar, preserve a estrutura (enunciado, questões, lacunas, etc.).
 Retorne somente o texto extraído, sem comentários adicionais.`;
@@ -699,22 +877,30 @@ Retorne somente o texto extraído, sem comentários adicionais.`;
       return result;
   },
 
-  async generateReport(context: string, instruction: string, user: User): Promise<string> {
-      const cost = CREDIT_COSTS.RELATORIO || 2;
-      if (!(await this.checkCredits(user, cost))) throw new Error('Saldo insuficiente para gerar relatório.');
+  async generateReport(context: string, instruction: string, user: User, modelId?: string): Promise<string> {
+      const modelCfg = getModelConfig(modelId ?? 'padrao');
+      // Valida contexto: apenas modelos de relatórios são aceitos aqui
+      if (!modelCfg.allowed_contexts.includes('reports')) {
+        throw new Error(`Modelo "${modelCfg.name}" não é compatível com geração de relatórios.`);
+      }
+      const cost = modelCfg.credit_cost;
+      if (!(await this.checkCredits(user, cost))) {
+        const balance = await this.getCreditsBalance(user);
+        throw insufficientCreditsError(cost, balance, `gerar relatório (${modelCfg.name})`);
+      }
 
       const fullPrompt = context?.trim()
           ? `${instruction}\n\nCONTEXTO DO DOCUMENTO:\n${context}`
           : instruction;
 
       const result = await aiProvider.generateText(fullPrompt);
-      await this.deductCredits(user, 'RELATORIO', cost);
+      await this.deductCredits(user, `RELATORIO:${modelCfg.id}`, cost);
       return result;
   },
 
   async adaptActivityText(text: string, diagnosis: string, grade: string, user: User): Promise<string> {
-      const cost = CREDIT_COSTS.ADAPTAR_ATIVIDADE || 2;
-      if (!(await this.checkCredits(user, cost))) throw new Error('Saldo insuficiente para adaptar atividade.');
+      const cost = CREDIT_COSTS.ADAPTAR_ATIVIDADE;
+      if (!(await this.checkCredits(user, cost))) throw insufficientCreditsError(cost, undefined, 'adaptar atividade');
 
       const diagnosisLabels: Record<string, string> = {
           autismo: 'Transtorno do Espectro Autista (TEA)',
@@ -758,8 +944,12 @@ Retorne SOMENTE a atividade adaptada, pronta para uso.`;
     imageCount: number;
     creditsUsed: number;
     studentId?: string;
+    /** ID do modelo de IA utilizado (ex: 'texto_apenas', 'nano_banana_pro') */
+    modelUsed?: string;
+    /** Tipo de saída: 'text' ou 'text_image' */
+    outputType?: AIOutputType;
   }): Promise<{ id: string }> {
-    const { user, title, templateType, content, imageCount, creditsUsed, studentId } = params;
+    const { user, title, templateType, content, imageCount, creditsUsed, studentId, modelUsed, outputType } = params;
 
     const { data, error } = await supabase
       .from('generated_activities')
@@ -773,11 +963,19 @@ Retorne SOMENTE a atividade adaptada, pronta para uso.`;
         is_adapted:   true,
         credits_used: creditsUsed,
         guidance:     imageCount > 0 ? `${imageCount} imagens geradas` : null,
+        model_used:   modelUsed ?? null,
+        output_type:  outputType ?? 'text',
       })
       .select('id')
       .single();
 
-    if (error) throw new Error('Erro ao salvar atividade: ' + error.message);
+    if (error) {
+      const isRls = error.code === '42501' || (error.message ?? '').includes('row-level security');
+      const isUnauth = error.code === 'PGRST301' || (error.message ?? '').includes('JWT');
+      if (isUnauth) throw new Error('Sessão expirada. Faça login novamente para salvar a atividade.');
+      if (isRls)    throw new Error('Sem permissão para salvar. Verifique se sua sessão está ativa e tente novamente.');
+      throw new Error('Não foi possível salvar a atividade. Tente novamente.');
+    }
 
     if (studentId && data?.id) {
       try {
@@ -786,7 +984,7 @@ Retorne SOMENTE a atividade adaptada, pronta para uso.`;
           student_id:  studentId,
           event_type:  'atividade',
           title:       `Atividade gerada: ${title}`,
-          description: `Template: ${templateType} · ${imageCount > 0 ? `${imageCount} imagens` : 'Texto'} · ${creditsUsed} créditos`,
+          description: `Template: ${templateType} · Modelo: ${modelUsed ?? 'padrão'} · ${imageCount > 0 ? `${imageCount} imagens` : 'Texto'} · ${creditsUsed} créditos`,
           linked_id:   data.id,
           linked_table: 'generated_activities',
           icon:        'Zap',

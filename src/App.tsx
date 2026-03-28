@@ -7,6 +7,8 @@ import { StudentForm } from './components/StudentForm';
 import { SettingsView } from './views/SettingsView';
 import { StudentProfile } from './components/StudentProfile';
 import { generateProtocolAI } from './services/geminiService';
+import { StudentContextService } from './services/studentContextService';
+import type { StudentContext } from './services/studentContextService';
 import {
   PlanTier,
   UserRole,
@@ -35,11 +37,13 @@ import { TriagemView } from './views/TriagemView';
 import { ServiceControlView } from './views/ServiceControlView';
 import { SubscriptionView } from './views/SubscriptionView';
 import { EnrollmentWizard } from './components/EnrollmentWizard';
+import { IncluiLabView } from './views/IncluiLabView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LGPDModal } from './components/LGPDModal';
 import { ExpiredPlanBanner } from './components/ExpiredPlanBanner';
 import { PaymentService } from './services/paymentService';
 import { shouldShowExpiredBanner, getActiveSubscription, type ActiveSubscriptionInfo } from './services/subscriptionService';
+import { getSubscriptionCheckoutUrl } from './services/kiwifyService';
 import { supabase, DEMO_MODE } from './services/supabase';
 import { databaseService } from './services/databaseService';
 import { ServiceRecordService } from './services/persistenceService';
@@ -196,6 +200,8 @@ const App: React.FC = () => {
   const [activeDocumentType, setActiveDocumentType] = useState<DocumentType>(DocumentType.PEI);
 
   const [auditSearch, setAuditSearch] = useState('');
+  const [auditResult, setAuditResult] = useState<{ found: boolean; type?: string; studentName?: string; issuedAt?: string; code?: string } | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [showLGPD, setShowLGPD] = useState(false);
 
   const [tenantSummary, setTenantSummary] = useState<any | null>(null);
@@ -225,21 +231,30 @@ const App: React.FC = () => {
   }, [planEff?.max_students, tenantSummary?.studentLimitBase, user.plan]);
 
   const planMonthlyCredits = useMemo(() => {
-    const v = Number(planEff?.monthly_credits ?? 0);
-    return Number.isFinite(v) ? v : 0;
-  }, [planEff?.monthly_credits]);
+    // 1ª fonte: tenantSummary (vem do banco via getTenantSummary → plans.ai_credits_per_month)
+    const fromSummary = Number(tenantSummary?.planCreditsMonthly ?? 0);
+    if (Number.isFinite(fromSummary) && fromSummary > 0) return fromSummary;
+    // 2ª fonte: planEff carregado via getEffectivePlans (alias monthly_credits)
+    const fromDB = Number(planEff?.monthly_credits ?? planEff?.credits_monthly ?? 0);
+    if (Number.isFinite(fromDB) && fromDB > 0) return fromDB;
+    // Fallback: limites estáticos (types.ts PLAN_LIMITS)
+    return (getPlanLimits(user.plan) as any).ai_credits ?? 0;
+  }, [tenantSummary?.planCreditsMonthly, planEff?.monthly_credits, planEff?.credits_monthly, user.plan]);
 
   const creditsAvailable = useMemo(() => {
-    // Se tenantSummary ainda não carregou, usa créditos do plano como fallback
-    // para não bloquear o usuário em contas onde a wallet ainda não foi inicializada.
-    if (tenantSummary === null) return planMonthlyCredits > 0 ? planMonthlyCredits : 999;
-    const wallet = Number(tenantSummary?.aiCreditsRemaining);
-    if (!Number.isFinite(wallet) || tenantSummary?.aiCreditsRemaining === null) {
-      // Wallet indisponível — usa limite do plano
-      return planMonthlyCredits > 0 ? planMonthlyCredits : 999;
-    }
-    return wallet;
-  }, [tenantSummary, planMonthlyCredits]);
+    const planDefault = planMonthlyCredits > 0 ? planMonthlyCredits : (getPlanLimits(user.plan) as any).ai_credits ?? 0;
+    // Enquanto tenantSummary não carregou, usa créditos do plano como fallback
+    if (tenantSummary === null) return planDefault;
+    // Calcula saldo pelo ledger: plano + comprados − consumidos
+    // Garante: 70 − 13 = 57 (e não o saldo da carteira que pode estar desatualizado)
+    const consumed  = Math.max(0, Number(tenantSummary?.creditsConsumedCycle ?? 0));
+    const purchased = Math.max(0, Number(tenantSummary?.creditsPurchased    ?? 0));
+    return Math.max(0, planDefault + purchased - consumed);
+  }, [tenantSummary, planMonthlyCredits, user.plan]);
+
+  // Créditos comprados e consumidos (do ledger, via tenantSummary)
+  const creditsPurchased = useMemo(() => Number(tenantSummary?.creditsPurchased ?? 0), [tenantSummary?.creditsPurchased]);
+  const creditsConsumedCycle = useMemo(() => Number(tenantSummary?.creditsConsumedCycle ?? 0), [tenantSummary?.creditsConsumedCycle]);
 
   const creditsResetAt = useMemo(() => {
     return (tenantSummary?.renewalDateCredits ?? null) as string | null;
@@ -266,7 +281,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('incluiai:credits-changed', handleCreditsChanged);
   }, [user?.id]);
 
-    // --- Restore session ---
+    // --- Restore session (inclui retorno de OAuth Google) ---
   useEffect(() => {
     (async () => {
       if (DEMO_MODE) return;
@@ -274,32 +289,12 @@ const App: React.FC = () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user?.id) return;
 
-      const profile = await databaseService.getUserProfile(session.user.id);
+      const profile = await databaseService.getUserProfile(session.user.id).catch(() => null);
       if (!profile) return;
 
-      setUser(profile);
-      setIsAuthenticated(true);
-      setView(profile.isAdmin ? 'admin' : 'dashboard');
-
-      const [studentsDb, protocolsDb, summaryDb, plansDb, subInfo, serviceRecordsDb] = await Promise.all([
-        databaseService.getStudents(profile.id),
-        databaseService.getProtocols(profile.id),
-        databaseService.getTenantSummary(profile.id),
-        databaseService.getEffectivePlans(),
-        profile.tenant_id ? getActiveSubscription(profile.tenant_id) : Promise.resolve(null),
-        profile.tenant_id ? ServiceRecordService.list(profile.tenant_id) : Promise.resolve([]),
-      ]);
-
-      setStudents(studentsDb);
-      setProtocols(protocolsDb);
-      setTenantSummary(summaryDb);
-      setEffectivePlans(plansDb);
-      setActiveSubscription(subInfo);
-      setServiceRecords(serviceRecordsDb);
-      if (subInfo?.status) {
-        setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status }));
-      }
+      await _loadAfterAuth(profile);
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- Realtime subscription status ---
@@ -319,7 +314,7 @@ const App: React.FC = () => {
             planCode: row.plan_code ?? prev.planCode,
             providerPaymentLink: row.provider_payment_link ?? prev.providerPaymentLink,
             providerUpdatePaymentLink: row.provider_update_payment_link ?? prev.providerUpdatePaymentLink,
-            currentPeriodEnd: row.next_billing ?? prev.currentPeriodEnd,
+            currentPeriodEnd: row.current_period_end ?? prev.currentPeriodEnd,
             nextDueDate: row.next_due_date ?? prev.nextDueDate,
             lastPaymentStatus: row.last_payment_status ?? prev.lastPaymentStatus,
             isTestAccount: row.is_test_account ?? prev.isTestAccount,
@@ -334,6 +329,59 @@ const App: React.FC = () => {
     return () => { supabase.removeChannel(channel); };
   }, [isAuthenticated, user.tenant_id]);
 
+  // Chave localStorage para plano pendente de upgrade (persiste entre redirects OAuth)
+  const PENDING_PLAN_KEY = 'incluiai:pending_plan';
+
+  // ── Helper: carrega dados do usuário após autenticação ─────────────────────
+  const _loadAfterAuth = async (profile: User) => {
+    const needsLGPD = !profile.lgpdConsent?.accepted;
+    const needsSchoolSetup =
+      !profile.schoolConfigs ||
+      profile.schoolConfigs.length === 0 ||
+      !(profile.schoolConfigs[0] as any)?.schoolName?.trim();
+
+    if (needsLGPD) setShowLGPD(true);
+
+    setUser(profile);
+    setIsAuthenticated(true);
+    setView(profile.isAdmin ? 'admin' : needsLGPD || needsSchoolSetup ? 'settings' : 'dashboard');
+
+    const [studentsDb, protocolsDb, summaryDb, plansDb, subInfo, serviceRecordsDb] = await Promise.all([
+      databaseService.getStudents(profile.id),
+      databaseService.getProtocols(profile.id),
+      databaseService.getTenantSummary(profile.id),
+      databaseService.getEffectivePlans(),
+      profile.tenant_id ? getActiveSubscription(profile.tenant_id) : Promise.resolve(null),
+      profile.tenant_id ? ServiceRecordService.list(profile.tenant_id) : Promise.resolve([]),
+    ]);
+
+    setStudents(studentsDb);
+    setProtocols(protocolsDb);
+    setTenantSummary(summaryDb);
+    setEffectivePlans(plansDb);
+    setActiveSubscription(subInfo);
+    setServiceRecords(serviceRecordsDb);
+    if (subInfo?.status) {
+      setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status }));
+    }
+
+    // Referral pendente
+    const pendingRef = ReferralService.getRefFromStorage();
+    if (pendingRef && profile.id) {
+      ReferralService.registerReferral(profile.id, pendingRef).catch(() => {});
+    }
+
+    // Upgrade pendente — redireciona para Kiwify com tenantId injetado
+    const pendingPlan = localStorage.getItem(PENDING_PLAN_KEY) as 'PRO' | 'MASTER' | null;
+    if (pendingPlan && profile.tenant_id) {
+      localStorage.removeItem(PENDING_PLAN_KEY);
+      try {
+        const url = await getSubscriptionCheckoutUrl(pendingPlan, profile.tenant_id);
+        if (url && url !== '#') window.open(url, '_blank');
+      } catch { /* silencioso — usuário já está logado */ }
+    }
+  };
+
   // --- Login ---
   const handleLogin = async (email: string, pass: string) => {
     if (DEMO_MODE) {
@@ -342,62 +390,69 @@ const App: React.FC = () => {
       setView('dashboard');
       setEffectivePlans([
         { name: 'FREE', max_students: 5, monthly_credits: 0 },
-        { name: 'PRO', max_students: 30, monthly_credits: 50 },
-        { name: 'MASTER', max_students: 999, monthly_credits: 70 },
+        { name: 'PRO', max_students: 30, monthly_credits: 500 },
+        { name: 'MASTER', max_students: 999, monthly_credits: 700 },
       ]);
       setTenantSummary({ aiCreditsRemaining: 0, studentLimitBase: 5, renewalDateCredits: null });
       return;
     }
 
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
-      if (error) throw error;
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    if (error) throw error;
 
-      const userId = data.user?.id;
-      if (!userId) throw new Error('Falha ao obter usuário autenticado.');
+    const userId = data.user?.id;
+    if (!userId) throw new Error('Falha ao obter usuário autenticado.');
 
-      const profile = await databaseService.getUserProfile(userId);
-      if (!profile) throw new Error('Perfil não encontrado.');
+    const profile = await databaseService.getUserProfile(userId);
+    if (!profile) throw new Error('Perfil não encontrado. Tente novamente em instantes.');
 
-      const needsLGPD = !profile.lgpdConsent?.accepted;
-      const needsSchoolSetup =
-        !profile.schoolConfigs ||
-        profile.schoolConfigs.length === 0 ||
-        !(profile.schoolConfigs[0] as any)?.schoolName?.trim();
+    await _loadAfterAuth(profile);
+  };
 
-      if (needsLGPD) setShowLGPD(true);
+  // --- Cadastro ---
+  const handleRegister = async (name: string, email: string, pass: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password: pass,
+      options: { data: { full_name: name } },
+    });
+    if (error) throw error;
 
-      setUser(profile);
-      setIsAuthenticated(true);
-      setView(profile.isAdmin ? 'admin' : needsLGPD || needsSchoolSetup ? 'settings' : 'dashboard');
+    const userId = data.user?.id;
+    if (!userId) throw new Error('Usuário criado, mas ID não retornado.');
 
-      const [studentsDb, protocolsDb, summaryDb, plansDb, subInfo, serviceRecordsDb] = await Promise.all([
-        databaseService.getStudents(profile.id),
-        databaseService.getProtocols(profile.id),
-        databaseService.getTenantSummary(profile.id),
-        databaseService.getEffectivePlans(),
-        profile.tenant_id ? getActiveSubscription(profile.tenant_id) : Promise.resolve(null),
-        profile.tenant_id ? ServiceRecordService.list(profile.tenant_id) : Promise.resolve([]),
-      ]);
+    // Sem sessão = Supabase exige confirmação de e-mail.
+    // Retornamos sem erro — LoginScreen exibirá a mensagem de sucesso.
+    if (!data.session) return;
 
-      setStudents(studentsDb);
-      setProtocols(protocolsDb);
-      setTenantSummary(summaryDb);
-      setEffectivePlans(plansDb);
-      setActiveSubscription(subInfo);
-      setServiceRecords(serviceRecordsDb);
-      if (subInfo?.status) {
-        setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status }));
-      }
-
-      // Registra indicacao pendente (silencioso)
-      const pendingRef = ReferralService.getRefFromStorage();
-      if (pendingRef && userId) {
-        ReferralService.registerReferral(userId, pendingRef).catch(() => {});
-      }
-    } catch (e: any) {
-      alert(e?.message || 'Erro ao entrar. Verifique email e senha.');
+    // Com sessão ativa: aguarda o trigger criar o perfil (max ~6s, 8 tentativas)
+    let profile: User | null = null;
+    for (let i = 0; i < 8; i++) {
+      await new Promise(r => setTimeout(r, 750));
+      profile = await databaseService.getUserProfile(userId).catch(() => null);
+      if (profile) break;
     }
+    if (!profile) {
+      throw new Error('Perfil em processamento. Aguarde alguns segundos e faça login.');
+    }
+
+    await _loadAfterAuth(profile);
+  };
+
+  // --- Login com Google ---
+  const handleGoogleLogin = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) throw error;
+    // Navegador redireciona para Google — o restore session abaixo captura o retorno
+  };
+
+  // --- Upgrade gate: salva plano desejado e manda para auth ---
+  const handleUpgradeClick = (planCode: 'PRO' | 'MASTER') => {
+    localStorage.setItem(PENDING_PLAN_KEY, planCode);
+    setView('login');
   };
 
   const handleLGPDAccept = async () => {
@@ -614,8 +669,10 @@ const App: React.FC = () => {
           tenant_id: user.tenant_id,
           structured_data: data,
         });
-      } catch (e) {
+      } catch (e: any) {
         console.error('[handleSaveDocument] erro ao persistir:', e);
+        alert('Erro ao salvar documento no banco: ' + (e?.message ?? e));
+        return;
       }
     } else {
       const newVersion: DocumentVersion = {
@@ -656,13 +713,22 @@ const App: React.FC = () => {
       setCurrentProtocol(newProtocol);
 
       try {
-        await databaseService.saveDocument({
+        const savedDoc = await databaseService.saveDocument({
           ...newProtocol,
           tenant_id: user.tenant_id,
           structured_data: data,
         });
-      } catch (e) {
+        // Sincroniza o ID real gerado pelo banco (evita duplicatas em novos upserts)
+        if (savedDoc?.id && savedDoc.id !== newProtocol.id) {
+          setProtocols(prev => prev.map(p =>
+            p.id === newProtocol.id ? { ...p, id: savedDoc.id } : p
+          ));
+          setCurrentProtocol(prev => prev ? { ...prev, id: savedDoc.id } : prev);
+        }
+      } catch (e: any) {
         console.error('[handleSaveDocument] erro ao persistir:', e);
+        alert('Erro ao salvar documento no banco: ' + (e?.message ?? e));
+        return;
       }
     }
   };
@@ -682,8 +748,15 @@ const App: React.FC = () => {
     const laudoDoc = student?.documents?.find(d => d.type === 'Laudo' && d.url?.startsWith('data:'));
     const docContent = laudoDoc ? laudoDoc.url : undefined;
 
+    let studentContext: StudentContext | undefined;
+    if (student.id) {
+      try {
+        studentContext = await StudentContextService.buildContext(student.id);
+      } catch { /* contexto é opcional — falha silenciosa */ }
+    }
+
     try {
-      const jsonString = await generateProtocolAI(activeDocumentType, student, user, docContent);
+      const jsonString = await generateProtocolAI(activeDocumentType, student, user, docContent, studentContext);
       let structuredData: DocumentData;
       try {
         const cleanJson = jsonString.replace(/```json/g, '').replace(/```/g, '');
@@ -742,28 +815,81 @@ const App: React.FC = () => {
 
   // --- Telas sem auth ---
   if (view === 'audit') {
+    const handleValidate = async () => {
+      const code = auditSearch.trim().toUpperCase();
+      if (!code) return;
+      setAuditLoading(true);
+      setAuditResult(null);
+      try {
+        const { data, error } = await supabase.rpc('validate_document_public', { p_code: code });
+        if (error) throw error;
+        if (data && data.length > 0) {
+          const row = data[0];
+          setAuditResult({
+            found: true,
+            type: row.document_type,
+            studentName: row.student_name,
+            issuedAt: row.issued_at,
+            code: row.audit_code,
+          });
+        } else {
+          setAuditResult({ found: false });
+        }
+      } catch {
+        setAuditResult({ found: false });
+      } finally {
+        setAuditLoading(false);
+      }
+    };
+
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-xl w-full bg-white p-8 rounded-2xl shadow-xl text-center">
           <ShieldCheck className="mx-auto text-brand-600 h-16 w-16 mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Validação Pública</h2>
+          <p className="text-gray-500 text-sm mb-6">Digite o código de autenticidade impresso no documento.</p>
           <input
             className="w-full text-center text-lg p-4 border border-gray-300 rounded-lg mb-4 uppercase tracking-widest font-mono"
-            placeholder="XXXXX-USER-DATE"
+            placeholder="Ex: AB3C1D2E-NOME-26032026"
             value={auditSearch}
-            onChange={e => setAuditSearch(e.target.value)}
+            onChange={e => { setAuditSearch(e.target.value); setAuditResult(null); }}
+            onKeyDown={e => { if (e.key === 'Enter') handleValidate(); }}
           />
           <button
-            className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold"
-            onClick={() => {
-              const found = protocols.find(p => p.auditCode === auditSearch);
-              if (found) alert(`✅ VÁLIDO: ${found.type} - ${found.studentName}\nÚltima edição: ${found.lastEditedBy}`);
-              else alert('❌ Inválido ou não encontrado.');
-            }}
+            className="w-full bg-brand-600 text-white py-3 rounded-lg font-bold disabled:opacity-50"
+            onClick={handleValidate}
+            disabled={auditLoading || !auditSearch.trim()}
           >
-            Verificar Autenticidade
+            {auditLoading ? 'Verificando...' : 'Verificar Autenticidade'}
           </button>
-          <button onClick={() => setView('landing')} className="mt-4 text-gray-500 hover:text-gray-800 text-sm">
+
+          {auditResult && auditResult.found && (
+            <div className="mt-6 bg-green-50 border border-green-300 rounded-xl p-5 text-left">
+              <div className="flex items-center gap-2 mb-3">
+                <ShieldCheck className="text-green-600 h-6 w-6" />
+                <span className="text-green-700 font-bold text-lg">Documento VÁLIDO</span>
+              </div>
+              <div className="space-y-1 text-sm text-gray-700">
+                <p><span className="font-semibold">Tipo:</span> {auditResult.type}</p>
+                <p><span className="font-semibold">Aluno:</span> {auditResult.studentName}</p>
+                <p><span className="font-semibold">Emitido em:</span> {auditResult.issuedAt ? new Date(auditResult.issuedAt).toLocaleDateString('pt-BR') : '—'}</p>
+                <p><span className="font-semibold">Código:</span> <span className="font-mono">{auditResult.code}</span></p>
+                <p><span className="font-semibold">Autenticidade:</span> <span className="text-green-600 font-semibold">CONFIRMADA ✓</span></p>
+              </div>
+            </div>
+          )}
+
+          {auditResult && !auditResult.found && (
+            <div className="mt-6 bg-red-50 border border-red-300 rounded-xl p-5 text-left">
+              <div className="flex items-center gap-2">
+                <span className="text-red-600 text-xl">✕</span>
+                <span className="text-red-700 font-bold text-lg">Documento não encontrado</span>
+              </div>
+              <p className="text-sm text-gray-600 mt-2">O código informado não corresponde a nenhum documento registrado. Verifique se digitou corretamente.</p>
+            </div>
+          )}
+
+          <button onClick={() => { setView('landing'); setAuditResult(null); setAuditSearch(''); }} className="mt-6 text-gray-500 hover:text-gray-800 text-sm">
             Voltar
           </button>
         </div>
@@ -772,9 +898,30 @@ const App: React.FC = () => {
   }
 
   if (!isAuthenticated) {
+    const pendingPlanLabel = (() => {
+      const code = localStorage.getItem(PENDING_PLAN_KEY);
+      if (code === 'PRO') return 'Pro';
+      if (code === 'MASTER') return 'Premium';
+      return undefined;
+    })();
+
     if (view === 'login')
-      return <LoginScreen onLogin={handleLogin} onGuest={() => alert('Modo visitante desativado.')} />;
-    return <LandingPage onLogin={() => setView('login')} onRegister={() => {}} onAudit={() => setView('audit')} />;
+      return (
+        <LoginScreen
+          onLogin={handleLogin}
+          onRegister={handleRegister}
+          onGoogleLogin={handleGoogleLogin}
+          pendingPlanLabel={pendingPlanLabel}
+        />
+      );
+    return (
+      <LandingPage
+        onLogin={() => setView('login')}
+        onRegister={() => setView('login')}
+        onAudit={() => setView('audit')}
+        onUpgradeClick={handleUpgradeClick}
+      />
+    );
   }
 
   const isDocView = ['protocols', 'pdi', 'paee', 'estudo_caso'].includes(view);
@@ -848,7 +995,11 @@ const App: React.FC = () => {
                 planMaxStudents={planMaxStudents}
                 planMonthlyCredits={planMonthlyCredits}
                 creditsAvailable={creditsAvailable}
+                creditsPurchased={creditsPurchased}
+                creditsConsumedCycle={creditsConsumedCycle}
                 creditsResetAt={creditsResetAt}
+                planName={planName}
+                subscriptionExpiry={activeSubscription?.currentPeriodEnd ?? tenantSummary?.renewalDatePlan ?? null}
                 userId={user.id}
                 onNavigate={setView}
               />
@@ -1040,7 +1191,18 @@ const App: React.FC = () => {
               <SubscriptionView
                 user={user}
                 creditsAvailable={creditsAvailable}
+                planCreditsMonthly={planMonthlyCredits}
+                creditsPurchased={creditsPurchased}
+                creditsConsumed={creditsConsumedCycle}
                 onNavigate={setView}
+              />
+            )}
+
+            {view === 'incluilab' && (
+              <IncluiLabView
+                user={user}
+                students={students}
+                sidebarOpen={isSidebarOpen}
               />
             )}
           </main>

@@ -1,183 +1,137 @@
 /**
  * paymentService.ts
- * Camada de pagamento — migrado de Kiwify → Asaas.
+ * Camada de pagamento — gateway Kiwify.
  *
  * Arquitetura:
- *   - AsaasProvider implementa PaymentProvider
- *   - Chamadas assíncronas ao Asaas delegadas a asaasService.ts
- *   - createCheckout retorna link de checkout gerado pelo Asaas
+ *   - KiwifyProvider implementa PaymentProvider
+ *   - Checkouts são links estáticos pré-criados no painel Kiwify
+ *     (configurados via variáveis de ambiente VITE_KIWIFY_CHECKOUT_*)
  *   - checkAccess: lógica de acesso por status da assinatura (independente do gateway)
  */
 
 import { AddOnProduct, PaymentProvider, PlanTier, User } from '../types';
-import {
-  AsaasCustomerService,
-  AsaasSubscriptionService,
-  AsaasPaymentService,
-  ASAAS_PLAN_PRICES,
-  isAsaasConfigured,
-} from './asaasService';
 
-// ── Mapa PlanTier → código Asaas ──────────────────────────────────────────────
-const PLAN_CODE_MAP: Partial<Record<PlanTier, string>> = {
-  [PlanTier.PRO]:       'PRO',
-  [PlanTier.PREMIUM]:   'MASTER',
+// ── Links de checkout Kiwify por plano ────────────────────────────────────────
+// Configure no .env: VITE_KIWIFY_CHECKOUT_PRO, VITE_KIWIFY_CHECKOUT_MASTER, etc.
+const KIWIFY_LINKS: Partial<Record<string, string>> = {
+  PRO:             import.meta.env.VITE_KIWIFY_CHECKOUT_PRO             ?? '',
+  PRO_ANNUAL:      import.meta.env.VITE_KIWIFY_CHECKOUT_PRO_ANNUAL      ?? '',
+  MASTER:          import.meta.env.VITE_KIWIFY_CHECKOUT_MASTER          ?? '',
+  MASTER_ANNUAL:   import.meta.env.VITE_KIWIFY_CHECKOUT_MASTER_ANNUAL   ?? '',
+  INSTITUTIONAL:   import.meta.env.VITE_KIWIFY_CHECKOUT_INSTITUTIONAL   ?? '',
+  // Add-ons de créditos (SKUs atualizados: AI10 / AI200 / AI900)
+  AI10:            import.meta.env.VITE_KIWIFY_CHECKOUT_AI10            ?? '',
+  AI200:           import.meta.env.VITE_KIWIFY_CHECKOUT_AI200           ?? '',
+  AI900:           import.meta.env.VITE_KIWIFY_CHECKOUT_AI900           ?? '',
 };
 
-// ── AsaasProvider ─────────────────────────────────────────────────────────────
-class AsaasProvider implements PaymentProvider {
+const PLAN_CODE_MAP: Partial<Record<PlanTier, string>> = {
+  [PlanTier.PRO]:     'PRO',
+  [PlanTier.PREMIUM]: 'MASTER',
+};
 
-  async createCheckout(plan: PlanTier, user: Partial<User>): Promise<string> {
-    if (!isAsaasConfigured()) {
-      console.warn('[AsaasProvider] Asaas não configurado — redirecionando para planos');
-      return '#subscription';
-    }
+// ── KiwifyProvider ────────────────────────────────────────────────────────────
+class KiwifyProvider implements PaymentProvider {
+
+  async createCheckout(plan: PlanTier, _user: Partial<User>): Promise<string> {
     if (plan === PlanTier.FREE) return '#';
-
-    const planCode = PLAN_CODE_MAP[plan];
-    if (!planCode) return '#';
-
-    try {
-      const tenantId = user.tenant_id ?? user.id ?? '';
-      const customerId = await AsaasCustomerService.createOrGet(tenantId, {
-        name:              user.name    ?? '',
-        email:             user.email   ?? '',
-        externalReference: tenantId,
-      });
-
-      const nextDue = new Date(Date.now() + 1 * 24 * 60 * 60 * 1000)
-        .toISOString().split('T')[0];
-
-      const result = await AsaasSubscriptionService.create(tenantId, planCode, {
-        customerId,
-        billingType: 'CREDIT_CARD',
-        value:       ASAAS_PLAN_PRICES[planCode] ?? 67,
-        nextDueDate: nextDue,
-        cycle:       'MONTHLY',
-        description: `IncluiAI ${planCode}`,
-        externalReference: tenantId,
-      });
-
-      return result.paymentLink;
-    } catch (err: any) {
-      console.error('[AsaasProvider.createCheckout]', err?.message);
+    const code = PLAN_CODE_MAP[plan] ?? String(plan).toUpperCase();
+    const link = KIWIFY_LINKS[code];
+    if (!link) {
+      console.warn('[KiwifyProvider] Link de checkout não configurado para o plano:', code);
       return '#subscription';
     }
+    return link;
   }
 
-  async createAddOnCheckout(
-    sku: string,
-    user: Partial<User>,
-    meta?: Record<string, string>
-  ): Promise<string> {
-    if (!isAsaasConfigured()) return '#subscription';
+  async createAnnualCheckout(plan: PlanTier, _user: Partial<User>): Promise<string> {
+    if (plan === PlanTier.FREE) return '#';
+    const code = (PLAN_CODE_MAP[plan] ?? String(plan).toUpperCase()) + '_ANNUAL';
+    const link = KIWIFY_LINKS[code];
+    if (!link) {
+      console.warn('[KiwifyProvider] Link anual não configurado para o plano:', code);
+      // Fallback para link mensal
+      return this.createCheckout(plan, _user);
+    }
+    return link;
+  }
 
-    // Mapeia SKU → créditos
-    const SKU_MAP: Record<string, { credits: number; pricePerCredit: number }> = {
-      AI10:  { credits: 10,  pricePerCredit: 0.99 },
-      AI30:  { credits: 30,  pricePerCredit: 0.663 },
-      AI100: { credits: 100, pricePerCredit: 0.499 },
-    };
-
-    const packInfo = SKU_MAP[sku];
-    if (!packInfo) {
-      console.warn('[AsaasProvider] SKU desconhecido:', sku);
+  async createAddOnCheckout(sku: string, _user: Partial<User>): Promise<string> {
+    const link = KIWIFY_LINKS[sku];
+    if (!link) {
+      console.warn('[KiwifyProvider] Link de checkout não configurado para SKU:', sku);
       return '#subscription';
     }
-
-    try {
-      const tenantId   = user.tenant_id ?? user.id ?? '';
-      const customerId = await AsaasCustomerService.createOrGet(tenantId, {
-        name:  user.name  ?? '',
-        email: user.email ?? '',
-      });
-
-      const result = await AsaasPaymentService.createExtraCreditsPayment({
-        customerId,
-        tenantId,
-        credits:       packInfo.credits,
-        pricePerCredit: packInfo.pricePerCredit,
-        billingType:   'PIX',
-      });
-
-      return result.invoiceUrl;
-    } catch (err: any) {
-      console.error('[AsaasProvider.createAddOnCheckout]', err?.message);
-      return '#subscription';
-    }
+    return link;
   }
 
   async handleWebhook(payload: any): Promise<void> {
-    // Webhooks são tratados pela Edge Function asaas-webhook — não pelo frontend
-    console.log('[AsaasProvider] Webhook recebido (frontend não processa diretamente):', payload?.event);
+    // Webhooks Kiwify tratados pela Edge Function kiwify-webhook — não pelo frontend
+    console.log('[KiwifyProvider] Webhook recebido (frontend não processa diretamente):', payload?.event);
   }
 
   async validateSubscription(_userId: string): Promise<boolean> {
-    // Validação feita via Supabase (subscriptions.status) — não via chamada ao Asaas
+    // Validação feita via Supabase (subscriptions.status) — não via chamada ao gateway
     return true;
   }
 
-  async cancelSubscription(subscriptionId: string): Promise<void> {
-    if (!isAsaasConfigured()) return;
-    try {
-      const { AsaasSubscriptionService: svc } = await import('./asaasService');
-      await svc.cancel(subscriptionId);
-    } catch (err: any) {
-      console.error('[AsaasProvider.cancelSubscription]', err?.message);
-    }
+  async cancelSubscription(_subscriptionId: string): Promise<void> {
+    // Cancelamento gerenciado pelo painel Kiwify ou via webhook — não há API frontend
+    console.warn('[KiwifyProvider] Cancelamento deve ser feito no painel Kiwify ou via suporte.');
   }
 
-  async generateCustomerPortal(providerSubId: string): Promise<string> {
-    if (!isAsaasConfigured() || !providerSubId) return '#subscription';
-    try {
-      return await AsaasSubscriptionService.getUpdateCardLink(providerSubId);
-    } catch {
-      return '#subscription';
-    }
+  async generateCustomerPortal(_providerSubId: string): Promise<string> {
+    // Kiwify não possui portal de autoatendimento por API — direciona para suporte
+    const portalLink = import.meta.env.VITE_KIWIFY_CUSTOMER_PORTAL ?? '#subscription';
+    return portalLink;
   }
 }
 
-// ── Add-ons padrão (preços Asaas) ─────────────────────────────────────────────
+// ── Add-ons padrão ────────────────────────────────────────────────────────────
 export const DEFAULT_ADDONS: AddOnProduct[] = [
   {
     kind:        'AI_CREDITS',
     sku:         'AI10',
     title:       '+10 créditos IA',
-    description: 'Para gerar mais documentos e análises com IA.',
+    description: 'Ideal para relatórios rápidos e ajustes pontuais.',
     quantity:    10,
     priceCents:  990,    // R$ 9,90
   },
   {
     kind:        'AI_CREDITS',
-    sku:         'AI30',
-    title:       '+30 créditos IA',
-    description: 'Melhor custo-benefício para uso semanal.',
-    quantity:    30,
-    priceCents:  1990,   // R$ 19,90
+    sku:         'AI200',
+    title:       '+200 créditos IA',
+    description: 'Ideal para gerar atividades, materiais pedagógicos e documentos com mais frequência.',
+    quantity:    200,
+    priceCents:  4990,   // R$ 49,90
     recommended: true,
   },
   {
     kind:        'AI_CREDITS',
-    sku:         'AI100',
-    title:       '+100 créditos IA',
-    description: 'Pacote maior, menor custo por crédito.',
-    quantity:    100,
-    priceCents:  4990,   // R$ 49,90
+    sku:         'AI900',
+    title:       '+900 créditos IA',
+    description: 'Ideal para quem precisa de escala, autonomia e uso intenso da IA.',
+    quantity:    900,
+    priceCents:  9990,   // R$ 99,90
   },
 ];
 
 // ── Service Layer ─────────────────────────────────────────────────────────────
 export const PaymentService = {
-  provider: new AsaasProvider() as PaymentProvider,
+  provider: new KiwifyProvider() as PaymentProvider,
 
-  /** @deprecated — use AsaasProvider diretamente */
-  setProvider(_type: 'asaas' | 'kiwify' | 'stripe') {
-    // Sempre Asaas — mantido para compatibilidade de chamadas legadas
-    this.provider = new AsaasProvider();
+  /** @deprecated — mantido para compatibilidade de chamadas legadas */
+  setProvider(_type: 'kiwify' | 'stripe') {
+    this.provider = new KiwifyProvider();
   },
 
   async getCheckoutUrl(plan: PlanTier, user: Partial<User>): Promise<string> {
     return this.provider.createCheckout(plan, user);
+  },
+
+  async getAnnualCheckoutUrl(plan: PlanTier, user: Partial<User>): Promise<string> {
+    const p = this.provider as KiwifyProvider;
+    return p.createAnnualCheckout(plan, user);
   },
 
   async getAddOnCheckoutUrl(

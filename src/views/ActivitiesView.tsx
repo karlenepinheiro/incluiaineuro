@@ -81,9 +81,12 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
             } catch (e: any) {
           const msgRaw = (e?.message || '').toString();
           const isFetch = msgRaw.includes('Failed to fetch') || msgRaw.includes('fetch') || e?.name === 'TypeError';
-          const hint = isFetch
-            ? "Falha de conexão com o provedor de IA. Verifique: (1) VITE_GEMINI_API_KEY configurada, (2) bloqueio de CORS/rede no servidor, (3) provedor de IA temporariamente indisponível. Enquanto isso, você pode salvar a atividade manualmente e/ou marcar como Em desenvolvimento."
-            : msgRaw || "Erro inesperado ao gerar atividade.";
+          const isConfig = msgRaw.includes('CONFIG_GEMINI') || msgRaw.includes('CONFIG_OPENAI') || msgRaw.includes('CONFIG_IMAGE');
+          const hint = isConfig
+            ? 'O serviço de inteligência artificial não está configurado no ambiente. Entre em contato com o suporte.'
+            : isFetch
+            ? 'Falha de conexão com o serviço de IA. Verifique sua internet e tente novamente.'
+            : 'Ocorreu um erro ao gerar a atividade. Tente novamente ou salve manualmente.';
           setFeedback({type: 'error', msg: hint});
       } finally {
           setGenerating(false);

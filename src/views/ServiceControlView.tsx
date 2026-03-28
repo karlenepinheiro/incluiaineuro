@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { User, Student, ServiceRecord } from '../types';
-import { Plus, Search, Calendar, User as UserIcon, Clock, Printer, Mic, GripVertical, CheckCircle, XCircle, Edit, Trash2, Download } from 'lucide-react';
+import { User, Student, ServiceRecord, ServiceDailyChecklist } from '../types';
+import { Plus, Calendar, GripVertical, CheckCircle, Edit, Trash2, Download, ClipboardList, ChevronDown, ChevronUp } from 'lucide-react';
 import { SmartTextarea } from '../components/SmartTextarea';
 import { ExportService } from '../services/exportService';
 
@@ -13,15 +13,29 @@ interface Props {
   onDeleteRecord?: (id: string) => void;
 }
 
+const DEFAULT_CHECKLIST: ServiceDailyChecklist = {
+  desempenho: 3,
+  interacao: 3,
+  comportamento: 'adequado',
+  progressoAtividade: '',
+  estrategiasUsadas: '',
+  proximosPassos: '',
+};
+
 export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRecords = [], onAddRecord, onUpdateRecord, onDeleteRecord }) => {
-  // Removed local 'records' state in favor of props
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showChecklist, setShowChecklist] = useState(false);
+  const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
   const [newRecord, setNewRecord] = useState<Partial<ServiceRecord>>({
       date: new Date().toISOString().split('T')[0],
       duration: 50,
-      attendance: 'Presente'
+      attendance: 'Presente',
+      dailyChecklist: { ...DEFAULT_CHECKLIST },
   });
+
+  const setChecklist = (updates: Partial<ServiceDailyChecklist>) =>
+    setNewRecord(prev => ({ ...prev, dailyChecklist: { ...(prev.dailyChecklist ?? DEFAULT_CHECKLIST), ...updates } as ServiceDailyChecklist }));
 
   const handleAdd = () => {
       if(!newRecord.studentId || !newRecord.type) return alert("Preencha os campos obrigatórios");
@@ -61,12 +75,14 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
       }
       
       setIsAdding(false);
-      setNewRecord({ date: new Date().toISOString().split('T')[0], duration: 50, attendance: 'Presente' });
+      setShowChecklist(false);
+      setNewRecord({ date: new Date().toISOString().split('T')[0], duration: 50, attendance: 'Presente', dailyChecklist: { ...DEFAULT_CHECKLIST } });
   };
 
   const handleEdit = (record: ServiceRecord) => {
-      setNewRecord(record);
+      setNewRecord({ ...record, dailyChecklist: record.dailyChecklist ?? { ...DEFAULT_CHECKLIST } });
       setEditingId(record.id);
+      setShowChecklist(!!record.dailyChecklist);
       setIsAdding(true);
   };
 
@@ -142,17 +158,119 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                     </div>
                 </div>
                 <div className="mb-4">
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Observações do dia (Use o microfone)</label>
-                    <SmartTextarea 
-                        value={newRecord.observation || ''} 
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Observações gerais</label>
+                    <SmartTextarea
+                        value={newRecord.observation || ''}
                         onChange={v => setNewRecord({...newRecord, observation: v})}
                         rows={3}
                         context="general"
                         placeholder="Descreva o atendimento ou a justificativa da falta..."
                     />
                 </div>
+
+                {/* Ficha avaliativa diária */}
+                <div className="mb-4 border border-gray-100 rounded-xl overflow-hidden">
+                    <button
+                        type="button"
+                        onClick={() => setShowChecklist(!showChecklist)}
+                        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition text-sm font-bold text-gray-700"
+                    >
+                        <span className="flex items-center gap-2"><ClipboardList size={15} className="text-brand-600"/> Ficha Avaliativa Diária (opcional)</span>
+                        {showChecklist ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
+                    </button>
+
+                    {showChecklist && (
+                        <div className="p-4 space-y-5">
+                            {/* Desempenho */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Desempenho na Atividade</label>
+                                <div className="flex gap-2">
+                                    {([1,2,3,4,5] as const).map(v => (
+                                        <button key={v} type="button"
+                                            onClick={() => setChecklist({ desempenho: v })}
+                                            className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${newRecord.dailyChecklist?.desempenho === v ? 'bg-brand-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                        >{v}</button>
+                                    ))}
+                                </div>
+                                <div className="flex justify-between text-[10px] text-gray-400 mt-1 px-1">
+                                    <span>Não participou</span><span>Excelente desempenho</span>
+                                </div>
+                            </div>
+
+                            {/* Interação */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Interação Social / com o Profissional</label>
+                                <div className="flex gap-2">
+                                    {([1,2,3,4,5] as const).map(v => (
+                                        <button key={v} type="button"
+                                            onClick={() => setChecklist({ interacao: v })}
+                                            className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${newRecord.dailyChecklist?.interacao === v ? 'bg-brand-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                        >{v}</button>
+                                    ))}
+                                </div>
+                                <div className="flex justify-between text-[10px] text-gray-400 mt-1 px-1">
+                                    <span>Sem interação</span><span>Muito colaborativo</span>
+                                </div>
+                            </div>
+
+                            {/* Comportamento */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Comportamento Geral</label>
+                                <div className="flex gap-2">
+                                    {[
+                                        { v: 'adequado',         label: 'Adequado',        color: 'bg-green-100 text-green-700' },
+                                        { v: 'regular',          label: 'Regular',         color: 'bg-amber-100 text-amber-700' },
+                                        { v: 'necessita_suporte',label: 'Necessita Suporte',color: 'bg-red-100 text-red-700' },
+                                    ].map(opt => (
+                                        <button key={opt.v} type="button"
+                                            onClick={() => setChecklist({ comportamento: opt.v as any })}
+                                            className={`flex-1 py-2 rounded-lg text-xs font-bold transition border-2 ${newRecord.dailyChecklist?.comportamento === opt.v ? `${opt.color} border-current shadow` : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'}`}
+                                        >{opt.label}</button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Progresso */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Progresso na Atividade</label>
+                                <textarea
+                                    value={newRecord.dailyChecklist?.progressoAtividade || ''}
+                                    onChange={e => setChecklist({ progressoAtividade: e.target.value })}
+                                    className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none"
+                                    rows={2}
+                                    placeholder="Descreva o que foi trabalhado e os avanços observados…"
+                                />
+                            </div>
+
+                            {/* Estratégias */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Estratégias que Funcionaram</label>
+                                <textarea
+                                    value={newRecord.dailyChecklist?.estrategiasUsadas || ''}
+                                    onChange={e => setChecklist({ estrategiasUsadas: e.target.value })}
+                                    className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none"
+                                    rows={2}
+                                    placeholder="Estratégias pedagógicas que surtiram efeito nesta sessão…"
+                                />
+                            </div>
+
+                            {/* Próximos passos */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Próximos Passos / Encaminhamentos</label>
+                                <textarea
+                                    value={newRecord.dailyChecklist?.proximosPassos || ''}
+                                    onChange={e => setChecklist({ proximosPassos: e.target.value })}
+                                    className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none"
+                                    rows={2}
+                                    placeholder="O que deve ser continuado ou ajustado no próximo atendimento…"
+                                />
+                            </div>
+                        </div>
+                    )}
+                </div>
+
                 <div className="flex justify-end gap-2">
-                    <button onClick={() => setIsAdding(false)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg">Cancelar</button>
+                    <button onClick={() => { setIsAdding(false); setShowChecklist(false); }} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg">Cancelar</button>
                     <button onClick={handleAdd} className="px-4 py-2 bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700">{editingId ? 'Atualizar' : 'Salvar Registro'}</button>
                 </div>
             </div>
@@ -176,7 +294,8 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                     <tbody className="divide-y divide-gray-100 print:divide-black">
                         {serviceRecords.length === 0 && <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400">Nenhum atendimento registrado.</td></tr>}
                         {serviceRecords.map(r => (
-                            <tr key={r.id} className="hover:bg-gray-50 group">
+                            <React.Fragment key={r.id}>
+                              <tr className="hover:bg-gray-50 group">
                                 <td className="px-4 py-4 text-gray-300 cursor-move hover:text-gray-500 print:hidden">
                                     <GripVertical size={16}/>
                                 </td>
@@ -195,6 +314,11 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                                 <td className="px-6 py-4 text-gray-500 max-w-xs truncate print:whitespace-normal">{r.observation}</td>
                                 <td className="px-6 py-4 text-right print:hidden">
                                     <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        {r.dailyChecklist && (
+                                          <button onClick={() => setExpandedRecordId(expandedRecordId === r.id ? null : r.id)} className="p-1.5 text-gray-500 hover:text-brand-600 hover:bg-brand-50 rounded" title="Ficha avaliativa">
+                                              <ClipboardList size={16}/>
+                                          </button>
+                                        )}
                                         <button onClick={() => handleDownloadPDF(r)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded" title="Baixar PDF">
                                             <Download size={16}/>
                                         </button>
@@ -206,7 +330,49 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                                         </button>
                                     </div>
                                 </td>
-                            </tr>
+                              </tr>
+                              {expandedRecordId === r.id && r.dailyChecklist && (
+                                <tr className="bg-brand-50 border-t border-brand-100">
+                                  <td colSpan={7} className="px-8 py-4">
+                                    <p className="text-[10px] font-bold uppercase text-brand-600 mb-3 flex items-center gap-1.5"><ClipboardList size={12}/> Ficha Avaliativa Diária</p>
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                                      <div>
+                                        <p className="text-gray-500 font-semibold mb-1">Desempenho</p>
+                                        <span className="font-bold text-brand-700">{r.dailyChecklist.desempenho}/5</span>
+                                      </div>
+                                      <div>
+                                        <p className="text-gray-500 font-semibold mb-1">Interação</p>
+                                        <span className="font-bold text-brand-700">{r.dailyChecklist.interacao}/5</span>
+                                      </div>
+                                      <div>
+                                        <p className="text-gray-500 font-semibold mb-1">Comportamento</p>
+                                        <span className={`font-bold ${r.dailyChecklist.comportamento === 'adequado' ? 'text-green-700' : r.dailyChecklist.comportamento === 'regular' ? 'text-amber-700' : 'text-red-700'}`}>
+                                          {r.dailyChecklist.comportamento === 'adequado' ? 'Adequado' : r.dailyChecklist.comportamento === 'regular' ? 'Regular' : 'Necessita Suporte'}
+                                        </span>
+                                      </div>
+                                      {r.dailyChecklist.progressoAtividade && (
+                                        <div className="col-span-2 md:col-span-3">
+                                          <p className="text-gray-500 font-semibold mb-1">Progresso na Atividade</p>
+                                          <p className="text-gray-700">{r.dailyChecklist.progressoAtividade}</p>
+                                        </div>
+                                      )}
+                                      {r.dailyChecklist.estrategiasUsadas && (
+                                        <div className="col-span-2 md:col-span-3">
+                                          <p className="text-gray-500 font-semibold mb-1">Estratégias que Funcionaram</p>
+                                          <p className="text-gray-700">{r.dailyChecklist.estrategiasUsadas}</p>
+                                        </div>
+                                      )}
+                                      {r.dailyChecklist.proximosPassos && (
+                                        <div className="col-span-2 md:col-span-3">
+                                          <p className="text-gray-500 font-semibold mb-1">Próximos Passos</p>
+                                          <p className="text-gray-700">{r.dailyChecklist.proximosPassos}</p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                         ))}
                     </tbody>
                 </table>

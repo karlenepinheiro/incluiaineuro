@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember } from '../types';
+import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, resolvePlanTier, PLAN_LIMITS } from '../types';
+import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
 import { Plus, Trash2, School, User as UserIcon, CreditCard, Star, Settings, Sparkles, AlertTriangle, ShoppingCart, Upload, Building2, MapPin, Phone, Hash, FileText, AlertCircle, ChevronDown, RefreshCw, ExternalLink, Search, CheckCircle, Gift, Copy, Share2, Users } from 'lucide-react';
 import { ReferralService, type ReferralStats } from '../services/referralService';
-import { fetchSchoolByINEP, validateINEPCode } from '../services/inepService';
+import { fetchSchoolByINEP, validateINEPCode, type INEPFetchError } from '../services/inepService';
 import { fetchAddressByCep, validateCep, normalizeCep, formatCep } from '../services/cepService';
 import { PaymentService, DEFAULT_ADDONS } from '../services/paymentService';
 import { databaseService } from '../services/databaseService';
@@ -10,13 +11,13 @@ import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
 import { CreditWalletService, CreditLedgerService } from '../services/creditService';
 import type { CreditLedgerEntry } from '../types';
 import { getActiveSubscription, type ActiveSubscriptionInfo } from '../services/subscriptionService';
-import {
-  AsaasPaymentService,
-  AsaasCustomerService,
-  AsaasSubscriptionService,
-  isAsaasConfigured,
-  ASAAS_PLAN_PRICES,
-} from '../services/asaasService';
+// Preços oficiais (Kiwify)
+const PLAN_PRICES = {
+  PRO_MONTHLY:    67,
+  PRO_ANNUAL:     59,
+  MASTER_MONTHLY: 147,
+  MASTER_ANNUAL:  99,
+};
 
 interface SettingsViewProps {
   user: User;
@@ -202,38 +203,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
     if (!tenantSummary) return alert('Carregando dados... tente em instantes.');
     setFinanceBusy(true);
     try {
-      if (isAsaasConfigured()) {
-        // Fluxo Asaas: cria cliente → cria assinatura → redireciona para pagamento
-        const customerId = await AsaasCustomerService.createOrGet(tenantSummary.tenantId, {
-          name:              user.name || user.email,
-          email:             user.email,
-          externalReference: tenantSummary.tenantId,
-        });
-
-        const today    = new Date().toISOString().split('T')[0];
-        const price    = ASAAS_PLAN_PRICES[planCode] ?? 79.90;
-        const { paymentLink } = await AsaasSubscriptionService.create(
-          tenantSummary.tenantId,
-          planCode,
-          {
-            customerId,
-            billingType:       'PIX',
-            value:             price,
-            nextDueDate:       today,
-            cycle:             'MONTHLY',
-            description:       `IncluiAI ${planCode} - Assinatura Mensal`,
-            externalReference: tenantSummary.tenantId,
-          }
-        );
-        window.open(paymentLink, '_blank', 'noopener,noreferrer');
-      } else {
-        // Fallback Kiwify (mock) enquanto Asaas não está configurado
-        const planTier = planCode === 'MASTER' ? PlanTier.PREMIUM : PlanTier.PRO;
-        const url = await PaymentService.getCheckoutUrl(planTier, user);
-        window.open(url, '_blank', 'noopener,noreferrer');
-      }
+      const planTier = planCode === 'MASTER' ? PlanTier.PREMIUM : PlanTier.PRO;
+      const url = await PaymentService.getCheckoutUrl(planTier, user);
+      window.open(url, '_blank', 'noopener,noreferrer');
     } catch (e: any) {
-      alert(e?.message || 'Não foi possível iniciar o checkout. Verifique as configurações do Asaas.');
+      alert(e?.message || 'Não foi possível iniciar o checkout.');
+    } finally {
+      setFinanceBusy(false);
+    }
+  };
+
+  const handleUpgradeAnnual = async (planCode: string) => {
+    if (!tenantSummary) return alert('Carregando dados... tente em instantes.');
+    setFinanceBusy(true);
+    try {
+      const planTier = planCode === 'MASTER' ? PlanTier.PREMIUM : PlanTier.PRO;
+      const url = await PaymentService.getAnnualCheckoutUrl(planTier, user);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e: any) {
+      alert(e?.message || 'Não foi possível iniciar o checkout anual.');
     } finally {
       setFinanceBusy(false);
     }
@@ -242,7 +230,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
   const openCustomerPortal = async () => {
     try {
       setFinanceBusy(true);
-      // Prioriza link de atualização do gateway (Asaas) se disponível
+      // Prioriza link de atualização do gateway se disponível
       if (activeSubscription?.providerUpdatePaymentLink) {
         window.open(activeSubscription.providerUpdatePaymentLink, '_blank', 'noopener,noreferrer');
         return;
@@ -273,22 +261,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
 
       let url: string;
 
-      if (activeSubscription?.billingProvider === 'asaas' && activeSubscription.providerCustomerId && product.kind === 'AI_CREDITS') {
-        // Asaas: cria cobrança avulsa e retorna link de pagamento PIX/boleto
-        const result = await AsaasPaymentService.createExtraCreditsPayment({
-          tenantId: tenantSummary.tenantId,
-          customerId: activeSubscription.providerCustomerId,
-          credits: product.quantity,
-          pricePerCredit: Math.round(product.priceCents / product.quantity) / 100,
-        });
-        url = result.invoiceUrl;
-      } else {
-        // Kiwify (fallback padrão)
-        url = await PaymentService.getAddOnCheckoutUrl(product.sku, user, {
-          qty: String(product.quantity),
-          kind: product.kind,
-        });
-      }
+      url = await PaymentService.getAddOnCheckoutUrl(product.sku, user, {
+        qty: String(product.quantity),
+        kind: product.kind,
+      });
 
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (e: any) {
@@ -302,10 +278,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
   const isOverdue = subscriptionStatus === 'OVERDUE';
   const isCanceled = subscriptionStatus === 'CANCELED';
   const needsPayment = isOverdue || isCanceled;
+
+  // Plano efetivo — normalizado para comparações de UI
+  const effectivePlan = resolvePlanTier(tenantSummary?.planTier ?? user.plan);
+  const isFreePlan    = effectivePlan === PlanTier.FREE;
+  const isProPlan     = effectivePlan === PlanTier.PRO;
+  const isMasterPlan  = effectivePlan === PlanTier.PREMIUM;
+  const monthlyCredits = PLAN_LIMITS[effectivePlan].ai_credits;
+
+  // Data de vencimento — prioriza DB subscription, depois tenantSummary
+  const expiryDate = activeSubscription?.currentPeriodEnd
+    ?? activeSubscription?.nextDueDate
+    ?? tenantSummary?.renewalDatePlan
+    ?? null;
   const handlePayNow = async () => {
     setFinanceBusy(true);
     try {
-      // Prioridade: link direto do gateway (Asaas) > Kiwify fallback
+      // Prioridade: link direto do gateway > Kiwify fallback
       const directLink = activeSubscription?.providerPaymentLink;
       if (directLink) {
         window.open(directLink, '_blank', 'noopener,noreferrer');
@@ -557,112 +546,128 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                 <Star size={18} className="text-brand-600" /> Planos
               </h4>
               <p className="text-sm text-gray-500 mb-6">
-                {isAsaasConfigured()
-                  ? 'Pagamento via PIX, boleto ou cartão — processado pelo Asaas.'
-                  : 'Configure VITE_ASAAS_API_KEY no .env para ativar o checkout.'}
+                Pagamento via Kiwify — PIX, boleto ou cartão.
               </p>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* FREE */}
-                {(() => {
-                  const isCurrent = (tenantSummary?.planTier ?? user.plan) === PlanTier.FREE
-                    || String(tenantSummary?.planTier ?? '').toUpperCase() === 'FREE';
-                  return (
-                    <div className={`rounded-2xl border-2 p-6 flex flex-col ${isCurrent ? 'border-gray-400 bg-gray-50' : 'border-gray-200'}`}>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="font-extrabold text-gray-800 text-lg">Grátis</span>
-                        {isCurrent && <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-200 text-gray-700">Plano atual</span>}
+              {/* Se já é PREMIUM, mostra mensagem de plano completo */}
+              {isMasterPlan ? (
+                <div className="rounded-2xl border-2 border-yellow-400 bg-yellow-50 p-6 flex items-center gap-4">
+                  <div className="text-3xl">🏆</div>
+                  <div>
+                    <div className="font-extrabold text-yellow-800 text-lg">Você tem o plano PREMIUM — o mais completo!</div>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      Alunos ilimitados · {SUBSCRIPTION_PLANS.MASTER.credits} créditos IA/mês · Todos os recursos liberados
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className={`grid grid-cols-1 ${isProPlan ? '' : 'md:grid-cols-2'} gap-4`}>
+                  {/* PRO — visível apenas para FREE (PRO já sabe que é PRO) */}
+                  {!isProPlan && (() => {
+                    const btnDisabled = financeBusy;
+                    const btnLabel = 'Assinar PRO';
+                    return (
+                      <div className={`rounded-2xl border-2 p-6 flex flex-col ${isProPlan ? 'border-brand-500 bg-brand-50' : 'border-brand-200'}`}>
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="font-extrabold text-brand-700 text-lg">PRO</span>
+                          {isProPlan
+                            ? <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-brand-600 text-white">Plano atual</span>
+                            : <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-brand-100 text-brand-700">Popular</span>}
+                        </div>
+                        <div className="flex items-end gap-2 mb-0.5">
+                          <div className="text-3xl font-extrabold text-gray-900">
+                            R$ {PLAN_PRICES.PRO_MONTHLY}
+                          </div>
+                          <div className="text-xs text-gray-500 mb-1.5">/mês</div>
+                        </div>
+                        <div className="text-xs text-green-700 font-semibold mb-4">
+                          ou R$ {PLAN_PRICES.PRO_ANNUAL}/mês no plano anual
+                        </div>
+                        <ul className="text-sm text-gray-600 space-y-1.5 flex-1">
+                          <li>✓ 30 alunos cadastrados</li>
+                          <li>✓ {SUBSCRIPTION_PLANS.PRO.credits} créditos IA / mês</li>
+                          <li>✓ Triagem com IA</li>
+                          <li>✓ PEI, PAEE, PDI, Estudo de Caso completo</li>
+                          <li>✓ Perfil cognitivo completo</li>
+                          <li>✓ Documentos auditáveis (SHA-256)</li>
+                          <li>✓ Exportação PDF profissional</li>
+                          <li>✓ Relatórios prontos</li>
+                        </ul>
+                        <div className="mt-6 flex flex-col gap-2">
+                          <button
+                            disabled={btnDisabled}
+                            onClick={() => handleUpgradeAnnual('PRO')}
+                            className="w-full py-2.5 rounded-xl font-bold text-sm bg-brand-700 text-white hover:bg-brand-800 disabled:opacity-60 flex items-center justify-center gap-2 ring-2 ring-brand-400"
+                          >
+                            <Star size={14} /> Assinar PRO — Anual (melhor preço)
+                          </button>
+                          <button
+                            disabled={btnDisabled}
+                            onClick={() => handleUpgrade('PRO')}
+                            className="w-full py-2.5 rounded-xl font-bold text-sm border border-brand-400 text-brand-700 hover:bg-brand-50 disabled:opacity-60 flex items-center justify-center gap-2"
+                          >
+                            <CreditCard size={14} /> Assinar PRO — Mensal
+                          </button>
+                        </div>
                       </div>
-                      <div className="text-3xl font-extrabold text-gray-900 mb-1">R$ 0</div>
-                      <div className="text-xs text-gray-500 mb-4">por mês</div>
-                      <ul className="text-sm text-gray-600 space-y-1.5 flex-1">
-                        <li>✓ 5 alunos cadastrados</li>
-                        <li>✓ Documentos PDF básicos</li>
-                        <li className="text-gray-400">✗ Créditos IA</li>
-                        <li className="text-gray-400">✗ Código de auditoria</li>
-                      </ul>
-                      <button disabled className="mt-6 w-full py-2.5 rounded-xl font-bold text-sm bg-gray-100 text-gray-400 cursor-not-allowed">
-                        Plano base
-                      </button>
-                    </div>
-                  );
-                })()}
+                    );
+                  })()}
 
-                {/* PRO */}
-                {(() => {
-                  const isCurrent = String(tenantSummary?.planTier ?? '').toUpperCase() === 'PRO';
-                  return (
-                    <div className={`rounded-2xl border-2 p-6 flex flex-col ${isCurrent ? 'border-brand-500 bg-brand-50' : 'border-brand-200'}`}>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="font-extrabold text-brand-700 text-lg">PRO</span>
-                        {isCurrent
-                          ? <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-brand-600 text-white">Plano atual</span>
-                          : <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-brand-100 text-brand-700">Popular</span>}
+                  {/* PREMIUM */}
+                  {(() => {
+                    const btnLabel = isProPlan ? 'Fazer upgrade para PREMIUM ↑' : 'Assinar PREMIUM';
+                    return (
+                      <div className="rounded-2xl border-2 border-yellow-400 bg-yellow-50 p-6 flex flex-col relative overflow-hidden">
+                        <div className="absolute top-3 right-3">
+                          <span className="text-xs font-bold px-2 py-1 rounded-full bg-yellow-500 text-white">
+                            {isProPlan ? 'Recomendado ↑' : 'Completo'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <span className="font-extrabold text-yellow-700 text-lg">PREMIUM</span>
+                        </div>
+                        <div className="flex items-end gap-2 mb-0.5">
+                          <div className="text-3xl font-extrabold text-gray-900">
+                            R$ {PLAN_PRICES.MASTER_MONTHLY}
+                          </div>
+                          <div className="text-xs text-gray-500 mb-1.5">/mês</div>
+                        </div>
+                        <div className="text-xs text-green-700 font-semibold mb-4">
+                          ou R$ {PLAN_PRICES.MASTER_ANNUAL}/mês no plano anual
+                        </div>
+                        <ul className="text-sm text-gray-600 space-y-1.5 flex-1">
+                          <li>✓ Tudo do PRO</li>
+                          <li>✓ <strong>Alunos ilimitados</strong></li>
+                          <li>✓ <strong>{SUBSCRIPTION_PLANS.MASTER.credits} créditos IA / mês</strong></li>
+                          <li>✓ <strong className="text-yellow-700">Análise de laudos com IA (exclusivo)</strong></li>
+                          <li>✓ Fichas complementares</li>
+                          <li>✓ Controle de atendimento</li>
+                          <li>✓ Agendamento de atendimento</li>
+                          <li>✓ Modelos personalizados</li>
+                          <li>✓ Suporte prioritário</li>
+                        </ul>
+                        <div className="mt-6 flex flex-col gap-2">
+                          <button
+                            disabled={financeBusy}
+                            onClick={() => handleUpgradeAnnual('MASTER')}
+                            className="w-full py-2.5 rounded-xl font-bold text-sm bg-yellow-600 text-white hover:bg-yellow-700 disabled:opacity-60 flex items-center justify-center gap-2 ring-2 ring-yellow-400"
+                          >
+                            <Star size={14} /> {isProPlan ? 'Upgrade PREMIUM' : 'Assinar PREMIUM'} — Anual (melhor preço)
+                          </button>
+                          <button
+                            disabled={financeBusy}
+                            onClick={() => handleUpgrade('MASTER')}
+                            className="w-full py-2.5 rounded-xl font-bold text-sm border border-yellow-500 text-yellow-700 hover:bg-yellow-50 disabled:opacity-60 flex items-center justify-center gap-2"
+                          >
+                            <CreditCard size={14} /> {isProPlan ? 'Upgrade PREMIUM' : 'Assinar PREMIUM'} — Mensal
+                          </button>
+                        </div>
                       </div>
-                      <div className="text-3xl font-extrabold text-gray-900 mb-1">
-                        R$ {ASAAS_PLAN_PRICES.PRO.toFixed(2).replace('.', ',')}
-                      </div>
-                      <div className="text-xs text-gray-500 mb-4">por mês</div>
-                      <ul className="text-sm text-gray-600 space-y-1.5 flex-1">
-                        <li>✓ 30 alunos cadastrados</li>
-                        <li>✓ 50 créditos IA / mês</li>
-                        <li>✓ Código de auditoria SHA-256</li>
-                        <li>✓ Exportação PDF profissional</li>
-                      </ul>
-                      <button
-                        disabled={financeBusy || isCurrent}
-                        onClick={() => handleUpgrade('PRO')}
-                        className="mt-6 w-full py-2.5 rounded-xl font-bold text-sm bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-60 flex items-center justify-center gap-2"
-                      >
-                        {financeBusy ? <RefreshCw size={14} className="animate-spin" /> : <CreditCard size={14} />}
-                        {isCurrent ? 'Plano ativo' : 'Assinar PRO'}
-                      </button>
-                    </div>
-                  );
-                })()}
-
-                {/* MASTER */}
-                {(() => {
-                  const isCurrent = ['MASTER', 'PREMIUM', 'INSTITUTIONAL'].includes(
-                    String(tenantSummary?.planTier ?? '').toUpperCase()
-                  );
-                  return (
-                    <div className={`rounded-2xl border-2 p-6 flex flex-col ${isCurrent ? 'border-yellow-500 bg-yellow-50' : 'border-yellow-200'}`}>
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="font-extrabold text-yellow-700 text-lg">MASTER</span>
-                        {isCurrent
-                          ? <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-yellow-500 text-white">Plano atual</span>
-                          : <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800">Institucional</span>}
-                      </div>
-                      <div className="text-3xl font-extrabold text-gray-900 mb-1">
-                        R$ {ASAAS_PLAN_PRICES.MASTER.toFixed(2).replace('.', ',')}
-                      </div>
-                      <div className="text-xs text-gray-500 mb-4">por mês</div>
-                      <ul className="text-sm text-gray-600 space-y-1.5 flex-1">
-                        <li>✓ 999 alunos cadastrados</li>
-                        <li>✓ 70 créditos IA / mês</li>
-                        <li>✓ Controle de presença</li>
-                        <li>✓ Todas as funcionalidades</li>
-                      </ul>
-                      <button
-                        disabled={financeBusy || isCurrent}
-                        onClick={() => handleUpgrade('MASTER')}
-                        className="mt-6 w-full py-2.5 rounded-xl font-bold text-sm bg-yellow-600 text-white hover:bg-yellow-700 disabled:opacity-60 flex items-center justify-center gap-2"
-                      >
-                        {financeBusy ? <RefreshCw size={14} className="animate-spin" /> : <CreditCard size={14} />}
-                        {isCurrent ? 'Plano ativo' : 'Assinar MASTER'}
-                      </button>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {!isAsaasConfigured() && (
-                <div className="mt-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
-                  <AlertTriangle size={14} className="shrink-0" />
-                  Asaas não configurado. Defina <code className="font-mono bg-amber-100 px-1 rounded">VITE_ASAAS_API_KEY</code> no arquivo <code className="font-mono bg-amber-100 px-1 rounded">.env</code> e reinicie o servidor.
+                    );
+                  })()}
                 </div>
               )}
+
             </div>
 
             {/* HERO CARD */}
@@ -682,15 +687,38 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                   >
                     <Settings size={16} /> Gerenciar cobranças
                   </button>
-                  {user.plan === PlanTier.FREE && (
+                  {isFreePlan && (<>
+                    <button
+                      disabled={financeBusy}
+                      onClick={() => handleUpgradeAnnual('PRO')}
+                      className="bg-brand-700 text-white px-4 py-2 rounded-xl font-bold shadow hover:bg-brand-800 flex items-center gap-2 disabled:opacity-60 ring-2 ring-brand-400"
+                    >
+                      <Star size={16} /> Assinar PRO Anual
+                    </button>
                     <button
                       disabled={financeBusy}
                       onClick={() => handleUpgrade('PRO')}
-                      className="bg-brand-600 text-white px-4 py-2 rounded-xl font-bold shadow hover:bg-brand-700 flex items-center gap-2 disabled:opacity-60"
+                      className="border border-brand-400 text-brand-700 px-4 py-2 rounded-xl font-bold hover:bg-brand-50 flex items-center gap-2 disabled:opacity-60"
                     >
-                      <Star size={16} /> Virar PRO
+                      <CreditCard size={16} /> PRO Mensal
                     </button>
-                  )}
+                  </>)}
+                  {isProPlan && (<>
+                    <button
+                      disabled={financeBusy}
+                      onClick={() => handleUpgradeAnnual('MASTER')}
+                      className="bg-yellow-600 text-white px-4 py-2 rounded-xl font-bold shadow hover:bg-yellow-700 flex items-center gap-2 disabled:opacity-60 ring-2 ring-yellow-400"
+                    >
+                      <Star size={16} /> Upgrade PREMIUM Anual
+                    </button>
+                    <button
+                      disabled={financeBusy}
+                      onClick={() => handleUpgrade('MASTER')}
+                      className="border border-yellow-500 text-yellow-700 px-4 py-2 rounded-xl font-bold hover:bg-yellow-50 flex items-center gap-2 disabled:opacity-60"
+                    >
+                      <CreditCard size={16} /> PREMIUM Mensal
+                    </button>
+                  </>)}
                 </div>
               </div>
 
@@ -708,17 +736,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                     <SubscriptionStatusBadge status={subscriptionStatus} size="sm" />
                   </div>
                   <div className="text-2xl font-extrabold text-gray-900">
-                    {tenantSummary?.planTier ? tenantSummary.planTier : user.plan}
+                    {isFreePlan ? 'Grátis' : isProPlan ? 'PRO' : 'PREMIUM'}
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {tenantSummary?.renewalDatePlan
-                      ? `Renovação: ${new Date(tenantSummary.renewalDatePlan).toLocaleDateString('pt-BR')}`
-                      : 'Sem data de renovação'}
-                  </p>
-                  {(user as any).nextDueDate && (
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      Vencimento: {new Date((user as any).nextDueDate).toLocaleDateString('pt-BR')}
+                  {expiryDate ? (
+                    <p className={`text-xs mt-1 font-semibold ${needsPayment ? 'text-red-600' : 'text-gray-500'}`}>
+                      {needsPayment ? 'Vencido em: ' : 'Renova em: '}
+                      {new Date(expiryDate).toLocaleDateString('pt-BR')}
                     </p>
+                  ) : (
+                    <p className="text-xs text-gray-400 mt-1">Sem data de vencimento</p>
                   )}
                 </div>
 
@@ -735,12 +761,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                   </div>
                   <div className="text-3xl font-extrabold text-gray-900">
                     {tenantSummary ? tenantSummary.aiCreditsRemaining : '—'}
+                    <span className="text-sm font-normal text-gray-400 ml-1">disponíveis</span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Renovação: {tenantSummary?.renewalDateCredits
-                      ? new Date(tenantSummary.renewalDateCredits).toLocaleDateString('pt-BR')
-                      : '—'}
-                  </p>
+                  {monthlyCredits > 0 ? (
+                    <div className="mt-1 space-y-0.5">
+                      <p className="text-xs text-gray-500">
+                        <span className="font-semibold text-gray-700">{monthlyCredits}</span> créditos/mês no plano
+                        {tenantSummary && (
+                          <> · <span className="font-semibold text-red-600">
+                            {tenantSummary.creditsConsumedCycle} consumidos
+                          </span></>
+                        )}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-400 mt-1">Plano FREE — {SUBSCRIPTION_PLANS.FREE.credits} créditos/mês</p>
+                  )}
+                  {tenantSummary?.renewalDateCredits && (() => {
+                    const end = new Date(tenantSummary.renewalDateCredits);
+                    const start = new Date(end);
+                    start.setDate(start.getDate() - 30);
+                    return (
+                      <p className="text-xs text-gray-500 mt-1 font-medium">
+                        Ciclo: {start.toLocaleDateString('pt-BR')} → {end.toLocaleDateString('pt-BR')}
+                      </p>
+                    );
+                  })()}
                 </div>
 
                 {/* Card: Alunos */}
@@ -839,7 +885,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                   <p className="text-sm text-gray-600 mt-1">Compre créditos IA e/ou amplie limite de alunos sem trocar de plano.</p>
                 </div>
                 <div className="text-xs text-gray-500">
-                  {isAsaasConfigured() ? '* Checkout via Asaas (PIX/Boleto/Cartão)' : '* Configure Asaas para habilitar'}
+                  * Checkout via Kiwify (PIX/Boleto/Cartão)
                 </div>
               </div>
 
@@ -918,7 +964,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                     </div>
                     <div className="bg-white/10 rounded-xl p-4 text-center">
                       <div className="text-2xl font-extrabold text-[#C69214]">20</div>
-                      <div className="text-xs text-white/70 mt-1">créditos ao indicar<br/>quem assina o MASTER</div>
+                      <div className="text-xs text-white/70 mt-1">créditos ao indicar<br/>quem assina o PREMIUM</div>
                     </div>
                   </div>
 
@@ -965,29 +1011,44 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                     <p className="text-sm text-white/50">Não foi possível carregar seu código. Recarregue a página.</p>
                   )}
 
-                  {/* Stats */}
-                  {referralStats && (referralStats.totalReferrals > 0 || referralStats.creditsEarned > 0) && (
-                    <div className="mt-6 pt-6 border-t border-white/10 grid grid-cols-2 gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="bg-white/10 p-2 rounded-lg">
-                          <Users size={18} className="text-white/70" />
+                  {/* Stats — sempre visível */}
+                  <div className="mt-6 pt-6 border-t border-white/10">
+                    {referralStats && referralStats.totalReferrals === 0 ? (
+                      <p className="text-xs text-white/40 text-center">
+                        Você ainda não indicou ninguém. Compartilhe seu link e ganhe créditos quando alguém assinar!
+                      </p>
+                    ) : referralStats ? (
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="flex items-center gap-2">
+                          <div className="bg-white/10 p-2 rounded-lg shrink-0">
+                            <Users size={16} className="text-white/70" />
+                          </div>
+                          <div>
+                            <div className="text-lg font-extrabold">{referralStats.totalReferrals}</div>
+                            <div className="text-xs text-white/50">Indicações</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="text-lg font-extrabold">{referralStats.totalReferrals}</div>
-                          <div className="text-xs text-white/50">Total de indicações</div>
+                        <div className="flex items-center gap-2">
+                          <div className="bg-white/10 p-2 rounded-lg shrink-0">
+                            <CheckCircle size={16} className="text-green-400" />
+                          </div>
+                          <div>
+                            <div className="text-lg font-extrabold text-green-400">{referralStats.convertedReferrals}</div>
+                            <div className="text-xs text-white/50">Convertidas</div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="bg-white/10 p-2 rounded-lg shrink-0">
+                            <Sparkles size={16} className="text-[#C69214]" />
+                          </div>
+                          <div>
+                            <div className="text-lg font-extrabold text-[#C69214]">+{referralStats.creditsEarned}</div>
+                            <div className="text-xs text-white/50">Créditos ganhos</div>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="bg-white/10 p-2 rounded-lg">
-                          <Sparkles size={18} className="text-[#C69214]" />
-                        </div>
-                        <div>
-                          <div className="text-lg font-extrabold text-[#C69214]">+{referralStats.creditsEarned}</div>
-                          <div className="text-xs text-white/50">Créditos ganhos</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                    ) : null}
+                  </div>
                 </div>
               );
             })()}
@@ -1032,7 +1093,7 @@ const SchoolField: React.FC<SchoolFieldProps> = ({ label, field, placeholder, re
 const SchoolForm: React.FC<SchoolFormProps> = ({ school, onChange }) => {
   const logoRef = useRef<HTMLInputElement>(null);
   const [inepLoading, setInepLoading] = useState(false);
-  const [inepStatus, setInepStatus] = useState<'idle' | 'found' | 'not_found'>('idle');
+  const [inepStatus, setInepStatus] = useState<'idle' | 'found' | 'not_found' | 'invalid' | 'network'>('idle');
   const [cepLoading, setCepLoading] = useState(false);
   const [cepStatus, setCepStatus] = useState<'idle' | 'found' | 'not_found'>('idle');
 
@@ -1073,10 +1134,10 @@ const SchoolForm: React.FC<SchoolFormProps> = ({ school, onChange }) => {
     }
   };
 
-  const handleFetchINEP = async () => {
-    const code = (school.inepCode ?? '').replace(/\D/g, '');
+  const handleFetchINEP = async (codeOverride?: string) => {
+    const code = (codeOverride ?? school.inepCode ?? '').replace(/\D/g, '');
     if (!validateINEPCode(code)) {
-      alert('Digite um código INEP válido (8 dígitos) antes de buscar.');
+      setInepStatus('invalid');
       return;
     }
     setInepLoading(true);
@@ -1099,8 +1160,8 @@ const SchoolForm: React.FC<SchoolFormProps> = ({ school, onChange }) => {
         setInepStatus('not_found');
       }
     } catch (e: any) {
-      alert(e?.message || 'Erro ao buscar dados da escola. Preencha manualmente.');
-      setInepStatus('not_found');
+      const errType: INEPFetchError = e?.type ?? 'not_found';
+      setInepStatus(errType === 'network' ? 'network' : 'not_found');
     } finally {
       setInepLoading(false);
     }
@@ -1154,16 +1215,21 @@ const SchoolForm: React.FC<SchoolFormProps> = ({ school, onChange }) => {
               <input
                 value={(school.inepCode as string) || ''}
                 onChange={e => {
-                  onChange({ ...school, inepCode: e.target.value });
+                  // Aceita apenas dígitos, máx 8 caracteres
+                  const digits = e.target.value.replace(/\D/g, '').slice(0, 8);
+                  onChange({ ...school, inepCode: digits });
                   setInepStatus('idle');
+                  // Auto-busca quando os 8 dígitos forem preenchidos
+                  if (digits.length === 8) handleFetchINEP(digits);
                 }}
                 placeholder="Ex: 12345678"
                 maxLength={8}
+                inputMode="numeric"
                 className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
               />
               <button
                 type="button"
-                onClick={handleFetchINEP}
+                onClick={() => handleFetchINEP()}
                 disabled={inepLoading}
                 title="Buscar dados da escola pelo código INEP"
                 className="flex items-center gap-1.5 px-3 py-2 bg-brand-600 text-white rounded-lg text-xs font-bold hover:bg-brand-700 disabled:opacity-60 whitespace-nowrap"
@@ -1183,7 +1249,17 @@ const SchoolForm: React.FC<SchoolFormProps> = ({ school, onChange }) => {
             )}
             {inepStatus === 'not_found' && (
               <p className="mt-1 text-[11px] text-amber-600">
-                Escola não encontrada. Preencha os dados manualmente.
+                Escola não encontrada nas fontes consultadas. Preencha os dados manualmente abaixo.
+              </p>
+            )}
+            {inepStatus === 'invalid' && (
+              <p className="mt-1 text-[11px] text-red-500">
+                Código INEP deve ter exatamente 8 dígitos.
+              </p>
+            )}
+            {inepStatus === 'network' && (
+              <p className="mt-1 text-[11px] text-red-500">
+                Sem conexão com as fontes INEP. Verifique sua internet ou preencha manualmente.
               </p>
             )}
           </div>
