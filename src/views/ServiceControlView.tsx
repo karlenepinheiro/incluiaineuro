@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User, Student, ServiceRecord, ServiceDailyChecklist } from '../types';
 import { Plus, Calendar, GripVertical, CheckCircle, Edit, Trash2, Download, ClipboardList, ChevronDown, ChevronUp } from 'lucide-react';
-import { SmartTextarea } from '../components/SmartTextarea';
+import { AudioEnhancedTextarea } from '../components/AudioEnhancedTextarea';
 import { ExportService } from '../services/exportService';
 
 interface Props {
@@ -158,12 +158,12 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                     </div>
                 </div>
                 <div className="mb-4">
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Observações gerais</label>
-                    <SmartTextarea
+                    <AudioEnhancedTextarea
+                        fieldId="descricao_at"
+                        label="Observações gerais"
                         value={newRecord.observation || ''}
                         onChange={v => setNewRecord({...newRecord, observation: v})}
                         rows={3}
-                        context="general"
                         placeholder="Descreva o atendimento ou a justificativa da falta..."
                     />
                 </div>
@@ -184,11 +184,11 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                             {/* Desempenho */}
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Desempenho na Atividade</label>
-                                <div className="flex gap-2">
-                                    {([1,2,3,4,5] as const).map(v => (
+                                <div className="flex gap-1">
+                                    {([1,2,3,4,5,6,7,8] as const).map(v => (
                                         <button key={v} type="button"
                                             onClick={() => setChecklist({ desempenho: v })}
-                                            className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${newRecord.dailyChecklist?.desempenho === v ? 'bg-brand-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                            className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${newRecord.dailyChecklist?.desempenho === v ? 'bg-brand-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                                         >{v}</button>
                                     ))}
                                 </div>
@@ -200,11 +200,11 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                             {/* Interação */}
                             <div>
                                 <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Interação Social / com o Profissional</label>
-                                <div className="flex gap-2">
-                                    {([1,2,3,4,5] as const).map(v => (
+                                <div className="flex gap-1">
+                                    {([1,2,3,4,5,6,7,8] as const).map(v => (
                                         <button key={v} type="button"
                                             onClick={() => setChecklist({ interacao: v })}
-                                            className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${newRecord.dailyChecklist?.interacao === v ? 'bg-brand-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                                            className={`flex-1 py-2 rounded-lg text-xs font-bold transition ${newRecord.dailyChecklist?.interacao === v ? 'bg-brand-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                                         >{v}</button>
                                     ))}
                                 </div>
@@ -231,40 +231,34 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                             </div>
 
                             {/* Progresso */}
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Progresso na Atividade</label>
-                                <textarea
-                                    value={newRecord.dailyChecklist?.progressoAtividade || ''}
-                                    onChange={e => setChecklist({ progressoAtividade: e.target.value })}
-                                    className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none"
-                                    rows={2}
-                                    placeholder="Descreva o que foi trabalhado e os avanços observados…"
-                                />
-                            </div>
+                            <AudioEnhancedTextarea
+                                fieldId="evolucao_obs"
+                                label="Progresso na Atividade"
+                                value={newRecord.dailyChecklist?.progressoAtividade || ''}
+                                onChange={v => setChecklist({ progressoAtividade: v })}
+                                rows={2}
+                                placeholder="Descreva o que foi trabalhado e os avanços observados…"
+                            />
 
                             {/* Estratégias */}
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Estratégias que Funcionaram</label>
-                                <textarea
-                                    value={newRecord.dailyChecklist?.estrategiasUsadas || ''}
-                                    onChange={e => setChecklist({ estrategiasUsadas: e.target.value })}
-                                    className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none"
-                                    rows={2}
-                                    placeholder="Estratégias pedagógicas que surtiram efeito nesta sessão…"
-                                />
-                            </div>
+                            <AudioEnhancedTextarea
+                                fieldId="estrategias"
+                                label="Estratégias que Funcionaram"
+                                value={newRecord.dailyChecklist?.estrategiasUsadas || ''}
+                                onChange={v => setChecklist({ estrategiasUsadas: v })}
+                                rows={2}
+                                placeholder="Estratégias pedagógicas que surtiram efeito nesta sessão…"
+                            />
 
                             {/* Próximos passos */}
-                            <div>
-                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Próximos Passos / Encaminhamentos</label>
-                                <textarea
-                                    value={newRecord.dailyChecklist?.proximosPassos || ''}
-                                    onChange={e => setChecklist({ proximosPassos: e.target.value })}
-                                    className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-brand-300 outline-none resize-none"
-                                    rows={2}
-                                    placeholder="O que deve ser continuado ou ajustado no próximo atendimento…"
-                                />
-                            </div>
+                            <AudioEnhancedTextarea
+                                fieldId="proximos_passos"
+                                label="Próximos Passos / Encaminhamentos"
+                                value={newRecord.dailyChecklist?.proximosPassos || ''}
+                                onChange={v => setChecklist({ proximosPassos: v })}
+                                rows={2}
+                                placeholder="O que deve ser continuado ou ajustado no próximo atendimento…"
+                            />
                         </div>
                     )}
                 </div>
@@ -338,11 +332,11 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
                                       <div>
                                         <p className="text-gray-500 font-semibold mb-1">Desempenho</p>
-                                        <span className="font-bold text-brand-700">{r.dailyChecklist.desempenho}/5</span>
+                                        <span className="font-bold text-brand-700">{r.dailyChecklist.desempenho}/8</span>
                                       </div>
                                       <div>
                                         <p className="text-gray-500 font-semibold mb-1">Interação</p>
-                                        <span className="font-bold text-brand-700">{r.dailyChecklist.interacao}/5</span>
+                                        <span className="font-bold text-brand-700">{r.dailyChecklist.interacao}/8</span>
                                       </div>
                                       <div>
                                         <p className="text-gray-500 font-semibold mb-1">Comportamento</p>

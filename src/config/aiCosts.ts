@@ -75,7 +75,7 @@ export const INCLUILAB_MODEL_COSTS = {
 export const CREDIT_INSUFFICIENT_MSG = 'Você não tem créditos suficiente para esta ação.';
 
 export const CREDIT_PACKAGES = [
-  { id: 'pkg_10', credits: 10, label: 'Tarefas Rápidas / Relatórios Curtos' },
-  { id: 'pkg_200', credits: 200, label: 'Atividades e Materiais Frequentes' },
-  { id: 'pkg_900', credits: 900, label: 'Uso Intenso / Alta Produção' }
+  { id: 'pkg_10',  credits: 10,  price: 9.90,  label: 'Tarefas Rápidas / Relatórios Curtos' },
+  { id: 'pkg_200', credits: 200, price: 49.90, label: 'Atividades e Materiais Frequentes' },
+  { id: 'pkg_900', credits: 900, price: 99.90, label: 'Uso Intenso / Alta Produção' },
 ];

@@ -53,12 +53,20 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-function exportAsText(content: string, filename: string) {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+function exportAsDoc(content: string, filename: string) {
+  const htmlContent = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'/><title>${filename}</title></head><body><pre style="font-family:Arial,sans-serif;font-size:12pt;line-height:1.6">${content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre></body></html>`;
+  const blob = new Blob([htmlContent], { type: 'application/msword;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
+}
+
+function printContent(content: string, title: string) {
+  const win = window.open('', '_blank');
+  if (!win) return;
+  win.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:Arial,sans-serif;font-size:12pt;line-height:1.6;padding:40px;max-width:800px;margin:0 auto}pre{white-space:pre-wrap;word-wrap:break-word}@media print{body{padding:20px}}</style></head><body><pre>${content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre><script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`);
+  win.document.close();
 }
 
 
@@ -404,10 +412,16 @@ Retorne SOMENTE um JSON válido:
               <div className="flex items-center gap-2 mb-3">
                 <CheckCircle size={15} className="text-brand-600" />
                 <span className="text-xs font-bold text-brand-700 uppercase">Adaptada — {result.adaptationType}</span>
-                <button onClick={() => exportAsText(result.adapted, 'atividade_adaptada.txt')}
-                  className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">
-                  <Download size={10} /> Exportar
-                </button>
+                <div className="ml-auto flex gap-1">
+                  <button onClick={() => exportAsDoc(result.adapted, 'atividade_adaptada.doc')}
+                    className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">
+                    <Download size={10} /> DOCX
+                  </button>
+                  <button onClick={() => printContent(result.adapted, 'Atividade Adaptada')}
+                    className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">
+                    <Printer size={10} /> PDF
+                  </button>
+                </div>
               </div>
               <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{result.adapted}</p>
             </div>
@@ -563,9 +577,9 @@ Retorne SOMENTE um JSON válido:
                   <span className="text-xs font-bold text-brand-700 uppercase">Redesenhada</span>
                 </div>
                 <div className="flex gap-1">
-                  <button onClick={() => exportAsText(result.redesigned, 'atividade_redesenhada.txt')}
+                  <button onClick={() => exportAsDoc(result.redesigned, 'atividade_redesenhada.doc')}
                     className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">
-                    <Download size={10} /> Exportar
+                    <Download size={10} /> DOCX
                   </button>
                   <button onClick={() => window.print()}
                     className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">

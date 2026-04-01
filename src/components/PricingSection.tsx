@@ -1,144 +1,140 @@
-import React, { useState } from 'react';
-import { CheckCircle, Zap, ArrowRight, CreditCard, Flame } from 'lucide-react';
-import { getSubscriptionCheckoutUrl, getCreditsCheckoutUrl } from '../services/kiwifyService';
+import React, { useState, useEffect } from 'react';
+import { CheckCircle, ArrowRight, CreditCard, Flame, Tag, Clock, Zap } from 'lucide-react';
+import { getSubscriptionCheckoutUrl } from '../services/kiwifyService';
+import { LandingService } from '../services/landingService';
+
 import type { User } from '../types';
 
-// ─── Plan data ───────────────────────────────────────────────────────────────
+// ─── Static plan styling (visual/structural — não vem do banco) ───────────────
 
-const PLANS = [
-  {
+const PLAN_STYLE = {
+  free: {
     id: 'free',
-    name: 'Free',
-    tagline: 'Para dar o primeiro passo',
-    color: '#6B7280',
-    border: '#E5E7EB',
-    bg: '#FFFFFF',
-    labelBg: '#F3F4F6',
-    labelColor: '#4B5563',
-    badge: null,
-    monthly: 0,
-    annual: 0,
-    features: [
-      '5 alunos cadastrados',
-      '60 créditos IA',
-      'Perfil cognitivo básico',
-      'Triagem manual',
-      'Visualização de documentos',
-      'Acesso limitado às ferramentas',
-    ],
-    cta: 'Testar Grátis',
-    ctaPrimary: false,
+    planCode: 'FREE' as const,
+    name: 'Grátis',
+    badge: null as string | null,
+    accentColor: '#64748B',
+    accentLight: '#F8FAFC',
+    accentLabelColor: '#475569',
+    borderStyle: '1.5px solid #E2E8F0',
+    shadow: '0 2px 10px rgba(0,0,0,0.04)',
+    shadowHover: '0 8px 24px rgba(100,116,139,0.10)',
+    ctaClass: 'ps-cta-free',
+    cta: 'Começar grátis',
+    featured: false,
   },
-  {
+  pro: {
     id: 'pro',
+    planCode: 'PRO' as const,
     name: 'Pro',
-    tagline: 'Para professores e especialistas',
-    color: '#1E3A5F',
-    border: '#1E3A5F',
-    bg: '#FFFFFF',
-    labelBg: '#EFF6FF',
-    labelColor: '#1E3A5F',
-    badge: '⭐ Mais Escolhido',
-    monthly: 67,
-    annual: 59,
-    features: [
-      '30 alunos',
-      '500 créditos IA/mês',
-      'Triagem com IA',
-      'Geração automática de documentos',
-      'Estudo de Caso completo',
-      'PAEE, PEI e PDI',
-      'Análise de laudos com IA',
-      'Perfil cognitivo completo',
-      'Documentos auditáveis SHA-256',
-      'Exportação profissional PDF',
-      'Relatórios prontos',
-      'Atualizações contínuas',
-    ],
-    cta: 'Começar Agora',
-    ctaPrimary: true,
+    badge: null as string | null,
+    accentColor: '#1E3A5F',
+    accentLight: '#EFF6FF',
+    accentLabelColor: '#1E3A5F',
+    borderStyle: '2px solid #CBD5E1',
+    shadow: '0 4px 24px rgba(0,0,0,0.07)',
+    shadowHover: '0 12px 40px rgba(30,58,95,0.14)',
+    ctaClass: 'ps-cta-pro',
+    cta: 'Começar agora',
+    featured: false,
   },
-  {
+  premium: {
     id: 'premium',
+    planCode: 'MASTER' as const,
     name: 'Premium',
-    tagline: 'Para escolas e clínicas',
-    color: '#7C3AED',
-    border: '#7C3AED',
-    bg: '#FFFFFF',
-    labelBg: '#F5F3FF',
-    labelColor: '#6D28D9',
-    badge: '🏫 Para Gestores',
-    monthly: 147,
-    annual: 99,
-    features: [
-      'Tudo do Pro',
-      'Alunos ilimitados',
-      '700 créditos IA/mês',
-      'Gestão completa de turmas',
-      'Multiusuário (equipe)',
-      'Relatórios avançados com filtros',
-      'Dashboard gerencial com KPIs',
-      'Suporte prioritário',
-    ],
-    cta: 'Assinar Premium',
-    ctaPrimary: false,
-    ctaPurple: true,
+    badge: '⭐ Mais escolhido' as string | null,
+    accentColor: '#7C3AED',
+    accentLight: '#F5F3FF',
+    accentLabelColor: '#6D28D9',
+    borderStyle: '2.5px solid #7C3AED',
+    shadow: '0 8px 40px rgba(124,58,237,0.18)',
+    shadowHover: '0 20px 60px rgba(124,58,237,0.28)',
+    ctaClass: 'ps-cta-premium',
+    cta: 'Garantir acesso completo',
+    featured: true,
   },
-];
+};
 
-const CREDIT_PACKS = [
-  { credits: 10,  price: 9.90,  label: '+10 créditos',  tag: null },
-  { credits: 30,  price: 19.90, label: '+30 créditos',  tag: 'Melhor custo' },
-  { credits: 100, price: 49.90, label: '+100 créditos', tag: 'Mais popular' },
-];
+// ─── Defaults (fallback quando DB ainda não foi populado) ─────────────────────
 
+const DEFAULTS = {
+  planos: {
+    title: 'Invista onde o impacto é real.',
+    subtitle: 'Chega de levar o planejamento para o domingo.',
+    free_tagline: 'Para começar sem custo',
+    free_features: ['Até 5 alunos', '60 créditos IA/mês', 'PEI e PAEE básico', 'Exportação PDF'],
+    pro_full_price: 79, pro_discount_price: 79, pro_annual_price: 59,
+    pro_tagline: 'Para professores e especialistas',
+    pro_features: ['Até 30 alunos', 'PEI, PAEE, PDI e relatórios', 'Atividades com BNCC', 'Histórico do aluno', 'Suporte padrão'],
+    premium_full_price: 147, premium_discount_price: 147, premium_annual_price: 99,
+    premium_tagline: 'Para escolas e clínicas',
+    premium_features: ['Alunos ilimitados', 'Tudo do plano Pro', 'Análise de laudos com IA', 'Geração avançada de atividades', 'Relatórios evolutivos completos', 'Prioridade em novos recursos'],
+  },
+  descontos: {
+    pro_coupon: 'INCLUIAI59', pro_coupon_active: true,
+    premium_coupon: 'INCLUIAI99', premium_coupon_active: true,
+    badge_label: 'Valores promocionais por tempo limitado',
+    urgency_label: 'Oferta válida por 48 horas',
+  },
+  avisos: {
+    urgency_badge: 'Valores promocionais por tempo limitado',
+    urgency_clock: 'Oferta válida por 48 horas',
+    installment_title: 'Parcelamento inteligente que facilita a aprovação',
+    installment_items: ['Mais leve no limite do cartão', 'Sem necessidade de limite alto disponível', 'Parcele em até 12x'],
+    trust_items: ['Cancele quando quiser', 'Sem taxa de instalação', 'LGPD conforme', 'Suporte incluído'],
+  },
+};
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface Props {
   onLogin: () => void;
   onRegister?: () => void;
-  /** Chamado quando usuário não autenticado clica em Pro/Premium */
   onUpgradeClick?: (planCode: 'PRO' | 'MASTER') => void;
-  /** Usuário autenticado (opcional — vindo do App após login) */
   user?: User | null;
   isAuthenticated?: boolean;
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// ─── Component ────────────────────────────────────────────────────────────────
 
-export const PricingSection: React.FC<Props> = ({ onLogin, onRegister, onUpgradeClick, user, isAuthenticated }) => {
-  const [annual, setAnnual] = useState(true); // padrão: anual (mais vantajoso)
+export const PricingSection: React.FC<Props> = ({
+  onLogin,
+  onRegister,
+  onUpgradeClick,
+  user,
+  isAuthenticated,
+}) => {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('annual');
+  const [planos,   setPlanos]   = useState(DEFAULTS.planos);
+  const [descontos, setDescontos] = useState(DEFAULTS.descontos);
+  const [avisos,   setAvisos]   = useState(DEFAULTS.avisos);
 
-  const fmt = (v: number) =>
-    v === 0 ? 'Grátis' : `R$ ${v.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
+  useEffect(() => {
+    LandingService.getActive().then(sections => {
+      sections.forEach(s => {
+        const cj = s.content_json;
+        if (s.section_key === 'planos')    setPlanos(prev => ({ ...prev, title: s.title ?? prev.title, subtitle: s.subtitle ?? prev.subtitle, ...cj }));
+        if (s.section_key === 'descontos') setDescontos(prev => ({ ...prev, ...cj }));
+        if (s.section_key === 'avisos')    setAvisos(prev => ({ ...prev, ...cj }));
+      });
+    }).catch(() => { /* mantém defaults em caso de erro */ });
+  }, []);
 
-  /** Abre checkout Kiwify para plano de assinatura */
-  const handlePlanClick = async (planCode: 'PRO' | 'MASTER') => {
+  const handlePlanClick = async (planCode: 'PRO' | 'MASTER' | 'FREE') => {
+    if (planCode === 'FREE') {
+      if (onRegister) onRegister();
+      else onLogin();
+      return;
+    }
     if (!isAuthenticated || !user?.tenant_id) {
-      // Não logado → salva intenção e manda para cadastro
       if (onUpgradeClick) onUpgradeClick(planCode);
       else onLogin();
       return;
     }
     setLoadingPlan(planCode);
     try {
-      const url = await getSubscriptionCheckoutUrl(planCode, user.tenant_id);
-      if (url && url !== '#') window.open(url, '_blank');
-      else onLogin(); // fallback: sem URL configurada
-    } finally {
-      setLoadingPlan(null);
-    }
-  };
-
-  /** Abre checkout Kiwify para pacote de créditos */
-  const handleCreditsClick = async (credits: number) => {
-    if (!isAuthenticated || !user?.tenant_id) {
-      onLogin();
-      return;
-    }
-    setLoadingPlan(`credits_${credits}`);
-    try {
-      const url = await getCreditsCheckoutUrl(credits, user.tenant_id);
+      const url = await getSubscriptionCheckoutUrl(planCode, user.tenant_id, billingCycle);
       if (url && url !== '#') window.open(url, '_blank');
       else onLogin();
     } finally {
@@ -146,94 +142,173 @@ export const PricingSection: React.FC<Props> = ({ onLogin, onRegister, onUpgrade
     }
   };
 
+  const plans = [
+    {
+      ...PLAN_STYLE.free,
+      fullPrice:     0,
+      discountPrice: 0,
+      annualPrice:   0,
+      credits:       60,
+      tagline:       (planos as any).free_tagline ?? DEFAULTS.planos.free_tagline,
+      features:      Array.isArray((planos as any).free_features) ? (planos as any).free_features : DEFAULTS.planos.free_features,
+      coupon:        '',
+      couponActive:  false,
+    },
+    {
+      ...PLAN_STYLE.pro,
+      fullPrice:     planos.pro_full_price,
+      discountPrice: planos.pro_discount_price,
+      annualPrice:   (planos as any).pro_annual_price ?? DEFAULTS.planos.pro_annual_price,
+      credits:       500,
+      tagline:       planos.pro_tagline,
+      features:      planos.pro_features,
+      coupon:        descontos.pro_coupon,
+      couponActive:  descontos.pro_coupon_active,
+    },
+    {
+      ...PLAN_STYLE.premium,
+      fullPrice:     planos.premium_full_price,
+      discountPrice: planos.premium_discount_price,
+      annualPrice:   (planos as any).premium_annual_price ?? DEFAULTS.planos.premium_annual_price,
+      credits:       700,
+      tagline:       planos.premium_tagline,
+      features:      planos.premium_features,
+      coupon:        descontos.premium_coupon,
+      couponActive:  descontos.premium_coupon_active,
+    },
+  ];
+
+  const installmentItems: string[] = Array.isArray(avisos.installment_items) ? avisos.installment_items : DEFAULTS.avisos.installment_items;
+  const trustItems: string[]       = Array.isArray(avisos.trust_items)       ? avisos.trust_items       : DEFAULTS.avisos.trust_items;
+
   return (
-    <section id="pricing" style={{ background: '#F8FAFC', padding: '100px 0 80px' }}>
+    <section id="pricing" style={{ background: '#F8FAFC', padding: '96px 0 80px' }}>
 
       <style>{`
+        @keyframes ps-pulse-badge {
+          0%, 100% { box-shadow: 0 4px 16px rgba(220,38,38,0.35); }
+          50% { box-shadow: 0 4px 28px rgba(220,38,38,0.55); }
+        }
+        @keyframes ps-pulse-urgency {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.75; }
+        }
+
         .ps-card {
-          border-radius: 20px;
-          padding: 36px 30px 32px;
+          border-radius: 22px;
+          padding: 40px 32px 34px;
           display: flex;
           flex-direction: column;
-          transition: transform 0.25s cubic-bezier(.22,1,.36,1), box-shadow 0.25s;
+          transition: transform 0.28s cubic-bezier(.22,1,.36,1), box-shadow 0.28s;
+          position: relative;
+          background: #FFFFFF;
         }
-        .ps-card:hover { transform: translateY(-5px); }
+        .ps-card:hover { transform: translateY(-6px); }
 
-        .ps-card-pro {
-          box-shadow: 0 8px 40px rgba(30,58,95,0.16);
-        }
-        .ps-card-pro:hover {
-          box-shadow: 0 20px 60px rgba(30,58,95,0.22);
-        }
-
-        .ps-toggle { display: inline-flex; background: #E2E8F0; border-radius: 100px; padding: 4px; }
-        .ps-tbtn {
-          padding: 9px 26px; border-radius: 100px; font-size: 14px; font-weight: 600;
-          cursor: pointer; border: none; font-family: inherit;
-          transition: all 0.2s ease;
-        }
-        .ps-tbtn-on  { background: #FFFFFF; color: #1E3A5F; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
-        .ps-tbtn-off { background: transparent; color: #94A3B8; }
-
-        .ps-cta-primary {
-          width: 100%; padding: 13px; border-radius: 10px; font-size: 15px;
-          font-weight: 700; cursor: pointer; border: none; font-family: inherit;
-          background: #1E3A5F; color: white;
+        .ps-cta-free {
+          width: 100%; padding: 15px; border-radius: 12px; font-size: 15px;
+          font-weight: 700; cursor: pointer; border: 1.5px solid #CBD5E1;
+          background: #F8FAFC; color: #475569; font-family: inherit;
           display: flex; align-items: center; justify-content: center; gap: 8px;
-          transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+          transition: background 0.2s, color 0.2s, transform 0.15s;
         }
-        .ps-cta-primary:hover { background: #162D49; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(30,58,95,.3); }
+        .ps-cta-free:hover { background: #E2E8F0; color: #1E293B; transform: translateY(-1px); }
 
-        .ps-cta-outline {
-          width: 100%; padding: 13px; border-radius: 10px; font-size: 15px;
-          font-weight: 600; cursor: pointer; border: 1.5px solid #CBD5E1;
-          background: transparent; color: #374151; font-family: inherit;
-          transition: border-color 0.2s, color 0.2s;
-        }
-        .ps-cta-outline:hover { border-color: #1E3A5F; color: #1E3A5F; }
-
-        .ps-cta-purple {
-          width: 100%; padding: 13px; border-radius: 10px; font-size: 15px;
-          font-weight: 700; cursor: pointer; border: none; font-family: inherit;
-          background: #7C3AED; color: white;
+        .ps-cta-pro {
+          width: 100%; padding: 15px; border-radius: 12px; font-size: 15px;
+          font-weight: 700; cursor: pointer; border: 2px solid #1E3A5F;
+          background: transparent; color: #1E3A5F; font-family: inherit;
           display: flex; align-items: center; justify-content: center; gap: 8px;
-          transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+          transition: background 0.2s, color 0.2s, transform 0.15s, box-shadow 0.2s;
         }
-        .ps-cta-purple:hover { background: #6D28D9; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(124,58,237,.3); }
+        .ps-cta-pro:hover {
+          background: #1E3A5F; color: #FFFFFF;
+          transform: translateY(-1px); box-shadow: 0 6px 20px rgba(30,58,95,.28);
+        }
+        .ps-cta-pro:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
-        .ps-pack-card {
-          background: white; border-radius: 14px; padding: 22px 20px;
-          border: 1px solid #E2E8F0;
-          transition: box-shadow 0.2s, transform 0.2s, border-color 0.2s;
+        .ps-cta-premium {
+          width: 100%; padding: 16px; border-radius: 12px; font-size: 16px;
+          font-weight: 800; cursor: pointer; border: none; font-family: inherit;
+          background: linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%);
+          color: white;
+          display: flex; align-items: center; justify-content: center; gap: 8px;
+          transition: filter 0.2s, transform 0.15s, box-shadow 0.2s;
+          box-shadow: 0 6px 24px rgba(124,58,237,0.38);
+          letter-spacing: -0.01em;
         }
-        .ps-pack-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,.08); transform: translateY(-2px); border-color: #CBD5E1; }
+        .ps-cta-premium:hover {
+          filter: brightness(1.08);
+          transform: translateY(-2px);
+          box-shadow: 0 10px 32px rgba(124,58,237,0.48);
+        }
+        .ps-cta-premium:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
-        @media (max-width: 900px) {
-          .ps-grid { grid-template-columns: 1fr !important; max-width: 440px !important; }
-          .ps-packs { grid-template-columns: 1fr 1fr !important; }
+        .ps-coupon-box {
+          display: flex; align-items: center; gap: 8px;
+          background: #F0FDF4; border: 1.5px dashed #16A34A;
+          border-radius: 8px; padding: 9px 14px;
+          margin-top: 14px;
         }
-        @media (max-width: 580px) {
-          .ps-packs { grid-template-columns: 1fr !important; }
+        .ps-coupon-box-premium {
+          background: #FAF5FF; border-color: #7C3AED;
+        }
+
+        .ps-urgency {
+          display: inline-flex; align-items: center; gap: 7px;
+          animation: ps-pulse-urgency 2.4s ease-in-out infinite;
+        }
+
+        .ps-old-price {
+          font-size: 15px; color: #9CA3AF; text-decoration: line-through;
+          font-weight: 500;
+        }
+
+        .ps-installment-box {
+          background: #FFFBEB; border: 1px solid #FDE68A;
+          border-radius: 10px; padding: 12px 16px;
+          margin-top: 12px;
+        }
+
+        .ps-feature-check { flex-shrink: 0; margin-top: 2px; }
+
+        @media (max-width: 1060px) {
+          .ps-cards-grid { grid-template-columns: 1fr 1fr !important; }
+        }
+        @media (max-width: 680px) {
+          .ps-cards-grid { grid-template-columns: 1fr !important; max-width: 460px !important; }
         }
       `}</style>
 
-      <div style={{ maxWidth: 1160, margin: '0 auto', padding: '0 24px' }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 24px' }}>
 
-        {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: 52 }}>
+        {/* ── Header ── */}
+        <div style={{ textAlign: 'center', marginBottom: 56 }}>
+
           {/* Promo Banner */}
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             background: 'linear-gradient(135deg, #DC2626, #EA580C)',
             color: '#fff', fontSize: 13, fontWeight: 700,
-            padding: '8px 20px', borderRadius: 100, marginBottom: 18,
-            boxShadow: '0 4px 16px rgba(220,38,38,0.35)',
-            animation: 'pulse 2s infinite',
+            padding: '8px 20px', borderRadius: 100, marginBottom: 20,
+            animation: 'ps-pulse-badge 2.2s ease-in-out infinite',
           }}>
-            <Flame size={15} />
-            🔥 Valores promocionais por tempo limitado
+            <Flame size={14} />
+            {descontos.badge_label}
           </div>
-          <br />
+
+          {/* Urgency */}
+          <div style={{ marginBottom: 20 }}>
+            <span className="ps-urgency" style={{
+              fontSize: 13, fontWeight: 700, color: '#B45309',
+              background: '#FFFBEB', border: '1px solid #FDE68A',
+              borderRadius: 100, padding: '5px 14px',
+            }}>
+              <Clock size={13} />
+              {avisos.urgency_clock}
+            </span>
+          </div>
+
           <div style={{
             display: 'inline-block',
             fontSize: 11, fontWeight: 700, color: '#1E3A5F',
@@ -248,349 +323,269 @@ export const PricingSection: React.FC<Props> = ({ onLogin, onRegister, onUpgrade
             color: '#0F172A', letterSpacing: '-0.03em', lineHeight: 1.12,
             marginBottom: 14,
           }}>
-            Invista onde o impacto é real.
+            {planos.title}
           </h2>
-          <p style={{ fontSize: 17, color: '#64748B', lineHeight: 1.65, maxWidth: 500, margin: '0 auto 32px' }}>
-            Sem mensalidade cara de software que ninguém usa. Você paga pelo que precisa,
-            e a plataforma trabalha por você todos os dias.
+          <p style={{
+            fontSize: 17, color: '#64748B', lineHeight: 1.65,
+            maxWidth: 500, margin: '0 auto',
+          }}>
+            {planos.subtitle}
           </p>
-
-          {/* Toggle */}
-          <div className="ps-toggle">
-            <button
-              className={`ps-tbtn ${!annual ? 'ps-tbtn-on' : 'ps-tbtn-off'}`}
-              onClick={() => setAnnual(false)}
-            >
-              Mensal
-            </button>
-            <button
-              className={`ps-tbtn ${annual ? 'ps-tbtn-on' : 'ps-tbtn-off'}`}
-              onClick={() => setAnnual(true)}
-            >
-              Anual ⭐&nbsp;
-              <span style={{
-                fontSize: 11, fontWeight: 700,
-                background: annual ? '#DCFCE7' : '#E2E8F0',
-                color: annual ? '#15803D' : '#94A3B8',
-                padding: '2px 7px', borderRadius: 6, marginLeft: 2,
-              }}>
-                Economize até 33%
-              </span>
-            </button>
-          </div>
-
-          {annual ? (
-            <p style={{ fontSize: 12, color: '#15803D', fontWeight: 600, marginTop: 10 }}>
-              ✓ Melhor custo-benefício — plano anual com cobrança mensal recorrente.
-            </p>
-          ) : (
-            <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 10 }}>
-              💡 Escolha o plano anual e economize até R$ 576/ano.
-            </p>
-          )}
         </div>
 
-        {/* Impact phrase */}
+        {/* ── Toggle mensal / anual ── */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
+          <div style={{ display: 'inline-flex', background: '#E2E8F0', borderRadius: 100, padding: 3 }}>
+            <button
+              onClick={() => setBillingCycle('monthly')}
+              style={{
+                padding: '8px 22px', borderRadius: 100, fontSize: 14, fontWeight: 600,
+                cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+                background: billingCycle === 'monthly' ? '#FFFFFF' : 'transparent',
+                color: billingCycle === 'monthly' ? '#0F172A' : '#94A3B8',
+                boxShadow: billingCycle === 'monthly' ? '0 2px 6px rgba(0,0,0,.10)' : 'none',
+                transition: 'all 0.2s',
+              }}
+            >Mensal</button>
+            <button
+              onClick={() => setBillingCycle('annual')}
+              style={{
+                padding: '8px 22px', borderRadius: 100, fontSize: 14, fontWeight: 600,
+                cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+                background: billingCycle === 'annual' ? '#FFFFFF' : 'transparent',
+                color: billingCycle === 'annual' ? '#0F172A' : '#94A3B8',
+                boxShadow: billingCycle === 'annual' ? '0 2px 6px rgba(0,0,0,.10)' : 'none',
+                transition: 'all 0.2s',
+              }}
+            >
+              Anual&nbsp;
+              <span style={{
+                fontSize: 10, fontWeight: 700,
+                background: billingCycle === 'annual' ? '#DCFCE7' : '#CBD5E1',
+                color: billingCycle === 'annual' ? '#15803D' : '#94A3B8',
+                padding: '2px 6px', borderRadius: 5,
+              }}>Parcelável</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Parcelamento inteligente ── */}
         <div style={{
-          maxWidth: 780, margin: '0 auto 48px',
+          maxWidth: 760, margin: '0 auto 52px',
           background: 'linear-gradient(135deg, #1E3A5F 0%, #2D5A8E 100%)',
-          borderRadius: 18, padding: '28px 36px',
+          borderRadius: 18, padding: '26px 36px',
           textAlign: 'center',
           boxShadow: '0 8px 32px rgba(30,58,95,0.18)',
         }}>
-          <p style={{
-            fontSize: 'clamp(15px, 2.2vw, 19px)', fontWeight: 600,
-            color: '#FFFFFF', lineHeight: 1.6, margin: 0,
-            letterSpacing: '-0.01em',
-          }}>
-            "Chega de levar o planejamento para o domingo. O Incluiai escreve seus documentos e ilustra suas atividades em segundos, devolvendo o seu tempo e o brilho nos olhos dos seus alunos."
-          </p>
-        </div>
-
-        {/* Cards */}
-        <div className="ps-grid" style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 18,
-          maxWidth: 1020,
-          margin: '0 auto 64px',
-        }}>
-          {PLANS.map(plan => {
-            const price = annual ? plan.annual : plan.monthly;
-            const isPro = plan.id === 'pro';
-
-            return (
-              <div
-                key={plan.id}
-                className={`ps-card ${isPro ? 'ps-card-pro' : ''}`}
-                style={{
-                  border: isPro ? `2px solid ${plan.border}` : `1px solid ${plan.border}`,
-                  background: plan.bg,
-                  position: 'relative',
-                }}
-              >
-                {/* Badge */}
-                {plan.badge && (
-                  <div style={{
-                    position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)',
-                    background: plan.color, color: 'white',
-                    fontSize: 11, fontWeight: 700,
-                    padding: '4px 16px', borderRadius: 100,
-                    whiteSpace: 'nowrap', letterSpacing: '0.04em',
-                  }}>
-                    {plan.badge}
-                  </div>
-                )}
-
-                {/* Name */}
-                <div style={{ marginBottom: 24, marginTop: plan.badge ? 8 : 0 }}>
-                  <div style={{
-                    display: 'inline-block',
-                    background: plan.labelBg, color: plan.labelColor,
-                    fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-                    letterSpacing: '0.10em', padding: '4px 12px', borderRadius: 6,
-                    marginBottom: 14,
-                  }}>
-                    {plan.name}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, marginBottom: 6 }}>
-                    {price === 0 ? (
-                      <span style={{ fontSize: 40, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.035em' }}>
-                        Grátis
-                      </span>
-                    ) : (
-                      <>
-                        <span style={{ fontSize: 15, fontWeight: 600, color: '#64748B', paddingBottom: 8 }}>R$</span>
-                        <span style={{ fontSize: 46, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.04em', lineHeight: 1 }}>
-                          {price}
-                        </span>
-                        <span style={{ fontSize: 14, color: '#94A3B8', paddingBottom: 7 }}>/mês</span>
-                      </>
-                    )}
-                  </div>
-
-                  {annual && price > 0 && (
-                    <p style={{ fontSize: 13, color: '#16A34A', fontWeight: 600 }}>
-                      ✓ Economize R${((plan.monthly - plan.annual) * 12).toFixed(0)} no ano
-                    </p>
-                  )}
-                  {!annual && price > 0 && (
-                    <p style={{ fontSize: 13, color: '#94A3B8' }}>
-                      ou R${plan.annual}/mês no plano anual
-                    </p>
-                  )}
-
-                  <p style={{ fontSize: 13, color: '#64748B', marginTop: 6 }}>{plan.tagline}</p>
-                </div>
-
-                {/* Divider */}
-                <div style={{ height: 1, background: '#F1F5F9', margin: '0 0 20px' }} />
-
-                {/* Features */}
-                <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 28px', display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
-                  {plan.features.map(f => (
-                    <li key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 14, color: '#374151' }}>
-                      <CheckCircle size={15} color={plan.color} style={{ flexShrink: 0, marginTop: 1 }} />
-                      <span>{f}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                {/* CTA */}
-                {plan.id === 'free' ? (
-                  <button onClick={onRegister ?? onLogin} className="ps-cta-outline">
-                    Criar conta grátis
-                  </button>
-                ) : plan.ctaPrimary ? (
-                  <button
-                    onClick={() => handlePlanClick(plan.id === 'pro' ? 'PRO' : 'MASTER')}
-                    disabled={loadingPlan === (plan.id === 'pro' ? 'PRO' : 'MASTER')}
-                    className="ps-cta-primary"
-                  >
-                    {loadingPlan === (plan.id === 'pro' ? 'PRO' : 'MASTER')
-                      ? 'Aguarde...'
-                      : <>{isAuthenticated ? 'Ir para pagamento' : 'Começar agora'} <ArrowRight size={16} /></>
-                    }
-                  </button>
-                ) : (plan as any).ctaPurple ? (
-                  <button
-                    onClick={() => handlePlanClick('MASTER')}
-                    disabled={loadingPlan === 'MASTER'}
-                    className="ps-cta-purple"
-                  >
-                    {loadingPlan === 'MASTER'
-                      ? 'Aguarde...'
-                      : <>{isAuthenticated ? 'Ir para pagamento' : 'Assinar Premium'} <ArrowRight size={16} /></>
-                    }
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => handlePlanClick(plan.id === 'pro' ? 'PRO' : 'MASTER')}
-                    className="ps-cta-outline"
-                  >
-                    Ir para pagamento <ArrowRight size={16} />
-                  </button>
-                )}
-
-                {plan.id === 'free' && (
-                  <p style={{ textAlign: 'center', fontSize: 12, color: '#16A34A', fontWeight: 500, marginTop: 10 }}>
-                    ✓ Sem necessidade de cartão de crédito
-                  </p>
-                )}
-                {(plan.id === 'pro' || plan.id === 'premium') && (
-                  <p style={{ textAlign: 'center', fontSize: 12, color: '#94A3B8', marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-                    <CreditCard size={12} />
-                    Pagamento seguro via Kiwify
-                  </p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Credit Packs */}
-        <div style={{
-          background: '#FFFFFF', borderRadius: 20,
-          border: '1px solid #E2E8F0',
-          padding: '40px 36px',
-          maxWidth: 1020, margin: '0 auto',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 20, marginBottom: 32 }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <div style={{
-                  width: 36, height: 36, background: '#FEF3C7', borderRadius: 9,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Zap size={17} color="#D97706" />
-                </div>
-                <h3 style={{ fontSize: 18, fontWeight: 700, color: '#0F172A' }}>
-                  Pacotes de Créditos de IA
-                </h3>
-              </div>
-              <p style={{ fontSize: 14, color: '#64748B', lineHeight: 1.6, maxWidth: 420 }}>
-                Sem créditos suficientes? Compre pacotes avulsos a qualquer momento.
-                Créditos são usados para gerar documentos, análises e atividades adaptadas com IA.
-              </p>
-            </div>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              background: '#F0FDF4', border: '1px solid #BBF7D0',
-              padding: '10px 16px', borderRadius: 10,
-            }}>
-              <Zap size={14} color="#16A34A" />
-              <span style={{ fontSize: 13, color: '#15803D', fontWeight: 500 }}>
-                Créditos adicionais ao plano — disponíveis imediatamente
-              </span>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12 }}>
+            <Zap size={18} color="#FBBF24" fill="#FBBF24" />
+            <span style={{ fontSize: 16, fontWeight: 800, color: '#FBBF24', letterSpacing: '-0.01em' }}>
+              {avisos.installment_title}
+            </span>
+            <Zap size={18} color="#FBBF24" fill="#FBBF24" />
           </div>
-
-          <div className="ps-packs" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-            {CREDIT_PACKS.map(pack => (
-              <div key={pack.credits} className="ps-pack-card">
-                {pack.tag && (
-                  <div style={{
-                    display: 'inline-block', fontSize: 10, fontWeight: 700,
-                    background: '#FEF3C7', color: '#92400E',
-                    padding: '3px 10px', borderRadius: 6, marginBottom: 12,
-                    letterSpacing: '0.04em',
-                  }}>
-                    {pack.tag.toUpperCase()}
-                  </div>
-                )}
-                {!pack.tag && <div style={{ height: 22, marginBottom: 12 }} />}
-
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 26, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.03em' }}>
-                    {pack.label}
-                  </div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: '#D97706', marginTop: 2 }}>
-                    R$ {pack.price.toFixed(2).replace('.', ',')}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>
-                    Créditos adicionais ao plano
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => handleCreditsClick(pack.credits)}
-                  disabled={loadingPlan === `credits_${pack.credits}`}
-                  style={{
-                    width: '100%', padding: '10px', borderRadius: 8,
-                    fontSize: 13, fontWeight: 600,
-                    cursor: loadingPlan === `credits_${pack.credits}` ? 'wait' : 'pointer',
-                    background: '#FFFBEB', color: '#92400E',
-                    border: '1.5px solid #FDE68A', fontFamily: 'inherit',
-                    transition: 'background 0.15s, border-color 0.15s',
-                    opacity: loadingPlan === `credits_${pack.credits}` ? 0.6 : 1,
-                  }}
-                  onMouseEnter={e => {
-                    (e.target as HTMLElement).style.background = '#FEF3C7';
-                    (e.target as HTMLElement).style.borderColor = '#FCD34D';
-                  }}
-                  onMouseLeave={e => {
-                    (e.target as HTMLElement).style.background = '#FFFBEB';
-                    (e.target as HTMLElement).style.borderColor = '#FDE68A';
-                  }}
-                >
-                  {loadingPlan === `credits_${pack.credits}` ? 'Aguarde...' : 'Comprar créditos'}
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 20, textAlign: 'center' }}>
-            Créditos expiram em 60 dias após a compra. Disponíveis imediatamente após a confirmação do pagamento.
-          </p>
-        </div>
-
-        {/* FAQ Créditos */}
-        <div style={{ maxWidth: 1020, margin: '48px auto 0' }}>
-          <h3 style={{ fontSize: 20, fontWeight: 700, color: '#0F172A', marginBottom: 20, textAlign: 'center' }}>
-            Entendendo os créditos de IA
-          </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-            {[
-              {
-                q: 'Como os créditos são consumidos?',
-                a: 'O Incluiai tem dois motores de IA: o Motor de Texto (Gemini Flash) para PDIs, PEIs, relatórios e análises — custa 3 créditos por documento. O Motor de Imagem (IncluiLab) para ilustrações pedagógicas de alto impacto — custa 50 créditos por imagem. Atividades simples custam 1 crédito.',
-              },
-              {
-                q: 'Quando os créditos expiram?',
-                a: 'Os créditos da assinatura são renovados todo mês com o pagamento recorrente. Os créditos comprados em pacotes avulsos expiram em 60 dias a partir da data da compra.',
-              },
-              {
-                q: 'O que acontece se eu ficar sem créditos?',
-                a: 'Você continua acessando o sistema normalmente. Só não consegue usar as funções de geração com IA (documentos, atividades, análises). Você pode comprar um pacote avulso a qualquer momento, sem precisar trocar de plano.',
-              },
-              {
-                q: 'Créditos acumulam mês a mês?',
-                a: 'Os créditos mensais da assinatura não acumulam — são renovados do zero a cada ciclo para manter o sistema justo. Créditos comprados em pacotes avulsos são acumuláveis e valem por 60 dias.',
-              },
-            ].map(({ q, a }) => (
-              <div key={q} style={{
-                background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 14,
-                padding: '22px 22px',
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px 32px' }}>
+            {installmentItems.map(item => (
+              <span key={item} style={{
+                fontSize: 14, color: '#E0F2FE', fontWeight: 500,
+                display: 'flex', alignItems: 'center', gap: 6,
               }}>
-                <p style={{ fontSize: 14, fontWeight: 700, color: '#0F172A', marginBottom: 8 }}>{q}</p>
-                <p style={{ fontSize: 13, color: '#64748B', lineHeight: 1.65 }}>{a}</p>
-              </div>
+                <CheckCircle size={13} color="#4ADE80" />
+                {item}
+              </span>
             ))}
           </div>
         </div>
 
-        {/* Bottom trust line */}
-        <div style={{ textAlign: 'center', marginTop: 48, display: 'flex', gap: 32, justifyContent: 'center', flexWrap: 'wrap' }}>
-          {[
-            '✓ Cancele quando quiser',
-            '✓ Sem taxa de instalação',
-            '✓ LGPD conforme',
-            '✓ Suporte incluído',
-          ].map(t => (
-            <span key={t} style={{ fontSize: 13, color: '#64748B', fontWeight: 500 }}>{t}</span>
+        {/* ── Cards ── */}
+        <div
+          className="ps-cards-grid"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: 24,
+            maxWidth: 1100,
+            margin: '0 auto 64px',
+            alignItems: 'start',
+          }}
+        >
+          {plans.map(plan => (
+            <div
+              key={plan.id}
+              className="ps-card"
+              style={{ border: plan.borderStyle, boxShadow: plan.shadow }}
+              onMouseEnter={e => (e.currentTarget.style.boxShadow = plan.shadowHover)}
+              onMouseLeave={e => (e.currentTarget.style.boxShadow = plan.shadow)}
+            >
+              {/* Badge "Mais escolhido" */}
+              {plan.badge && (
+                <div style={{
+                  position: 'absolute', top: -15, left: '50%', transform: 'translateX(-50%)',
+                  background: 'linear-gradient(135deg, #7C3AED, #6D28D9)',
+                  color: 'white', fontSize: 12, fontWeight: 800,
+                  padding: '5px 20px', borderRadius: 100,
+                  whiteSpace: 'nowrap', letterSpacing: '0.04em',
+                  boxShadow: '0 4px 14px rgba(124,58,237,0.4)',
+                }}>
+                  {plan.badge}
+                </div>
+              )}
+
+              {/* Plan label */}
+              <div style={{ marginBottom: 22, marginTop: plan.badge ? 10 : 0 }}>
+                <div style={{
+                  display: 'inline-block',
+                  background: plan.accentLight, color: plan.accentLabelColor,
+                  fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+                  letterSpacing: '0.10em', padding: '4px 12px', borderRadius: 6,
+                  marginBottom: 16,
+                }}>
+                  {plan.name}
+                </div>
+
+                {/* Price anchoring */}
+                {plan.id !== 'free' && billingCycle === 'annual' && (
+                  <div style={{ marginBottom: 4 }}>
+                    <span className="ps-old-price">De R$ {plan.discountPrice}/mês</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, marginBottom: 4 }}>
+                  {plan.id === 'free' ? (
+                    <span style={{ fontSize: 38, fontWeight: 900, color: plan.accentColor, letterSpacing: '-0.04em', lineHeight: 1 }}>Grátis</span>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 16, fontWeight: 600, color: '#374151', paddingBottom: 8 }}>por R$</span>
+                      <span style={{ fontSize: 52, fontWeight: 900, color: plan.accentColor, letterSpacing: '-0.045em', lineHeight: 1 }}>
+                        {billingCycle === 'annual' ? (plan as any).annualPrice : plan.fullPrice}
+                      </span>
+                      <span style={{ fontSize: 14, color: '#94A3B8', paddingBottom: 8 }}>/mês</span>
+                    </>
+                  )}
+                </div>
+                {plan.id !== 'free' && billingCycle === 'annual' && (
+                  <div style={{ fontSize: 11, color: '#15803D', fontWeight: 600, marginBottom: 4 }}>✓ Plano anual — pagamento único parcelável</div>
+                )}
+                <p style={{ fontSize: 13, color: '#64748B', marginTop: 2 }}>{plan.tagline}</p>
+              </div>
+
+              {/* Coupon box */}
+              {plan.couponActive && billingCycle === 'annual' && (
+                <div className={`ps-coupon-box${plan.featured ? ' ps-coupon-box-premium' : ''}`}>
+                  <Tag size={14} color={plan.featured ? '#7C3AED' : '#16A34A'} />
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>Cupom de desconto: </span>
+                    <span style={{
+                      fontFamily: 'monospace', fontSize: 14, fontWeight: 800,
+                      color: plan.featured ? '#7C3AED' : '#16A34A',
+                      letterSpacing: '0.06em',
+                    }}>
+                      {plan.coupon}
+                    </span>
+                  </div>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, color: 'white',
+                    background: plan.featured ? '#7C3AED' : '#16A34A',
+                    padding: '3px 8px', borderRadius: 6,
+                  }}>
+                    ATIVO
+                  </span>
+                </div>
+              )}
+
+              {/* Installment info — só no anual */}
+              {billingCycle === 'annual' && plan.id !== 'free' && (
+                <div className="ps-installment-box">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <CreditCard size={13} color="#92400E" />
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#92400E' }}>
+                      Parcelamento inteligente
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#78350F', lineHeight: 1.5 }}>
+                    {installmentItems[0]} &mdash; {installmentItems[1]}
+                  </div>
+                </div>
+              )}
+
+              {/* Divider */}
+              <div style={{ height: 1, background: '#F1F5F9', margin: '22px 0' }} />
+
+              {/* Credits highlight */}
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: plan.accentLight,
+                border: `1.5px solid ${plan.accentColor}22`,
+                borderRadius: 10, padding: '10px 14px', marginBottom: 18,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <Zap size={15} color={plan.accentColor} fill={plan.accentColor} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Créditos IA/mês</span>
+                </div>
+                <span style={{
+                  fontSize: 22, fontWeight: 900, color: plan.accentColor,
+                  letterSpacing: '-0.03em', lineHeight: 1,
+                }}>
+                  {(plan as any).credits}
+                </span>
+              </div>
+
+              {/* Features */}
+              <ul style={{
+                listStyle: 'none', padding: 0, margin: '0 0 28px',
+                display: 'flex', flexDirection: 'column', gap: 11, flex: 1,
+              }}>
+                {(Array.isArray(plan.features) ? plan.features : []).map((f: string) => (
+                  <li key={f} style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 10,
+                    fontSize: 14, color: '#374151',
+                  }}>
+                    <CheckCircle size={15} color={plan.accentColor} className="ps-feature-check" />
+                    <span>{f}</span>
+                  </li>
+                ))}
+              </ul>
+
+              {/* CTA */}
+              <button
+                className={plan.ctaClass}
+                onClick={() => handlePlanClick(plan.planCode)}
+                disabled={loadingPlan === plan.planCode}
+              >
+                {loadingPlan === plan.planCode
+                  ? 'Aguarde...'
+                  : <>{isAuthenticated ? 'Ir para pagamento' : plan.cta} <ArrowRight size={16} /></>
+                }
+              </button>
+
+              <p style={{
+                textAlign: 'center', fontSize: 12, color: '#94A3B8',
+                marginTop: 10, display: 'flex', alignItems: 'center',
+                justifyContent: 'center', gap: 5,
+              }}>
+                <CreditCard size={11} />
+                Pagamento seguro via Kiwify
+              </p>
+              {plan.id !== 'free' && (
+                <p style={{ textAlign: 'center', fontSize: 11, color: '#94A3B8', marginTop: 4 }}>
+                  {billingCycle === 'annual'
+                    ? '⚠ Plano anual — carência de 12 meses'
+                    : '✓ Cancele quando quiser, sem fidelidade'}
+                </p>
+              )}
+            </div>
           ))}
         </div>
+
+        {/* ── Trust badges ── */}
+        <div style={{
+          textAlign: 'center', display: 'flex', gap: 28,
+          justifyContent: 'center', flexWrap: 'wrap',
+        }}>
+          {trustItems.map(t => (
+            <span key={t} style={{ fontSize: 13, color: '#64748B', fontWeight: 500 }}>✓ {t}</span>
+          ))}
+        </div>
+
 
       </div>
     </section>

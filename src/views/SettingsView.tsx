@@ -5,7 +5,7 @@ import { Plus, Trash2, School, User as UserIcon, CreditCard, Star, Settings, Spa
 import { ReferralService, type ReferralStats } from '../services/referralService';
 import { fetchSchoolByINEP, validateINEPCode, type INEPFetchError } from '../services/inepService';
 import { fetchAddressByCep, validateCep, normalizeCep, formatCep } from '../services/cepService';
-import { PaymentService, DEFAULT_ADDONS } from '../services/paymentService';
+import { PaymentService, /* DEFAULT_ADDONS */ } from '../services/paymentService';
 import { databaseService } from '../services/databaseService';
 import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
 import { CreditWalletService, CreditLedgerService } from '../services/creditService';
@@ -18,6 +18,36 @@ const PLAN_PRICES = {
   MASTER_MONTHLY: 147,
   MASTER_ANNUAL:  99,
 };
+
+// Redefinição cirúrgica dos pacotes de crédito, conforme solicitado.
+// O ideal seria alterar o arquivo original 'paymentService.ts'.
+const DEFAULT_ADDONS: AddOnProduct[] = [
+  {
+    sku: 'CREDITS_100',
+    title: '+100 Créditos IA',
+    description: 'Para gerar documentos e atividades pontuais.',
+    priceCents: 2990,
+    quantity: 100,
+    kind: 'AI_CREDITS',
+  },
+  {
+    sku: 'CREDITS_300',
+    title: '+300 Créditos IA',
+    description: 'Ideal para o dia a dia do professor.',
+    priceCents: 7990,
+    quantity: 300,
+    kind: 'AI_CREDITS',
+    recommended: true,
+  },
+  {
+    sku: 'CREDITS_900',
+    title: '+900 Créditos IA',
+    description: 'Melhor custo-benefício para uso intenso.',
+    priceCents: 14990,
+    quantity: 900,
+    kind: 'AI_CREDITS',
+  },
+];
 
 interface SettingsViewProps {
   user: User;

@@ -343,7 +343,7 @@ export const AI_MODEL_CONFIGS: AIModelConfig[] = [
     active: true,
     allowed_contexts: ['activities', 'incluilab'],
     description: 'Texto + imagem pedagógica (Gemini + DALL-E)',
-    warning: 'A geração de imagem está disponível apenas para assinantes com integração ativa. Contate o suporte para habilitar.',
+    warning: `Consome ${INCLUILAB_MODEL_COSTS.NANO_BANANA} créditos por geração`,
   },
   {
     id: 'chatgpt_imagem',

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import type { User } from '../types';
 import { getActiveSubscription, type ActiveSubscriptionInfo } from '../services/subscriptionService';
-import { SUBSCRIPTION_PLANS, CREDIT_PACKAGES } from '../config/aiCosts';
+import { SUBSCRIPTION_PLANS, /* CREDIT_PACKAGES */ } from '../config/aiCosts';
 import {
   getSubscriptionCheckoutUrl,
   getCreditsCheckoutUrl,
@@ -71,26 +71,20 @@ const PLANS_INFO = [
   },
 ];
 
-const CREDIT_PACKS = [
-  {
-    credits: CREDIT_PACKAGES[0].credits, price: 9.90, sku: 'AI10',
-    label: `+${CREDIT_PACKAGES[0].credits} créditos`,
-    tag: null,
-    desc: CREDIT_PACKAGES[0].label,
-  },
-  {
-    credits: CREDIT_PACKAGES[1].credits, price: 39.90, sku: 'AI200',
-    label: `+${CREDIT_PACKAGES[1].credits} créditos`,
-    tag: 'Mais popular',
-    desc: CREDIT_PACKAGES[1].label,
-  },
-  {
-    credits: CREDIT_PACKAGES[2].credits, price: 99.90, sku: 'AI900',
-    label: `+${CREDIT_PACKAGES[2].credits} créditos`,
-    tag: 'Melhor custo',
-    desc: CREDIT_PACKAGES[2].label,
-  },
+const CREDIT_PACKAGES = [
+  { credits: 100, price: 29.90, label: 'Pacote 100 créditos' },
+  { credits: 300, price: 79.90, label: 'Pacote 300 créditos' },
+  { credits: 900, price: 149.90, label: 'Pacote 900 créditos' },
 ];
+
+const CREDIT_PACKS = CREDIT_PACKAGES.map((pkg, i) => ({
+  credits: pkg.credits,
+  price:   pkg.price,
+  sku:     `AI${pkg.credits}`,
+  label:   `+${pkg.credits} créditos`,
+  tag:     i === 1 ? 'Mais popular' : i === 2 ? 'Melhor custo' : null,
+  desc:    pkg.label,
+}));
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
@@ -137,6 +131,8 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
   const [loadingUrl, setLoadingUrl] = useState<string | null>(null);
   const [error, setError]         = useState<string | null>(null);
   const [success, setSuccess]     = useState<string | null>(null);
+  /** Ciclo de cobrança selecionado pelo usuário na seção de upgrade. */
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
 
   useEffect(() => {
     const init = async () => {
@@ -159,15 +155,16 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
   const isMaster = planCode === 'MASTER' || planCode === 'PREMIUM';
 
   // ── Abrir checkout de assinatura ─────────────────────────────────────────
-  async function handleSubscribe(code: 'PRO' | 'MASTER') {
+  async function handleSubscribe(code: 'PRO' | 'MASTER', cycle?: 'monthly' | 'annual') {
     if (!kiwifyOk) {
       setError('Pagamentos ainda não configurados. Entre em contato com o suporte.');
       return;
     }
+    const selectedCycle = cycle ?? billingCycle;
     setLoadingUrl(code);
     setError(null);
     try {
-      const url = await getSubscriptionCheckoutUrl(code, user.tenant_id ?? '');
+      const url = await getSubscriptionCheckoutUrl(code, user.tenant_id ?? '', selectedCycle);
       if (!url || url === '#') {
         setError('Link de assinatura indisponível. Entre em contato com o suporte.');
         return;
@@ -364,9 +361,56 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
       {/* ── Upgrade de plano (FREE e PRO veem opções) ───────────────────────── */}
       {!isMaster && (
         <div style={{ marginBottom: 20 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: P.dark, marginBottom: 14 }}>
-            {isFree ? 'Escolha um plano' : 'Fazer upgrade'}
-          </h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: P.dark }}>
+              {isFree ? 'Escolha um plano' : 'Fazer upgrade'}
+            </h3>
+
+            {/* Toggle mensal / anual */}
+            <div style={{ display: 'inline-flex', background: '#E2E8F0', borderRadius: 100, padding: 3 }}>
+              <button
+                onClick={() => setBillingCycle('monthly')}
+                style={{
+                  padding: '7px 18px', borderRadius: 100, fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+                  background: billingCycle === 'monthly' ? '#FFFFFF' : 'transparent',
+                  color: billingCycle === 'monthly' ? P.dark : '#94A3B8',
+                  boxShadow: billingCycle === 'monthly' ? '0 2px 6px rgba(0,0,0,.10)' : 'none',
+                  transition: 'all 0.2s',
+                }}
+              >
+                Mensal
+              </button>
+              <button
+                onClick={() => setBillingCycle('annual')}
+                style={{
+                  padding: '7px 18px', borderRadius: 100, fontSize: 13, fontWeight: 600,
+                  cursor: 'pointer', border: 'none', fontFamily: 'inherit',
+                  background: billingCycle === 'annual' ? '#FFFFFF' : 'transparent',
+                  color: billingCycle === 'annual' ? P.dark : '#94A3B8',
+                  boxShadow: billingCycle === 'annual' ? '0 2px 6px rgba(0,0,0,.10)' : 'none',
+                  transition: 'all 0.2s',
+                }}
+              >
+                Anual&nbsp;
+                <span style={{
+                  fontSize: 10, fontWeight: 700,
+                  background: billingCycle === 'annual' ? '#DCFCE7' : '#E2E8F0',
+                  color: billingCycle === 'annual' ? '#15803D' : '#94A3B8',
+                  padding: '2px 6px', borderRadius: 5,
+                }}>
+                  Parcelável
+                </span>
+              </button>
+            </div>
+          </div>
+
+          {billingCycle === 'annual' && (
+            <p style={{ fontSize: 12, color: '#15803D', fontWeight: 600, marginBottom: 12 }}>
+              ✓ Plano anual — pagamento único com parcelamento disponível no checkout.
+            </p>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
             {PLANS_INFO.filter(p => {
               if (isFree) return true;

@@ -16,10 +16,13 @@ import type {
   CeoSubscriberRow,
   CeoFinancialKpis,
   Plan,
+  UserActivityLog,
+  AlertConfig,
+  TestAccountDetail,
 } from '../types';
 import { BillingPlansService, SubscriptionService } from './billingService';
 import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
-import { AdminGrantService, CreditLedgerService } from './creditService';
+import { AdminGrantService } from './creditService';
 import { LandingService } from './landingService';
 
 // ---------------------------------------------------------------------------
@@ -395,10 +398,315 @@ export const AdminService = {
     }
   },
 
+  // ── ADMIN POR E-MAIL ──────────────────────────────────────────────────────
+
+  /**
+   * Carrega o AdminUser a partir do e-mail do usuário autenticado.
+   * Usado pelo AdminDashboard para evitar depender do mock CURRENT_ADMIN_MOCK.
+   * Retorna null se o usuário não estiver na tabela admin_users.
+   */
+  async getAdminByEmail(email: string): Promise<AdminUser | null> {
+    if (DEMO_MODE) {
+      return MOCK_ADMINS.find(a => a.email === email) ?? MOCK_ADMINS[0] ?? null;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('admin_users')
+        .select('*')
+        .eq('email', email)
+        .eq('active', true)
+        .maybeSingle();
+      if (error) throw error;
+      return data ? mapAdminUser(data) : null;
+    } catch {
+      return null;
+    }
+  },
+
   // ── LANDING CONTENT ───────────────────────────────────────────────────────
   getLandingSections: LandingService.getAll.bind(LandingService),
   saveLandingSections: LandingService.saveAll.bind(LandingService),
   saveLandingSection: LandingService.upsert.bind(LandingService),
+
+  // ── CONTAS DE TESTE (criação do zero) ─────────────────────────────────────
+
+  async createTestAccountFromScratch(params: {
+    accountName: string;
+    responsibleName: string;
+    email: string;
+    password?: string;
+    planCode: string;
+    initialCredits: number;
+    expiresAt: string;
+    observation: string;
+    adminUser: AdminUser;
+  }): Promise<{ tenantId: string; success: boolean; message: string }> {
+    if (!['super_admin', 'operacional'].includes(params.adminUser.role)) {
+      throw new Error('Permissão negada');
+    }
+
+    if (DEMO_MODE) {
+      const mockId = crypto.randomUUID();
+      AdminService.logAction(
+        params.adminUser,
+        'CREATE_TEST_ACCOUNT',
+        params.email,
+        `Conta de teste criada: ${params.accountName} (${params.planCode}) — DEMO`,
+      );
+      return {
+        tenantId: mockId,
+        success: true,
+        message: `[DEMO] Conta de teste "${params.accountName}" criada com sucesso.`,
+      };
+    }
+
+    // Adiciona a criação do usuário de autenticação com senha.
+    if (params.password) {
+      const { error: authError } = await supabase.auth.admin.createUser({
+        email: params.email,
+        password: params.password,
+        email_confirm: true, // Auto-confirma o e-mail para facilitar o teste
+      });
+
+      if (authError) {
+        // Se o usuário já existe, retorna um erro claro.
+        if (authError.message.includes('already registered')) {
+          throw new Error(`O e-mail ${params.email} já está em uso. Use outro e-mail.`);
+        }
+        throw authError;
+      }
+    }
+
+    const { data, error } = await supabase.rpc('ceo_create_test_account_db', {
+      p_account_name:     params.accountName,
+      p_responsible_name: params.responsibleName,
+      p_email:            params.email,
+      p_plan_code:        params.planCode,
+      p_initial_credits:  params.initialCredits,
+      p_expires_at:       params.expiresAt || null,
+      p_observation:      params.observation,
+      p_created_by_name:  params.adminUser.name,
+    });
+
+    if (error) throw error;
+
+    const result = data as { success: boolean; tenant_id?: string; error?: string; message?: string };
+
+    if (!result.success) throw new Error(result.error ?? 'Erro ao criar conta de teste');
+
+    // Altera a mensagem de sucesso se a senha foi criada.
+    if (result.success && params.password) {
+      return {
+        tenantId: result.tenant_id ?? '',
+        success: true,
+        message: `Conta de teste "${params.accountName}" criada com sucesso. O usuário pode logar com a senha definida.`,
+      };
+    }
+
+    AdminService.logAction(
+      params.adminUser,
+      'CREATE_TEST_ACCOUNT',
+      params.email,
+      `Conta de teste criada: ${params.accountName} (${params.planCode}) — tenant: ${result.tenant_id}`,
+    );
+
+    return {
+      tenantId: result.tenant_id ?? '',
+      success: true,
+      message: result.message ?? 'Conta criada. Configure o login via Supabase Dashboard.',
+    };
+  },
+
+  async getTestAccountDetails(): Promise<TestAccountDetail[]> {
+    if (DEMO_MODE) {
+      return [
+        {
+          tenant_id: 'demo-t1',
+          account_name: 'Demo Escola A',
+          responsible_name: 'Ana Souza',
+          email: 'ana@escola.com',
+          plan_code: 'PRO',
+          initial_credits: 200,
+          credits_remaining: 145,
+          expires_at: new Date(Date.now() + 15 * 86400000).toISOString(),
+          observation: 'Demo para parceiro',
+          status: 'active',
+          subscription_status: 'INTERNAL_TEST',
+          created_by_name: 'CEO Founder',
+          created_at: new Date(Date.now() - 5 * 86400000).toISOString(),
+        },
+      ];
+    }
+    try {
+      const { data, error } = await supabase.rpc('ceo_get_test_accounts');
+      if (error) throw error;
+      return (data ?? []) as TestAccountDetail[];
+    } catch {
+      return [];
+    }
+  },
+
+  async updateTestAccountStatus(tenantId: string, status: 'active' | 'suspended' | 'expired', adminUser: AdminUser): Promise<void> {
+    if (!['super_admin', 'operacional'].includes(adminUser.role)) throw new Error('Permissão negada');
+    if (!DEMO_MODE) {
+      await supabase.from('test_account_details').update({ status, updated_at: new Date().toISOString() }).eq('tenant_id', tenantId);
+      if (status === 'suspended') {
+        await SubscriptionService.updateStatus(tenantId, 'CANCELED', `Suspensão de conta de teste por ${adminUser.name}`);
+      }
+    }
+    AdminService.logAction(adminUser, 'UPDATE_TEST_ACCOUNT', tenantId, `Status → ${status}`);
+  },
+
+  async extendTestAccount(tenantId: string, newExpiresAt: string, adminUser: AdminUser): Promise<void> {
+    if (!['super_admin', 'operacional'].includes(adminUser.role)) throw new Error('Permissão negada');
+    if (!DEMO_MODE) {
+      await supabase.from('test_account_details').update({ expires_at: newExpiresAt, updated_at: new Date().toISOString() }).eq('tenant_id', tenantId);
+      await supabase.from('subscriptions').update({ current_period_end: newExpiresAt }).eq('tenant_id', tenantId);
+    }
+    AdminService.logAction(adminUser, 'EXTEND_TEST_ACCOUNT', tenantId, `Prorrogado até ${new Date(newExpiresAt).toLocaleDateString('pt-BR')}`);
+  },
+
+  // ── LOGS DOS USUÁRIOS ─────────────────────────────────────────────────────
+
+  async getUserActivityLogs(params?: {
+    days?: number;
+    tenantId?: string;
+    action?: string;
+    limit?: number;
+  }): Promise<UserActivityLog[]> {
+    const limit = params?.limit ?? 200;
+
+    if (DEMO_MODE) {
+      const mockActions = ['LOGIN', 'AI_REQUEST', 'DOCUMENT_GENERATED', 'CREDIT_CONSUMED', 'STUDENT_CREATED', 'PROTOCOL_GENERATED', 'ACTIVITY_GENERATED'];
+      const mockUsers = [
+        { email: 'maria@prof.com', name: 'Maria Silva', tenant_id: 't1' },
+        { email: 'contato@aprender.com', name: 'Clínica Aprender', tenant_id: 't2' },
+        { email: 'joao@school.com', name: 'João Teacher', tenant_id: 't3' },
+      ];
+      return Array.from({ length: 30 }, (_, i) => {
+        const u = mockUsers[i % mockUsers.length];
+        const action = mockActions[i % mockActions.length];
+        return {
+          id: `log-${i}`,
+          tenant_id: u.tenant_id,
+          user_email: u.email,
+          user_name: u.name,
+          action,
+          resource_type: action === 'DOCUMENT_GENERATED' ? 'document' : action === 'AI_REQUEST' ? 'ai' : undefined,
+          details: { source: 'demo' },
+          created_at: new Date(Date.now() - i * 3600000 * 2).toISOString(),
+        };
+      });
+    }
+
+    try {
+      let query = supabase
+        .from('user_activity_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (params?.days) {
+        const since = new Date(Date.now() - params.days * 86400000).toISOString();
+        query = query.gte('created_at', since);
+      }
+      if (params?.tenantId) query = query.eq('tenant_id', params.tenantId);
+      if (params?.action)   query = query.eq('action', params.action);
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data ?? []) as UserActivityLog[];
+    } catch {
+      return [];
+    }
+  },
+
+  // ── ALERTAS ───────────────────────────────────────────────────────────────
+
+  async getAlertConfigs(): Promise<AlertConfig[]> {
+    if (DEMO_MODE) {
+      return [
+        { id: 'ac1', alert_key: 'low_credits_20', alert_type: 'low_credits', threshold: 20, title: 'Seus créditos estão acabando', message: 'Você tem menos de {credits} créditos restantes. Adquira um pacote agora.', is_active: true, updated_at: new Date().toISOString() },
+        { id: 'ac2', alert_key: 'low_credits_10', alert_type: 'low_credits', threshold: 10, title: 'Créditos críticos — ação necessária', message: 'Atenção! Você tem apenas {credits} créditos. Renove agora.', is_active: true, updated_at: new Date().toISOString() },
+        { id: 'ac3', alert_key: 'plan_expired',   alert_type: 'plan_expired', title: 'Seu plano venceu', message: 'Seu plano venceu em {date}. Renove agora para continuar acessando o IncluiAI.', is_active: true, updated_at: new Date().toISOString() },
+        { id: 'ac4', alert_key: 'plan_expiring_7d', alert_type: 'plan_expiring', days_before: 7, title: 'Seu plano vence em breve', message: 'Seu plano vence em {days} dias ({date}). Renove agora para garantir continuidade.', is_active: true, updated_at: new Date().toISOString() },
+      ];
+    }
+    try {
+      const { data, error } = await supabase.from('alert_configs').select('*').order('alert_type');
+      if (error) throw error;
+      return (data ?? []) as AlertConfig[];
+    } catch {
+      return [];
+    }
+  },
+
+  async saveAlertConfig(config: AlertConfig, adminUser: AdminUser): Promise<void> {
+    if (!['super_admin', 'operacional'].includes(adminUser.role)) throw new Error('Permissão negada');
+    if (!DEMO_MODE) {
+      const { error } = await supabase
+        .from('alert_configs')
+        .upsert({
+          id:              config.id,
+          alert_key:       config.alert_key,
+          alert_type:      config.alert_type,
+          threshold:       config.threshold,
+          days_before:     config.days_before,
+          title:           config.title,
+          message:         config.message,
+          is_active:       config.is_active,
+          updated_by_name: adminUser.name,
+          updated_at:      new Date().toISOString(),
+        }, { onConflict: 'alert_key' });
+      if (error) throw error;
+    }
+    AdminService.logAction(adminUser, 'UPDATE_ALERT_CONFIG', config.alert_key, `Alerta "${config.title}" — ${config.is_active ? 'ativo' : 'inativo'}`);
+  },
+
+  async getLowCreditUsers(threshold: number = 20): Promise<Subscriber[]> {
+    const all = await AdminService.getSubscribers();
+    return all.filter(s => {
+      const remaining = s.creditsLimit - s.creditsUsed;
+      return s.status === 'ACTIVE' && remaining <= threshold && remaining >= 0;
+    });
+  },
+
+  async getOverdueUsers(): Promise<Subscriber[]> {
+    const all = await AdminService.getSubscribers();
+    return all.filter(s => s.status === 'OVERDUE' || s.status === 'CANCELED');
+  },
+
+  async getExpiringSoonUsers(days: number = 7): Promise<Subscriber[]> {
+    const all = await AdminService.getSubscribers();
+    const now = new Date();
+    const target = new Date();
+    target.setDate(target.getDate() + days);
+    return all.filter(s => {
+      if (s.status !== 'ACTIVE' || !s.nextBilling || s.nextBilling === '—') return false;
+      const parts = s.nextBilling.split('/');
+      if (parts.length !== 3) return false;
+      const billingDate = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+      return billingDate >= now && billingDate <= target;
+    });
+  },
+
+  async extendSubscription(tenantId: string, newDate: string, adminUser: AdminUser): Promise<void> {
+    if (!['super_admin', 'operacional'].includes(adminUser.role)) throw new Error('Permissão negada');
+    if (!DEMO_MODE) {
+      const { error } = await supabase.from('subscriptions').update({ current_period_end: newDate, next_due_date: newDate, status: 'ACTIVE' }).eq('tenant_id', tenantId);
+      if (error) throw error;
+    }
+    AdminService.logAction(adminUser, 'EXTEND_SUBSCRIPTION', tenantId, `Prorrogou vencimento para ${newDate}`);
+  },
+
+  async sendCustomAlert(tenantId: string, message: string, adminUser: AdminUser): Promise<void> {
+    if (!['super_admin', 'operacional', 'suporte'].includes(adminUser.role)) throw new Error('Permissão negada');
+    if (!DEMO_MODE) {
+      const { error } = await supabase.from('tenant_alerts').insert({ tenant_id: tenantId, message, is_read: false, created_by: adminUser.name });
+      if (error) throw error;
+    }
+    AdminService.logAction(adminUser, 'SEND_ALERT', tenantId, `Enviou alerta: "${message}"`);
+  },
 };
 
 // ---------------------------------------------------------------------------

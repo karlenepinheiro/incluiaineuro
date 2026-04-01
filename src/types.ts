@@ -46,7 +46,7 @@ export type SubscriptionStatus =
   | 'INTERNAL_TEST';
 
 // ADMIN ROLES (RBAC)
-export type AdminRole = 'super_admin' | 'financeiro' | 'operacional' | 'viewer';
+export type AdminRole = 'super_admin' | 'financeiro' | 'operacional' | 'comercial' | 'suporte' | 'auditoria' | 'viewer';
 
 export interface AdminUser {
   id: string;
@@ -423,8 +423,8 @@ export interface Student {
 }
 
 export interface ServiceDailyChecklist {
-  desempenho: 1 | 2 | 3 | 4 | 5;        // Desempenho na atividade (1-5)
-  interacao: 1 | 2 | 3 | 4 | 5;          // Interação com pares/profissional (1-5)
+  desempenho: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;  // Desempenho na atividade (1-8)
+  interacao: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;    // Interação com pares/profissional (1-8)
   comportamento: 'adequado' | 'regular' | 'necessita_suporte'; // Comportamento geral
   progressoAtividade: string;             // Descrição do progresso na atividade
   estrategiasUsadas: string;              // Estratégias que funcionaram no dia
@@ -701,9 +701,55 @@ export interface LandingSection {
   title?: string;
   subtitle?: string;
   content_json: Record<string, any>;
+  is_active: boolean;
   updated_by?: string;
   updated_by_name?: string;
   updated_at: string;
+}
+
+/** Log de atividade de usuário/assinante no sistema */
+export interface UserActivityLog {
+  id: string;
+  tenant_id?: string;
+  user_id?: string;
+  user_email?: string;
+  user_name?: string;
+  action: string;
+  resource_type?: string;
+  resource_id?: string;
+  details?: Record<string, any>;
+  created_at: string;
+}
+
+/** Configuração de alerta interno (exibido para o assinante) */
+export interface AlertConfig {
+  id: string;
+  alert_key: string;
+  alert_type: 'low_credits' | 'plan_expired' | 'plan_expiring';
+  threshold?: number;
+  days_before?: number;
+  title: string;
+  message: string;
+  is_active: boolean;
+  updated_by_name?: string;
+  updated_at: string;
+}
+
+/** Detalhe de conta de teste criada pelo CEO */
+export interface TestAccountDetail {
+  tenant_id: string;
+  account_name: string;
+  responsible_name?: string;
+  email: string;
+  plan_code: string;
+  initial_credits: number;
+  credits_remaining: number;
+  expires_at?: string;
+  observation?: string;
+  status: 'active' | 'suspended' | 'expired';
+  subscription_status: string;
+  created_by_name?: string;
+  created_at: string;
 }
 
 /** Registro expandido de assinante (view CEO) */

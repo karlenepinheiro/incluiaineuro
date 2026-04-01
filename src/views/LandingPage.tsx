@@ -11,6 +11,7 @@ import {
 import { motion } from 'framer-motion';
 import { SiteConfig } from '../types';
 import { AdminService } from '../services/adminService';
+import { LandingService } from '../services/landingService';
 import { Spotlight } from '@/src/components/aceternity/spotlight';
 import { AnimatedGradientText } from '@/src/components/magicui/animated-gradient-text';
 import { ShimmerButton } from '@/src/components/magicui/shimmer-button';
@@ -316,10 +317,34 @@ const CSS = `
 `;
 
 // ─── Component ───────────────────────────────────────────────────────────────
+const HERO_DEFAULTS = { cta_primary: 'Começar grátis', cta_secondary: 'Entrar' };
+const FAQ_DEFAULTS: Array<{ q: string; a: string }> = [
+  { q: 'Para quem é o IncluiAI?', a: 'Para professores de AEE, psicopedagogos, fonoaudiólogos e demais profissionais de educação inclusiva.' },
+  { q: 'Os dados dos alunos são seguros?', a: 'Sim. Armazenamos em conformidade com a LGPD, com criptografia e auditoria SHA-256.' },
+  { q: 'Posso cancelar a qualquer momento?', a: 'Sim, sem multas ou taxas de cancelamento.' },
+];
+
 export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister, onAudit, onUpgradeClick }) => {
   const [config, setConfig] = useState<SiteConfig | null>(null);
+  const [heroCta, setHeroCta]   = useState(HERO_DEFAULTS);
+  const [faqTitle, setFaqTitle] = useState('Perguntas frequentes');
+  const [faqItems, setFaqItems] = useState(FAQ_DEFAULTS);
+  const [faqOpen, setFaqOpen]   = useState<number | null>(null);
 
-  useEffect(() => { AdminService.getSiteConfig().then(setConfig); }, []);
+  useEffect(() => {
+    AdminService.getSiteConfig().then(setConfig);
+    LandingService.getActive().then(sections => {
+      sections.forEach(s => {
+        if (s.section_key === 'hero') {
+          setHeroCta(prev => ({ ...prev, ...s.content_json }));
+        }
+        if (s.section_key === 'faq') {
+          if (s.title) setFaqTitle(s.title);
+          if (Array.isArray(s.content_json.items)) setFaqItems(s.content_json.items);
+        }
+      });
+    }).catch(() => { /* mantém defaults */ });
+  }, []);
 
   const scrollTo = (e: React.MouseEvent, id: string) => {
     e.preventDefault();
@@ -435,7 +460,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
                 style={{ display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 60 }}
               >
                 <ShimmerButton onClick={onLogin} shimmerColor="#C69214" background="#1F4E5F" borderRadius="8px" className="text-base font-semibold">
-                  Começar grátis <ArrowRight size={17} />
+                  {heroCta.cta_primary} <ArrowRight size={17} />
                 </ShimmerButton>
                 <a href="#problema" onClick={e => scrollTo(e, 'problema')} className="btn-ghost" style={{ fontSize: 15, padding: '14px 32px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
                   Ver o problema
@@ -927,6 +952,73 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
             </div>
           </div>
         </section>
+
+        {/* ════════════════════════ FAQ ════════════════════════ */}
+        {faqItems.length > 0 && (
+          <section style={{ background: '#F8FAFC', padding: '88px 0 80px' }}>
+            <div style={{ maxWidth: 760, margin: '0 auto', padding: '0 28px' }}>
+              <div style={{ textAlign: 'center', marginBottom: 48 }}>
+                <div style={{
+                  display: 'inline-block', fontSize: 11, fontWeight: 700, color: '#1E3A5F',
+                  textTransform: 'uppercase', letterSpacing: '0.12em',
+                  background: '#EFF6FF', padding: '5px 14px', borderRadius: 100, marginBottom: 18,
+                }}>
+                  FAQ
+                </div>
+                <h2 style={{
+                  fontSize: 'clamp(26px, 4vw, 40px)', fontWeight: 800,
+                  color: '#0F172A', letterSpacing: '-0.03em', lineHeight: 1.12,
+                }}>
+                  {faqTitle}
+                </h2>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {faqItems.map((item, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      background: '#FFFFFF', border: `1.5px solid ${faqOpen === i ? '#1E3A5F' : '#E2E8F0'}`,
+                      borderRadius: 14, overflow: 'hidden',
+                      transition: 'border-color 0.2s',
+                    }}
+                  >
+                    <button
+                      onClick={() => setFaqOpen(faqOpen === i ? null : i)}
+                      style={{
+                        width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '20px 24px', background: 'none', border: 'none', cursor: 'pointer',
+                        fontFamily: 'inherit', textAlign: 'left',
+                      }}
+                    >
+                      <span style={{ fontSize: 15, fontWeight: 700, color: '#0F172A', lineHeight: 1.4 }}>
+                        {item.q}
+                      </span>
+                      <span style={{
+                        flexShrink: 0, marginLeft: 16, width: 22, height: 22,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: faqOpen === i ? '#1E3A5F' : '#F1F5F9', borderRadius: '50%',
+                        transition: 'background 0.2s',
+                      }}>
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                          <path
+                            d={faqOpen === i ? 'M2 5h6' : 'M5 2v6M2 5h6'}
+                            stroke={faqOpen === i ? 'white' : '#64748B'} strokeWidth="1.6"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </span>
+                    </button>
+                    {faqOpen === i && (
+                      <div style={{ padding: '0 24px 20px', fontSize: 14, color: '#64748B', lineHeight: 1.7 }}>
+                        {item.a}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
       </main>
 

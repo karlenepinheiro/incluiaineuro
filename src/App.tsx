@@ -281,19 +281,49 @@ const App: React.FC = () => {
     return () => window.removeEventListener('incluiai:credits-changed', handleCreditsChanged);
   }, [user?.id]);
 
-    // --- Restore session (inclui retorno de OAuth Google) ---
+    // --- Restore session (inclui retorno de OAuth Google e confirmacao de e-mail) ---
   useEffect(() => {
-    (async () => {
-      if (DEMO_MODE) return;
+    if (DEMO_MODE) return;
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user?.id) return;
+    // Flag para evitar double-load caso getSession e onAuthStateChange disparem juntos
+    let loaded = false;
 
-      const profile = await databaseService.getUserProfile(session.user.id).catch(() => null);
-      if (!profile) return;
+    const loadAuthUser = async (userId: string) => {
+      if (loaded) return;
+      // Retry curto: trigger pode estar em processamento no primeiro acesso pós-cadastro/OAuth
+      let profile: User | null = null;
+      for (let i = 0; i < 5; i++) {
+        if (i > 0) await new Promise(r => setTimeout(r, 700));
+        profile = await databaseService.getUserProfile(userId).catch(() => null);
+        if (profile) break;
+      }
+      // Fallback para usuários OAuth (Google) cujo trigger não disparou:
+      // chama a RPC ensure_user_profile que cria o perfil on-demand.
+      if (!profile) {
+        try {
+          await supabase.rpc('ensure_user_profile');
+          await new Promise(r => setTimeout(r, 500));
+          profile = await databaseService.getUserProfile(userId).catch(() => null);
+        } catch { /* silencioso */ }
+      }
+      if (!profile || loaded) return;
+      loaded = true;
+      await _loadAfterAuth(profile).catch(() => {});
+    };
 
-      await _loadAfterAuth(profile);
-    })();
+    // 1. Sessao ja existente (refresh da pagina)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.id) loadAuthUser(session.user.id);
+    });
+
+    // 2. Novos eventos de auth: retorno de confirmacao de e-mail, OAuth callback
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session?.user?.id) {
+        loadAuthUser(session.user.id);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -344,7 +374,8 @@ const App: React.FC = () => {
 
     setUser(profile);
     setIsAuthenticated(true);
-    setView(profile.isAdmin ? 'admin' : needsLGPD || needsSchoolSetup ? 'settings' : 'dashboard');
+    const isCeo = profile.isAdmin || String(profile.role ?? '').toUpperCase() === 'CEO';
+    setView(isCeo ? 'admin' : needsLGPD || needsSchoolSetup ? 'settings' : 'dashboard');
 
     const [studentsDb, protocolsDb, summaryDb, plansDb, subInfo, serviceRecordsDb] = await Promise.all([
       databaseService.getStudents(profile.id),
@@ -389,9 +420,9 @@ const App: React.FC = () => {
       setIsAuthenticated(true);
       setView('dashboard');
       setEffectivePlans([
-        { name: 'FREE', max_students: 5, monthly_credits: 0 },
+        { name: 'FREE', max_students: 5, monthly_credits: 60 },
         { name: 'PRO', max_students: 30, monthly_credits: 500 },
-        { name: 'MASTER', max_students: 999, monthly_credits: 700 },
+        { name: 'MASTER', max_students: 9999, monthly_credits: 700 },
       ]);
       setTenantSummary({ aiCreditsRemaining: 0, studentLimitBase: 5, renewalDateCredits: null });
       return;
@@ -403,8 +434,14 @@ const App: React.FC = () => {
     const userId = data.user?.id;
     if (!userId) throw new Error('Falha ao obter usuário autenticado.');
 
-    const profile = await databaseService.getUserProfile(userId);
-    if (!profile) throw new Error('Perfil não encontrado. Tente novamente em instantes.');
+    // Retry: perfil pode estar em processamento logo apos o primeiro cadastro
+    let profile: User | null = null;
+    for (let i = 0; i < 4; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 600));
+      profile = await databaseService.getUserProfile(userId).catch(() => null);
+      if (profile) break;
+    }
+    if (!profile) throw new Error('Perfil não encontrado. Confirme seu e-mail ou contate o suporte.');
 
     await _loadAfterAuth(profile);
   };
@@ -441,9 +478,25 @@ const App: React.FC = () => {
 
   // --- Login com Google ---
   const handleGoogleLogin = async () => {
+    if (DEMO_MODE) {
+      // Em modo demo não há Supabase configurado — simula login como visitante demo
+      setUser({ ...MOCK_USER, email: 'demo@incluiai.com', name: 'Modo Demonstração' });
+      setIsAuthenticated(true);
+      setView('dashboard');
+      setEffectivePlans([
+        { name: 'FREE', max_students: 5, monthly_credits: 60 },
+        { name: 'PRO', max_students: 30, monthly_credits: 500 },
+        { name: 'MASTER', max_students: 9999, monthly_credits: 700 },
+      ]);
+      setTenantSummary({ aiCreditsRemaining: 0, studentLimitBase: 5, renewalDateCredits: null });
+      return;
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: {
+        redirectTo: window.location.origin,
+        queryParams: { access_type: 'offline', prompt: 'consent' },
+      },
     });
     if (error) throw error;
     // Navegador redireciona para Google — o restore session abaixo captura o retorno
@@ -924,6 +977,18 @@ const App: React.FC = () => {
     );
   }
 
+  // ── CEO panel: layout independente, fullscreen real ──────────────────────
+  // Deve ficar ANTES do return do layout comum para não herdar sidebar/header/main.
+  if (view === 'admin') {
+    return (
+      <ErrorBoundary>
+        {showLGPD && <LGPDModal onAccept={handleLGPDAccept} />}
+        <AdminDashboard user={user} onLogout={handleLogout} />
+      </ErrorBoundary>
+    );
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   const isDocView = ['protocols', 'pdi', 'paee', 'estudo_caso'].includes(view);
 
   return (
@@ -984,8 +1049,6 @@ const App: React.FC = () => {
           </header>
 
           <main className="flex-1 overflow-y-auto p-4 lg:p-8">
-            {view === 'admin' && <AdminDashboard user={user} onClose={() => setView('dashboard')} />}
-
             {view === 'dashboard' && (
               <DashboardView
                 userName={user.name}

@@ -3,14 +3,14 @@ import {
   Users, DollarSign, TrendingUp, AlertCircle, Brain, Zap,
   PieChart, Activity, ArrowUpRight, ArrowDownRight, PlusCircle,
   Shield, CreditCard, FileText, Globe, CheckCircle, XCircle,
-  Save, LogOut, Search, Edit3, Trash2, Lock, RefreshCw,
+  Save, Search, Edit3, Trash2, Lock, RefreshCw,
   Package, TestTube, ChevronDown, ChevronUp, Eye, EyeOff,
-  AlertTriangle, RotateCcw, Gift, Layers, Sun, Moon,
+  AlertTriangle, RotateCcw, Gift, Layers, Sun, Moon, LogOut,
 } from 'lucide-react';
 import {
   AdminRole, AdminUser, AdminLog, SiteConfig, PlanTier,
   Subscriber, Plan, CreditLedgerEntry, LandingSection, SubscriptionStatus,
-  User,
+  User, UserActivityLog
 } from '../types';
 import { supabase, DEMO_MODE } from '../services/supabase';
 import { AdminService } from '../services/adminService';
@@ -23,12 +23,8 @@ import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
 // TYPES
 // ============================================================================
 
-type Tab = 'overview' | 'plans' | 'subscribers' | 'credits' | 'landing' | 'test_accounts' | 'admins' | 'logs';
+type Tab = 'overview' | 'plans' | 'subscribers' | 'monitoring' | 'credits' | 'landing' | 'test_accounts' | 'admins' | 'user_logs' | 'logs';
 
-const CURRENT_ADMIN_MOCK: AdminUser = {
-  id: 'admin_curr', name: 'Super Admin', email: 'ceo@incluiai.com',
-  role: 'super_admin', active: true, createdAt: new Date().toISOString(),
-};
 
 // ============================================================================
 // DARK MODE CSS (injetado via <style> quando darkMode=true)
@@ -177,6 +173,80 @@ const PLAN_COLOR: Record<string, string> = {
 };
 
 // ============================================================================
+// SUB SEARCH PICKER — busca tenant por nome/e-mail (sem UUID)
+// ============================================================================
+
+interface SubPickerResult { tenant_id: string; name: string; email: string; plan: string; }
+
+const SubSearchPicker = ({ onSelect, placeholder = 'Buscar por nome, escola ou e-mail...' }: {
+  onSelect: (r: SubPickerResult) => void;
+  placeholder?: string;
+}) => {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SubPickerResult[]>([]);
+  const [fetching, setFetching] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (query.length < 2) { setResults([]); return; }
+    const t = setTimeout(async () => {
+      setFetching(true);
+      try {
+        const subs = await AdminService.getSubscribers();
+        const q = query.toLowerCase();
+        setResults(
+          subs
+            .filter(s => s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q))
+            .slice(0, 8)
+            .map(s => ({ tenant_id: s.tenant_id, name: s.name, email: s.email, plan: String(s.plan) }))
+        );
+      } catch { setResults([]); }
+      finally { setFetching(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  return (
+    <div className="relative">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+        <input
+          className="w-full pl-9 pr-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-gray-300 outline-none"
+          placeholder={placeholder}
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 180)}
+        />
+        {fetching && <RefreshCw className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 animate-spin" size={12} />}
+      </div>
+      {open && results.length > 0 && (
+        <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-xl shadow-lg mt-1 overflow-hidden">
+          {results.map(r => (
+            <button
+              key={r.tenant_id}
+              className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center justify-between border-b border-gray-50 last:border-0"
+              onMouseDown={() => { onSelect(r); setQuery(''); setOpen(false); }}
+            >
+              <div>
+                <p className="text-sm font-bold text-gray-900">{r.name}</p>
+                <p className="text-xs text-gray-400">{r.email}</p>
+              </div>
+              <Badge color={PLAN_COLOR[r.plan] ?? 'gray'}>{r.plan}</Badge>
+            </button>
+          ))}
+        </div>
+      )}
+      {open && query.length >= 2 && results.length === 0 && !fetching && (
+        <div className="absolute z-50 w-full bg-white border border-gray-200 rounded-xl shadow-lg mt-1 px-4 py-3 text-sm text-gray-400 text-center">
+          Nenhum tenant encontrado para "{query}"
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
 // TAB: OVERVIEW
 // ============================================================================
 
@@ -184,9 +254,27 @@ const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: 
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [aiStats, setAiStats] = useState<{ total: number; success: number; failed: number; copilotActed: number } | null>(null);
+  const [planDist, setPlanDist] = useState<Record<string, number>>({});
 
   useEffect(() => {
     AdminService.getFinancialStats().then(s => { setStats(s); setLoading(false); });
+    // Distribuição real por plano para o donut
+    if (!DEMO_MODE) {
+      Promise.resolve(
+        supabase.from('v_ceo_subscribers')
+          .select('plan_code')
+          .not('subscription_status', 'eq', 'CANCELED')
+      ).then(({ data }) => {
+        const dist: Record<string, number> = {};
+        (data ?? []).forEach((r: any) => {
+          const code = r.plan_code ?? 'FREE';
+          if (code !== 'FREE') dist[code] = (dist[code] ?? 0) + 1;
+        });
+        setPlanDist(dist);
+      }).catch(() => {});
+    } else {
+      setPlanDist({ PRO: 52, MASTER: 38, INSTITUTIONAL: 10 });
+    }
 
     // Carrega métricas de IA dos últimos 30 dias
     if (!DEMO_MODE) {
@@ -219,10 +307,10 @@ const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: 
   ].filter(s => s.value > 0);
 
   const revenueSlices: DonutSlice[] = [
-    { label: 'PRO',          value: 52, color: '#3B82F6' },
-    { label: 'MASTER',       value: 38, color: '#8B5CF6' },
-    { label: 'INSTITUTIONAL',value: 10, color: '#10B981' },
-  ];
+    { label: 'PRO',          value: planDist.PRO ?? 0,           color: '#3B82F6' },
+    { label: 'MASTER',       value: planDist.MASTER ?? 0,        color: '#8B5CF6' },
+    { label: 'INSTITUTIONAL',value: planDist.INSTITUTIONAL ?? 0,  color: '#10B981' },
+  ].filter(s => s.value > 0);
 
   const mrrLabel = stats.mrr_estimated > 0
     ? `R$ ${(stats.mrr_estimated / 1000).toFixed(1)}k`
@@ -303,20 +391,25 @@ const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: 
               centerLabel={mrrLabel}
             />
             <div className="space-y-3 flex-1">
-              {revenueSlices.map(p => (
-                <div key={p.label}>
-                  <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-                      {p.label}
-                    </span>
-                    <span className="font-bold">{p.value}%</span>
+              {revenueSlices.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-4">Sem assinantes pagantes ainda.</p>
+              ) : (() => {
+                const total = revenueSlices.reduce((s, r) => s + r.value, 0) || 1;
+                return revenueSlices.map(p => (
+                  <div key={p.label}>
+                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
+                        {p.label}
+                      </span>
+                      <span className="font-bold">{p.value} ({Math.round((p.value/total)*100)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                      <div className="h-1.5 rounded-full" style={{ width: `${Math.round((p.value/total)*100)}%`, background: p.color }} />
+                    </div>
                   </div>
-                  <div className="w-full bg-gray-100 rounded-full h-1.5">
-                    <div className="h-1.5 rounded-full" style={{ width: `${p.value}%`, background: p.color }} />
-                  </div>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
           </div>
         </div>
@@ -547,6 +640,11 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [actionMode, setActionMode] = useState<'credits' | 'plan' | 'courtesy' | null>(null);
+  const [actionCredits, setActionCredits] = useState('');
+  const [actionPlan, setActionPlan] = useState('PRO');
+  const [actionReason, setActionReason] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -562,31 +660,40 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
     return matchSearch && matchStatus;
   });
 
+  const openAction = (subId: string, mode: 'credits' | 'plan' | 'courtesy') => {
+    if (expanded === subId && actionMode === mode) { setExpanded(null); setActionMode(null); return; }
+    setExpanded(subId);
+    setActionMode(mode);
+    setActionCredits('');
+    setActionPlan('PRO');
+    setActionReason('');
+  };
+
+  const handleInlineAction = async (sub: Subscriber) => {
+    if (!actionMode) return;
+    setActionLoading(sub.id);
+    try {
+      if (actionMode === 'credits') {
+        const amount = Number(actionCredits);
+        if (!amount || !actionReason.trim()) { alert('Preencha quantidade e motivo.'); return; }
+        await AdminService.grantCredits(sub.tenant_id, amount, actionReason, adminUser);
+      } else if (actionMode === 'plan') {
+        await AdminService.updateSubscriberPlan(sub.tenant_id, actionPlan, adminUser);
+      } else if (actionMode === 'courtesy') {
+        if (!actionReason.trim()) { alert('Informe o motivo da cortesia.'); return; }
+        await AdminService.grantCourtesy(sub.tenant_id, actionReason, adminUser);
+      }
+      setExpanded(null); setActionMode(null);
+      await load();
+    } catch (e: any) { alert(e.message); }
+    finally { setActionLoading(null); }
+  };
+
   const doAction = async (action: () => Promise<void>, subId: string) => {
     setActionLoading(subId);
     try { await action(); await load(); }
     catch (e: any) { alert(e.message); }
     finally { setActionLoading(null); }
-  };
-
-  const handleGrantCredits = (sub: Subscriber) => {
-    const amount = prompt(`Créditos para ${sub.name} (negativo = estorno):`);
-    if (!amount || isNaN(Number(amount))) return;
-    const reason = prompt('Motivo (para auditoria):');
-    if (!reason) return;
-    doAction(() => AdminService.grantCredits(sub.tenant_id, Number(amount), reason, adminUser), sub.id);
-  };
-
-  const handleChangePlan = (sub: Subscriber) => {
-    const code = prompt(`Novo plano para ${sub.name} (FREE/PRO/MASTER/INSTITUTIONAL):`);
-    if (!code) return;
-    doAction(() => AdminService.updateSubscriberPlan(sub.tenant_id, code.toUpperCase(), adminUser), sub.id);
-  };
-
-  const handleCourtesy = (sub: Subscriber) => {
-    const reason = prompt(`Motivo da cortesia para ${sub.name}:`);
-    if (!reason) return;
-    doAction(() => AdminService.grantCourtesy(sub.tenant_id, reason, adminUser), sub.id);
   };
 
   return (
@@ -630,8 +737,10 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
             <tbody className="divide-y divide-gray-100">
               {filtered.map(sub => {
                 const isLoading = actionLoading === sub.id;
+                const isExpanded = expanded === sub.id;
                 return (
-                  <tr key={sub.id} className="hover:bg-gray-50/50">
+                  <React.Fragment key={sub.id}>
+                  <tr className="hover:bg-gray-50/50">
                     <td className="px-5 py-3">
                       <p className="font-bold text-gray-900">{sub.name}</p>
                       <p className="text-xs text-gray-400">{sub.email}</p>
@@ -668,10 +777,10 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
                         <div className="flex gap-1 justify-end flex-wrap">
                           {['super_admin', 'operacional'].includes(adminUser.role) && (
                             <>
-                              <button onClick={() => handleGrantCredits(sub)} title="Conceder/estornar créditos" className="px-2 py-1 text-xs font-bold bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100 transition">
+                              <button onClick={() => openAction(sub.id, 'credits')} title="Conceder/estornar créditos" className={`px-2 py-1 text-xs font-bold rounded-lg transition ${isExpanded && actionMode === 'credits' ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}>
                                 <Zap size={11} className="inline mr-0.5" />Créditos
                               </button>
-                              <button onClick={() => handleChangePlan(sub)} title="Alterar plano" className="px-2 py-1 text-xs font-bold bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition">
+                              <button onClick={() => openAction(sub.id, 'plan')} title="Alterar plano" className={`px-2 py-1 text-xs font-bold rounded-lg transition ${isExpanded && actionMode === 'plan' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
                                 <Package size={11} className="inline mr-0.5" />Plano
                               </button>
                               {sub.status === 'ACTIVE' ? (
@@ -683,7 +792,7 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
                                   <CheckCircle size={11} className="inline mr-0.5" />Reativar
                                 </button>
                               )}
-                              <button onClick={() => handleCourtesy(sub)} className="px-2 py-1 text-xs font-bold bg-amber-50 text-amber-700 rounded-lg hover:bg-amber-100 transition">
+                              <button onClick={() => openAction(sub.id, 'courtesy')} title="Conceder cortesia" className={`px-2 py-1 text-xs font-bold rounded-lg transition ${isExpanded && actionMode === 'courtesy' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}>
                                 <Gift size={11} className="inline mr-0.5" />Cortesia
                               </button>
                             </>
@@ -692,6 +801,71 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
                       )}
                     </td>
                   </tr>
+                  {/* Painel de ação inline — aparece abaixo da linha selecionada */}
+                  {isExpanded && actionMode && (
+                    <tr>
+                      <td colSpan={7} style={{ background: 'rgba(249,250,251,0.98)', borderBottom: '2px solid #E5E7EB' }}>
+                        <div className="px-6 py-4">
+                          <div className="flex items-start gap-4 flex-wrap">
+                            <div className="flex-1 min-w-[280px]">
+                              <p className="text-xs font-bold text-gray-500 mb-2 uppercase">
+                                {actionMode === 'credits' && `Créditos para ${sub.name}`}
+                                {actionMode === 'plan' && `Alterar plano de ${sub.name}`}
+                                {actionMode === 'courtesy' && `Cortesia para ${sub.name}`}
+                              </p>
+                              {actionMode === 'credits' && (
+                                <div className="flex gap-3 items-end flex-wrap">
+                                  <div>
+                                    <label className="block text-xs text-gray-400 mb-1">Quantidade (negativo = estorno)</label>
+                                    <input type="number" autoFocus className="border rounded-lg px-3 py-1.5 text-sm w-32 focus:ring-2 focus:ring-purple-300 outline-none" value={actionCredits} onChange={e => setActionCredits(e.target.value)} placeholder="+50 ou -10" />
+                                  </div>
+                                  <div className="flex-1 min-w-[180px]">
+                                    <label className="block text-xs text-gray-400 mb-1">Motivo (obrigatório para auditoria)</label>
+                                    <input className="w-full border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-purple-300 outline-none" value={actionReason} onChange={e => setActionReason(e.target.value)} placeholder="Ex: Bonificação por feedback" />
+                                  </div>
+                                </div>
+                              )}
+                              {actionMode === 'plan' && (
+                                <div className="flex gap-3 items-end">
+                                  <div>
+                                    <label className="block text-xs text-gray-400 mb-1">Novo plano</label>
+                                    <select className="border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-300 outline-none" value={actionPlan} onChange={e => setActionPlan(e.target.value)}>
+                                      <option value="FREE">FREE — Starter (60 créditos / 5 alunos)</option>
+                                      <option value="PRO">PRO — Profissional (500 créditos / 30 alunos)</option>
+                                      <option value="MASTER">MASTER — Clínicas (700 créditos / ilimitado)</option>
+                                      <option value="INSTITUTIONAL">INSTITUTIONAL</option>
+                                    </select>
+                                  </div>
+                                  <p className="text-xs text-gray-400">Plano atual: <strong>{String(sub.plan)}</strong></p>
+                                </div>
+                              )}
+                              {actionMode === 'courtesy' && (
+                                <div>
+                                  <label className="block text-xs text-gray-400 mb-1">Motivo da cortesia (obrigatório)</label>
+                                  <input autoFocus className="w-full border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-amber-300 outline-none" value={actionReason} onChange={e => setActionReason(e.target.value)} placeholder="Ex: Cliente parceiro, erro de cobrança, demo comercial" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex gap-2 items-center pt-4">
+                              <button
+                                onClick={() => handleInlineAction(sub)}
+                                disabled={actionLoading === sub.id}
+                                className="px-4 py-2 text-sm font-bold text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1.5"
+                                style={{ background: actionMode === 'credits' ? '#7C3AED' : actionMode === 'plan' ? '#2563EB' : '#D97706' }}
+                              >
+                                {actionLoading === sub.id ? <RefreshCw size={13} className="animate-spin" /> : <CheckCircle size={13} />}
+                                Confirmar
+                              </button>
+                              <button onClick={() => { setExpanded(null); setActionMode(null); }} className="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition">
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
               {filtered.length === 0 && (
@@ -706,11 +880,121 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
 };
 
 // ============================================================================
+// TAB: MONITORAMENTO DE ASSINANTES
+// ============================================================================
+
+const MonitoringTab = ({ adminUser }: { adminUser: AdminUser }) => {
+  const [filter, setFilter] = useState<'low_credit' | 'overdue' | 'expiring'>('low_credit');
+  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (filter === 'low_credit') setSubscribers(await AdminService.getLowCreditUsers(20));
+      else if (filter === 'overdue') setSubscribers(await AdminService.getOverdueUsers());
+      else if (filter === 'expiring') setSubscribers(await AdminService.getExpiringSoonUsers(7));
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  }, [filter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const doAction = async (subId: string, action: () => Promise<void>) => {
+    setActionLoading(subId);
+    try { await action(); await load(); }
+    catch (e: any) { alert(e.message); }
+    finally { setActionLoading(null); }
+  };
+
+  const handleCredit = (sub: Subscriber) => {
+    const amt = prompt('Créditos a conceder (ex: 50):');
+    if (amt && !isNaN(Number(amt))) doAction(sub.id, () => AdminService.grantCredits(sub.tenant_id, Number(amt), 'Monitoramento: Reforço manual', adminUser));
+  };
+
+  const handleExtend = (sub: Subscriber) => {
+    const date = prompt('Nova data de vencimento (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
+    if (date) doAction(sub.id, () => AdminService.extendSubscription(sub.tenant_id, date, adminUser));
+  };
+
+  const handleAlert = (sub: Subscriber) => {
+    const msg = prompt('Mensagem de alerta persistente para o usuário:');
+    if (msg) doAction(sub.id, () => AdminService.sendCustomAlert(sub.tenant_id, msg, adminUser));
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
+        <div>
+          <h2 className="text-2xl font-bold">Monitoramento de Risco</h2>
+          <p className="text-gray-400 text-sm">Controle proativo de churn, uso de créditos e atrasos.</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setFilter('low_credit')} className={`px-4 py-2 rounded-xl text-sm font-bold transition ${filter === 'low_credit' ? 'bg-orange-100 text-orange-700' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>Pouco Crédito</button>
+          <button onClick={() => setFilter('overdue')} className={`px-4 py-2 rounded-xl text-sm font-bold transition ${filter === 'overdue' ? 'bg-red-100 text-red-700' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>Vencidos</button>
+          <button onClick={() => setFilter('expiring')} className={`px-4 py-2 rounded-xl text-sm font-bold transition ${filter === 'expiring' ? 'bg-yellow-100 text-yellow-700' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>Vencendo (7 dias)</button>
+          <button onClick={load} className="p-2 border rounded-xl text-gray-500 hover:bg-gray-50"><RefreshCw size={16} /></button>
+        </div>
+      </div>
+
+      {loading ? <div className="text-gray-400 text-sm">Carregando dados...</div> : (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
+          <table className="w-full text-sm min-w-[800px]">
+            <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
+              <tr>
+                <th className="px-5 py-3 text-left">Assinante</th>
+                <th className="px-5 py-3 text-left">Status / Vencimento</th>
+                <th className="px-5 py-3 text-left">Uso de Créditos</th>
+                <th className="px-5 py-3 text-right">Ações Rápidas</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {subscribers.map(sub => (
+                <tr key={sub.id} className="hover:bg-gray-50/50">
+                  <td className="px-5 py-3">
+                    <p className="font-bold text-gray-900">{sub.name}</p>
+                    <p className="text-xs text-gray-400">{sub.email}</p>
+                  </td>
+                  <td className="px-5 py-3">
+                    <SubscriptionStatusBadge status={sub.status} size="sm" />
+                    <p className={`text-xs mt-1 font-mono ${filter === 'overdue' ? 'text-red-500 font-bold' : 'text-gray-500'}`}>{sub.nextBilling}</p>
+                  </td>
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-20 bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${sub.creditsLimit - sub.creditsUsed <= 20 ? 'bg-red-500' : 'bg-purple-500'}`} style={{ width: `${Math.min(100, (sub.creditsUsed / Math.max(1, sub.creditsLimit)) * 100)}%` }} />
+                      </div>
+                      <span className={`text-xs font-bold ${sub.creditsLimit - sub.creditsUsed <= 20 ? 'text-red-500' : 'text-gray-500'}`}>{sub.creditsUsed}/{sub.creditsLimit}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    {actionLoading === sub.id ? <RefreshCw size={14} className="animate-spin text-gray-400 ml-auto" /> : (
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => handleAlert(sub)} className="px-2 py-1 text-xs font-bold bg-orange-50 text-orange-700 rounded hover:bg-orange-100"><AlertCircle size={11} className="inline mr-0.5"/> Alerta</button>
+                        <button onClick={() => handleCredit(sub)} className="px-2 py-1 text-xs font-bold bg-purple-50 text-purple-700 rounded hover:bg-purple-100"><Zap size={11} className="inline mr-0.5"/> Crédito</button>
+                        <button onClick={() => handleExtend(sub)} className="px-2 py-1 text-xs font-bold bg-blue-50 text-blue-700 rounded hover:bg-blue-100"><Clock size={11} className="inline mr-0.5"/> Prazo</button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {subscribers.length === 0 && <tr><td colSpan={4} className="px-5 py-8 text-center text-gray-400">Nenhum assinante nesta lista.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
 // TAB: CRÉDITOS
 // ============================================================================
 
 const CreditsTab = ({ adminUser }: { adminUser: AdminUser }) => {
   const [tenantId, setTenantId] = useState('');
+  const [selectedSubName, setSelectedSubName] = useState('');
   const [balance, setBalance] = useState<number | null>(null);
   const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
   const [loadingLedger, setLoadingLedger] = useState(false);
@@ -811,18 +1095,19 @@ const CreditsTab = ({ adminUser }: { adminUser: AdminUser }) => {
         {/* Busca por tenant */}
         <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-gray-200">
           <h3 className="font-bold text-sm text-gray-700 mb-3">Buscar Tenant</h3>
-          <div className="flex gap-2 mb-4">
-            <input
-              className="flex-1 border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none font-mono"
-              placeholder="UUID do tenant..."
-              value={tenantId}
-              onChange={e => setTenantId(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            />
-            <button onClick={handleSearch} disabled={loadingLedger} className="bg-gray-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-gray-800 transition flex items-center gap-2 disabled:opacity-50">
-              {loadingLedger ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />} Buscar
-            </button>
+          <div className="mb-4">
+            <SubSearchPicker onSelect={r => { setTenantId(r.tenant_id); setSelectedSubName(r.name); handleSearch(); }} />
           </div>
+          {selectedSubName && tenantId && (
+            <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-gray-50 rounded-xl border border-gray-100">
+              <CheckCircle size={14} className="text-green-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-gray-800 truncate">{selectedSubName}</p>
+                <p className="text-xs text-gray-400 font-mono truncate">{tenantId}</p>
+              </div>
+              <button onClick={() => { setTenantId(''); setSelectedSubName(''); setBalance(null); setLedger([]); }} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+            </div>
+          )}
 
           {balance !== null && (
             <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4">
@@ -831,7 +1116,7 @@ const CreditsTab = ({ adminUser }: { adminUser: AdminUser }) => {
             </div>
           )}
 
-          {ledger.length > 0 && renderLedgerTable(ledger, `Histórico — ${tenantId.slice(0, 8)}...`)}
+          {ledger.length > 0 && renderLedgerTable(ledger, `Histórico — ${selectedSubName || tenantId.slice(0, 8) + '...'}`)}
         </div>
 
         {/* Formulário de concessão */}
@@ -839,8 +1124,10 @@ const CreditsTab = ({ adminUser }: { adminUser: AdminUser }) => {
           <h3 className="font-bold text-sm text-gray-700 mb-3">Conceder / Estornar Créditos</h3>
           <div className="space-y-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Tenant ID</label>
-              <input className="w-full border rounded-lg px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-gray-300 outline-none" value={tenantId} onChange={e => setTenantId(e.target.value)} placeholder="UUID do tenant" />
+              <label className="block text-xs text-gray-500 mb-1">Tenant selecionado</label>
+              <div className="w-full border rounded-lg px-3 py-2 text-xs bg-gray-50 text-gray-600 min-h-[36px]">
+                {selectedSubName ? <><strong>{selectedSubName}</strong><br/><span className="font-mono text-gray-400">{tenantId.slice(0,16)}…</span></> : <span className="text-gray-400">Selecione via busca ao lado</span>}
+              </div>
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Quantidade (negativo = estorno)</label>
@@ -865,164 +1152,604 @@ const CreditsTab = ({ adminUser }: { adminUser: AdminUser }) => {
 };
 
 // ============================================================================
-// TAB: LANDING / COMERCIAL
+// TAB: LANDING / COMERCIAL — Editor por seções (CEO_COMMERCIAL_STEP_1)
 // ============================================================================
 
+// ── Shared types & styles ────────────────────────────────────────────────────
+
+type LDSectionDraft = {
+  title: string;
+  subtitle: string;
+  content_json: Record<string, any>;
+  updated_at?: string;
+};
+type LDDrafts = Record<string, LDSectionDraft>;
+type LDEditorProps = { sectionKey: string; draft: LDSectionDraft; setJson: (patch: Record<string, any>) => void };
+
+const LD_FIELD: React.CSSProperties = {
+  width: '100%', border: '1.5px solid #E2E8F0', borderRadius: 10,
+  padding: '10px 14px', fontSize: 14, color: '#0F172A', outline: 'none',
+  boxSizing: 'border-box', fontFamily: 'inherit', background: '#FFFFFF',
+  transition: 'border-color 0.15s',
+};
+const LD_LABEL: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 };
+const LD_SECTION_TAG: React.CSSProperties = { fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#94A3B8', marginBottom: 14, display: 'block' };
+const LD_CARD: React.CSSProperties = { background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18, padding: '24px 28px', marginBottom: 16 };
+const LD_GRID2: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 };
+const LD_ADDBUTTON = (color: string): React.CSSProperties => ({
+  display: 'flex', alignItems: 'center', gap: 5, padding: '5px 14px',
+  borderRadius: 8, border: `1px solid ${color}40`, background: `${color}10`,
+  color, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+});
+const LD_DELBTN: React.CSSProperties = {
+  padding: '9px 12px', background: '#FEF2F2', border: '1px solid #FECACA',
+  color: '#DC2626', borderRadius: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0,
+};
+
+// ── Section definitions ──────────────────────────────────────────────────────
+
+const LD_SECTIONS = [
+  { key: 'hero',      label: 'Hero',           icon: Layers,       color: '#6366F1', desc: 'Título, subtítulo e botões da página inicial' },
+  { key: 'planos',    label: 'Planos',         icon: Package,      color: '#0EA5E9', desc: 'Preços, taglines e features dos planos PRO e PREMIUM' },
+  { key: 'descontos', label: 'Descontos',      icon: CreditCard,   color: '#16A34A', desc: 'Cupons promocionais e textos de urgência' },
+  { key: 'kiwify',    label: 'Links Kiwify',   icon: CreditCard,   color: '#16A34A', desc: 'URLs de checkout dos produtos na Kiwify' },
+  { key: 'creditos',  label: 'Créditos',       icon: Zap,          color: '#D97706', desc: 'Pacotes de créditos avulsos (adicionar / editar / remover)' },
+  { key: 'avisos',    label: 'Avisos',         icon: AlertCircle,  color: '#DC2626', desc: '48h, vitalício, parcelamento e selos de confiança' },
+  { key: 'faq',       label: 'FAQ',            icon: FileText,     color: '#7C3AED', desc: 'Perguntas e respostas (adicionar / editar / remover)' },
+];
+
+const LD_DEFAULTS: LDDrafts = {
+  hero: {
+    title: 'A IA que entende a educação inclusiva',
+    subtitle: 'Gere documentos, PEI, PAEE e relatórios em segundos. Devolvendo seu tempo e sua energia.',
+    content_json: { cta_primary: 'Começar grátis', cta_secondary: 'Entrar' },
+  },
+  planos: {
+    title: 'Invista onde o impacto é real.',
+    subtitle: 'Chega de levar o planejamento para o domingo.',
+    content_json: {
+      pro_full_price: 79, pro_discount_price: 59,
+      pro_tagline: 'Para professores e especialistas',
+      pro_features: ['Até 30 alunos', 'PEI, PAEE, PDI e relatórios', 'Atividades com BNCC', 'Histórico do aluno', 'Suporte padrão'],
+      premium_full_price: 122, premium_discount_price: 99,
+      premium_tagline: 'Para escolas e clínicas',
+      premium_features: ['Alunos ilimitados', 'Tudo do plano Pro', 'Análise de laudos com IA', 'Geração avançada de atividades', 'Relatórios evolutivos completos', 'Prioridade em novos recursos'],
+    },
+  },
+  descontos: {
+    title: 'Cupons e descontos ativos',
+    subtitle: 'Configure os cupons exibidos na landing page.',
+    content_json: {
+      pro_coupon: 'INCLUIAI59', pro_coupon_active: true,
+      premium_coupon: 'INCLUIAI99', premium_coupon_active: true,
+      badge_label: 'Valores promocionais por tempo limitado',
+      urgency_label: 'Oferta válida por 48 horas',
+    },
+  },
+  kiwify: {
+    title: 'Links de Checkout Kiwify',
+    subtitle: 'Cole aqui as URLs completas dos produtos criados na Kiwify.',
+    content_json: {
+      pro_monthly_url: '',
+      pro_annual_url: '',
+      premium_monthly_url: '',
+      premium_annual_url: '',
+      credits_100_url: '',
+      credits_300_url: '',
+      credits_900_url: '',
+    },
+  },
+  creditos: {
+    title: 'Pacotes de créditos avulsos',
+    subtitle: 'Configure os pacotes exibidos na landing e no app.',
+    content_json: {
+      packages: [
+        { id: 'pkg_100', credits: 100, price: 29.90, label: 'Pacote Básico' },
+        { id: 'pkg_300', credits: 300, price: 79.90, label: 'Pacote Intermediário' },
+        { id: 'pkg_900', credits: 900, price: 149.90, label: 'Pacote Avançado' },
+      ],
+    },
+  },
+  avisos: {
+    title: 'Avisos comerciais',
+    subtitle: 'Mensagens e selos exibidos na landing page.',
+    content_json: {
+      urgency_badge: 'Valores promocionais por tempo limitado',
+      urgency_clock: 'Oferta válida por 48 horas',
+      installment_title: 'Parcelamento inteligente que facilita a aprovação',
+      installment_items: ['Mais leve no limite do cartão', 'Sem necessidade de limite alto disponível', 'Parcele em até 12x'],
+      lifetime_active: false,
+      lifetime_text: 'Acesso vitalício disponível para fundadores',
+      trust_items: ['Cancele quando quiser', 'Sem taxa de instalação', 'LGPD conforme', 'Suporte incluído'],
+    },
+  },
+  faq: {
+    title: 'Perguntas frequentes',
+    subtitle: 'Tire suas dúvidas sobre o IncluiAI.',
+    content_json: {
+      items: [
+        { q: 'Para quem é o IncluiAI?', a: 'Para professores de AEE, psicopedagogos, fonoaudiólogos e demais profissionais de educação inclusiva.' },
+        { q: 'Os dados dos alunos são seguros?', a: 'Sim. Armazenamos em conformidade com a LGPD, com criptografia e auditoria SHA-256.' },
+        { q: 'Posso cancelar a qualquer momento?', a: 'Sim, sem multas ou taxas de cancelamento.' },
+      ],
+    },
+  },
+};
+
+// ── Sub-editors ──────────────────────────────────────────────────────────────
+
+const LDHeroEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
+  const cj = draft.content_json;
+  return (
+    <div style={LD_CARD}>
+      <span style={LD_SECTION_TAG}>Botões e CTAs</span>
+      <div style={LD_GRID2}>
+        {([
+          { k: 'cta_primary',   label: 'Botão principal (CTA primário)' },
+          { k: 'cta_secondary', label: 'Botão secundário (login / entrar)' },
+        ] as const).map(({ k, label }) => (
+          <div key={k}>
+            <label style={LD_LABEL}>{label}</label>
+            <input style={LD_FIELD} value={String(cj[k] ?? '')} onChange={e => setJson({ [k]: e.target.value })} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const LDPlanosEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
+  const cj = draft.content_json;
+  const updateFeature = (plan: string, i: number, val: string) => {
+    const arr = [...(cj[`${plan}_features`] ?? [])]; arr[i] = val;
+    setJson({ [`${plan}_features`]: arr });
+  };
+  const addFeature = (plan: string) => setJson({ [`${plan}_features`]: [...(cj[`${plan}_features`] ?? []), 'Nova feature'] });
+  const removeFeature = (plan: string, i: number) => setJson({ [`${plan}_features`]: (cj[`${plan}_features`] ?? []).filter((_: any, idx: number) => idx !== i) });
+
+  const PlanCard = ({ plan, label, color }: { plan: string; label: string; color: string }) => (
+    <div style={{ border: `1.5px solid ${color}25`, borderRadius: 16, padding: 20, background: `${color}05` }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 7 }}>
+        <Package size={14} color={color} /> Plano {label}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+        <div>
+          <label style={LD_LABEL}>Preço De (riscado) R$</label>
+          <input type="number" style={LD_FIELD} value={Number(cj[`${plan}_full_price`] ?? 0)} onChange={e => setJson({ [`${plan}_full_price`]: Number(e.target.value) })} />
+        </div>
+        <div>
+          <label style={LD_LABEL}>Preço por (desconto) R$</label>
+          <input type="number" style={LD_FIELD} value={Number(cj[`${plan}_discount_price`] ?? 0)} onChange={e => setJson({ [`${plan}_discount_price`]: Number(e.target.value) })} />
+        </div>
+      </div>
+      <div style={{ marginBottom: 14 }}>
+        <label style={LD_LABEL}>Tagline do plano</label>
+        <input style={LD_FIELD} value={String(cj[`${plan}_tagline`] ?? '')} onChange={e => setJson({ [`${plan}_tagline`]: e.target.value })} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <label style={{ ...LD_LABEL, marginBottom: 0 }}>Features</label>
+        <button onClick={() => addFeature(plan)} style={LD_ADDBUTTON(color)}>
+          <PlusCircle size={12} /> Adicionar
+        </button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {(cj[`${plan}_features`] ?? []).map((f: string, i: number) => (
+          <div key={i} style={{ display: 'flex', gap: 8 }}>
+            <input style={{ ...LD_FIELD, flex: 1 }} value={f} onChange={e => updateFeature(plan, i, e.target.value)} />
+            <button onClick={() => removeFeature(plan, i)} style={LD_DELBTN}><Trash2 size={13} /></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={LD_CARD}>
+      <span style={LD_SECTION_TAG}>Planos PRO e MASTER — preços, taglines e features</span>
+      <div style={LD_GRID2}>
+        <PlanCard plan="pro" label="PRO" color="#1E3A5F" />
+        <PlanCard plan="premium" label="PREMIUM" color="#7C3AED" />
+      </div>
+    </div>
+  );
+};
+
+const LDDescontosEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
+  const cj = draft.content_json;
+  return (
+    <>
+      <div style={LD_CARD}>
+        <span style={LD_SECTION_TAG}>Cupons de desconto</span>
+        <div style={LD_GRID2}>
+          {/* PRO */}
+          <div style={{ border: '1.5px solid #BBF7D0', borderRadius: 14, padding: 18, background: '#F0FDF4' }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#16A34A', marginBottom: 14 }}>Cupom PRO</div>
+            <label style={LD_LABEL}>Código</label>
+            <input style={{ ...LD_FIELD, fontFamily: 'monospace', fontWeight: 800, fontSize: 17, letterSpacing: '0.06em', marginBottom: 12 }}
+              value={String(cj.pro_coupon ?? '')}
+              onChange={e => setJson({ pro_coupon: e.target.value.toUpperCase() })} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 600 }}>
+              <input type="checkbox" checked={Boolean(cj.pro_coupon_active ?? true)} onChange={e => setJson({ pro_coupon_active: e.target.checked })} />
+              Ativo — exibir na landing
+            </label>
+          </div>
+          {/* MASTER */}
+          <div style={{ border: '1.5px solid #DDD6FE', borderRadius: 14, padding: 18, background: '#FAF5FF' }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#7C3AED', marginBottom: 14 }}>Cupom MASTER</div>
+            <label style={LD_LABEL}>Código</label>
+            <input style={{ ...LD_FIELD, fontFamily: 'monospace', fontWeight: 800, fontSize: 17, letterSpacing: '0.06em', marginBottom: 12 }}
+              value={String(cj.premium_coupon ?? '')}
+              onChange={e => setJson({ premium_coupon: e.target.value.toUpperCase() })} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 600 }}>
+              <input type="checkbox" checked={Boolean(cj.master_coupon_active ?? true)} onChange={e => setJson({ master_coupon_active: e.target.checked })} />
+              Ativo — exibir na landing
+            </label>
+          </div>
+        </div>
+      </div>
+      <div style={LD_CARD}>
+        <span style={LD_SECTION_TAG}>Textos de urgência</span>
+        <div style={LD_GRID2}>
+          <div>
+            <label style={LD_LABEL}>Badge superior (barra chama)</label>
+            <input style={LD_FIELD} value={String(cj.badge_label ?? '')} onChange={e => setJson({ badge_label: e.target.value })} />
+          </div>
+          <div>
+            <label style={LD_LABEL}>Badge do relógio (48h etc)</label>
+            <input style={LD_FIELD} value={String(cj.urgency_label ?? '')} onChange={e => setJson({ urgency_label: e.target.value })} />
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const LDKiwifyEditor: React.FC<LDEditorProps> = ({ draft, setJson }) => {
+  const cj = draft.content_json;
+  const fields = [
+      { key: 'pro_monthly_url', label: 'PRO Mensal' },
+      { key: 'pro_annual_url', label: 'PRO Anual' },
+      { key: 'premium_monthly_url', label: 'PREMIUM Mensal' },
+      { key: 'premium_annual_url', label: 'PREMIUM Anual' },
+      { key: 'credits_100_url', label: 'Créditos 100 (AI100)' },
+      { key: 'credits_300_url', label: 'Créditos 300 (AI300)' },
+      { key: 'credits_900_url', label: 'Créditos 900 (AI900)' },
+  ] as const;
+
+  return (
+      <div style={LD_CARD}>
+          <span style={LD_SECTION_TAG}>URLs de Checkout</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              {fields.map(({ key, label }) => (
+                  <div key={key}>
+                      <label style={LD_LABEL}>{label}</label>
+                      <input
+                          style={LD_FIELD}
+                          value={String(cj[key] ?? '')}
+                          onChange={e => setJson({ [key]: e.target.value })}
+                          placeholder="https://kiwify.app/..."
+                      />
+                  </div>
+              ))}
+          </div>
+      </div>
+  );
+};
+
+const LDCreditosEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
+  const packages: any[] = draft.content_json.packages ?? [];
+  const updatePkg = (i: number, field: string, val: any) => setJson({ packages: packages.map((p, idx) => idx === i ? { ...p, [field]: val } : p) });
+  const addPkg = () => setJson({ packages: [...packages, { id: `pkg_${Date.now()}`, credits: 100, price: 29.90, label: 'Novo pacote' }] });
+  const removePkg = (i: number) => setJson({ packages: packages.filter((_, idx) => idx !== i) });
+
+  return (
+    <div style={LD_CARD}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <span style={{ ...LD_SECTION_TAG, marginBottom: 0 }}>Pacotes de créditos ({packages.length})</span>
+        <button onClick={addPkg} style={LD_ADDBUTTON('#D97706')}>
+          <PlusCircle size={13} /> Novo pacote
+        </button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {packages.map((pkg, i) => (
+          <div key={i} style={{ border: '1.5px solid #FDE68A', borderRadius: 14, padding: '18px 20px', background: '#FFFBEB', display: 'grid', gridTemplateColumns: '130px 140px 1fr auto', gap: 14, alignItems: 'flex-end' }}>
+            <div>
+              <label style={LD_LABEL}>Créditos</label>
+              <input type="number" style={LD_FIELD} value={pkg.credits} onChange={e => updatePkg(i, 'credits', Number(e.target.value))} />
+            </div>
+            <div>
+              <label style={LD_LABEL}>Preço (R$)</label>
+              <input type="number" step="0.01" style={LD_FIELD} value={pkg.price} onChange={e => updatePkg(i, 'price', Number(e.target.value))} />
+            </div>
+            <div>
+              <label style={LD_LABEL}>Descrição do pacote</label>
+              <input style={LD_FIELD} value={pkg.label ?? ''} onChange={e => updatePkg(i, 'label', e.target.value)} />
+            </div>
+            <button onClick={() => removePkg(i)} style={LD_DELBTN}><Trash2 size={14} /></button>
+          </div>
+        ))}
+        {packages.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '28px 0', color: '#94A3B8', fontSize: 14 }}>Nenhum pacote cadastrado.</div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const LDAvisosEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
+  const cj = draft.content_json;
+  const updList = (field: string, i: number, val: string) => { const a = [...(cj[field] ?? [])]; a[i] = val; setJson({ [field]: a }); };
+  const addList = (field: string) => setJson({ [field]: [...(cj[field] ?? []), 'Novo item'] });
+  const rmList  = (field: string, i: number) => setJson({ [field]: (cj[field] ?? []).filter((_: any, idx: number) => idx !== i) });
+
+  const ListEditor = ({ field, label, color }: { field: string; label: string; color: string }) => (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <label style={{ ...LD_LABEL, marginBottom: 0 }}>{label}</label>
+        <button onClick={() => addList(field)} style={LD_ADDBUTTON(color)}><PlusCircle size={12} /> Adicionar</button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {(cj[field] ?? []).map((item: string, i: number) => (
+          <div key={i} style={{ display: 'flex', gap: 8 }}>
+            <input style={{ ...LD_FIELD, flex: 1 }} value={item} onChange={e => updList(field, i, e.target.value)} />
+            <button onClick={() => rmList(field, i)} style={LD_DELBTN}><Trash2 size={13} /></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      <div style={LD_CARD}>
+        <span style={LD_SECTION_TAG}>Badges de urgência</span>
+        <div style={LD_GRID2}>
+          <div>
+            <label style={LD_LABEL}>Badge superior (chama / Flame)</label>
+            <input style={LD_FIELD} value={String(cj.urgency_badge ?? '')} onChange={e => setJson({ urgency_badge: e.target.value })} />
+          </div>
+          <div>
+            <label style={LD_LABEL}>Badge do relógio (ex: 48 horas)</label>
+            <input style={LD_FIELD} value={String(cj.urgency_clock ?? '')} onChange={e => setJson({ urgency_clock: e.target.value })} />
+          </div>
+        </div>
+      </div>
+      <div style={LD_CARD}>
+        <span style={LD_SECTION_TAG}>Bloco de parcelamento inteligente</span>
+        <div style={{ marginBottom: 14 }}>
+          <label style={LD_LABEL}>Título do bloco</label>
+          <input style={LD_FIELD} value={String(cj.installment_title ?? '')} onChange={e => setJson({ installment_title: e.target.value })} />
+        </div>
+        <ListEditor field="installment_items" label="Itens do parcelamento" color="#1D4ED8" />
+      </div>
+      <div style={LD_CARD}>
+        <span style={LD_SECTION_TAG}>Aviso vitalício (opcional)</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 600, marginBottom: 12 }}>
+          <input type="checkbox" checked={Boolean(cj.lifetime_active ?? false)} onChange={e => setJson({ lifetime_active: e.target.checked })} />
+          Exibir aviso de acesso vitalício na landing
+        </label>
+        <label style={LD_LABEL}>Texto do aviso</label>
+        <input style={{ ...LD_FIELD, opacity: cj.lifetime_active ? 1 : 0.45 }} value={String(cj.lifetime_text ?? '')} disabled={!cj.lifetime_active} onChange={e => setJson({ lifetime_text: e.target.value })} />
+      </div>
+      <div style={LD_CARD}>
+        <span style={LD_SECTION_TAG}>Selos de confiança (rodapé da seção de preços)</span>
+        <ListEditor field="trust_items" label="Selos" color="#16A34A" />
+      </div>
+    </>
+  );
+};
+
+const LDFaqEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
+  const items: { q: string; a: string }[] = draft.content_json.items ?? [];
+  const upd = (i: number, field: 'q' | 'a', val: string) => setJson({ items: items.map((it, idx) => idx === i ? { ...it, [field]: val } : it) });
+  const add = () => setJson({ items: [...items, { q: 'Nova pergunta?', a: 'Resposta aqui...' }] });
+  const remove = (i: number) => setJson({ items: items.filter((_, idx) => idx !== i) });
+
+  return (
+    <div style={LD_CARD}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <span style={{ ...LD_SECTION_TAG, marginBottom: 0 }}>Perguntas e respostas ({items.length})</span>
+        <button onClick={add} style={LD_ADDBUTTON('#7C3AED')}><PlusCircle size={13} /> Adicionar pergunta</button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {items.map((item, i) => (
+          <div key={i} style={{ border: '1.5px solid #E2E8F0', borderRadius: 14, padding: '18px 20px', background: '#FAFAFA' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color: '#7C3AED', background: '#F5F3FF', padding: '3px 12px', borderRadius: 20 }}>#{i + 1}</span>
+              <button onClick={() => remove(i)} style={{ display: 'flex', alignItems: 'center', gap: 5, ...LD_DELBTN, padding: '5px 12px', fontSize: 12, fontWeight: 600 }}>
+                <Trash2 size={12} /> Remover
+              </button>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={LD_LABEL}>Pergunta</label>
+              <input style={LD_FIELD} value={item.q} onChange={e => upd(i, 'q', e.target.value)} />
+            </div>
+            <div>
+              <label style={LD_LABEL}>Resposta</label>
+              <textarea rows={3} style={{ ...LD_FIELD, resize: 'vertical' } as React.CSSProperties} value={item.a} onChange={e => upd(i, 'a', e.target.value)} />
+            </div>
+          </div>
+        ))}
+        {items.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '32px 0', color: '#94A3B8', fontSize: 14 }}>
+            Sem perguntas cadastradas. Clique em "Adicionar pergunta" para começar.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ── Main LandingTab ──────────────────────────────────────────────────────────
+
 const LandingTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [sections, setSections] = useState<LandingSection[]>([]);
+  const [drafts, setDrafts]   = useState<LDDrafts>({});
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving]   = useState(false);
   const [activeSection, setActiveSection] = useState<string>('hero');
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    LandingService.getAll().then(s => { setSections(s); setLoading(false); });
+    LandingService.getAll().then(sections => {
+      const merged: LDDrafts = {};
+      // seed with defaults
+      Object.keys(LD_DEFAULTS).forEach(k => {
+        merged[k] = { ...LD_DEFAULTS[k], content_json: { ...LD_DEFAULTS[k].content_json } };
+      });
+      // overlay DB data
+      sections.forEach(s => {
+        const k = s.section_key;
+        merged[k] = {
+          title:        s.title    ?? merged[k]?.title    ?? '',
+          subtitle:     s.subtitle ?? merged[k]?.subtitle ?? '',
+          content_json: { ...(merged[k]?.content_json ?? {}), ...(s.content_json ?? {}) },
+          updated_at:   s.updated_at,
+        };
+      });
+      setDrafts(merged);
+      setLoading(false);
+    });
   }, []);
 
-  const updateSection = (key: string, field: 'title' | 'subtitle', value: string) => {
-    setSections(prev => prev.map(s => s.section_key === key ? { ...s, [field]: value } : s));
-  };
+  const setDraftField = (key: string, patch: Partial<LDSectionDraft>) =>
+    setDrafts(prev => ({ ...prev, [key]: { ...prev[key], ...patch } }));
 
-  const updateContentJson = (key: string, jsonKey: string, value: any) => {
-    setSections(prev => prev.map(s => s.section_key === key
-      ? { ...s, content_json: { ...s.content_json, [jsonKey]: value } }
-      : s
-    ));
-  };
+  const setJson = (key: string, patch: Record<string, any>) =>
+    setDrafts(prev => ({
+      ...prev,
+      [key]: { ...prev[key], content_json: { ...prev[key].content_json, ...patch } },
+    }));
 
   const handleSaveAll = async () => {
-    if (!['super_admin', 'operacional'].includes(adminUser.role)) {
-      alert('Permissão negada');
-      return;
-    }
+    if (!['super_admin', 'operacional'].includes(adminUser.role)) { alert('Permissão negada'); return; }
     setSaving(true);
     try {
       await LandingService.saveAll(
-        sections.map(s => ({ sectionKey: s.section_key, title: s.title, subtitle: s.subtitle, contentJson: s.content_json })),
+        (Object.entries(drafts) as [string, LDSectionDraft][]).map(([key, d]) => ({
+          sectionKey: key, title: d.title, subtitle: d.subtitle, contentJson: d.content_json,
+        })),
         undefined,
         adminUser.name,
       );
-      alert('Landing page atualizada e publicada!');
+      setSaveMsg('Publicado com sucesso!');
+      setTimeout(() => setSaveMsg(null), 3500);
     } catch (e: any) { alert(e.message); }
     finally { setSaving(false); }
   };
 
-  const current = sections.find(s => s.section_key === activeSection);
+  const activeMeta = LD_SECTIONS.find(s => s.key === activeSection)!;
+  const draft      = drafts[activeSection] ?? { title: '', subtitle: '', content_json: {} };
+  const makeSetJson = (k: string) => (patch: Record<string, any>) => setJson(k, patch);
 
-  if (loading) return <div className="text-gray-400 text-sm">Carregando conteúdo...</div>;
+  if (loading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0', gap: 10, color: '#94A3B8' }}>
+      <RefreshCw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Carregando conteúdo...
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
         <div>
-          <h2 className="text-2xl font-bold">Landing Page / Comercial</h2>
-          <p className="text-gray-400 text-sm">Edite o conteúdo público do site sem precisar de deploy.</p>
+          <h2 style={{ fontSize: 24, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.03em', marginBottom: 4 }}>Landing / Comercial</h2>
+          <p style={{ fontSize: 14, color: '#64748B' }}>Edite títulos, preços, cupons e conteúdo sem precisar de deploy.</p>
         </div>
-        <button onClick={handleSaveAll} disabled={saving} className="bg-gray-900 text-white px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-gray-800 disabled:opacity-50 transition">
-          {saving ? <RefreshCw size={14} className="animate-spin" /> : <Globe size={14} />} Salvar e Publicar
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {saveMsg && (
+            <span style={{ fontSize: 13, color: '#16A34A', fontWeight: 600, background: '#F0FDF4', padding: '8px 16px', borderRadius: 10, border: '1px solid #BBF7D0' }}>
+              ✓ {saveMsg}
+            </span>
+          )}
+          <button
+            onClick={handleSaveAll} disabled={saving}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, background: '#0F172A', color: 'white',
+              padding: '11px 24px', borderRadius: 12, fontSize: 14, fontWeight: 700,
+              border: 'none', cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1,
+              boxShadow: '0 4px 16px rgba(15,23,42,0.18)', transition: 'opacity 0.2s',
+            }}
+          >
+            {saving ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Globe size={14} />}
+            Salvar e Publicar
+          </button>
+        </div>
       </div>
 
-      <div className="flex gap-6">
-        {/* Sidebar de seções */}
-        <div className="w-44 shrink-0 space-y-1">
-          {sections.map(s => (
-            <button key={s.section_key} onClick={() => setActiveSection(s.section_key)}
-              className={`w-full text-left px-3 py-2 rounded-xl text-sm transition ${activeSection === s.section_key ? 'bg-gray-900 text-white font-bold' : 'text-gray-500 hover:bg-gray-100'}`}>
-              {s.section_key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-            </button>
-          ))}
-        </div>
+      {/* ── Layout: sidebar + editor ────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 22, alignItems: 'flex-start' }}>
 
-        {/* Editor da seção ativa */}
-        {current ? (
-          <div className="flex-1 bg-white p-6 rounded-2xl border border-gray-200">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-gray-800">Seção: <span className="text-indigo-600 font-mono">{current.section_key}</span></h3>
-              <p className="text-xs text-gray-400">Última atualização: {current.updated_at ? new Date(current.updated_at).toLocaleString('pt-BR') : '—'}</p>
+        {/* Sidebar */}
+        <nav style={{ width: 210, flexShrink: 0, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 18, padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {LD_SECTIONS.map(s => {
+            const isActive = activeSection === s.key;
+            const Icon = s.icon;
+            return (
+              <button key={s.key} onClick={() => setActiveSection(s.key)} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px',
+                borderRadius: 12, border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer',
+                background: isActive ? s.color : 'transparent',
+                color: isActive ? 'white' : '#64748B',
+                fontSize: 14, fontWeight: isActive ? 700 : 500,
+                transition: 'all 0.15s',
+                boxShadow: isActive ? `0 4px 14px ${s.color}35` : 'none',
+              }}>
+                <Icon size={15} />
+                {s.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Editor panel */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Section header card */}
+          <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18, padding: '18px 24px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{ width: 42, height: 42, background: `${activeMeta.color}15`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <activeMeta.icon size={19} color={activeMeta.color} />
             </div>
-            <div className="space-y-4">
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A' }}>{activeMeta.label}</div>
+              <div style={{ fontSize: 12, color: '#94A3B8' }}>{activeMeta.desc}</div>
+            </div>
+            {draft.updated_at && (
+              <div style={{ fontSize: 11, color: '#94A3B8', textAlign: 'right', flexShrink: 0 }}>
+                Atualizado em<br />
+                <strong style={{ color: '#64748B' }}>{new Date(draft.updated_at).toLocaleString('pt-BR')}</strong>
+              </div>
+            )}
+          </div>
+
+          {/* Title + Subtitle */}
+          <div style={{ ...LD_CARD, marginBottom: 16 }}>
+            <span style={LD_SECTION_TAG}>Textos principais da seção</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Título</label>
-                <input className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={current.title ?? ''} onChange={e => updateSection(current.section_key, 'title', e.target.value)} />
+                <label style={LD_LABEL}>Título</label>
+                <input style={LD_FIELD} value={draft.title} onChange={e => setDraftField(activeSection, { title: e.target.value })} />
               </div>
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Subtítulo</label>
-                <textarea className="w-full border rounded-xl p-3 text-sm focus:ring-2 focus:ring-gray-300 outline-none resize-none" rows={2} value={current.subtitle ?? ''} onChange={e => updateSection(current.section_key, 'subtitle', e.target.value)} />
+                <label style={LD_LABEL}>Subtítulo / descrição</label>
+                <textarea rows={2} style={{ ...LD_FIELD, resize: 'vertical' } as React.CSSProperties}
+                  value={draft.subtitle}
+                  onChange={e => setDraftField(activeSection, { subtitle: e.target.value })} />
               </div>
-
-              {/* Campos específicos por seção */}
-              {current.section_key === 'hero' && (
-                <div className="border border-gray-100 rounded-xl p-4 bg-gray-50 space-y-3">
-                  <p className="text-xs font-bold text-gray-500 uppercase">Configurações do Hero</p>
-                  {['cta_primary', 'cta_secondary', 'phone'].map(k => (
-                    <div key={k}>
-                      <label className="block text-xs text-gray-500 mb-1">{k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</label>
-                      <input className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={String(current.content_json[k] ?? '')} onChange={e => updateContentJson(current.section_key, k, e.target.value)} />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {current.section_key === 'pricing' && (
-                <div className="border border-gray-100 rounded-xl p-4 bg-gray-50 space-y-3">
-                  <p className="text-xs font-bold text-gray-500 uppercase">Preços Exibidos na Landing</p>
-                  {[
-                    { k: 'pro_monthly', label: 'PRO Mensal (R$)' },
-                    { k: 'pro_annual', label: 'PRO Anual (R$/mês)' },
-                    { k: 'master_monthly', label: 'MASTER Mensal (R$)' },
-                    { k: 'master_annual', label: 'MASTER Anual (R$/mês)' },
-                    { k: 'extra_student', label: 'Aluno extra (R$)' },
-                    { k: 'extra_credits_10', label: '+10 créditos (R$)' },
-                  ].map(({ k, label }) => (
-                    <div key={k}>
-                      <label className="block text-xs text-gray-500 mb-1">{label}</label>
-                      <input type="number" className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={Number(current.content_json[k] ?? 0)} onChange={e => updateContentJson(current.section_key, k, Number(e.target.value))} />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {current.section_key === 'faq' && (
-                <div className="border border-gray-100 rounded-xl p-4 bg-gray-50">
-                  <p className="text-xs font-bold text-gray-500 uppercase mb-2">FAQs (JSON)</p>
-                  <textarea
-                    className="w-full border rounded-lg p-3 text-xs font-mono focus:ring-2 focus:ring-gray-300 outline-none resize-y"
-                    rows={8}
-                    value={JSON.stringify(current.content_json.items ?? [], null, 2)}
-                    onChange={e => {
-                      try {
-                        const parsed = JSON.parse(e.target.value);
-                        updateContentJson(current.section_key, 'items', parsed);
-                      } catch {}
-                    }}
-                  />
-                  <p className="text-xs text-gray-400 mt-1">Formato: [{`{"q":"pergunta","a":"resposta"}`}]</p>
-                </div>
-              )}
-
-              {/* JSON bruto para seções sem editor dedicado */}
-              {!['hero', 'pricing', 'faq'].includes(current.section_key) && (
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 mb-1">Dados JSON</label>
-                  <textarea
-                    className="w-full border rounded-xl p-3 text-xs font-mono focus:ring-2 focus:ring-gray-300 outline-none resize-y"
-                    rows={6}
-                    value={JSON.stringify(current.content_json, null, 2)}
-                    onChange={e => {
-                      try {
-                        const parsed = JSON.parse(e.target.value);
-                        setSections(prev => prev.map(s => s.section_key === current.section_key ? { ...s, content_json: parsed } : s));
-                      } catch {}
-                    }}
-                  />
-                </div>
-              )}
             </div>
           </div>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-400">Selecione uma seção.</div>
-        )}
+
+          {/* Section-specific editor */}
+          {activeSection === 'hero'      && <LDHeroEditor      sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
+          {activeSection === 'planos'    && <LDPlanosEditor    sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
+          {activeSection === 'descontos' && <LDDescontosEditor sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
+          {activeSection === 'kiwify'    && <LDKiwifyEditor    sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
+          {activeSection === 'creditos'  && <LDCreditosEditor  sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
+          {activeSection === 'avisos'    && <LDAvisosEditor    sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
+          {activeSection === 'faq'       && <LDFaqEditor       sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
+        </div>
       </div>
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 };
@@ -1032,104 +1759,233 @@ const LandingTab = ({ adminUser }: { adminUser: AdminUser }) => {
 // ============================================================================
 
 const TestAccountsTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
+  const [accounts, setAccounts] = useState<import('../types').TestAccountDetail[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tenantId, setTenantId] = useState('');
-  const [planCode, setPlanCode] = useState('PRO');
-  const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
-  const loadTests = useCallback(async () => {
+  // Create form
+  const emptyForm = { name: '', responsibleName: '', email: '', password: '', planCode: 'PRO', credits: 200, expiresAt: '', observation: '' };
+  const [form, setForm] = useState(emptyForm);
+
+  // Inline actions
+  const [actionRow, setActionRow] = useState<string | null>(null); // tenant_id being acted on
+  const [creditAmount, setCreditAmount] = useState(50);
+  const [extendDate, setExtendDate] = useState('');
+
+  const loadAccounts = useCallback(async () => {
     setLoading(true);
-    const all = await AdminService.getSubscribers();
-    setSubscribers(all.filter(s => s.status === 'INTERNAL_TEST'));
+    const data = await AdminService.getTestAccountDetails();
+    setAccounts(data);
     setLoading(false);
   }, []);
 
-  useEffect(() => { loadTests(); }, [loadTests]);
+  useEffect(() => { loadAccounts(); }, [loadAccounts]);
+
+  const defaultExpiry = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  };
 
   const handleCreate = async () => {
-    if (!tenantId || !reason) { alert('Preencha Tenant ID e motivo.'); return; }
+    if (!form.name || !form.email || !form.password) {
+      alert('Preencha nome, e-mail e senha.');
+      return;
+    }
     setSaving(true);
     try {
-      await AdminService.createTestAccount({ tenantId, planCode, reason, adminUser });
-      setTenantId('');
-      setReason('');
-      await loadTests();
-      alert('Conta de teste criada!');
+      const result = await AdminService.createTestAccountFromScratch({
+        accountName: form.name,
+        responsibleName: form.responsibleName || form.name,
+        email: form.email,
+        password: form.password,
+        planCode: form.planCode,
+        initialCredits: form.credits,
+        expiresAt: form.expiresAt || defaultExpiry(),
+        observation: form.observation,
+        adminUser,
+      });
+      setForm(emptyForm);
+      await loadAccounts();
+      alert(result.message);
     } catch (e: any) { alert(e.message); }
     finally { setSaving(false); }
   };
 
+  const handleAddCredits = async (tenantId: string) => {
+    try {
+      await AdminService.grantCredits(tenantId, creditAmount, 'Adição manual via painel CEO', adminUser);
+      setActionRow(null);
+      await loadAccounts();
+      alert(`+${creditAmount} créditos adicionados.`);
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const handleExtend = async (tenantId: string) => {
+    if (!extendDate) { alert('Selecione nova data de vencimento.'); return; }
+    try {
+      await AdminService.extendTestAccount(tenantId, extendDate, adminUser);
+      setActionRow(null);
+      await loadAccounts();
+      alert('Vencimento prorrogado.');
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const handleDeactivate = async (tenantId: string) => {
+    if (!confirm('Desativar esta conta de teste?')) return;
+    try {
+      await AdminService.updateTestAccountStatus(tenantId, 'suspended', adminUser);
+      await loadAccounts();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const inp = 'w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none';
+
   return (
     <div>
       <h2 className="text-2xl font-bold mb-1">Contas de Teste</h2>
-      <p className="text-gray-400 text-sm mb-6">Crie contas internas sem cobrança para testes e demonstrações.</p>
+      <p className="text-gray-400 text-sm mb-6">Crie contas internas do zero, sem pagamento real.</p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-gray-200">
-          <h3 className="font-bold text-sm text-gray-700 mb-4 flex items-center gap-2"><TestTube size={16} className="text-green-600" /> Criar Conta de Teste</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-6">
+        {/* ── Formulário ── */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-200 self-start">
+          <h3 className="font-bold text-sm text-gray-700 mb-4 flex items-center gap-2">
+            <TestTube size={16} className="text-green-600" /> Criar Conta de Teste
+          </h3>
           <div className="space-y-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Tenant ID existente</label>
-              <input className="w-full border rounded-lg px-3 py-2 text-xs font-mono focus:ring-2 focus:ring-gray-300 outline-none" value={tenantId} onChange={e => setTenantId(e.target.value)} placeholder="UUID do tenant" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Nome da conta *</label>
+                <input className={inp} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Escola Modelo" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Responsável</label>
+                <input className={inp} value={form.responsibleName} onChange={e => setForm({ ...form, responsibleName: e.target.value })} placeholder="Nome do responsável" />
+              </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Plano de teste</label>
-              <select className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={planCode} onChange={e => setPlanCode(e.target.value)}>
-                <option value="FREE">FREE — Starter</option>
-                <option value="PRO">PRO — Profissional</option>
-                <option value="MASTER">MASTER — Clínicas/Escolas</option>
-                <option value="INSTITUTIONAL">INSTITUTIONAL</option>
-              </select>
+              <label className="block text-xs text-gray-500 mb-1">E-mail *</label>
+              <input type="email" className={inp} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="usuario@email.com" />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Motivo / Identificação</label>
-              <input className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={reason} onChange={e => setReason(e.target.value)} placeholder="Ex: Demo cliente X, teste interno QA" />
+              <label className="block text-xs text-gray-500 mb-1">Senha *</label>
+              <div className="relative">
+                <input type={showPassword ? 'text' : 'password'} className={inp + ' pr-9'} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="Mínimo 6 caracteres" />
+                <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
             </div>
-            <button onClick={handleCreate} disabled={saving || !tenantId || !reason} className="w-full bg-green-600 text-white py-2 rounded-xl text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition flex items-center justify-center gap-2">
-              {saving ? <RefreshCw size={14} className="animate-spin" /> : <PlusCircle size={14} />} Criar Conta de Teste
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Plano</label>
+                <select className={inp} value={form.planCode} onChange={e => setForm({ ...form, planCode: e.target.value })}>
+                  <option value="FREE">FREE — Starter</option>
+                  <option value="PRO">PRO — Profissional</option>
+                  <option value="MASTER">MASTER — Clínicas/Escolas</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Créditos iniciais</label>
+                <input type="number" min={0} className={inp} value={form.credits} onChange={e => setForm({ ...form, credits: Number(e.target.value) })} />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Vencimento (padrão: +30 dias)</label>
+              <input type="date" className={inp} value={form.expiresAt} onChange={e => setForm({ ...form, expiresAt: e.target.value })} />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Observação</label>
+              <input className={inp} value={form.observation} onChange={e => setForm({ ...form, observation: e.target.value })} placeholder="Ex: Demo parceiro X, teste QA" />
+            </div>
+            <button
+              onClick={handleCreate}
+              disabled={saving || !form.name || !form.email || !form.password}
+              className="w-full bg-green-600 text-white py-2 rounded-xl text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition flex items-center justify-center gap-2"
+            >
+              {saving ? <RefreshCw size={14} className="animate-spin" /> : <PlusCircle size={14} />} Criar Conta
             </button>
           </div>
           <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-            <p className="text-xs text-amber-700 font-medium">⚠️ Contas de teste não dependem de pagamento real. O status <strong>INTERNAL_TEST</strong> é diferente de ACTIVE e fica visível apenas no painel CEO.</p>
+            <p className="text-xs text-amber-700 font-medium">⚠️ Cria tenant + usuário + assinatura INTERNAL_TEST do zero. Sem cobrança real.</p>
           </div>
         </div>
 
-        <div className="lg:col-span-2">
+        {/* ── Listagem ── */}
+        <div className="lg:col-span-3">
           <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
             <div className="px-5 py-3 border-b border-gray-100 font-bold text-sm text-gray-700 flex items-center justify-between">
-              Contas de Teste Ativas
-              <button onClick={loadTests} className="p-1 hover:bg-gray-100 rounded text-gray-400"><RefreshCw size={13} /></button>
+              Contas de Teste
+              <button onClick={loadAccounts} className="p-1 hover:bg-gray-100 rounded text-gray-400"><RefreshCw size={13} /></button>
             </div>
             {loading ? (
               <div className="p-6 text-center text-gray-400 text-sm">Carregando...</div>
             ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
-                  <tr>
-                    <th className="px-4 py-2 text-left">Tenant</th>
-                    <th className="px-4 py-2 text-left">Plano</th>
-                    <th className="px-4 py-2 text-left">Status</th>
-                    <th className="px-4 py-2 text-left">Vencimento</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {subscribers.length === 0 ? (
-                    <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">Nenhuma conta de teste.</td></tr>
-                  ) : subscribers.map(sub => (
-                    <tr key={sub.id} className="hover:bg-gray-50/50">
-                      <td className="px-4 py-2">
-                        <p className="font-bold text-gray-900 text-sm">{sub.name}</p>
-                        <p className="text-xs text-gray-400">{sub.email}</p>
-                      </td>
-                      <td className="px-4 py-2"><Badge color={PLAN_COLOR[String(sub.plan)] ?? 'gray'}>{String(sub.plan)}</Badge></td>
-                      <td className="px-4 py-2"><SubscriptionStatusBadge status={sub.status} size="sm" /></td>
-                      <td className="px-4 py-2 text-xs text-gray-400 font-mono">{sub.nextBilling}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="divide-y divide-gray-100">
+                {accounts.length === 0 ? (
+                  <div className="p-6 text-center text-gray-400 text-sm">Nenhuma conta de teste.</div>
+                ) : accounts.map(acc => (
+                  <div key={acc.tenant_id} className="px-5 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-gray-900 text-sm">{acc.account_name}</span>
+                          <Badge color={PLAN_COLOR[acc.plan_code] ?? 'gray'}>{acc.plan_code}</Badge>
+                          <Badge color={acc.status === 'active' ? 'green' : acc.status === 'suspended' ? 'red' : 'gray'}>
+                            {acc.status === 'active' ? 'Ativa' : acc.status === 'suspended' ? 'Suspensa' : 'Expirada'}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">{acc.email}</p>
+                        <div className="flex gap-3 mt-1 text-xs text-gray-400 flex-wrap">
+                          <span>Créditos: <strong className="text-gray-700">{acc.credits_remaining}/{acc.initial_credits}</strong></span>
+                          {acc.expires_at && <span>Vence: <strong className="text-gray-700">{new Date(acc.expires_at).toLocaleDateString('pt-BR')}</strong></span>}
+                          {acc.observation && <span className="truncate max-w-[160px]" title={acc.observation}>{acc.observation}</span>}
+                        </div>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <button
+                          title="Adicionar créditos"
+                          onClick={() => { setActionRow(actionRow === acc.tenant_id + '_credits' ? null : acc.tenant_id + '_credits'); }}
+                          className="p-1.5 rounded-lg hover:bg-green-50 text-green-600 transition"
+                        ><CreditCard size={14} /></button>
+                        <button
+                          title="Prorrogar"
+                          onClick={() => { setActionRow(actionRow === acc.tenant_id + '_extend' ? null : acc.tenant_id + '_extend'); setExtendDate(''); }}
+                          className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition"
+                        ><RefreshCw size={14} /></button>
+                        {acc.status === 'active' && (
+                          <button
+                            title="Desativar"
+                            onClick={() => handleDeactivate(acc.tenant_id)}
+                            className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition"
+                          ><XCircle size={14} /></button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Painel: Adicionar créditos */}
+                    {actionRow === acc.tenant_id + '_credits' && (
+                      <div className="mt-3 flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl">
+                        <span className="text-xs text-green-700 font-medium shrink-0">+ Créditos:</span>
+                        <input type="number" min={1} className="border rounded-lg px-2 py-1 text-sm w-20" value={creditAmount} onChange={e => setCreditAmount(Number(e.target.value))} />
+                        <button onClick={() => handleAddCredits(acc.tenant_id)} className="bg-green-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-green-700 transition">Adicionar</button>
+                        <button onClick={() => setActionRow(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
+                      </div>
+                    )}
+
+                    {/* Painel: Prorrogar */}
+                    {actionRow === acc.tenant_id + '_extend' && (
+                      <div className="mt-3 flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                        <span className="text-xs text-blue-700 font-medium shrink-0">Nova data:</span>
+                        <input type="date" className="border rounded-lg px-2 py-1 text-sm" value={extendDate} onChange={e => setExtendDate(e.target.value)} />
+                        <button onClick={() => handleExtend(acc.tenant_id)} className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-blue-700 transition">Prorrogar</button>
+                        <button onClick={() => setActionRow(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -1176,10 +2032,13 @@ const AdminsTab = ({ adminUser, setAdminUser }: { adminUser: AdminUser; setAdmin
     } catch (e: any) { alert(e.message); }
   };
 
-  const ROLE_COLORS: Record<AdminRole, string> = {
+  const ROLE_COLORS: Record<string, string> = {
     super_admin: 'bg-red-100 text-red-700',
     financeiro: 'bg-green-100 text-green-700',
     operacional: 'bg-blue-100 text-blue-700',
+    comercial: 'bg-orange-100 text-orange-700',
+    suporte: 'bg-cyan-100 text-cyan-700',
+    auditoria: 'bg-yellow-100 text-yellow-700',
     viewer: 'bg-gray-100 text-gray-600',
   };
 
@@ -1215,6 +2074,9 @@ const AdminsTab = ({ adminUser, setAdminUser }: { adminUser: AdminUser; setAdmin
                 <option value="super_admin">Super Admin — Acesso total</option>
                 <option value="financeiro">Financeiro — Planos e KPIs</option>
                 <option value="operacional">Operacional — Assinantes e créditos</option>
+                <option value="comercial">Comercial — Visualização e relatórios comerciais</option>
+                <option value="suporte">Suporte — Atendimento a assinantes</option>
+                <option value="auditoria">Auditoria — Acesso a logs e trilha</option>
                 <option value="viewer">Viewer — Somente leitura</option>
               </select>
             </div>
@@ -1241,6 +2103,9 @@ const AdminsTab = ({ adminUser, setAdminUser }: { adminUser: AdminUser; setAdmin
             <option value="super_admin">Super Admin</option>
             <option value="financeiro">Financeiro</option>
             <option value="operacional">Operacional</option>
+            <option value="comercial">Comercial</option>
+            <option value="suporte">Suporte</option>
+            <option value="auditoria">Auditoria</option>
             <option value="viewer">Viewer</option>
           </select>
         </div>
@@ -1297,16 +2162,160 @@ const AdminsTab = ({ adminUser, setAdminUser }: { adminUser: AdminUser; setAdmin
 };
 
 // ============================================================================
+// TAB: USER LOGS (Atividade dos Usuários)
+// ============================================================================
+
+const UserLogsTab = () => {
+  const [logs, setLogs] = useState<UserActivityLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filterAction, setFilterAction] = useState('');
+  const [filterDays, setFilterDays] = useState('30');
+  const [searchUser, setSearchUser] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await AdminService.getUserActivityLogs({
+        days: filterDays === 'all' ? undefined : Number(filterDays)
+      });
+      setLogs(data);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  }, [filterDays]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const ACTION_COLORS: Record<string, string> = {
+    LOGIN: 'bg-blue-100 text-blue-700',
+    AI_REQUEST: 'bg-purple-100 text-purple-700',
+    DOCUMENT_GENERATED: 'bg-green-100 text-green-700',
+    CREDIT_CONSUMED: 'bg-orange-100 text-orange-700',
+    STUDENT_CREATED: 'bg-teal-100 text-teal-700',
+  };
+
+  const allActions = Array.from(new Set(logs.map(l => l.action))).sort();
+
+  const filtered = logs.filter(l => {
+    const matchAction = !filterAction || l.action === filterAction;
+    const matchUser = !searchUser ||
+      (l.user_name || '').toLowerCase().includes(searchUser.toLowerCase()) ||
+      (l.user_email || '').toLowerCase().includes(searchUser.toLowerCase()) ||
+      (l.tenant_id || '').toLowerCase().includes(searchUser.toLowerCase());
+    return matchAction && matchUser;
+  });
+
+  const exportCSV = () => {
+    const rows = [['Data/Hora', 'Usuário', 'E-mail', 'Ação', 'Recurso', 'Detalhes']];
+    filtered.forEach(l => rows.push([
+      new Date(l.created_at).toLocaleString('pt-BR'),
+      l.user_name || '', l.user_email || '', l.action, l.resource_type || '',
+      typeof l.details === 'object' && l.details !== null ? JSON.stringify(l.details) : String(l.details || '')
+    ]));
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('\uFEFF' + csv);
+    a.download = `user_activity_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-3 items-center justify-between mb-6">
+        <div>
+          <h2 className="text-2xl font-bold">Atividade dos Usuários</h2>
+          <p className="text-gray-400 text-sm">Monitoramento de ações realizadas pelos assinantes no sistema.</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+            <input
+              className="pl-9 pr-3 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-300"
+              placeholder="Buscar usuário..."
+              value={searchUser}
+              onChange={e => setSearchUser(e.target.value)}
+            />
+          </div>
+          <select className="border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300" value={filterDays} onChange={e => setFilterDays(e.target.value)}>
+            <option value="7">Últimos 7 dias</option>
+            <option value="30">Últimos 30 dias</option>
+            <option value="90">Últimos 90 dias</option>
+            <option value="all">Todos</option>
+          </select>
+          <select className="border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300" value={filterAction} onChange={e => setFilterAction(e.target.value)}>
+            <option value="">Todas as ações</option>
+            {allActions.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <button onClick={exportCSV} className="px-3 py-2 text-sm border rounded-xl hover:bg-gray-50 flex items-center gap-1.5 text-gray-600">
+            <FileText size={14} /> CSV
+          </button>
+          <button onClick={load} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"><RefreshCw size={15} /></button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-gray-400 text-sm py-8 text-center">Carregando logs...</div>
+      ) : (
+        <>
+          <div className="mb-2 text-xs text-gray-400">{filtered.length} registros exibidos</div>
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
+            <table className="w-full text-sm min-w-[800px]">
+              <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
+                <tr>
+                  <th className="px-5 py-3 text-left">Data/Hora</th>
+                  <th className="px-5 py-3 text-left">Usuário</th>
+                  <th className="px-5 py-3 text-left">Ação</th>
+                  <th className="px-5 py-3 text-left">Recurso</th>
+                  <th className="px-5 py-3 text-left">Detalhes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtered.map(log => (
+                  <tr key={log.id} className="hover:bg-gray-50/50">
+                    <td className="px-5 py-3 font-mono text-xs text-gray-400 whitespace-nowrap">{new Date(log.created_at).toLocaleString('pt-BR')}</td>
+                    <td className="px-5 py-3">
+                      <p className="font-bold text-gray-800 text-xs">{log.user_name || '—'}</p>
+                      <p className="text-[10px] text-gray-400">{log.user_email || '—'}</p>
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${ACTION_COLORS[log.action] ?? 'bg-gray-100 text-gray-600'}`}>{log.action}</span>
+                    </td>
+                    <td className="px-5 py-3 text-xs text-gray-500">{log.resource_type || '—'}</td>
+                    <td className="px-5 py-3 text-xs text-gray-500 max-w-xs truncate" title={typeof log.details === 'object' && log.details !== null ? JSON.stringify(log.details) : String(log.details || '—')}>
+                      {typeof log.details === 'object' && log.details !== null ? JSON.stringify(log.details) : String(log.details || '—')}
+                    </td>
+                  </tr>
+                ))}
+                {filtered.length === 0 && (
+                  <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Nenhuma ação registrada no período.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
 // TAB: LOGS
 // ============================================================================
 
 const LogsTab = () => {
   const [logs, setLogs] = useState<AdminLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filterAction, setFilterAction] = useState('');
+  const [filterDays, setFilterDays] = useState('30');
+  const [filterAdmin, setFilterAdmin] = useState('');
 
-  useEffect(() => {
+  const load = useCallback(async () => {
+    setLoading(true);
     AdminService.getLogs().then(l => { setLogs(l); setLoading(false); });
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const ACTION_COLORS: Record<string, string> = {
     SITE_UPDATE: 'bg-blue-100 text-blue-700',
@@ -1318,48 +2327,104 @@ const LogsTab = () => {
     CREATE_ADMIN: 'bg-gray-100 text-gray-700',
     CREATE_TEST_ACCOUNT: 'bg-teal-100 text-teal-700',
     UPSERT_PLAN: 'bg-pink-100 text-pink-700',
+    ACTIVATE_PLAN: 'bg-green-100 text-green-700',
+    DEACTIVATE_PLAN: 'bg-red-100 text-red-700',
+    ACTIVATE_ADMIN: 'bg-green-100 text-green-700',
+    DEACTIVATE_ADMIN: 'bg-orange-100 text-orange-700',
+  };
+
+  const allActions = Array.from(new Set(logs.map(l => l.action))).sort();
+
+  const cutoff = filterDays === 'all' ? null : new Date(Date.now() - Number(filterDays) * 86400000);
+  const filtered = logs.filter(l => {
+    const matchAction = !filterAction || l.action === filterAction;
+    const matchDate = !cutoff || new Date(l.timestamp) >= cutoff;
+    const matchAdmin = !filterAdmin || l.adminName.toLowerCase().includes(filterAdmin.toLowerCase());
+    return matchAction && matchDate && matchAdmin;
+  });
+
+  const exportCSV = () => {
+    const rows = [['Data/Hora', 'Admin', 'Ação', 'Alvo', 'Detalhes']];
+    filtered.forEach(l => rows.push([
+      new Date(l.timestamp).toLocaleString('pt-BR'),
+      l.adminName, l.action, l.target, l.details,
+    ]));
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('\uFEFF' + csv);
+    a.download = `audit_log_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
   };
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-wrap gap-3 items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold">Auditoria e Logs</h2>
-          <p className="text-gray-400 text-sm">Histórico de todas as ações administrativas.</p>
+          <p className="text-gray-400 text-sm">Trilha auditável de todas as ações administrativas.</p>
         </div>
-        <button onClick={() => AdminService.getLogs().then(setLogs)} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"><RefreshCw size={15} /></button>
+        <div className="flex gap-2 flex-wrap">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+          <input
+            className="pl-9 pr-3 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-300"
+            placeholder="Buscar admin..."
+            value={filterAdmin}
+            onChange={e => setFilterAdmin(e.target.value)}
+          />
+        </div>
+          <select className="border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300" value={filterDays} onChange={e => setFilterDays(e.target.value)}>
+            <option value="7">Últimos 7 dias</option>
+            <option value="30">Últimos 30 dias</option>
+            <option value="90">Últimos 90 dias</option>
+            <option value="all">Todos</option>
+          </select>
+          <select className="border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300" value={filterAction} onChange={e => setFilterAction(e.target.value)}>
+            <option value="">Todas as ações</option>
+            {allActions.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <button onClick={exportCSV} className="px-3 py-2 text-sm border rounded-xl hover:bg-gray-50 flex items-center gap-1.5 text-gray-600">
+            <FileText size={14} /> CSV
+          </button>
+          <button onClick={load} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"><RefreshCw size={15} /></button>
+        </div>
       </div>
 
-      {loading ? <div className="text-gray-400 text-sm">Carregando logs...</div> : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
-              <tr>
-                <th className="px-5 py-3 text-left">Data/Hora</th>
-                <th className="px-5 py-3 text-left">Admin</th>
-                <th className="px-5 py-3 text-left">Ação</th>
-                <th className="px-5 py-3 text-left">Alvo</th>
-                <th className="px-5 py-3 text-left">Detalhes</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {logs.map(log => (
-                <tr key={log.id} className="hover:bg-gray-50/50">
-                  <td className="px-5 py-3 font-mono text-xs text-gray-400">{new Date(log.timestamp).toLocaleString('pt-BR')}</td>
-                  <td className="px-5 py-3 font-bold text-gray-800 text-xs">{log.adminName}</td>
-                  <td className="px-5 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold ${ACTION_COLORS[log.action] ?? 'bg-gray-100 text-gray-600'}`}>{log.action}</span>
-                  </td>
-                  <td className="px-5 py-3 text-xs text-gray-500 font-mono truncate max-w-[120px]">{log.target}</td>
-                  <td className="px-5 py-3 text-xs text-gray-500 max-w-xs truncate">{log.details}</td>
+      {loading ? (
+        <div className="text-gray-400 text-sm py-8 text-center">Carregando logs...</div>
+      ) : (
+        <>
+          <div className="mb-2 text-xs text-gray-400">{filtered.length} registros exibidos</div>
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
+                <tr>
+                  <th className="px-5 py-3 text-left">Data/Hora</th>
+                  <th className="px-5 py-3 text-left">Admin</th>
+                  <th className="px-5 py-3 text-left">Ação</th>
+                  <th className="px-5 py-3 text-left">Alvo</th>
+                  <th className="px-5 py-3 text-left">Detalhes</th>
                 </tr>
-              ))}
-              {logs.length === 0 && (
-                <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Nenhuma ação registrada.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtered.map(log => (
+                  <tr key={log.id} className="hover:bg-gray-50/50">
+                    <td className="px-5 py-3 font-mono text-xs text-gray-400 whitespace-nowrap">{new Date(log.timestamp).toLocaleString('pt-BR')}</td>
+                    <td className="px-5 py-3 font-bold text-gray-800 text-xs">{log.adminName}</td>
+                    <td className="px-5 py-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${ACTION_COLORS[log.action] ?? 'bg-gray-100 text-gray-600'}`}>{log.action}</span>
+                    </td>
+                    <td className="px-5 py-3 text-xs text-gray-500 truncate max-w-[120px]">{log.target}</td>
+                    <td className="px-5 py-3 text-xs text-gray-500 max-w-xs truncate">{log.details}</td>
+                  </tr>
+                ))}
+                {filtered.length === 0 && (
+                  <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Nenhuma ação registrada no período.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
@@ -1370,50 +2435,71 @@ const LogsTab = () => {
 // ============================================================================
 
 interface AdminDashboardProps {
-  subscribers?: any[];
-  onUpdatePlan?: any;
-  onClose?: () => void;
-  user?: User;
+  user: User;
+  onLogout?: () => void;
 }
 
-function resolveAdminUser(user?: User): AdminUser {
-  if (user?.isAdmin) {
-    return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: 'super_admin',
-      active: true,
-      createdAt: new Date().toISOString(),
-    };
-  }
-  return CURRENT_ADMIN_MOCK;
+function resolveAdminUser(user: User): AdminUser | null {
+  const isCeo = user.isAdmin || String(user.role ?? '').toUpperCase() === 'CEO';
+  if (!isCeo) return null;
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: 'super_admin',
+    active: true,
+    createdAt: new Date().toISOString(),
+  };
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, user }) => {
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }) => {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
-  const [adminUser, setAdminUser] = useState<AdminUser>(() => resolveAdminUser(user));
+  const resolvedAdmin = resolveAdminUser(user);
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(resolvedAdmin);
   const [darkMode, setDarkMode] = useState(true); // dark por padrão para CEO
+
+  if (!adminUser) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <Shield size={48} className="mx-auto mb-4 text-red-400" />
+          <h2 className="text-xl font-bold text-gray-800 mb-2">Acesso Negado</h2>
+          <p className="text-gray-500 text-sm">Apenas usuários com perfil CEO podem acessar este painel.</p>
+        </div>
+      </div>
+    );
+  }
 
   const canAccess = (required: AdminRole[]) => required.includes(adminUser.role);
 
   const TABS: { id: Tab; label: string; icon: any; roles: AdminRole[] }[] = [
-    { id: 'overview',      label: 'Visão Geral',      icon: PieChart,    roles: ['super_admin', 'financeiro', 'operacional', 'viewer'] },
+    { id: 'overview',      label: 'Visão Geral',      icon: PieChart,    roles: ['super_admin', 'financeiro', 'operacional', 'comercial', 'suporte', 'auditoria', 'viewer'] },
     { id: 'plans',         label: 'Planos',            icon: Package,     roles: ['super_admin', 'financeiro'] },
-    { id: 'subscribers',   label: 'Assinantes',        icon: Users,       roles: ['super_admin', 'financeiro', 'operacional', 'viewer'] },
-    { id: 'credits',       label: 'Créditos',          icon: Zap,         roles: ['super_admin', 'operacional'] },
-    { id: 'landing',       label: 'Landing / Comercial', icon: Globe,     roles: ['super_admin', 'operacional'] },
+    { id: 'subscribers',   label: 'Assinantes',        icon: Users,       roles: ['super_admin', 'financeiro', 'operacional', 'comercial', 'suporte', 'viewer'] },
+    { id: 'monitoring',    label: 'Monitoramento',     icon: Activity,    roles: ['super_admin', 'operacional', 'suporte'] },
+    { id: 'credits',       label: 'Créditos',          icon: Zap,         roles: ['super_admin', 'operacional', 'suporte'] },
+    { id: 'landing',       label: 'Landing / Comercial', icon: Globe,     roles: ['super_admin', 'operacional', 'comercial'] },
     { id: 'test_accounts', label: 'Contas de Teste',   icon: TestTube,    roles: ['super_admin', 'operacional'] },
     { id: 'admins',        label: 'Administradores',   icon: Shield,      roles: ['super_admin'] },
-    { id: 'logs',          label: 'Logs de Auditoria', icon: Activity,    roles: ['super_admin', 'financeiro', 'operacional', 'viewer'] },
+    { id: 'user_logs',     label: 'Atividade de Usuários', icon: FileText, roles: ['super_admin', 'financeiro', 'operacional', 'suporte', 'auditoria', 'viewer'] },
+    { id: 'logs',          label: 'Auditoria Admin',   icon: Lock,        roles: ['super_admin', 'financeiro', 'operacional', 'auditoria', 'viewer'] },
   ];
 
   return (
     <>
       {darkMode && <style>{DARK_CSS}</style>}
       <div
-        className="ceo-panel flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden"
+        className="ceo-panel flex font-sans text-gray-900"
         data-dark={darkMode ? 'true' : 'false'}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          width: '100vw',
+          height: '100vh',
+          overflow: 'hidden',
+          zIndex: 9999,
+          background: darkMode ? '#111827' : '#F9FAFB',
+        }}
       >
 
         {/* SIDEBAR */}
@@ -1466,9 +2552,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, user })
                 <p className="text-[10px] capitalize" style={{ color: '#C69214' }}>{adminUser.role.replace('_', ' ')}</p>
               </div>
             </div>
-            {onClose && (
-              <button onClick={onClose} className="w-full flex items-center justify-center gap-2 text-xs text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition font-medium">
-                <LogOut size={13} /> Voltar ao Sistema
+
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all"
+                style={{
+                  background: 'rgba(239,68,68,0.08)',
+                  color: '#F87171',
+                  border: '1px solid rgba(239,68,68,0.2)',
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.18)';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.08)';
+                }}
+              >
+                <LogOut size={14} />
+                Sair da Conta
               </button>
             )}
           </div>
@@ -1479,10 +2581,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose, user })
         {activeTab === 'overview'      && <OverviewTab adminUser={adminUser} darkMode={darkMode} />}
         {activeTab === 'plans'         && <PlansTab adminUser={adminUser} />}
         {activeTab === 'subscribers'   && <SubscribersTab adminUser={adminUser} />}
+        {activeTab === 'monitoring'    && <MonitoringTab adminUser={adminUser} />}
         {activeTab === 'credits'       && <CreditsTab adminUser={adminUser} />}
         {activeTab === 'landing'       && <LandingTab adminUser={adminUser} />}
         {activeTab === 'test_accounts' && <TestAccountsTab adminUser={adminUser} />}
-        {activeTab === 'admins'        && <AdminsTab adminUser={adminUser} setAdminUser={setAdminUser} />}
+        {activeTab === 'admins'        && <AdminsTab adminUser={adminUser} setAdminUser={setAdminUser as (u: AdminUser) => void} />}
+        {activeTab === 'user_logs'     && <UserLogsTab />}
         {activeTab === 'logs'          && <LogsTab />}
       </main>
     </div>

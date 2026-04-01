@@ -128,11 +128,11 @@ CREATE TABLE IF NOT EXISTS public.kiwify_products (
 INSERT INTO public.kiwify_products
   (kiwify_product_id, product_name, product_type, plan_code, credits_amount, price_brl, checkout_url)
 VALUES
-  ('KIWIFY_PRO_ID',         'Plano Pro Mensal',         'subscription', 'PRO',    0,   79.90, 'https://kiwify.app/LINK_PRO'),
-  ('KIWIFY_MASTER_ID',      'Plano Master Mensal',      'subscription', 'MASTER', 0,  149.90, 'https://kiwify.app/LINK_MASTER'),
-  ('KIWIFY_CREDITS_10_ID',  'Pacote 10 Créditos IA',    'credits',      NULL,     10,   9.90, 'https://kiwify.app/LINK_CREDITS10'),
-  ('KIWIFY_CREDITS_30_ID',  'Pacote 30 Créditos IA',    'credits',      NULL,     30,  19.90, 'https://kiwify.app/LINK_CREDITS30'),
-  ('KIWIFY_CREDITS_100_ID', 'Pacote 100 Créditos IA',   'credits',      NULL,    100,  49.90, 'https://kiwify.app/LINK_CREDITS100')
+  ('KIWIFY_PRO_ID',         'Plano Pro Mensal',        'subscription', 'PRO',    0,    79.90, 'https://kiwify.app/LINK_PRO'),
+  ('KIWIFY_MASTER_ID',      'Plano Master Mensal',     'subscription', 'MASTER', 0,   149.90, 'https://kiwify.app/LINK_MASTER'),
+  ('KIWIFY_CREDITS_100_ID', 'Pacote 100 Créditos IA',  'credits',      NULL,     100,  29.90, 'https://kiwify.app/LINK_CREDITS100'),
+  ('KIWIFY_CREDITS_300_ID', 'Pacote 300 Créditos IA',  'credits',      NULL,     300,  79.90, 'https://kiwify.app/LINK_CREDITS300'),
+  ('KIWIFY_CREDITS_900_ID', 'Pacote 900 Créditos IA',  'credits',      NULL,     900, 149.90, 'https://kiwify.app/LINK_CREDITS900')
 ON CONFLICT (kiwify_product_id) DO NOTHING;
 
 -- ────────────────────────────────────────────────────────────
