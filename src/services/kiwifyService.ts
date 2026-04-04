@@ -161,10 +161,10 @@ export async function getKiwifyProducts(): Promise<KiwifyProduct[]> {
 
 // ── Links oficiais Kiwify (fonte única de verdade) ────────────────────────────
 const OFFICIAL_LINKS = {
-  pro_monthly:     'https://pay.kiwify.com.br/pyeMCOd',
-  pro_annual:      'https://pay.kiwify.com.br/Ux6O9pR',
+  pro_monthly:     'https://kiwify.app/fhnbH1V',
+  pro_annual:      'https://pay.kiwify.com.br/Mqcsie2',
   master_monthly:  'https://pay.kiwify.com.br/yVg81A2',
-  master_annual:   'https://pay.kiwify.com.br/Mqcsie2',
+  master_annual:   'https://pay.kiwify.com.br/Ux6O9pR',
   credits_100:     'https://pay.kiwify.com.br/TZItLsS',
   credits_300:     'https://pay.kiwify.com.br/H1eyllS',
   credits_900:     'https://pay.kiwify.com.br/NqCj3Ks',

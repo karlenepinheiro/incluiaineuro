@@ -128,6 +128,16 @@ export const PricingSection: React.FC<Props> = ({
       return;
     }
     if (!isAuthenticated || !user?.tenant_id) {
+      // Planos pagos: redirecionar direto ao checkout sem criar conta antes
+      setLoadingPlan(planCode);
+      try {
+        const url = await getSubscriptionCheckoutUrl(planCode, '', billingCycle);
+        if (url && url !== '#') {
+          window.location.href = url;
+          return;
+        }
+      } catch { /* fallback para fluxo legado se URL não disponível */ }
+      setLoadingPlan(null);
       if (onUpgradeClick) onUpgradeClick(planCode);
       else onLogin();
       return;

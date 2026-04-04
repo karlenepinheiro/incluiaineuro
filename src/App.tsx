@@ -44,6 +44,8 @@ import { ExpiredPlanBanner } from './components/ExpiredPlanBanner';
 import { PaymentService } from './services/paymentService';
 import { shouldShowExpiredBanner, getActiveSubscription, type ActiveSubscriptionInfo } from './services/subscriptionService';
 import { getSubscriptionCheckoutUrl } from './services/kiwifyService';
+import { checkPurchaseByEmail, activatePurchaseForUser } from './services/purchaseActivationService';
+import { ActivationView } from './components/ActivationView';
 import { supabase, DEMO_MODE } from './services/supabase';
 import { databaseService } from './services/databaseService';
 import { ServiceRecordService } from './services/persistenceService';
@@ -203,6 +205,8 @@ const App: React.FC = () => {
   const [auditResult, setAuditResult] = useState<{ found: boolean; type?: string; studentName?: string; issuedAt?: string; code?: string } | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [showLGPD, setShowLGPD] = useState(false);
+  // E-mail pré-preenchido vindo do redirect pós-pagamento da Kiwify (?activate=1&email=...)
+  const [activationEmail, setActivationEmail] = useState('');
 
   const [tenantSummary, setTenantSummary] = useState<any | null>(null);
   const [effectivePlans, setEffectivePlans] = useState<any[]>([]);
@@ -260,11 +264,19 @@ const App: React.FC = () => {
     return (tenantSummary?.renewalDateCredits ?? null) as string | null;
   }, [tenantSummary?.renewalDateCredits]);
 
-  // --- Captura ?ref= da URL para sistema de indicacao ---
+  // --- Captura ?ref= e ?activate=1 da URL ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ref = params.get('ref');
     if (ref) ReferralService.saveRefToStorage(ref);
+    // Redirecionamento pós-pagamento da Kiwify
+    if (params.get('activate') === '1') {
+      const emailParam = params.get('email') ?? '';
+      if (emailParam) setActivationEmail(emailParam);
+      setView('activation');
+      // Limpa a URL sem recarregar a página
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
 
   // --- Refresh de créditos após operações de IA (sem re-login) ---
@@ -375,7 +387,41 @@ const App: React.FC = () => {
     setUser(profile);
     setIsAuthenticated(true);
     const isCeo = profile.isAdmin || String(profile.role ?? '').toUpperCase() === 'CEO';
+
+    // Upgrade pendente (fluxo login-first) — redireciona para Kiwify ANTES de mostrar o dashboard
+    const pendingPlan = localStorage.getItem(PENDING_PLAN_KEY) as 'PRO' | 'MASTER' | null;
+    if (pendingPlan && profile.tenant_id) {
+      localStorage.removeItem(PENDING_PLAN_KEY);
+      try {
+        const url = await getSubscriptionCheckoutUrl(pendingPlan, profile.tenant_id);
+        if (url && url !== '#') {
+          window.location.href = url; // mesma aba — usuário não vê o dashboard FREE
+          return;
+        }
+      } catch { /* fallback — continua fluxo normal */ }
+    }
+
     setView(isCeo ? 'admin' : needsLGPD || needsSchoolSetup ? 'settings' : 'dashboard');
+
+    // ── Verifica compra aprovada pelo e-mail (pós-pagamento sem tenant_id) ─
+    // Cobre: login normal, login com Google, retorno após confirmação de e-mail.
+    if (!DEMO_MODE && profile.email && profile.tenant_id) {
+      checkPurchaseByEmail(profile.email)
+        .then(async (purchase) => {
+          if (purchase.found && purchase.status === 'APPROVED' && purchase.purchase_id) {
+            const result = await activatePurchaseForUser(purchase.purchase_id);
+            if (result.ok && profile.tenant_id) {
+              // Atualiza status de assinatura no estado local sem re-login
+              const subInfo = await getActiveSubscription(profile.tenant_id).catch(() => null);
+              if (subInfo) {
+                setActiveSubscription(subInfo);
+                setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status }));
+              }
+            }
+          }
+        })
+        .catch(() => { /* não crítico — não bloqueia o fluxo */ });
+    }
 
     const [studentsDb, protocolsDb, summaryDb, plansDb, subInfo, serviceRecordsDb] = await Promise.all([
       databaseService.getStudents(profile.id),
@@ -400,16 +446,6 @@ const App: React.FC = () => {
     const pendingRef = ReferralService.getRefFromStorage();
     if (pendingRef && profile.id) {
       ReferralService.registerReferral(profile.id, pendingRef).catch(() => {});
-    }
-
-    // Upgrade pendente — redireciona para Kiwify com tenantId injetado
-    const pendingPlan = localStorage.getItem(PENDING_PLAN_KEY) as 'PRO' | 'MASTER' | null;
-    if (pendingPlan && profile.tenant_id) {
-      localStorage.removeItem(PENDING_PLAN_KEY);
-      try {
-        const url = await getSubscriptionCheckoutUrl(pendingPlan, profile.tenant_id);
-        if (url && url !== '#') window.open(url, '_blank');
-      } catch { /* silencioso — usuário já está logado */ }
     }
   };
 
@@ -957,6 +993,19 @@ const App: React.FC = () => {
       if (code === 'MASTER') return 'Premium';
       return undefined;
     })();
+
+    if (view === 'activation')
+      return (
+        <ActivationView
+          initialEmail={activationEmail || undefined}
+          onActivated={(_planCode) => {
+            // Após ativação via cadastro na ActivationView, manda para login
+            // para que o usuário faça login e carregue o plano ativo.
+            setView('login');
+          }}
+          onBack={() => setView('landing')}
+        />
+      );
 
     if (view === 'login')
       return (
