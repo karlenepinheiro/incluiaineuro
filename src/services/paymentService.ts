@@ -17,7 +17,7 @@ const OFFICIAL_KIWIFY_LINKS = {
   PRO_ANNUAL:    'https://pay.kiwify.com.br/Mqcsie2',
   MASTER:        'https://pay.kiwify.com.br/yVg81A2',
   MASTER_ANNUAL: 'https://pay.kiwify.com.br/Ux6O9pR',
-  AI100:         'https://pay.kiwify.com.br/TZltLsS',
+  AI100:         'https://pay.kiwify.com.br/TZItLsS',
   AI300:         'https://pay.kiwify.com.br/H1eyllS',
   AI900:         'https://pay.kiwify.com.br/NqCj3Ks',
 };

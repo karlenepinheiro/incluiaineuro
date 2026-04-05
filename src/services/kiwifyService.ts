@@ -165,7 +165,7 @@ const OFFICIAL_LINKS = {
   pro_annual:      'https://pay.kiwify.com.br/Mqcsie2',
   master_monthly:  'https://pay.kiwify.com.br/yVg81A2',
   master_annual:   'https://pay.kiwify.com.br/Ux6O9pR',
-  credits_100:     'https://pay.kiwify.com.br/TZltLsS',
+  credits_100:     'https://pay.kiwify.com.br/TZItLsS',
   credits_300:     'https://pay.kiwify.com.br/H1eyllS',
   credits_900:     'https://pay.kiwify.com.br/NqCj3Ks',
 };
