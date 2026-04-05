@@ -27,8 +27,8 @@ export const AI_CREDIT_COSTS = {
   TEMPLATE: 5,
 
   // Imagens e Design (EduLens / NeuroDesign / AtivaIA)
-  IMAGEM_LEVE: 3,        // Texto + imagem leve (conforme ação)
-  IMAGEM_INTERMEDIARIA: 10,
+  IMAGEM_LEVE: 30,       // Imagem padrão (Nano Banana Pro)
+  IMAGEM_INTERMEDIARIA: 30,
   IMAGEM_PREMIUM: 50,    // Motor de Imagem Premium (DALL-E 3 / IncluiLab)
   
   // Mapeamento específico por ferramenta (Compatibilidade Legada)
@@ -62,8 +62,8 @@ export const SUBSCRIPTION_PLANS = {
  * Fonte única de verdade. Todos os componentes devem referenciar estes valores.
  *
  *  TEXT        → Texto simples (Gemini): 3 créditos
- *  NANO_BANANA → Nano Banana Pro (texto + imagem leve): 30 créditos
- *  GPT_IMAGE   → ChatGPT Imagem / DALL-E 3 (alta qualidade): 50 créditos
+ *  NANO_BANANA → Imagem padrão (Nano Banana Pro): 30 créditos
+ *  GPT_IMAGE   → Imagem detalhada / DALL-E 3 (alta qualidade): 50 créditos
  */
 export const INCLUILAB_MODEL_COSTS = {
   TEXT:        3,   // Texto simples (IA Gemini)
@@ -75,7 +75,7 @@ export const INCLUILAB_MODEL_COSTS = {
 export const CREDIT_INSUFFICIENT_MSG = 'Você não tem créditos suficiente para esta ação.';
 
 export const CREDIT_PACKAGES = [
-  { id: 'pkg_10',  credits: 10,  price: 9.90,  label: 'Tarefas Rápidas / Relatórios Curtos' },
-  { id: 'pkg_200', credits: 200, price: 49.90, label: 'Atividades e Materiais Frequentes' },
-  { id: 'pkg_900', credits: 900, price: 99.90, label: 'Uso Intenso / Alta Produção' },
+  { id: 'pkg_100', credits: 100, price: 29.90, label: 'Tarefas Rápidas / Relatórios Curtos' },
+  { id: 'pkg_300', credits: 300, price: 79.90, label: 'Atividades e Materiais Frequentes' },
+  { id: 'pkg_900', credits: 900, price: 149.90, label: 'Uso Intenso / Alta Produção' },
 ];

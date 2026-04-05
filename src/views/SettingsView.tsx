@@ -11,12 +11,12 @@ import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
 import { CreditWalletService, CreditLedgerService } from '../services/creditService';
 import type { CreditLedgerEntry } from '../types';
 import { getActiveSubscription, type ActiveSubscriptionInfo } from '../services/subscriptionService';
-// Preços oficiais (Kiwify)
+// Preços oficiais (Kiwify) — fonte única: atualize apenas aqui
 const PLAN_PRICES = {
-  PRO_MONTHLY:    67,
-  PRO_ANNUAL:     59,
-  MASTER_MONTHLY: 147,
-  MASTER_ANNUAL:  99,
+  PRO_MONTHLY:    79,   // R$ 79/mês mensal
+  PRO_ANNUAL:     59,   // R$ 59/mês no plano anual (R$ 708/ano)
+  MASTER_MONTHLY: 147,  // R$ 147/mês mensal
+  MASTER_ANNUAL:  99,   // R$ 99/mês no plano anual (R$ 1.188/ano)
 };
 
 // Redefinição cirúrgica dos pacotes de crédito, conforme solicitado.

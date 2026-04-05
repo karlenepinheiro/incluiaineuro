@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import type { User } from '../types';
 import { getActiveSubscription, type ActiveSubscriptionInfo } from '../services/subscriptionService';
-import { SUBSCRIPTION_PLANS, /* CREDIT_PACKAGES */ } from '../config/aiCosts';
+import { SUBSCRIPTION_PLANS, CREDIT_PACKAGES as CREDIT_PACKAGES_CONFIG } from '../config/aiCosts';
 import {
   getSubscriptionCheckoutUrl,
   getCreditsCheckoutUrl,
@@ -31,13 +31,15 @@ const P = {
 // ── Dados dos planos ──────────────────────────────────────────────────────────
 const PLANS_INFO = [
   {
-    code:         'PRO' as const,
-    name:         SUBSCRIPTION_PLANS.PRO.name,
-    price:        67,
-    priceAnnual:  59,
-    credits:      SUBSCRIPTION_PLANS.PRO.credits,
-    maxStudents:  SUBSCRIPTION_PLANS.PRO.students,
-    color:        P.petrol,
+    code:             'PRO' as const,
+    name:             SUBSCRIPTION_PLANS.PRO.name,
+    price:            79,           // R$ 79/mês — mensal
+    priceAnnual:      59,           // R$ 59/mês — no plano anual
+    priceAnnualTotal: 708,          // R$ 708 cobrado anualmente
+    couponAnnual:     'INCLUIAI59', // cupom oficial anual PRO
+    credits:          SUBSCRIPTION_PLANS.PRO.credits,
+    maxStudents:      SUBSCRIPTION_PLANS.PRO.students,
+    color:            P.petrol,
     features: [
       `${SUBSCRIPTION_PLANS.PRO.students} alunos cadastrados`,
       `${SUBSCRIPTION_PLANS.PRO.credits} créditos IA/mês`,
@@ -50,13 +52,15 @@ const PLANS_INFO = [
     ],
   },
   {
-    code:         'MASTER' as const,
-    name:         SUBSCRIPTION_PLANS.MASTER.name,
-    price:        147,
-    priceAnnual:  99,
-    credits:      SUBSCRIPTION_PLANS.MASTER.credits,
-    maxStudents:  SUBSCRIPTION_PLANS.MASTER.students,
-    color:        '#C69214',
+    code:             'MASTER' as const,
+    name:             SUBSCRIPTION_PLANS.MASTER.name,
+    price:            147,          // R$ 147/mês — mensal
+    priceAnnual:      99,           // R$ 99/mês — no plano anual
+    priceAnnualTotal: 1188,         // R$ 1.188 cobrado anualmente
+    couponAnnual:     'INCLUIAI99', // cupom oficial anual PREMIUM
+    credits:          SUBSCRIPTION_PLANS.MASTER.credits,
+    maxStudents:      SUBSCRIPTION_PLANS.MASTER.students,
+    color:            '#C69214',
     features: [
       'Tudo do PRO',
       'Alunos ilimitados',
@@ -71,13 +75,7 @@ const PLANS_INFO = [
   },
 ];
 
-const CREDIT_PACKAGES = [
-  { credits: 100, price: 29.90, label: 'Pacote 100 créditos' },
-  { credits: 300, price: 79.90, label: 'Pacote 300 créditos' },
-  { credits: 900, price: 149.90, label: 'Pacote 900 créditos' },
-];
-
-const CREDIT_PACKS = CREDIT_PACKAGES.map((pkg, i) => ({
+const CREDIT_PACKS = CREDIT_PACKAGES_CONFIG.map((pkg, i) => ({
   credits: pkg.credits,
   price:   pkg.price,
   sku:     `AI${pkg.credits}`,
@@ -432,15 +430,41 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
                     }}>
                       {plan.name}
                     </span>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                      <span style={{ fontSize: 28, fontWeight: 800, color: P.dark }}>
-                        R$ {plan.price}
-                      </span>
-                      <span style={{ fontSize: 13, color: '#94A3B8' }}>/mês</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#22C55E', fontWeight: 600, marginTop: 2 }}>
-                      ou R$ {plan.priceAnnual}/mês no plano anual
-                    </div>
+
+                    {billingCycle === 'monthly' ? (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                          <span style={{ fontSize: 28, fontWeight: 800, color: P.dark }}>
+                            R$ {plan.price}
+                          </span>
+                          <span style={{ fontSize: 13, color: '#94A3B8' }}>/mês</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#22C55E', fontWeight: 600, marginTop: 2 }}>
+                          ou R$ {plan.priceAnnual}/mês no plano anual
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                          <span style={{ fontSize: 28, fontWeight: 800, color: P.dark }}>
+                            R$ {plan.priceAnnual}
+                          </span>
+                          <span style={{ fontSize: 13, color: '#94A3B8' }}>/mês</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#64748B', marginTop: 2 }}>
+                          Cobrado anualmente · R$ {plan.priceAnnualTotal.toLocaleString('pt-BR')}/ano
+                        </div>
+                        <div style={{
+                          marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
+                          background: '#F0FDF4', border: '1px solid #BBF7D0',
+                          borderRadius: 6, padding: '4px 10px',
+                        }}>
+                          <span style={{ fontSize: 11, fontWeight: 800, color: '#15803D', letterSpacing: '0.04em' }}>
+                            🏷 Cupom: {plan.couponAnnual}
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </div>
                   <Zap size={24} color={plan.color} />
                 </div>
@@ -548,7 +572,7 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
         <ul style={{ marginTop: 6, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 3 }}>
           <li><strong>Relatórios e pareceres</strong>: 1–3 créditos (modelo Econômico a Premium)</li>
           <li><strong>Atividades (texto)</strong>: 1 crédito (Texto apenas)</li>
-          <li><strong>Atividades com imagem</strong>: 3–50 créditos (Nano Banana Pro ou ChatGPT Imagem)</li>
+          <li><strong>Atividades com imagem</strong>: 30–50 créditos (Nano Banana Pro ou ChatGPT Imagem)</li>
           <li><strong>PEI / PAEE / PDI / Estudo de Caso</strong>: 3–5 créditos</li>
           <li><strong>Análise de laudos</strong>: 5 créditos</li>
           <li>Créditos do plano renovam mensalmente. Créditos comprados acumulam sem expirar.</li>

@@ -50,6 +50,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   triagemCount = 0,
 }) => {
   const limits = getPlanLimits(user.plan);
+  const isPremium = user.plan === PlanTier.PREMIUM;
+  const isPro     = user.plan === PlanTier.PRO;
+  const isPaid    = isPro || isPremium; // PRO ou PREMIUM — qualquer plano pago
 
   const maxStudents =
     typeof planMaxStudents === 'number' && planMaxStudents > 0
@@ -66,6 +69,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const safeMax = typeof maxStudents === 'number' && maxStudents > 0 ? maxStudents : 0;
   const usagePct = safeMax > 0 ? Math.min(100, (studentCount / safeMax) * 100) : 0;
+
+  const LockedNavItem = ({
+    icon: Icon,
+    label,
+  }: {
+    icon: any;
+    label: string;
+  }) => (
+    <button
+      onClick={() => setView('subscription')}
+      title="Disponível apenas no plano PREMIUM — clique para fazer upgrade"
+      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 opacity-50 cursor-pointer hover:opacity-75"
+    >
+      <Icon size={18} className="shrink-0 text-gray-400" />
+      <span className="whitespace-nowrap flex-1 text-left text-gray-400">{label}</span>
+      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+        PREMIUM
+      </span>
+    </button>
+  );
+
+  /** Item bloqueado para planos FREE — requer PRO ou PREMIUM */
+  const LockedNavItemPro = ({
+    icon: Icon,
+    label,
+  }: {
+    icon: any;
+    label: string;
+  }) => (
+    <button
+      onClick={() => setView('subscription')}
+      title="Disponível a partir do plano PRO — clique para fazer upgrade"
+      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 opacity-50 cursor-pointer hover:opacity-75"
+    >
+      <Icon size={18} className="shrink-0 text-gray-400" />
+      <span className="whitespace-nowrap flex-1 text-left text-gray-400">{label}</span>
+      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+        PRO
+      </span>
+    </button>
+  );
 
   const NavItem = ({
     viewId,
@@ -174,31 +218,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <NavItem viewId="dashboard" icon={Home} label="Dashboard" />
             <NavItem viewId="students"  icon={Users} label="Alunos" />
 
-            {/* Triagem — item em destaque */}
-            <button
-              onClick={() => setView('triagem')}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-all duration-150 mt-1"
-              style={
-                currentView === 'triagem'
-                  ? { background: '#F59E0B', color: '#fff' }
-                  : { background: '#FFFBEB', color: '#92400E', border: '1.5px solid #FDE68A' }
-              }
-            >
-              <Search size={18} className="shrink-0" />
-              <span className="whitespace-nowrap flex-1 text-left">Triagem</span>
-              {triagemCount > 0 && (
-                <span
-                  className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                  style={
-                    currentView === 'triagem'
-                      ? { background: 'rgba(255,255,255,0.3)', color: '#fff' }
-                      : { background: '#FDE68A', color: '#92400E' }
-                  }
-                >
-                  {triagemCount}
-                </span>
-              )}
-            </button>
+            {/* Triagem — item em destaque (PRO+) */}
+            {isPaid ? (
+              <button
+                onClick={() => setView('triagem')}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-all duration-150 mt-1"
+                style={
+                  currentView === 'triagem'
+                    ? { background: '#F59E0B', color: '#fff' }
+                    : { background: '#FFFBEB', color: '#92400E', border: '1.5px solid #FDE68A' }
+                }
+              >
+                <Search size={18} className="shrink-0" />
+                <span className="whitespace-nowrap flex-1 text-left">Triagem</span>
+                {triagemCount > 0 && (
+                  <span
+                    className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                    style={
+                      currentView === 'triagem'
+                        ? { background: 'rgba(255,255,255,0.3)', color: '#fff' }
+                        : { background: '#FDE68A', color: '#92400E' }
+                    }
+                  >
+                    {triagemCount}
+                  </span>
+                )}
+              </button>
+            ) : (
+              <LockedNavItemPro icon={Search} label="Triagem" />
+            )}
 
             {/* Documentação pedagógica */}
             <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
@@ -212,12 +260,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
               Avaliação & Histórico
             </div>
-            <NavItem viewId="reports"           icon={Brain}          label="Perfil Cognitivo" />
-            <NavItem viewId="incluilab"         icon={FlaskConical}   label="IncluiLAB" />
-            <NavItem viewId="service_control"   icon={Activity}       label="Controle de Atendimento" />
+            {isPaid
+              ? <NavItem viewId="reports" icon={Brain} label="Perfil Cognitivo" />
+              : <LockedNavItemPro icon={Brain} label="Perfil Cognitivo" />
+            }
+            {isPaid
+              ? <NavItem viewId="incluilab" icon={FlaskConical} label="IncluiLAB" />
+              : <LockedNavItemPro icon={FlaskConical} label="IncluiLAB" />
+            }
+            {isPremium
+              ? <NavItem viewId="service_control" icon={Activity} label="Controle de Atendimento" />
+              : <LockedNavItem icon={Activity} label="Controle de Atendimento" />
+            }
             <NavItem viewId="documents"         icon={FolderOpen}     label="Documentos" />
-            <NavItem viewId="fichas"            icon={FileEdit}       label="Fichas Complementares" />
-            <NavItem viewId="school_templates"  icon={LayoutTemplate} label="Meus Modelos" />
+            {isPremium
+              ? <NavItem viewId="fichas" icon={FileEdit} label="Fichas Complementares" />
+              : <LockedNavItem icon={FileEdit} label="Fichas Complementares" />
+            }
+            {isPaid
+              ? <NavItem viewId="school_templates" icon={LayoutTemplate} label="Meus Modelos" />
+              : <LockedNavItemPro icon={LayoutTemplate} label="Meus Modelos" />
+            }
             <NavItem viewId="subscription"      icon={CreditCard}     label="Assinatura & Créditos" />
 
             {/* Rodapé */}

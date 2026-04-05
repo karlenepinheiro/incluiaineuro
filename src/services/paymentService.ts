@@ -11,18 +11,34 @@
 
 import { AddOnProduct, PaymentProvider, PlanTier, User } from '../types';
 
+// ── Links oficiais Kiwify (fonte única de verdade — fallback quando env não definido) ──
+const OFFICIAL_KIWIFY_LINKS = {
+  PRO:           'https://pay.kiwify.com.br/U0RRsel',
+  PRO_ANNUAL:    'https://pay.kiwify.com.br/Mqcsie2',
+  MASTER:        'https://pay.kiwify.com.br/yVg81A2',
+  MASTER_ANNUAL: 'https://pay.kiwify.com.br/Ux6O9pR',
+  AI100:         'https://pay.kiwify.com.br/TZltLsS',
+  AI300:         'https://pay.kiwify.com.br/H1eyllS',
+  AI900:         'https://pay.kiwify.com.br/NqCj3Ks',
+};
+
 // ── Links de checkout Kiwify por plano ────────────────────────────────────────
 // Configure no .env: VITE_KIWIFY_CHECKOUT_PRO, VITE_KIWIFY_CHECKOUT_MASTER, etc.
+// Se env não estiver configurado, usa os links oficiais acima como fallback.
 const KIWIFY_LINKS: Partial<Record<string, string>> = {
-  PRO:             import.meta.env.VITE_KIWIFY_CHECKOUT_PRO             ?? '',
-  PRO_ANNUAL:      import.meta.env.VITE_KIWIFY_CHECKOUT_PRO_ANNUAL      ?? '',
-  MASTER:          import.meta.env.VITE_KIWIFY_CHECKOUT_MASTER          ?? '',
-  MASTER_ANNUAL:   import.meta.env.VITE_KIWIFY_CHECKOUT_MASTER_ANNUAL   ?? '',
-  INSTITUTIONAL:   import.meta.env.VITE_KIWIFY_CHECKOUT_INSTITUTIONAL   ?? '',
-  // Add-ons de créditos (SKUs atualizados: AI10 / AI200 / AI900)
-  AI10:            import.meta.env.VITE_KIWIFY_CHECKOUT_AI10            ?? '',
-  AI200:           import.meta.env.VITE_KIWIFY_CHECKOUT_AI200           ?? '',
-  AI900:           import.meta.env.VITE_KIWIFY_CHECKOUT_AI900           ?? '',
+  PRO:           import.meta.env.VITE_KIWIFY_CHECKOUT_PRO           || OFFICIAL_KIWIFY_LINKS.PRO,
+  PRO_ANNUAL:    import.meta.env.VITE_KIWIFY_CHECKOUT_PRO_ANNUAL    || OFFICIAL_KIWIFY_LINKS.PRO_ANNUAL,
+  MASTER:        import.meta.env.VITE_KIWIFY_CHECKOUT_MASTER        || OFFICIAL_KIWIFY_LINKS.MASTER,
+  MASTER_ANNUAL: import.meta.env.VITE_KIWIFY_CHECKOUT_MASTER_ANNUAL || OFFICIAL_KIWIFY_LINKS.MASTER_ANNUAL,
+  INSTITUTIONAL: import.meta.env.VITE_KIWIFY_CHECKOUT_INSTITUTIONAL ?? '',
+  // Add-ons de créditos (SKUs oficiais: AI100 / AI300 / AI900)
+  AI100:         import.meta.env.VITE_KIWIFY_CHECKOUT_AI100         || OFFICIAL_KIWIFY_LINKS.AI100,
+  AI300:         import.meta.env.VITE_KIWIFY_CHECKOUT_AI300         || OFFICIAL_KIWIFY_LINKS.AI300,
+  AI900:         import.meta.env.VITE_KIWIFY_CHECKOUT_AI900         || OFFICIAL_KIWIFY_LINKS.AI900,
+  // Aliases para compatibilidade com SKUs legados (SettingsView usa CREDITS_*)
+  CREDITS_100:   import.meta.env.VITE_KIWIFY_CHECKOUT_AI100         || OFFICIAL_KIWIFY_LINKS.AI100,
+  CREDITS_300:   import.meta.env.VITE_KIWIFY_CHECKOUT_AI300         || OFFICIAL_KIWIFY_LINKS.AI300,
+  CREDITS_900:   import.meta.env.VITE_KIWIFY_CHECKOUT_AI900         || OFFICIAL_KIWIFY_LINKS.AI900,
 };
 
 const PLAN_CODE_MAP: Partial<Record<PlanTier, string>> = {

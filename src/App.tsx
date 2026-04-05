@@ -184,8 +184,23 @@ const DocumentsHistoryView: React.FC<{
 // --- App ---
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [view, setView] = useState('landing');
+
+  // Detecta rota inicial via pathname para /login e /cadastro
+  const detectInitialView = () => {
+    const path = window.location.pathname;
+    if (path === '/login') return 'login';
+    if (path === '/cadastro') return 'login';
+    return 'landing';
+  };
+  const detectInitialTab = (): 'login' | 'register' => {
+    const path = window.location.pathname;
+    if (path === '/cadastro') return 'register';
+    return 'login';
+  };
+
+  const [view, setView] = useState(detectInitialView);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [loginInitialTab, setLoginInitialTab] = useState<'login' | 'register'>(detectInitialTab);
 
   const [user, setUser] = useState<User>(MOCK_USER);
   const [students, setStudents] = useState<Student[]>([]);
@@ -264,7 +279,7 @@ const App: React.FC = () => {
     return (tenantSummary?.renewalDateCredits ?? null) as string | null;
   }, [tenantSummary?.renewalDateCredits]);
 
-  // --- Captura ?ref= e ?activate=1 da URL ---
+  // --- Captura ?ref=, ?activate=1 da URL e gerencia histórico /login /cadastro ---
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ref = params.get('ref');
@@ -274,9 +289,25 @@ const App: React.FC = () => {
       const emailParam = params.get('email') ?? '';
       if (emailParam) setActivationEmail(emailParam);
       setView('activation');
-      // Limpa a URL sem recarregar a página
       window.history.replaceState({}, '', window.location.pathname);
     }
+
+    // Listener do botão Voltar do navegador
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state as { view?: string; tab?: string } | null;
+      if (state?.view) {
+        setView(state.view);
+        if (state.tab === 'register' || state.tab === 'login') {
+          setLoginInitialTab(state.tab as 'login' | 'register');
+        }
+      } else {
+        // Sem estado salvo → volta para landing
+        setView('landing');
+        window.history.replaceState({}, '', '/');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   // --- Refresh de créditos após operações de IA (sem re-login) ---
@@ -541,6 +572,8 @@ const App: React.FC = () => {
   // --- Upgrade gate: salva plano desejado e manda para auth ---
   const handleUpgradeClick = (planCode: 'PRO' | 'MASTER') => {
     localStorage.setItem(PENDING_PLAN_KEY, planCode);
+    window.history.pushState({ view: 'login', tab: 'register' }, '', `/cadastro?plan=${planCode.toLowerCase()}`);
+    setLoginInitialTab('register');
     setView('login');
   };
 
@@ -557,6 +590,7 @@ const App: React.FC = () => {
   const handleLogout = async () => {
     try { if (!DEMO_MODE) await supabase.auth.signOut(); } catch {}
     setIsAuthenticated(false);
+    window.history.replaceState({}, '', '/');
     setView('landing');
     setUser(MOCK_USER);
     setStudents([]);
@@ -1014,12 +1048,21 @@ const App: React.FC = () => {
           onRegister={handleRegister}
           onGoogleLogin={handleGoogleLogin}
           pendingPlanLabel={pendingPlanLabel}
+          initialTab={loginInitialTab}
         />
       );
     return (
       <LandingPage
-        onLogin={() => setView('login')}
-        onRegister={() => setView('login')}
+        onLogin={() => {
+          window.history.pushState({ view: 'login', tab: 'login' }, '', '/login');
+          setLoginInitialTab('login');
+          setView('login');
+        }}
+        onRegister={() => {
+          window.history.pushState({ view: 'login', tab: 'register' }, '', '/cadastro?plan=free');
+          setLoginInitialTab('register');
+          setView('login');
+        }}
         onAudit={() => setView('audit')}
         onUpgradeClick={handleUpgradeClick}
       />

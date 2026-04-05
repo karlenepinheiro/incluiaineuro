@@ -620,7 +620,7 @@ export function DashboardView({
         <KpiCard icon={FileText}     label="Total de documentos"    value={kpis.total}         accent={C.dark} />
       </div>
 
-      {/* Referral Card */}
+      {/* Referral Card — Em breve */}
       {userId && (
         <div
           className="rounded-2xl overflow-hidden shadow-sm"
@@ -631,56 +631,24 @@ export function DashboardView({
               <div className="rounded-xl p-2.5 shrink-0" style={{ background: 'rgba(255,255,255,0.12)' }}>
                 <Gift size={20} style={{ color: C.gold }} />
               </div>
-              <div>
-                <h3 className="font-extrabold text-white text-base">🎁 Indique e Ganhe Créditos IA</h3>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <h3 className="font-extrabold text-white text-base">🎁 Indique e Ganhe Créditos IA</h3>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(198,146,20,0.25)', color: C.gold }}>
+                    EM BREVE
+                  </span>
+                </div>
                 <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
-                  PRO assinado via seu link → <strong style={{ color: C.gold }}>+10 créd.</strong> &nbsp;|&nbsp;
-                  MASTER → <strong style={{ color: C.gold }}>+20 créd.</strong>
+                  Em breve você poderá indicar amigos e ganhar créditos IA automaticamente.
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(255,255,255,0.1)' }}>
-                <div className="text-2xl font-extrabold" style={{ color: C.gold }}>{refTotal}</div>
-                <div className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>Indicações realizadas</div>
-              </div>
-              <div className="rounded-xl p-3 text-center" style={{ background: 'rgba(255,255,255,0.1)' }}>
-                <div className="text-2xl font-extrabold" style={{ color: C.gold }}>+{refCreditsEarned}</div>
-                <div className="text-[10px] mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>Créditos ganhos</div>
-              </div>
+            <div className="rounded-xl px-4 py-3 text-center" style={{ background: 'rgba(255,255,255,0.08)' }}>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                Funcionalidade em desenvolvimento — em breve você poderá gerar seu link de indicação e acompanhar créditos ganhos aqui.
+              </p>
             </div>
-
-            {refCode ? (
-              <div className="flex items-center gap-2">
-                <div className="flex-1 rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.1)' }}>
-                  <p className="text-[10px] mb-0.5" style={{ color: 'rgba(255,255,255,0.45)' }}>Seu link de indicação</p>
-                  <p className="text-xs font-mono truncate" style={{ color: 'rgba(255,255,255,0.85)' }}>
-                    incluiai.app.br/?ref={refCode}
-                  </p>
-                </div>
-                <button
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(`https://incluiai.app.br/?ref=${refCode}`);
-                    setRefCopied(true);
-                    setTimeout(() => setRefCopied(false), 2000);
-                  }}
-                  className="rounded-xl p-2.5 transition"
-                  style={{ background: 'rgba(255,255,255,0.15)' }}
-                  title="Copiar link"
-                >
-                  {refCopied
-                    ? <CheckCircleIcon size={16} style={{ color: '#4ade80' }} />
-                    : <Copy size={16} style={{ color: 'rgba(255,255,255,0.8)' }} />
-                  }
-                </button>
-              </div>
-            ) : userId ? (
-              <div className="text-xs text-center py-2 rounded-xl animate-pulse"
-                style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)' }}>
-                Carregando código…
-              </div>
-            ) : null}
           </div>
         </div>
       )}

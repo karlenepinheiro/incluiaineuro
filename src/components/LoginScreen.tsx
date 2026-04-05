@@ -19,6 +19,8 @@ export interface AuthScreenProps {
   onGuest?: () => void;
   /** Quando definido, exibe aviso de que precisa de conta para fazer upgrade */
   pendingPlanLabel?: string;
+  /** Forçar aba inicial independente de pendingPlanLabel */
+  initialTab?: 'login' | 'register';
 }
 
 export const LoginScreen: React.FC<AuthScreenProps> = ({
@@ -26,8 +28,9 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
   onRegister,
   onGoogleLogin,
   pendingPlanLabel,
+  initialTab,
 }) => {
-  const [tab, setTab]               = useState<'login' | 'register'>(pendingPlanLabel ? 'register' : 'login');
+  const [tab, setTab]               = useState<'login' | 'register'>(initialTab ?? (pendingPlanLabel ? 'register' : 'login'));
   const [name, setName]             = useState('');
   const [email, setEmail]           = useState('');
   const [pass, setPass]             = useState('');
