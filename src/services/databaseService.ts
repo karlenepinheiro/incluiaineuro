@@ -179,14 +179,30 @@ export const databaseService = {
       .eq('id', userRow.tenant_id)
       .maybeSingle();
 
-    // Subscription mais recente — colunas reais: plan_id (uuid FK), status, current_period_end
-    const { data: subRow } = await supabase
+    // Subscription ativa mais recente — prioriza status ACTIVE/TRIAL/PENDING.
+    // Sem filtro de status, um registro CANCELED mais novo mascararia o plano real.
+    const ACTIVE_STATUSES = ['ACTIVE', 'TRIAL', 'PENDING', 'COURTESY', 'INTERNAL_TEST'];
+    let { data: subRow } = await supabase
       .from('subscriptions')
       .select('id, plan_id, status, current_period_end, provider, created_at')
       .eq('tenant_id', userRow.tenant_id)
+      .in('status', ACTIVE_STATUSES)
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
+
+    // Fallback: se não há subscription ativa, pega a mais recente de qualquer status
+    // (exibe o estado real em vez de mostrar FREE silenciosamente)
+    if (!subRow) {
+      const fallback = await supabase
+        .from('subscriptions')
+        .select('id, plan_id, status, current_period_end, provider, created_at')
+        .eq('tenant_id', userRow.tenant_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      subRow = fallback.data ?? null;
+    }
 
     // Resolve nome do plano via plan_id (subscription tem prioridade sobre tenant)
     const effectivePlanId = subRow?.plan_id ?? (tenantRow as any)?.plan_id ?? null;
