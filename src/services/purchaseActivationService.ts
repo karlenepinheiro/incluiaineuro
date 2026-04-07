@@ -27,18 +27,33 @@ export interface PurchaseCheckResult {
   plan_code?: string | null;
   /** Créditos avulsos (0 para assinaturas) */
   credits?: number;
+  /**
+   * Chave do produto identificado pelo webhook.
+   * 'UNKNOWN' indica que o produto não foi reconhecido — ativação deve ser bloqueada.
+   * Exemplos válidos: 'PRO_MONTHLY', 'MASTER_MONTHLY', 'CREDITS_100', 'CREDITS_300', 'CREDITS_900'
+   */
+  product_key?: string;
   /** ID da compra — necessário para chamar activatePurchaseForUser */
   purchase_id?: string;
 }
 
 export interface ActivationResult {
   ok: boolean;
-  /** Código do plano ativado */
+  /** Código do plano ativado (null para compras de créditos avulsos) */
   plan?: string | null;
   /** Créditos concedidos */
   credits_granted?: number;
-  /** Motivo em caso de falha */
+  /**
+   * Motivo em caso de falha:
+   *   'not_authenticated'          — usuário não logado
+   *   'already_activated'          — compra já ativada anteriormente (ok=true)
+   *   'unknown_product'            — produto não reconhecido pelo webhook
+   *   'tenant_not_found'           — perfil do usuário ainda não criado
+   *   'credits_require_subscription' — usuário FREE tentou ativar créditos avulsos
+   */
   reason?: string;
+  /** Mensagem amigável para exibir ao usuário final */
+  message?: string;
 }
 
 // ── Funções ───────────────────────────────────────────────────────────────────
@@ -62,10 +77,10 @@ export async function checkPurchaseByEmail(email: string): Promise<PurchaseCheck
  * Requer que o usuário esteja logado com o mesmo e-mail da compra.
  *
  * O que faz internamente (via RPC SECURITY DEFINER):
- *   - Vincula purchase_id ao tenant_id do usuário
- *   - Atualiza subscriptions: status=ACTIVE, plan_id, current_period_end
- *   - Adiciona créditos em credits_wallet + lança ledger
- *   - Marca kiwify_purchases.activated_at
+ *   - Rejeita produto UNKNOWN sem preencher activated_at
+ *   - Para planos: cria/atualiza subscriptions + concede créditos do plano
+ *   - Para créditos avulsos: verifica assinatura PRO/MASTER ativa antes de conceder
+ *   - Marca kiwify_purchases.activated_at apenas após entrega bem-sucedida
  *
  * @param purchaseId - ID retornado por checkPurchaseByEmail
  */

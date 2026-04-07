@@ -17,7 +17,8 @@ export const PLAN_TIER_ALIASES: Record<string, PlanTier> = {
   // DB codes (string literals)
   FREE:    PlanTier.FREE,
   PRO:     PlanTier.PRO,
-  PREMIUM: PlanTier.PREMIUM,  // 'PREMIUM' string (não confundir com o enum)
+  MASTER:  PlanTier.PREMIUM, // código real da tabela plans (plans.name = 'MASTER')
+  PREMIUM: PlanTier.PREMIUM,  // alias alternativo
   // Enum values como chaves (computed) — cobre o valor atual de cada tier
   [PlanTier.FREE]:    PlanTier.FREE,    // 'Starter (Grátis)'
   [PlanTier.PRO]:     PlanTier.PRO,     // 'Profissional'
@@ -36,6 +37,8 @@ export function resolvePlanTier(plan: unknown): PlanTier {
   return PLAN_TIER_ALIASES[key] ?? PlanTier.FREE;
 }
 
+// Valores canônicos alinhados com a constraint do banco (fix_billing_v5.sql BLOCO 2).
+// NÃO usar: 'TRIALING' (→ TRIAL), 'PAST_DUE' (→ OVERDUE), 'CANCELLED' (→ CANCELED)
 export type SubscriptionStatus =
   | 'ACTIVE'
   | 'PENDING'

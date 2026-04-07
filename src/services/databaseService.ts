@@ -98,7 +98,7 @@ async function getActiveSubscriptionForTenant(tenantId: string) {
     .from('subscriptions')
     .select('*')
     .eq('tenant_id', tenantId)
-    .in('status', ['ACTIVE', 'TRIALING', 'PENDING'])
+    .in('status', ['ACTIVE', 'TRIAL', 'PENDING'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -940,16 +940,18 @@ export const databaseService = {
           .eq('tenant_id', tenantId);
       }
 
-      // Registrar no ledger de créditos (tabela real: credits_ledger)
-      try {
-        await supabase.from('credits_ledger').insert({
-          tenant_id:   tenantId,
-          user_id:     userId,
-          type:        'usage',
-          amount:      -cost,
-          description: action,
-        });
-      } catch { /* silencioso */ }
+      // Registrar no ledger de créditos
+      const { error: ledgerErr } = await supabase.from('credits_ledger').insert({
+        tenant_id:   tenantId,
+        user_id:     userId,
+        type:        'usage_ai',
+        amount:      -cost,
+        description: action,
+        source:      'app',
+      });
+      if (ledgerErr) {
+        console.warn('[databaseService.debitCredits] ledger insert falhou:', ledgerErr.message);
+      }
     } catch (e) {
       console.warn('[databaseService.debitCredits] erro (não crítico):', e);
     }

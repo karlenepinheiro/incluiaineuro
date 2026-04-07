@@ -439,14 +439,21 @@ const App: React.FC = () => {
     if (!DEMO_MODE && profile.email && profile.tenant_id) {
       checkPurchaseByEmail(profile.email)
         .then(async (purchase) => {
-          if (purchase.found && purchase.status === 'APPROVED' && purchase.purchase_id) {
+          if (
+            purchase.found &&
+            purchase.status === 'APPROVED' &&
+            purchase.purchase_id &&
+            purchase.product_key !== 'UNKNOWN'
+          ) {
             const result = await activatePurchaseForUser(purchase.purchase_id);
             if (result.ok && profile.tenant_id) {
-              // Atualiza status de assinatura no estado local sem re-login
+              // Atualiza plano e status no estado local sem re-login
               const subInfo = await getActiveSubscription(profile.tenant_id).catch(() => null);
               if (subInfo) {
                 setActiveSubscription(subInfo);
-                setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status }));
+                const { resolvePlanTier } = await import('./types');
+                const newPlan = resolvePlanTier(subInfo.planCode);
+                setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status, plan: newPlan }));
               }
             }
           }
@@ -1033,8 +1040,7 @@ const App: React.FC = () => {
         <ActivationView
           initialEmail={activationEmail || undefined}
           onActivated={(_planCode) => {
-            // Após ativação via cadastro na ActivationView, manda para login
-            // para que o usuário faça login e carregue o plano ativo.
+            // Novo usuário: vai para login para carregar o perfil completo
             setView('login');
           }}
           onBack={() => setView('landing')}
@@ -1065,6 +1071,31 @@ const App: React.FC = () => {
         }}
         onAudit={() => setView('audit')}
         onUpgradeClick={handleUpgradeClick}
+      />
+    );
+  }
+
+  // ── Ativação pós-pagamento para usuário já autenticado ────────────────────
+  // Quando ?activate=1 chega com sessão ativa, o bloco !isAuthenticated não
+  // renderiza o ActivationView. Tratamos aqui para não perder a ativação.
+  if (view === 'activation') {
+    return (
+      <ActivationView
+        initialEmail={activationEmail || user.email || undefined}
+        authenticatedEmail={user.email || undefined}
+        onActivated={async (_planCode) => {
+          // Recarrega perfil para refletir novo plano/créditos no dashboard
+          try {
+            const refreshed = await databaseService.getUserProfile(user.id);
+            if (refreshed) setUser(refreshed);
+            const summary = await databaseService.getTenantSummary(user.id);
+            if (summary) setTenantSummary(summary);
+          } catch (e) {
+            console.warn('[App] Falha ao recarregar perfil após ativação:', e);
+          }
+          setView('dashboard');
+        }}
+        onBack={() => setView('dashboard')}
       />
     );
   }

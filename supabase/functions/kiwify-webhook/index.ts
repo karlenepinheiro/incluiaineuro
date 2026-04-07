@@ -5,22 +5,13 @@
  * Deploy:
  *   supabase functions deploy kiwify-webhook
  *
- * URL do webhook para configurar na Kiwify:
- *   https://<PROJECT_REF>.supabase.co/functions/v1/kiwify-webhook
+ * Secrets necessários:
+ *   KIWIFY_WEBHOOK_SECRET  — chave configurada na Kiwify
+ *   SUPABASE_SERVICE_ROLE_KEY — disponível automaticamente
+ *   SUPABASE_URL              — disponível automaticamente
  *
- * URL de redirecionamento pós-pagamento (configurar na Kiwify):
+ * URL de redirecionamento pós-pagamento (Kiwify):
  *   https://<SEU_DOMINIO>/?activate=1
- *
- * Secrets necessários (supabase secrets set KEY=VALUE):
- *   KIWIFY_WEBHOOK_SECRET  — chave secreta configurada na Kiwify
- *   SUPABASE_SERVICE_ROLE_KEY — já disponível automaticamente
- *   SUPABASE_URL              — já disponível automaticamente
- *
- * Mapeamento de eventos Kiwify:
- *   order_approved          → salva kiwify_purchases + ativa assinatura OU concede créditos (se tenant_id disponível)
- *   subscription_overdue    → marca assinatura como OVERDUE
- *   subscription_canceled   → marca assinatura como CANCELED
- *   subscription_renewed    → renova período + credita créditos mensais
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -29,19 +20,21 @@ const SUPABASE_URL         = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const KIWIFY_SECRET        = Deno.env.get('KIWIFY_WEBHOOK_SECRET') ?? '';
 
-// Planos: quantos créditos conceder na ativação/renovação
+// Créditos mensais por plano (fonte de verdade para ativação e renovação)
 const PLAN_CREDITS: Record<string, number> = {
   PRO:     500,
   MASTER:  700,
   PREMIUM: 700, // alias de MASTER
 };
 
+// Status válidos no banco (após fix_billing_v5.sql)
+const VALID_STATUSES = ['ACTIVE', 'TRIAL', 'OVERDUE', 'CANCELED', 'PENDING', 'COURTESY', 'INTERNAL_TEST'] as const;
+
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
   }
 
-  // Verificar assinatura Kiwify (header kiwify-signature)
   const signature = req.headers.get('kiwify-signature') ?? '';
   if (KIWIFY_SECRET && signature !== KIWIFY_SECRET) {
     console.warn('[kiwify-webhook] Assinatura inválida:', signature);
@@ -62,17 +55,15 @@ Deno.serve(async (req: Request) => {
   const product  = order?.product ?? {};
   const tracking = order?.trackingParameters ?? order?.tracking_parameters ?? {};
 
-  // tenant_id é passado como sck= na URL de checkout (opcional — pode ser null para compradores não logados)
+  // tenant_id é passado como sck= na URL de checkout
   const tenantId = tracking?.sck ?? tracking?.src ?? order?.external_reference ?? null;
-
-  // e-mail do comprador — fonte de verdade para ativação sem tenant_id
   const customerEmail = (customer?.email ?? '').trim().toLowerCase();
 
   console.log(`[kiwify-webhook] event=${event} order=${orderId} tenant=${tenantId} email=${customerEmail}`);
 
   const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-  // ── Idempotência: verificar se já processamos este order ─────────────────
+  // ── Idempotência ─────────────────────────────────────────────────────────────
   const { data: existing } = await db
     .from('kiwify_webhook_logs')
     .select('id')
@@ -87,7 +78,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // ── Identificar o produto/plano ──────────────────────────────────────────
+  // ── Identificar produto/plano ─────────────────────────────────────────────────
   const kiwifyProductId = product?.id ?? '';
   let planCode: string | null = null;
   let creditsToGrant = 0;
@@ -107,26 +98,61 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  // Fallback: inferir plano pelo nome do produto
-  if (!planCode && product?.name) {
+  // Cross-validação: nome do produto tem prioridade sobre dado errado em kiwify_products
+  if (planCode && product?.name) {
     const nameLower = (product.name as string).toLowerCase();
-    if (nameLower.includes('master') || nameLower.includes('premium')) planCode = 'MASTER';
-    else if (nameLower.includes('pro')) planCode = 'PRO';
-    else if (nameLower.includes('crédito') || nameLower.includes('credito')) productType = 'credits';
+    if ((nameLower.includes('master') || nameLower.includes('premium')) && planCode === 'PRO') {
+      console.warn(
+        `[kiwify-webhook] DADO INCORRETO em kiwify_products: product_id=${kiwifyProductId} ` +
+        `tem plan_code=PRO mas nome "${product.name}" indica MASTER. Corrigindo.`
+      );
+      planCode = 'MASTER';
+    }
   }
 
-  // ── Determinar status para kiwify_purchases ──────────────────────────────
+  // Fallback: inferir pelo nome quando kiwify_products não retornou resultado
+  if (!planCode && creditsToGrant === 0 && product?.name) {
+    const nameLower = (product.name as string).toLowerCase();
+    if (nameLower.includes('master') || nameLower.includes('premium')) {
+      planCode    = 'MASTER';
+      productType = 'subscription';
+    } else if (nameLower.includes('pro')) {
+      planCode    = 'PRO';
+      productType = 'subscription';
+    } else if (nameLower.includes('crédito') || nameLower.includes('credito')) {
+      productType = 'credits';
+      const m = nameLower.match(/(\d+)\s*cr[eé]dito/);
+      if (m) {
+        creditsToGrant = parseInt(m[1], 10);
+      } else {
+        console.warn('[kiwify-webhook] Não foi possível extrair créditos do nome:', product.name);
+      }
+    }
+  }
+
+  // ── Status da compra ──────────────────────────────────────────────────────────
   const isApproved = ['order_approved', 'approved', 'subscription_first_charge'].includes(event);
   const isCanceled = ['subscription_canceled', 'refunded', 'chargedback'].includes(event);
   const purchaseStatus = isApproved ? 'APPROVED' : isCanceled ? 'CANCELED' : 'PENDING';
 
-  // ── Salvar em kiwify_purchases (sempre, independente de ter tenant_id) ───
-  // Esta tabela é a fonte de verdade para o fluxo de ativação por e-mail.
-  if (customerEmail) {
-    const productKey = planCode
-      ? `${planCode}_${productType === 'subscription' ? 'MONTHLY' : 'ONESHOT'}`
-      : creditsToGrant > 0 ? `CREDITS_${creditsToGrant}` : 'UNKNOWN';
+  // ── product_key ───────────────────────────────────────────────────────────────
+  let productKey: string;
+  if (planCode && productType === 'subscription') {
+    productKey = `${planCode}_MONTHLY`;
+  } else if (productType === 'credits' && creditsToGrant > 0) {
+    productKey = `CREDITS_${creditsToGrant}`;
+  } else {
+    productKey = 'UNKNOWN';
+    if (isApproved) {
+      console.error(
+        `[kiwify-webhook] Produto UNKNOWN — order=${orderId} product.id=${kiwifyProductId} ` +
+        `product.name=${product?.name}. Compra salva mas NÃO será ativada. Requer intervenção manual.`
+      );
+    }
+  }
 
+  // ── Salva em kiwify_purchases ─────────────────────────────────────────────────
+  if (customerEmail) {
     await db
       .from('kiwify_purchases')
       .upsert(
@@ -149,41 +175,104 @@ Deno.serve(async (req: Request) => {
 
   let action = 'purchase_logged';
 
-  // ── Processar ativação imediata (só quando tenant_id está disponível) ────
-  // Compradores não logados terão o plano ativado depois, via ActivationView.
+  // ── Ativação imediata (tenant_id disponível) ───────────────────────────────────
   if (tenantId) {
     try {
       if (isApproved) {
-        if (productType === 'subscription' && planCode) {
-          const { data: planRow } = await db
+
+        if (productKey === 'UNKNOWN') {
+          console.error(`[kiwify-webhook] Produto UNKNOWN — ativação bloqueada tenant=${tenantId} order=${orderId}`);
+          action = 'blocked:unknown_product';
+
+        } else if (productType === 'subscription' && planCode) {
+          const normalizedPlanCode = planCode === 'PREMIUM' ? 'MASTER' : planCode;
+
+          // Resolve plan_id — falha explícita se plano não encontrado (não seta NULL)
+          const { data: planRow, error: planErr } = await db
             .from('plans')
             .select('id')
-            .eq('name', planCode)
+            .eq('name', normalizedPlanCode)
             .maybeSingle();
+
+          if (planErr || !planRow?.id) {
+            const msg = `Plano "${normalizedPlanCode}" não encontrado em plans. ` +
+              'Execute fix_billing_v5.sql BLOCO 1 para normalizar os nomes.';
+            console.error('[kiwify-webhook]', msg);
+            throw new Error(msg);
+          }
 
           const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-          await db
+          const { data: updatedSub, error: updateSubErr } = await db
             .from('subscriptions')
-            .upsert(
-              {
-                tenant_id:           tenantId,
-                plan_id:             planRow?.id ?? null,
-                status:              'ACTIVE',
-                current_period_end:  periodEnd,
-                provider:            'kiwify',
-                provider_sub_id:     order?.subscription?.id ?? null,
-              },
-              { onConflict: 'tenant_id' }
-            );
+            .update({
+              plan_id:            planRow.id,
+              status:             'ACTIVE',
+              current_period_end: periodEnd,
+              provider:           'kiwify',
+            })
+            .eq('tenant_id', tenantId)
+            .select('id')
+            .maybeSingle();
 
-          const credits = PLAN_CREDITS[planCode] ?? 0;
-          await addCredits(db, tenantId, credits, `Ativação plano ${planCode}`);
-          action = `subscription_activated:${planCode}`;
+          if (updateSubErr) {
+            throw new Error(`subscriptions update failed: ${updateSubErr.message}`);
+          }
+
+          if (!updatedSub) {
+            const { error: insertSubErr } = await db
+              .from('subscriptions')
+              .insert({
+                tenant_id:          tenantId,
+                plan_id:            planRow.id,
+                status:             'ACTIVE',
+                current_period_end: periodEnd,
+                provider:           'kiwify',
+              });
+            if (insertSubErr) {
+              throw new Error(`subscriptions insert failed: ${insertSubErr.message}`);
+            }
+          }
+
+          const credits = PLAN_CREDITS[normalizedPlanCode] ?? 0;
+          await addCredits(db, tenantId, credits, `Ativação plano ${normalizedPlanCode}`, 'monthly_grant');
+          action = `subscription_activated:${normalizedPlanCode}`;
+
+          // Marca compra como ativada para evitar dupla ativação via ActivationView
+          if (customerEmail) {
+            await db
+              .from('kiwify_purchases')
+              .update({ activated_at: new Date().toISOString(), tenant_id: tenantId })
+              .eq('provider_order_id', orderId);
+          }
 
         } else if (productType === 'credits' && creditsToGrant > 0) {
-          await addCredits(db, tenantId, creditsToGrant, `Compra avulsa ${creditsToGrant} créditos`);
-          action = `credits_granted:${creditsToGrant}`;
+          const { data: activeSub } = await db
+            .from('subscriptions')
+            .select('status, plans(name)')
+            .eq('tenant_id', tenantId)
+            .eq('status', 'ACTIVE')
+            .maybeSingle();
+
+          const subPlanName: string = ((activeSub as any)?.plans?.name ?? '').toUpperCase();
+          const isEligible = ['PRO', 'MASTER', 'PREMIUM'].includes(subPlanName);
+
+          if (isEligible) {
+            await addCredits(db, tenantId, creditsToGrant, `Compra avulsa ${creditsToGrant} créditos`, 'purchase_extra');
+            action = `credits_granted:${creditsToGrant}`;
+
+            if (customerEmail) {
+              await db
+                .from('kiwify_purchases')
+                .update({ activated_at: new Date().toISOString(), tenant_id: tenantId })
+                .eq('provider_order_id', orderId);
+            }
+          } else {
+            console.warn(
+              `[kiwify-webhook] Créditos avulsos bloqueados — tenant=${tenantId} plan=${subPlanName || 'FREE/nenhum'}.`
+            );
+            action = `credits_blocked:plan=${subPlanName || 'FREE'}`;
+          }
         }
 
       } else if (event === 'subscription_renewed') {
@@ -193,18 +282,39 @@ Deno.serve(async (req: Request) => {
           .update({ status: 'ACTIVE', current_period_end: periodEnd })
           .eq('tenant_id', tenantId);
 
-        if (planCode) {
-          const credits = PLAN_CREDITS[planCode] ?? 0;
-          await addCredits(db, tenantId, credits, `Renovação mensal ${planCode}`);
+        // Resolve planCode pelo plano atual do tenant quando não vem no payload
+        let effectivePlanCode = planCode;
+        if (!effectivePlanCode) {
+          const { data: currentSub } = await db
+            .from('subscriptions')
+            .select('plans(name)')
+            .eq('tenant_id', tenantId)
+            .eq('status', 'ACTIVE')
+            .maybeSingle();
+          effectivePlanCode = ((currentSub as any)?.plans?.name ?? '').toUpperCase() || null;
+        }
+
+        if (effectivePlanCode) {
+          const normalized = effectivePlanCode === 'PREMIUM' ? 'MASTER' : effectivePlanCode;
+          const credits = PLAN_CREDITS[normalized] ?? 0;
+          if (credits > 0) {
+            await addCredits(db, tenantId, credits, `Renovação mensal ${normalized}`, 'monthly_grant');
+          }
+        } else {
+          console.warn(`[kiwify-webhook] subscription_renewed sem planCode — tenant=${tenantId}. Créditos NÃO concedidos.`);
         }
         action = 'subscription_renewed';
 
       } else if (event === 'subscription_overdue') {
-        await db.from('subscriptions').update({ status: 'OVERDUE' }).eq('tenant_id', tenantId);
+        // 'OVERDUE' é válido após fix_billing_v5.sql BLOCO 2
+        const { error } = await db.from('subscriptions').update({ status: 'OVERDUE' }).eq('tenant_id', tenantId);
+        if (error) console.error('[kiwify-webhook] Falha ao marcar OVERDUE:', error.message);
         action = 'subscription_overdue';
 
       } else if (isCanceled) {
-        await db.from('subscriptions').update({ status: 'CANCELED' }).eq('tenant_id', tenantId);
+        // 'CANCELED' é válido após fix_billing_v5.sql BLOCO 2
+        const { error } = await db.from('subscriptions').update({ status: 'CANCELED' }).eq('tenant_id', tenantId);
+        if (error) console.error('[kiwify-webhook] Falha ao marcar CANCELED:', error.message);
         action = 'subscription_canceled';
       }
 
@@ -212,14 +322,14 @@ Deno.serve(async (req: Request) => {
       console.error('[kiwify-webhook] Erro ao processar evento:', err?.message);
       action = `error:${err?.message ?? 'unknown'}`;
     }
+
   } else {
-    // Sem tenant_id: comprador não estava logado.
-    // O plano será ativado quando o usuário fizer login/cadastro via ActivationView.
-    console.log(`[kiwify-webhook] Sem tenant_id — compra salva por e-mail: ${customerEmail}`);
-    if (isApproved) action = 'purchase_approved_pending_activation';
+    console.log(`[kiwify-webhook] Sem tenant_id — compra salva por e-mail: ${customerEmail} productKey=${productKey}`);
+    if (isApproved && productKey !== 'UNKNOWN') action = 'purchase_approved_pending_activation';
+    if (isApproved && productKey === 'UNKNOWN')  action = 'purchase_approved_unknown_product';
   }
 
-  // ── Registrar no log (idempotência futura) ────────────────────────────────
+  // ── Log (idempotência futura) ─────────────────────────────────────────────────
   await db.from('kiwify_webhook_logs').insert({
     kiwify_order_id: orderId,
     event_type:      event,
@@ -236,8 +346,17 @@ Deno.serve(async (req: Request) => {
   });
 });
 
-// ── Helper: adiciona créditos à carteira ─────────────────────────────────────
-async function addCredits(db: any, tenantId: string, amount: number, reason: string) {
+// ── Helper: adiciona créditos à carteira + registra no ledger ──────────────────
+async function addCredits(
+  db: any,
+  tenantId: string,
+  amount: number,
+  reason: string,
+  ledgerType: 'monthly_grant' | 'purchase_extra' | 'manual_grant' | 'courtesy' = 'monthly_grant'
+) {
+  if (amount <= 0) return;
+
+  // Upsert na wallet: INSERT cria, UPDATE incrementa
   const { data: wallet } = await db
     .from('credits_wallet')
     .select('balance')
@@ -245,25 +364,35 @@ async function addCredits(db: any, tenantId: string, amount: number, reason: str
     .maybeSingle();
 
   if (wallet) {
-    await db
+    const { error } = await db
       .from('credits_wallet')
-      .update({ balance: Number(wallet.balance ?? 0) + amount })
+      .update({ balance: Number(wallet.balance ?? 0) + amount, updated_at: new Date().toISOString() })
       .eq('tenant_id', tenantId);
+    if (error) {
+      console.error('[kiwify-webhook] Falha ao atualizar credits_wallet:', error.message);
+      throw new Error(`credits_wallet update failed: ${error.message}`);
+    }
   } else {
-    await db
+    const { error } = await db
       .from('credits_wallet')
       .insert({ tenant_id: tenantId, balance: amount });
+    if (error) {
+      console.error('[kiwify-webhook] Falha ao criar credits_wallet:', error.message);
+      throw new Error(`credits_wallet insert failed: ${error.message}`);
+    }
   }
 
-  await db
-    .from('credits_ledger')
-    .insert({
-      tenant_id:   tenantId,
-      amount:      amount,
-      type:        'credit',
-      description: reason,
-      source:      'kiwify_webhook',
-    })
-    .then(() => {})
-    .catch(() => {}); // ledger é não-crítico
+  // Ledger: type e source corretos (colunas existem após fix_billing_v5.sql)
+  const { error: ledgerErr } = await db.from('credits_ledger').insert({
+    tenant_id:   tenantId,
+    amount:      amount,
+    type:        ledgerType,
+    description: reason,
+    source:      'kiwify_webhook',
+  });
+
+  if (ledgerErr) {
+    // Ledger falhou: loga mas NÃO faz rollback — wallet já foi atualizada
+    console.error('[kiwify-webhook] Falha ao inserir credits_ledger (não crítico):', ledgerErr.message);
+  }
 }
