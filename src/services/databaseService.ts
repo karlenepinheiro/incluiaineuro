@@ -5,6 +5,7 @@ import {
   TenantType,
   UserRole,
   resolvePlanTier,
+  formatPlanDisplayName,
   type Protocol,
   type Student,
   type TenantSummary,
@@ -96,9 +97,9 @@ function mapDocStatus(status: string | null | undefined): 'FINAL' | 'DRAFT' {
 async function getActiveSubscriptionForTenant(tenantId: string) {
   const { data } = await supabase
     .from('subscriptions')
-    .select('*')
+    .select('id, plan_id, status, current_period_end, current_period_start, billing_cycle, provider, created_at')
     .eq('tenant_id', tenantId)
-    .in('status', ['ACTIVE', 'TRIAL', 'PENDING'])
+    .in('status', ['ACTIVE', 'TRIAL', 'PENDING', 'COURTESY', 'INTERNAL_TEST'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -849,6 +850,9 @@ export const databaseService = {
       // ledger opcional — não bloqueia
     }
 
+    const billingCycle: 'monthly' | 'annual' =
+      (sub as any)?.billing_cycle === 'annual' ? 'annual' : 'monthly';
+
     return {
       tenantId,
       tenantName: (tenant as any)?.name,
@@ -863,6 +867,8 @@ export const databaseService = {
       studentsActive: studentsCount ?? 0,
       renewalDatePlan: (sub as any)?.current_period_end ?? undefined,
       renewalDateCredits: (sub as any)?.current_period_end ?? undefined,
+      billingCycle,
+      planDisplayName: formatPlanDisplayName(planName, billingCycle),
     };
   },
 

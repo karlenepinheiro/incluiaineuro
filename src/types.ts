@@ -550,6 +550,41 @@ export interface TenantSummary {
   studentsActive: number;
   renewalDatePlan?: string; // ISO
   renewalDateCredits?: string; // ISO
+  /** Ciclo de cobrança da assinatura ativa ('monthly' | 'annual') */
+  billingCycle?: 'monthly' | 'annual';
+  /**
+   * Nome de exibição do plano com ciclo.
+   * Exemplos: "PRO MENSAL", "PREMIUM ANUAL", "FREE"
+   */
+  planDisplayName?: string;
+}
+
+// ── Helpers de exibição de billing ─────────────────────────────────────────────
+
+/**
+ * Converte planCode + billingCycle no nome exibível na UI.
+ * "MASTER" + "annual" → "PREMIUM ANUAL"
+ * "PRO"    + "monthly" → "PRO MENSAL"
+ * "FREE"   + qualquer  → "FREE"
+ */
+export function formatPlanDisplayName(
+  planCode: string,
+  billingCycle?: 'monthly' | 'annual' | null
+): string {
+  const code  = String(planCode ?? '').toUpperCase();
+  const cycle = billingCycle === 'annual' ? 'ANUAL' : 'MENSAL';
+  if (code === 'MASTER' || code === 'PREMIUM') return `PREMIUM ${cycle}`;
+  if (code === 'PRO') return `PRO ${cycle}`;
+  return 'FREE';
+}
+
+/**
+ * Converte max_students em label de exibição.
+ * 9999 ou superior → "Ilimitado"
+ */
+export function formatStudentLimit(maxStudents: number): string {
+  if (maxStudents >= 9999) return 'Ilimitado';
+  return String(maxStudents);
 }
 
 export interface PurchaseIntent {

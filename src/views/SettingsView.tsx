@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, resolvePlanTier, PLAN_LIMITS } from '../types';
+import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, resolvePlanTier, PLAN_LIMITS, formatPlanDisplayName, formatStudentLimit } from '../types';
 import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
 import { Plus, Trash2, School, User as UserIcon, CreditCard, Star, Settings, Sparkles, AlertTriangle, ShoppingCart, Upload, Building2, MapPin, Phone, Hash, FileText, AlertCircle, ChevronDown, RefreshCw, ExternalLink, Search, CheckCircle, Gift, Copy, Share2, Users } from 'lucide-react';
 import { ReferralService, type ReferralStats } from '../services/referralService';
@@ -766,7 +766,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                     <SubscriptionStatusBadge status={subscriptionStatus} size="sm" />
                   </div>
                   <div className="text-2xl font-extrabold text-gray-900">
-                    {isFreePlan ? 'Grátis' : isProPlan ? 'PRO' : 'PREMIUM'}
+                    {formatPlanDisplayName(
+                      isFreePlan ? 'FREE' : isProPlan ? 'PRO' : 'MASTER',
+                      (activeSubscription as any)?.billingCycle ?? tenantSummary?.billingCycle ?? 'monthly'
+                    )}
                   </div>
                   {expiryDate ? (
                     <p className={`text-xs mt-1 font-semibold ${needsPayment ? 'text-red-600' : 'text-gray-500'}`}>
@@ -820,27 +823,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                 </div>
 
                 {/* Card: Alunos */}
-                <div className="p-4 rounded-2xl bg-white border border-gray-200">
-                  <span className="text-xs uppercase font-extrabold text-gray-500">Alunos ativos</span>
-                  <div className="mt-2 text-3xl font-extrabold text-gray-900">
-                    {tenantSummary ? `${tenantSummary.studentsActive}/${totalStudentLimit ?? '—'}` : '—'}
-                  </div>
-                  {tenantSummary && (
-                    <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                      <div
-                        className="h-1.5 rounded-full bg-brand-500"
-                        style={{
-                          width: totalStudentLimit
-                            ? `${Math.min(100, (tenantSummary.studentsActive / totalStudentLimit) * 100)}%`
-                            : '0%',
-                        }}
-                      />
+                {(() => {
+                  const limitBase = tenantSummary?.studentLimitBase ?? 0;
+                  const isUnlimited = limitBase >= 9999;
+                  const limitLabel = isUnlimited ? 'Ilimitado' : formatStudentLimit(totalStudentLimit ?? limitBase);
+                  return (
+                    <div className="p-4 rounded-2xl bg-white border border-gray-200">
+                      <span className="text-xs uppercase font-extrabold text-gray-500">Alunos ativos</span>
+                      <div className="mt-2 text-3xl font-extrabold text-gray-900">
+                        {tenantSummary ? `${tenantSummary.studentsActive} / ${limitLabel}` : '—'}
+                      </div>
+                      {tenantSummary && !isUnlimited && (
+                        <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                          <div
+                            className="h-1.5 rounded-full bg-brand-500"
+                            style={{
+                              width: totalStudentLimit
+                                ? `${Math.min(100, (tenantSummary.studentsActive / totalStudentLimit) * 100)}%`
+                                : '0%',
+                            }}
+                          />
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-500 mt-1">
+                        {isUnlimited ? 'Sem limite de alunos no plano PREMIUM' : `Limite: ${limitLabel}`}
+                      </p>
                     </div>
-                  )}
-                  <p className="text-xs text-gray-500 mt-1">
-                    Base: {tenantSummary?.studentLimitBase ?? '—'} • Extras: {tenantSummary?.studentLimitExtra ?? '—'}
-                  </p>
-                </div>
+                  );
+                })()}
               </div>
 
               {/* Histórico de créditos */}

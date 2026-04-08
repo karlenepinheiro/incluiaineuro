@@ -111,7 +111,8 @@ export const SchoolTemplatesView: React.FC<Props> = ({ user, tenantSummary }) =>
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Plano: PRO ou superior exigido ──────────────────────────────────────────
-  const planLabel = tenantSummary?.plan ?? user.plan ?? PlanTier.FREE;
+  // Usa planTier do tenantSummary (código canônico) ou user.plan como fallback
+  const planLabel = tenantSummary?.planTier ?? user.plan ?? PlanTier.FREE;
   const isPlanOk = [
     PlanTier.PRO, PlanTier.PREMIUM,
     'PRO', 'MASTER', 'PREMIUM', 'INSTITUTIONAL',
@@ -234,7 +235,7 @@ export const SchoolTemplatesView: React.FC<Props> = ({ user, tenantSummary }) =>
             borderRadius: 8, border: `1px solid ${C.gold}30`,
           }}>
             <span style={{ color: C.gold, fontWeight: 600, fontSize: 14 }}>
-              Plano atual: {planLabel}
+              Plano atual: {tenantSummary?.planDisplayName ?? String(planLabel)}
             </span>
           </div>
         </div>

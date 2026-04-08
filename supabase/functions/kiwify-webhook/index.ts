@@ -6,12 +6,9 @@
  *   supabase functions deploy kiwify-webhook
  *
  * Secrets necessários:
- *   KIWIFY_WEBHOOK_SECRET  — chave configurada na Kiwify
- *   SUPABASE_SERVICE_ROLE_KEY — disponível automaticamente
- *   SUPABASE_URL              — disponível automaticamente
- *
- * URL de redirecionamento pós-pagamento (Kiwify):
- *   https://<SEU_DOMINIO>/?activate=1
+ *   KIWIFY_WEBHOOK_SECRET        — chave configurada na Kiwify
+ *   SUPABASE_SERVICE_ROLE_KEY    — disponível automaticamente
+ *   SUPABASE_URL                 — disponível automaticamente
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -26,9 +23,6 @@ const PLAN_CREDITS: Record<string, number> = {
   MASTER:  700,
   PREMIUM: 700, // alias de MASTER
 };
-
-// Status válidos no banco (após fix_billing_v5.sql)
-const VALID_STATUSES = ['ACTIVE', 'TRIAL', 'OVERDUE', 'CANCELED', 'PENDING', 'COURTESY', 'INTERNAL_TEST'] as const;
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') {
@@ -55,8 +49,8 @@ Deno.serve(async (req: Request) => {
   const product  = order?.product ?? {};
   const tracking = order?.trackingParameters ?? order?.tracking_parameters ?? {};
 
-  // tenant_id é passado como sck= na URL de checkout
-  const tenantId = tracking?.sck ?? tracking?.src ?? order?.external_reference ?? null;
+  // tenant_id passado como sck= na URL de checkout
+  const tenantId      = tracking?.sck ?? tracking?.src ?? order?.external_reference ?? null;
   const customerEmail = (customer?.email ?? '').trim().toLowerCase();
 
   console.log(`[kiwify-webhook] event=${event} order=${orderId} tenant=${tenantId} email=${customerEmail}`);
@@ -135,10 +129,16 @@ Deno.serve(async (req: Request) => {
   const isCanceled = ['subscription_canceled', 'refunded', 'chargedback'].includes(event);
   const purchaseStatus = isApproved ? 'APPROVED' : isCanceled ? 'CANCELED' : 'PENDING';
 
-  // ── product_key ───────────────────────────────────────────────────────────────
+  // ── product_key + billing_cycle ───────────────────────────────────────────────
   let productKey: string;
+  // billing_cycle vem do product_type ou do nome do produto
+  const rawProductName = String(product?.name ?? '').toLowerCase();
+  const isAnnual = rawProductName.includes('anual') || rawProductName.includes('annual') ||
+    (kiwifyProductId && kiwifyProductId.toString().toLowerCase().includes('annual'));
+  const billingCycle: 'monthly' | 'annual' = isAnnual ? 'annual' : 'monthly';
+
   if (planCode && productType === 'subscription') {
-    productKey = `${planCode}_MONTHLY`;
+    productKey = `${planCode}_${billingCycle === 'annual' ? 'ANNUAL' : 'MONTHLY'}`;
   } else if (productType === 'credits' && creditsToGrant > 0) {
     productKey = `CREDITS_${creditsToGrant}`;
   } else {
@@ -146,7 +146,7 @@ Deno.serve(async (req: Request) => {
     if (isApproved) {
       console.error(
         `[kiwify-webhook] Produto UNKNOWN — order=${orderId} product.id=${kiwifyProductId} ` +
-        `product.name=${product?.name}. Compra salva mas NÃO será ativada. Requer intervenção manual.`
+        `product.name=${product?.name}. Compra salva mas NÃO será ativada.`
       );
     }
   }
@@ -187,7 +187,7 @@ Deno.serve(async (req: Request) => {
         } else if (productType === 'subscription' && planCode) {
           const normalizedPlanCode = planCode === 'PREMIUM' ? 'MASTER' : planCode;
 
-          // Resolve plan_id — falha explícita se plano não encontrado (não seta NULL)
+          // Resolve plan_id
           const { data: planRow, error: planErr } = await db
             .from('plans')
             .select('id')
@@ -196,13 +196,14 @@ Deno.serve(async (req: Request) => {
 
           if (planErr || !planRow?.id) {
             const msg = `Plano "${normalizedPlanCode}" não encontrado em plans. ` +
-              'Execute fix_billing_v5.sql BLOCO 1 para normalizar os nomes.';
+              'Execute fix_billing_v6.sql para normalizar os nomes.';
             console.error('[kiwify-webhook]', msg);
             throw new Error(msg);
           }
 
           const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
+          // Atualiza subscription — inclui billing_cycle
           const { data: updatedSub, error: updateSubErr } = await db
             .from('subscriptions')
             .update({
@@ -210,6 +211,7 @@ Deno.serve(async (req: Request) => {
               status:             'ACTIVE',
               current_period_end: periodEnd,
               provider:           'kiwify',
+              billing_cycle:      billingCycle,   // ← novo
             })
             .eq('tenant_id', tenantId)
             .select('id')
@@ -228,6 +230,7 @@ Deno.serve(async (req: Request) => {
                 status:             'ACTIVE',
                 current_period_end: periodEnd,
                 provider:           'kiwify',
+                billing_cycle:      billingCycle,   // ← novo
               });
             if (insertSubErr) {
               throw new Error(`subscriptions insert failed: ${insertSubErr.message}`);
@@ -235,10 +238,10 @@ Deno.serve(async (req: Request) => {
           }
 
           const credits = PLAN_CREDITS[normalizedPlanCode] ?? 0;
-          await addCredits(db, tenantId, credits, `Ativação plano ${normalizedPlanCode}`, 'monthly_grant');
-          action = `subscription_activated:${normalizedPlanCode}`;
+          // RESET: zera créditos FREE antes de aplicar os do plano pago
+          await setCredits(db, tenantId, credits, `Ativação plano ${normalizedPlanCode} (${billingCycle})`, 'monthly_grant');
+          action = `subscription_activated:${normalizedPlanCode}_${billingCycle}`;
 
-          // Marca compra como ativada para evitar dupla ativação via ActivationView
           if (customerEmail) {
             await db
               .from('kiwify_purchases')
@@ -258,6 +261,7 @@ Deno.serve(async (req: Request) => {
           const isEligible = ['PRO', 'MASTER', 'PREMIUM'].includes(subPlanName);
 
           if (isEligible) {
+            // INCREMENTA: compra avulsa soma sobre o saldo existente
             await addCredits(db, tenantId, creditsToGrant, `Compra avulsa ${creditsToGrant} créditos`, 'purchase_extra');
             action = `credits_granted:${creditsToGrant}`;
 
@@ -282,7 +286,6 @@ Deno.serve(async (req: Request) => {
           .update({ status: 'ACTIVE', current_period_end: periodEnd })
           .eq('tenant_id', tenantId);
 
-        // Resolve planCode pelo plano atual do tenant quando não vem no payload
         let effectivePlanCode = planCode;
         if (!effectivePlanCode) {
           const { data: currentSub } = await db
@@ -298,7 +301,8 @@ Deno.serve(async (req: Request) => {
           const normalized = effectivePlanCode === 'PREMIUM' ? 'MASTER' : effectivePlanCode;
           const credits = PLAN_CREDITS[normalized] ?? 0;
           if (credits > 0) {
-            await addCredits(db, tenantId, credits, `Renovação mensal ${normalized}`, 'monthly_grant');
+            // RENOVAÇÃO: reseta o saldo para os créditos do plano (descarta sobras do mês anterior)
+            await setCredits(db, tenantId, credits, `Renovação mensal ${normalized}`, 'monthly_grant');
           }
         } else {
           console.warn(`[kiwify-webhook] subscription_renewed sem planCode — tenant=${tenantId}. Créditos NÃO concedidos.`);
@@ -306,13 +310,11 @@ Deno.serve(async (req: Request) => {
         action = 'subscription_renewed';
 
       } else if (event === 'subscription_overdue') {
-        // 'OVERDUE' é válido após fix_billing_v5.sql BLOCO 2
         const { error } = await db.from('subscriptions').update({ status: 'OVERDUE' }).eq('tenant_id', tenantId);
         if (error) console.error('[kiwify-webhook] Falha ao marcar OVERDUE:', error.message);
         action = 'subscription_overdue';
 
       } else if (isCanceled) {
-        // 'CANCELED' é válido após fix_billing_v5.sql BLOCO 2
         const { error } = await db.from('subscriptions').update({ status: 'CANCELED' }).eq('tenant_id', tenantId);
         if (error) console.error('[kiwify-webhook] Falha ao marcar CANCELED:', error.message);
         action = 'subscription_canceled';
@@ -329,7 +331,7 @@ Deno.serve(async (req: Request) => {
     if (isApproved && productKey === 'UNKNOWN')  action = 'purchase_approved_unknown_product';
   }
 
-  // ── Log (idempotência futura) ─────────────────────────────────────────────────
+  // ── Log ───────────────────────────────────────────────────────────────────────
   await db.from('kiwify_webhook_logs').insert({
     kiwify_order_id: orderId,
     event_type:      event,
@@ -346,17 +348,55 @@ Deno.serve(async (req: Request) => {
   });
 });
 
-// ── Helper: adiciona créditos à carteira + registra no ledger ──────────────────
+// ── setCredits: RESETA o saldo da carteira para `amount` ──────────────────────
+// Usar em ativações e renovações de plano — zera créditos FREE antes de aplicar
+// os créditos do plano pago.
+async function setCredits(
+  db: any,
+  tenantId: string,
+  amount: number,
+  reason: string,
+  ledgerType: 'monthly_grant' | 'courtesy' | 'manual_grant' = 'monthly_grant'
+) {
+  if (amount <= 0) return;
+
+  // Upsert com SET (não incrementa)
+  const { error: walletErr } = await db
+    .from('credits_wallet')
+    .upsert(
+      { tenant_id: tenantId, balance: amount, updated_at: new Date().toISOString() },
+      { onConflict: 'tenant_id' }
+    );
+
+  if (walletErr) {
+    console.error('[kiwify-webhook] Falha ao resetar credits_wallet:', walletErr.message);
+    throw new Error(`credits_wallet set failed: ${walletErr.message}`);
+  }
+
+  const { error: ledgerErr } = await db.from('credits_ledger').insert({
+    tenant_id:   tenantId,
+    amount:      amount,
+    type:        ledgerType,
+    description: reason,
+    source:      'kiwify_webhook',
+  });
+
+  if (ledgerErr) {
+    console.error('[kiwify-webhook] Falha ao inserir credits_ledger (não crítico):', ledgerErr.message);
+  }
+}
+
+// ── addCredits: INCREMENTA o saldo da carteira ────────────────────────────────
+// Usar apenas para compras avulsas de créditos.
 async function addCredits(
   db: any,
   tenantId: string,
   amount: number,
   reason: string,
-  ledgerType: 'monthly_grant' | 'purchase_extra' | 'manual_grant' | 'courtesy' = 'monthly_grant'
+  ledgerType: 'purchase_extra' | 'manual_grant' | 'courtesy' = 'purchase_extra'
 ) {
   if (amount <= 0) return;
 
-  // Upsert na wallet: INSERT cria, UPDATE incrementa
   const { data: wallet } = await db
     .from('credits_wallet')
     .select('balance')
@@ -369,7 +409,7 @@ async function addCredits(
       .update({ balance: Number(wallet.balance ?? 0) + amount, updated_at: new Date().toISOString() })
       .eq('tenant_id', tenantId);
     if (error) {
-      console.error('[kiwify-webhook] Falha ao atualizar credits_wallet:', error.message);
+      console.error('[kiwify-webhook] Falha ao incrementar credits_wallet:', error.message);
       throw new Error(`credits_wallet update failed: ${error.message}`);
     }
   } else {
@@ -382,7 +422,6 @@ async function addCredits(
     }
   }
 
-  // Ledger: type e source corretos (colunas existem após fix_billing_v5.sql)
   const { error: ledgerErr } = await db.from('credits_ledger').insert({
     tenant_id:   tenantId,
     amount:      amount,
@@ -392,7 +431,6 @@ async function addCredits(
   });
 
   if (ledgerErr) {
-    // Ledger falhou: loga mas NÃO faz rollback — wallet já foi atualizada
     console.error('[kiwify-webhook] Falha ao inserir credits_ledger (não crítico):', ledgerErr.message);
   }
 }

@@ -27,6 +27,8 @@ export interface ActiveSubscriptionInfo {
   isTestAccount: boolean;
   cancelAtPeriodEnd: boolean;
   lastPaymentStatus: string | null;
+  /** Ciclo de cobrança ('monthly' | 'annual'). Null em contas sem subscription registrada. */
+  billingCycle: 'monthly' | 'annual' | null;
 }
 
 export interface SubscriptionAccessResult {
@@ -59,6 +61,7 @@ export async function getActiveSubscription(tenantId: string): Promise<ActiveSub
     .select([
       'id', 'tenant_id', 'plan_id', 'status',
       'current_period_end', 'next_due_date',
+      'billing_cycle',
       'provider', 'provider_sub_id',
       'provider_customer_id', 'provider_payment_link',
       'provider_update_payment_link', 'last_payment_status',
@@ -90,6 +93,7 @@ export async function getActiveSubscription(tenantId: string): Promise<ActiveSub
     status: data.status as SubscriptionStatus,
     currentPeriodEnd: data.current_period_end ?? null,
     nextDueDate: data.next_due_date ?? null,
+    billingCycle: (data.billing_cycle === 'annual' ? 'annual' : data.billing_cycle === 'monthly' ? 'monthly' : null),
     providerPaymentLink: data.provider_payment_link ?? null,
     providerUpdatePaymentLink: data.provider_update_payment_link ?? null,
     isTestAccount: false,

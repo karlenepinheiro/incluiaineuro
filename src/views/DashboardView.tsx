@@ -29,6 +29,8 @@ interface DashboardViewProps {
   protocols: Protocol[];
   appointments?: Appointment[];
   planMaxStudents?: number;
+  /** Label de exibição do limite de alunos: "Ilimitado" para MASTER, número para outros */
+  planMaxStudentsLabel?: string;
   planMonthlyCredits?: number;
   creditsAvailable?: number;
   /** Créditos avulsos comprados (ledger) */
@@ -36,7 +38,7 @@ interface DashboardViewProps {
   /** Créditos consumidos no ciclo (ledger) */
   creditsConsumedCycle?: number;
   creditsResetAt?: string | null;
-  /** Ex: 'FREE', 'PRO', 'PREMIUM' */
+  /** Nome de exibição do plano com ciclo. Ex: "PRO MENSAL", "PREMIUM ANUAL", "FREE" */
   planName?: string;
   /** ISO date da expiração da assinatura */
   subscriptionExpiry?: string | null;
@@ -367,6 +369,7 @@ export function DashboardView({
   protocols,
   appointments = [],
   planMaxStudents,
+  planMaxStudentsLabel,
   planMonthlyCredits,
   creditsAvailable,
   creditsPurchased = 0,
@@ -481,8 +484,14 @@ export function DashboardView({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <MeterCard
           title="Limite de alunos"
-          subtitle={maxStudents > 0 ? `${students.length} de ${maxStudents} alunos` : `${students.length} alunos ativos`}
-          valuePct={studentsPct}
+          subtitle={
+            maxStudents >= 9999
+              ? `${students.length} alunos · Ilimitado`
+              : maxStudents > 0
+              ? `${students.length} de ${planMaxStudentsLabel ?? maxStudents} alunos`
+              : `${students.length} alunos ativos`
+          }
+          valuePct={maxStudents >= 9999 ? 0 : studentsPct}
           mode={modeStudents}
           onToggle={() => setModeStudents(m => (m === 'arc' ? 'bar' : 'arc'))}
         />
@@ -505,7 +514,7 @@ export function DashboardView({
               {planName && (
                 <div className="flex justify-between">
                   <span>Plano atual:</span>
-                  <strong style={{ color: C.dark }}>{planName === 'MASTER' || planName === 'PREMIUM' ? SUBSCRIPTION_PLANS.MASTER.name : planName === 'PRO' ? SUBSCRIPTION_PLANS.PRO.name : planName}</strong>
+                  <strong style={{ color: C.dark }}>{planName}</strong>
                 </div>
               )}
               {monthlyCredits > 0 && (
@@ -570,7 +579,7 @@ export function DashboardView({
       </div>
 
       {/* Upgrade CTA — visível apenas para FREE e PRO */}
-      {(planName === 'FREE' || planName === 'PRO') && (
+      {(planName === 'FREE' || planName?.startsWith('PRO')) && (
         <div
           className="rounded-2xl p-5 flex items-center justify-between gap-4 flex-wrap"
           style={{ background: `linear-gradient(135deg, ${C.petrol} 0%, ${C.dark} 100%)` }}

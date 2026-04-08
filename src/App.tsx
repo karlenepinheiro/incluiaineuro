@@ -24,6 +24,8 @@ import {
   TenantType,
   ProtocolStatus,
   ServiceRecord,
+  formatPlanDisplayName,
+  formatStudentLimit,
 } from './types';
 import { ShieldCheck, Menu } from 'lucide-react';
 import { DocumentBuilder } from './components/DocumentBuilder';
@@ -227,12 +229,24 @@ const App: React.FC = () => {
   const [effectivePlans, setEffectivePlans] = useState<any[]>([]);
   const [activeSubscription, setActiveSubscription] = useState<ActiveSubscriptionInfo | null>(null);
 
-  const planName = useMemo(() => {
+  // planCode: código canônico do banco (FREE | PRO | MASTER)
+  const planCode = useMemo(() => {
     if (user.plan === PlanTier.PREMIUM) return 'MASTER';
     if (user.plan === PlanTier.PRO) return 'PRO';
-    if (user.plan === PlanTier.FREE) return 'FREE';
     return 'FREE';
   }, [user.plan]);
+
+  // planName: CÓDIGO do plano (usado para lookups e condicionais de feature gates)
+  const planName = planCode;
+
+  // planDisplayName: nome de exibição com ciclo — fonte única para a UI
+  // Ex: "PREMIUM MENSAL", "PRO ANUAL", "FREE"
+  const planDisplayName = useMemo(() => {
+    // 1ª fonte: tenantSummary (vem do banco com billing_cycle real)
+    if (tenantSummary?.planDisplayName) return tenantSummary.planDisplayName;
+    // Fallback: sem ciclo (billing_cycle ainda não carregou)
+    return formatPlanDisplayName(planCode, tenantSummary?.billingCycle ?? 'monthly');
+  }, [tenantSummary?.planDisplayName, tenantSummary?.billingCycle, planCode]);
 
   const planEff = useMemo(() => {
     const found = effectivePlans.find((p: any) => String(p?.name ?? '').toUpperCase() === planName);
@@ -240,14 +254,20 @@ const App: React.FC = () => {
   }, [effectivePlans, planName]);
 
   const planMaxStudents = useMemo(() => {
-    const fromPlanEff = Number(planEff?.max_students);
-    if (Number.isFinite(fromPlanEff) && fromPlanEff > 0) return fromPlanEff;
     const fromSummary = Number(tenantSummary?.studentLimitBase);
     if (Number.isFinite(fromSummary) && fromSummary > 0) return fromSummary;
+    const fromPlanEff = Number(planEff?.max_students);
+    if (Number.isFinite(fromPlanEff) && fromPlanEff > 0) return fromPlanEff;
     const fromStatic = (getPlanLimits(user.plan) as any)?.students;
     if (typeof fromStatic === 'number' && fromStatic > 0) return fromStatic;
     return 0;
   }, [planEff?.max_students, tenantSummary?.studentLimitBase, user.plan]);
+
+  // Label de exibição do limite de alunos: "Ilimitado" para MASTER, número para outros.
+  const planMaxStudentsLabel = useMemo(
+    () => formatStudentLimit(planMaxStudents),
+    [planMaxStudents]
+  );
 
   const planMonthlyCredits = useMemo(() => {
     // 1ª fonte: tenantSummary (vem do banco via getTenantSummary → plans.ai_credits_per_month)
@@ -1179,12 +1199,13 @@ const App: React.FC = () => {
                 protocols={protocols}
                 appointments={[]}
                 planMaxStudents={planMaxStudents}
+                planMaxStudentsLabel={planMaxStudentsLabel}
                 planMonthlyCredits={planMonthlyCredits}
                 creditsAvailable={creditsAvailable}
                 creditsPurchased={creditsPurchased}
                 creditsConsumedCycle={creditsConsumedCycle}
                 creditsResetAt={creditsResetAt}
-                planName={planName}
+                planName={planDisplayName}
                 subscriptionExpiry={activeSubscription?.currentPeriodEnd ?? tenantSummary?.renewalDatePlan ?? null}
                 userId={user.id}
                 onNavigate={setView}

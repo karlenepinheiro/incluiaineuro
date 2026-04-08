@@ -10,6 +10,7 @@ import {
   Zap, ArrowRight, RefreshCw, ExternalLink, Star, Shield,
 } from 'lucide-react';
 import type { User } from '../types';
+import { formatPlanDisplayName, formatStudentLimit } from '../types';
 import { getActiveSubscription, type ActiveSubscriptionInfo } from '../services/subscriptionService';
 import { SUBSCRIPTION_PLANS, CREDIT_PACKAGES as CREDIT_PACKAGES_CONFIG } from '../config/aiCosts';
 import {
@@ -152,6 +153,9 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
   const isPro    = planCode === 'PRO';
   const isMaster = planCode === 'MASTER' || planCode === 'PREMIUM';
 
+  // Nome de exibição com ciclo: "PRO MENSAL", "PREMIUM ANUAL", etc.
+  const planDisplayName = formatPlanDisplayName(planCode, sub?.billingCycle ?? 'monthly');
+
   // ── Abrir checkout de assinatura ─────────────────────────────────────────
   async function handleSubscribe(code: 'PRO' | 'MASTER', cycle?: 'monthly' | 'annual') {
     if (!kiwifyOk) {
@@ -254,7 +258,7 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
               <h2 style={{ fontSize: 26, fontWeight: 800, color: P.dark }}>
-                {isMaster ? SUBSCRIPTION_PLANS.MASTER.name : isPro ? SUBSCRIPTION_PLANS.PRO.name : SUBSCRIPTION_PLANS.FREE.name}
+                {planDisplayName}
               </h2>
               {sub?.status && <StatusBadge status={sub.status} />}
             </div>
