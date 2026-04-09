@@ -6,6 +6,7 @@ import {
   Save, Search, Edit3, Trash2, Lock, RefreshCw,
   Package, TestTube, ChevronDown, ChevronUp, Eye, EyeOff,
   AlertTriangle, RotateCcw, Gift, Layers, Sun, Moon, LogOut,
+  Tag, Link, Copy, Share2, ExternalLink, ToggleLeft, ToggleRight,
 } from 'lucide-react';
 import {
   AdminRole, AdminUser, AdminLog, SiteConfig, PlanTier,
@@ -18,12 +19,18 @@ import { CreditLedgerService, CreditWalletService } from '../services/creditServ
 import { LandingService } from '../services/landingService';
 import { SubscriptionService } from '../services/billingService';
 import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
+import {
+  getCeoKpis, getCeoSubscribers, getKiwifyProducts, upsertKiwifyProduct,
+  getCoupons, upsertCoupon, toggleCoupon, deleteCoupon, buildCouponShareLink,
+  getAdminAuditLog, logAction,
+  type CeoKpis, type CeoSubscriber, type KiwifyProduct, type CeoCoupon, type AdminAuditEntry,
+} from '../services/ceoService';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-type Tab = 'overview' | 'plans' | 'subscribers' | 'monitoring' | 'credits' | 'landing' | 'test_accounts' | 'admins' | 'user_logs' | 'logs';
+type Tab = 'overview' | 'plans' | 'subscribers' | 'monitoring' | 'credits' | 'landing' | 'kiwify' | 'coupons' | 'test_accounts' | 'admins' | 'user_logs' | 'logs';
 
 
 // ============================================================================
@@ -251,70 +258,65 @@ const SubSearchPicker = ({ onSelect, placeholder = 'Buscar por nome, escola ou e
 // ============================================================================
 
 const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: boolean }) => {
-  const [stats, setStats] = useState<any>(null);
+  const [kpis, setKpis] = useState<CeoKpis | null>(null);
   const [loading, setLoading] = useState(true);
   const [aiStats, setAiStats] = useState<{ total: number; success: number; failed: number; copilotActed: number } | null>(null);
-  const [planDist, setPlanDist] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    AdminService.getFinancialStats().then(s => { setStats(s); setLoading(false); });
-    // Distribuição real por plano para o donut
-    if (!DEMO_MODE) {
-      Promise.resolve(
-        supabase.from('v_ceo_subscribers')
-          .select('plan_code')
-          .not('subscription_status', 'eq', 'CANCELED')
-      ).then(({ data }) => {
-        const dist: Record<string, number> = {};
-        (data ?? []).forEach((r: any) => {
-          const code = r.plan_code ?? 'FREE';
-          if (code !== 'FREE') dist[code] = (dist[code] ?? 0) + 1;
-        });
-        setPlanDist(dist);
-      }).catch(() => {});
-    } else {
-      setPlanDist({ PRO: 52, MASTER: 38, INSTITUTIONAL: 10 });
-    }
-
-    // Carrega métricas de IA dos últimos 30 dias
-    if (!DEMO_MODE) {
-      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      Promise.all([
-        supabase.from('ai_requests').select('status', { count: 'exact', head: false }).gte('created_at', since),
-        supabase.from('copilot_suggestions').select('id', { count: 'exact', head: false }).eq('status', 'acted').gte('created_at', since),
-      ]).then(([reqRes, copilotRes]) => {
-        const rows: any[] = reqRes.data ?? [];
-        setAiStats({
-          total:         rows.length,
-          success:       rows.filter(r => r.status === 'success').length,
-          failed:        rows.filter(r => r.status === 'failed').length,
-          copilotActed:  (copilotRes.count ?? 0),
-        });
-      }).catch(() => {});
-    } else {
+    if (DEMO_MODE) {
+      setKpis({
+        total_tenants: 166, active_subscribers: 142, overdue_subscribers: 8,
+        trial_subscribers: 12, canceled_subscribers: 4,
+        free_count: 80, pro_monthly_count: 35, pro_annual_count: 17,
+        premium_monthly_count: 22, premium_annual_count: 14,
+        mrr_pro_monthly: 35 * 79, mrr_pro_annual: 17 * 59,
+        mrr_premium_monthly: 22 * 147, mrr_premium_annual: 14 * 99,
+        mrr_estimated: 35*79 + 17*59 + 22*147 + 14*99,
+        extra_revenue_mtd: 1240, low_credit_count: 18, expiring_7d_count: 7,
+      });
       setAiStats({ total: 1284, success: 1201, failed: 83, copilotActed: 342 });
+      setLoading(false);
+      return;
     }
+    getCeoKpis().then(k => { setKpis(k); setLoading(false); }).catch(() => setLoading(false));
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    Promise.all([
+      supabase.from('ai_requests').select('status', { count: 'exact', head: false }).gte('created_at', since),
+      supabase.from('copilot_suggestions').select('id', { count: 'exact', head: false }).eq('status', 'acted').gte('created_at', since),
+    ]).then(([reqRes, copilotRes]) => {
+      const rows: any[] = reqRes.data ?? [];
+      setAiStats({
+        total: rows.length,
+        success: rows.filter(r => r.status === 'success').length,
+        failed: rows.filter(r => r.status === 'failed').length,
+        copilotActed: (copilotRes.count ?? 0),
+      });
+    }).catch(() => {});
   }, []);
 
   if (loading) return <div className="text-gray-400 text-sm py-8">Carregando KPIs...</div>;
-  if (!stats) return null;
+  if (!kpis) return null;
+
+  const fmt = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const mrrTotal = kpis.mrr_estimated;
+  const arr = mrrTotal * 12;
 
   const subscriptionSlices: DonutSlice[] = [
-    { label: 'Ativas',     value: stats.active_subscribers,   color: '#10B981' },
-    { label: 'Em atraso',  value: stats.overdue_subscribers,  color: '#F59E0B' },
-    { label: 'Trial/Teste',value: stats.trial_subscribers,    color: '#3B82F6' },
-    { label: 'Canceladas', value: stats.canceled_subscribers, color: '#EF4444' },
+    { label: 'Ativas',     value: kpis.active_subscribers,   color: '#10B981' },
+    { label: 'Em atraso',  value: kpis.overdue_subscribers,  color: '#F59E0B' },
+    { label: 'Trial/Teste',value: kpis.trial_subscribers,    color: '#3B82F6' },
+    { label: 'Canceladas', value: kpis.canceled_subscribers, color: '#EF4444' },
   ].filter(s => s.value > 0);
 
-  const revenueSlices: DonutSlice[] = [
-    { label: 'PRO',          value: planDist.PRO ?? 0,           color: '#3B82F6' },
-    { label: 'MASTER',       value: planDist.MASTER ?? 0,        color: '#8B5CF6' },
-    { label: 'INSTITUTIONAL',value: planDist.INSTITUTIONAL ?? 0,  color: '#10B981' },
-  ].filter(s => s.value > 0);
-
-  const mrrLabel = stats.mrr_estimated > 0
-    ? `R$ ${(stats.mrr_estimated / 1000).toFixed(1)}k`
-    : '—';
+  const planBreakdown = [
+    { label: 'PRO Mensal',     count: kpis.pro_monthly_count,    mrr: kpis.mrr_pro_monthly,    color: '#3B82F6' },
+    { label: 'PRO Anual',      count: kpis.pro_annual_count,     mrr: kpis.mrr_pro_annual,     color: '#6366F1' },
+    { label: 'PREMIUM Mensal', count: kpis.premium_monthly_count,mrr: kpis.mrr_premium_monthly,color: '#8B5CF6' },
+    { label: 'PREMIUM Anual',  count: kpis.premium_annual_count, mrr: kpis.mrr_premium_annual, color: '#C69214' },
+  ];
+  const revenueSlices: DonutSlice[] = planBreakdown
+    .filter(p => p.mrr > 0)
+    .map(p => ({ label: p.label, value: p.mrr, color: p.color }));
 
   return (
     <div>
@@ -328,24 +330,55 @@ const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: 
       </div>
       <p className="text-gray-400 text-sm mb-6">Resumo executivo da operação em tempo real.</p>
 
-      {/* KPIs linha 1 */}
+      {/* KPIs linha 1 — financeiro */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        <KPICard title="MRR" value={stats.mrr_estimated.toFixed(2)} prefix="R$ " icon={DollarSign} color="bg-green-500" trend={8.5} />
-        <KPICard title="ARR (projeção)" value={stats.arr.toFixed(2)} prefix="R$ " icon={TrendingUp} color="bg-blue-500" subtext="MRR × 12" />
-        <KPICard title="Assinantes Ativos" value={stats.active_subscribers} icon={Users} color="bg-indigo-500" trend={2.1} />
-        <KPICard title="Inadimplentes" value={stats.overdue_subscribers} icon={AlertCircle} color="bg-red-500" subtext={`${stats.canceled_subscribers} cancelados`} />
+        <KPICard title="MRR Total" value={fmt(mrrTotal)} icon={DollarSign} color="bg-green-500" />
+        <KPICard title="ARR (projeção)" value={fmt(arr)} icon={TrendingUp} color="bg-blue-500" subtext="MRR × 12" />
+        <KPICard title="Receita Extra / mês" value={fmt(kpis.extra_revenue_mtd)} icon={Zap} color="bg-orange-500" subtext="Créditos avulsos" />
+        <KPICard title="Inadimplentes" value={kpis.overdue_subscribers} icon={AlertCircle} color="bg-red-500" subtext={`${kpis.canceled_subscribers} cancelados`} />
       </div>
 
-      {/* KPIs linha 2 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <KPICard title="Em Trial / Teste" value={stats.trial_subscribers} icon={TestTube} color="bg-yellow-500" />
-        <KPICard title="Total de Tenants" value={stats.total_tenants} icon={Layers} color="bg-gray-500" />
-        <KPICard title="Receita Extra" value={(stats.extraRevenue ?? 0).toFixed(2)} prefix="R$ " icon={Zap} color="bg-orange-500" subtext="Add-ons e créditos" />
-        <KPICard title="Custo de IA" value={(stats.aiCosts ?? 0).toFixed(2)} prefix="R$ " icon={Brain} color="bg-purple-500" subtext="Gemini + OpenAI" />
+      {/* KPIs linha 2 — operacional */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <KPICard title="Assinantes Ativos" value={kpis.active_subscribers} icon={Users} color="bg-indigo-500" />
+        <KPICard title="Total Tenants" value={kpis.total_tenants} icon={Layers} color="bg-gray-500" subtext={`${kpis.free_count} FREE`} />
+        <KPICard title="Pouco Crédito" value={kpis.low_credit_count} icon={AlertTriangle} color="bg-amber-500" subtext="< 30 créditos" />
+        <KPICard title="Vencendo em 7 dias" value={kpis.expiring_7d_count} icon={Activity} color="bg-yellow-500" />
       </div>
 
-      {/* Gráficos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Breakdown por plano + ciclo */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+
+        {/* Tabela de breakdown */}
+        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+          <h3 className="font-bold mb-4 flex items-center gap-2 text-sm">
+            <DollarSign size={16} className="text-green-600" /> MRR por Plano &amp; Ciclo
+          </h3>
+          <div className="space-y-3">
+            {planBreakdown.map(p => {
+              const pct = mrrTotal > 0 ? Math.round((p.mrr / mrrTotal) * 100) : 0;
+              return (
+                <div key={p.label}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: p.color }} />
+                      <span className="font-medium text-gray-700">{p.label}</span>
+                      <Badge color="gray">{p.count}</Badge>
+                    </span>
+                    <span className="font-bold text-gray-900">{fmt(p.mrr)}</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-1.5">
+                    <div className="h-1.5 rounded-full transition-all" style={{ width: `${pct}%`, background: p.color }} />
+                  </div>
+                </div>
+              );
+            })}
+            <div className="flex justify-between pt-3 border-t border-gray-100 text-sm font-bold text-gray-900">
+              <span>Total MRR</span>
+              <span>{fmt(mrrTotal)}</span>
+            </div>
+          </div>
+        </div>
 
         {/* Donut: Status das Assinaturas */}
         <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
@@ -353,18 +386,14 @@ const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: 
             <Activity size={16} className="text-purple-600" /> Status das Assinaturas
           </h3>
           <div className="flex items-center gap-8">
-            <DonutChart
-              slices={subscriptionSlices}
-              size={150}
-              thickness={30}
-              centerLabel={String(stats.total_tenants)}
-            />
+            <DonutChart slices={subscriptionSlices} size={150} thickness={30} centerLabel={String(kpis.total_tenants)} />
             <div className="space-y-2 flex-1">
               {[
-                { label: 'Ativas',      count: stats.active_subscribers,   color: '#10B981' },
-                { label: 'Em atraso',   count: stats.overdue_subscribers,  color: '#F59E0B' },
-                { label: 'Trial/Teste', count: stats.trial_subscribers,    color: '#3B82F6' },
-                { label: 'Canceladas',  count: stats.canceled_subscribers, color: '#EF4444' },
+                { label: 'Ativas',      count: kpis.active_subscribers,   color: '#10B981' },
+                { label: 'Em atraso',   count: kpis.overdue_subscribers,  color: '#F59E0B' },
+                { label: 'Trial/Teste', count: kpis.trial_subscribers,    color: '#3B82F6' },
+                { label: 'Canceladas',  count: kpis.canceled_subscribers, color: '#EF4444' },
+                { label: 'FREE',        count: kpis.free_count,           color: '#94A3B8' },
               ].map(s => (
                 <div key={s.label} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -377,95 +406,29 @@ const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: 
             </div>
           </div>
         </div>
-
-        {/* Donut: Composição de Receita por Plano */}
-        <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
-          <h3 className="font-bold mb-4 flex items-center gap-2 text-sm">
-            <DollarSign size={16} className="text-green-600" /> Composição de Receita por Plano
-          </h3>
-          <div className="flex items-center gap-8">
-            <DonutChart
-              slices={revenueSlices}
-              size={150}
-              thickness={30}
-              centerLabel={mrrLabel}
-            />
-            <div className="space-y-3 flex-1">
-              {revenueSlices.length === 0 ? (
-                <p className="text-xs text-gray-400 text-center py-4">Sem assinantes pagantes ainda.</p>
-              ) : (() => {
-                const total = revenueSlices.reduce((s, r) => s + r.value, 0) || 1;
-                return revenueSlices.map(p => (
-                  <div key={p.label}>
-                    <div className="flex justify-between text-xs text-gray-500 mb-1">
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-                        {p.label}
-                      </span>
-                      <span className="font-bold">{p.value} ({Math.round((p.value/total)*100)}%)</span>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-full h-1.5">
-                      <div className="h-1.5 rounded-full" style={{ width: `${Math.round((p.value/total)*100)}%`, background: p.color }} />
-                    </div>
-                  </div>
-                ));
-              })()}
-            </div>
-          </div>
-        </div>
-
       </div>
 
-      {/* ── Seção: Uso de IA (últimos 30 dias) ── */}
+      {/* Uso de IA */}
       {aiStats && (
-        <div className="mt-8">
+        <div>
           <div className="flex items-center gap-2 mb-4">
             <Brain size={15} className="text-purple-500" />
             <h3 className="text-sm font-bold text-gray-700">Uso de IA — últimos 30 dias</h3>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <p className="text-[11px] text-gray-400 font-medium mb-1">Requisições IA</p>
-              <p className="text-2xl font-bold text-gray-900">{aiStats.total.toLocaleString('pt-BR')}</p>
-              <p className="text-[10px] text-gray-400 mt-1">Documentos + Atividades</p>
-            </div>
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <p className="text-[11px] text-gray-400 font-medium mb-1">Taxa de Sucesso</p>
-              <p className="text-2xl font-bold text-green-600">
-                {aiStats.total > 0 ? Math.round((aiStats.success / aiStats.total) * 100) : 0}%
-              </p>
-              <p className="text-[10px] text-gray-400 mt-1">{aiStats.failed} com erro</p>
-            </div>
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <p className="text-[11px] text-gray-400 font-medium mb-1">Copilot Acionado</p>
-              <p className="text-2xl font-bold" style={{ color: '#1F4E5F' }}>{aiStats.copilotActed.toLocaleString('pt-BR')}</p>
-              <p className="text-[10px] text-gray-400 mt-1">Sugestões clicadas</p>
-            </div>
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <p className="text-[11px] text-gray-400 font-medium mb-1">Custo Est. IA</p>
-              <p className="text-2xl font-bold text-purple-600">
-                R$ {((aiStats.total * 0.02) + (aiStats.failed * 0.005)).toFixed(0)}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-1">Estimativa ~ R$ 0,02/req</p>
-            </div>
+            {[
+              { label: 'Requisições IA', value: aiStats.total.toLocaleString('pt-BR'), sub: 'Documentos + Atividades', color: 'text-gray-900' },
+              { label: 'Taxa de Sucesso', value: `${aiStats.total > 0 ? Math.round((aiStats.success / aiStats.total) * 100) : 0}%`, sub: `${aiStats.failed} com erro`, color: 'text-green-600' },
+              { label: 'Copilot Acionado', value: aiStats.copilotActed.toLocaleString('pt-BR'), sub: 'Sugestões clicadas', color: 'text-indigo-700' },
+              { label: 'Custo Est. IA', value: `R$ ${((aiStats.total * 0.02) + (aiStats.failed * 0.005)).toFixed(0)}`, sub: '~ R$ 0,02/req', color: 'text-purple-600' },
+            ].map(c => (
+              <div key={c.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <p className="text-[11px] text-gray-400 font-medium mb-1">{c.label}</p>
+                <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
+                <p className="text-[10px] text-gray-400 mt-1">{c.sub}</p>
+              </div>
+            ))}
           </div>
-
-          {/* Barra de sucesso/falha */}
-          {aiStats.total > 0 && (
-            <div className="mt-4 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <div className="flex justify-between text-xs text-gray-500 mb-2">
-                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500" />Sucesso</span>
-                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-400" />Erro</span>
-                <span className="font-bold">{aiStats.success} / {aiStats.total}</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
-                <div
-                  className="h-2 rounded-full bg-green-500 transition-all"
-                  style={{ width: `${Math.round((aiStats.success / aiStats.total) * 100)}%` }}
-                />
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -2425,6 +2388,426 @@ const LogsTab = () => {
             </table>
           </div>
         </>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// ============================================================================
+// TAB: KIWIFY PRODUCTS
+// ============================================================================
+
+const KiwifyProductsTab = ({ adminUser }: { adminUser: AdminUser }) => {
+  const [products, setProducts] = useState<KiwifyProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Partial<KiwifyProduct> | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setProducts(await getKiwifyProducts()); } catch { /**/ }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async () => {
+    if (!editing?.kiwify_product_id) return;
+    setSaving(true);
+    try {
+      await upsertKiwifyProduct(editing as KiwifyProduct, adminUser);
+      setEditing(null);
+      await load();
+    } catch (e: any) { alert(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none';
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-2xl font-bold">Produtos Kiwify</h2>
+          <p className="text-gray-400 text-sm">Gerencie links, preços e destaques dos produtos.</p>
+        </div>
+        <button onClick={load} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"><RefreshCw size={15} /></button>
+      </div>
+
+      {/* Form de edição */}
+      {editing && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6 shadow-sm">
+          <h3 className="font-bold text-gray-800 mb-4">{editing.id ? `Editar: ${editing.product_name}` : 'Novo Produto'}</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">ID Kiwify (único)</label>
+              <input className={inp + ' font-mono'} value={editing.kiwify_product_id ?? ''} onChange={e => setEditing({ ...editing, kiwify_product_id: e.target.value })} placeholder="pro_monthly" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Nome do Produto</label>
+              <input className={inp} value={editing.product_name ?? ''} onChange={e => setEditing({ ...editing, product_name: e.target.value })} placeholder="Plano PRO Mensal" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Tipo</label>
+              <select className={inp} value={editing.product_type ?? 'subscription'} onChange={e => setEditing({ ...editing, product_type: e.target.value as any })}>
+                <option value="subscription">Assinatura</option>
+                <option value="credits">Créditos avulsos</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Plano (PRO / MASTER)</label>
+              <input className={inp + ' uppercase'} value={editing.plan_code ?? ''} onChange={e => setEditing({ ...editing, plan_code: e.target.value.toUpperCase() || null })} placeholder="PRO ou MASTER" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Ciclo</label>
+              <select className={inp} value={editing.billing_cycle ?? ''} onChange={e => setEditing({ ...editing, billing_cycle: (e.target.value || null) as any })}>
+                <option value="">— nenhum —</option>
+                <option value="monthly">Mensal</option>
+                <option value="annual">Anual</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Preço (R$)</label>
+              <input type="number" className={inp} value={editing.price_brl ?? 0} onChange={e => setEditing({ ...editing, price_brl: Number(e.target.value) })} />
+            </div>
+            {editing.product_type === 'credits' && (
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Quantidade de créditos</label>
+                <input type="number" className={inp} value={editing.credits_amount ?? 0} onChange={e => setEditing({ ...editing, credits_amount: Number(e.target.value) })} />
+              </div>
+            )}
+            <div className="col-span-2">
+              <label className="block text-xs font-bold text-gray-500 mb-1">URL de Checkout</label>
+              <input className={inp + ' font-mono text-xs'} value={editing.checkout_url ?? ''} onChange={e => setEditing({ ...editing, checkout_url: e.target.value })} placeholder="https://pay.kiwify.com.br/..." />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Badge (ex: Mais Popular)</label>
+              <input className={inp} value={editing.badge_text ?? ''} onChange={e => setEditing({ ...editing, badge_text: e.target.value || null })} />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Nota comercial</label>
+              <input className={inp} value={editing.commercial_note ?? ''} onChange={e => setEditing({ ...editing, commercial_note: e.target.value || null })} />
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-bold text-gray-600">Ativo</label>
+              <input type="checkbox" checked={editing.is_active ?? true} onChange={e => setEditing({ ...editing, is_active: e.target.checked })} className="w-4 h-4" />
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-bold text-gray-600">Destaque</label>
+              <input type="checkbox" checked={editing.is_featured ?? false} onChange={e => setEditing({ ...editing, is_featured: e.target.checked })} className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button onClick={handleSave} disabled={saving} className="bg-gray-900 text-white px-5 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-gray-800 disabled:opacity-50">
+              <Save size={14} /> {saving ? 'Salvando...' : 'Salvar'}
+            </button>
+            <button onClick={() => setEditing(null)} className="border border-gray-200 px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <div className="text-gray-400 text-sm">Carregando produtos...</div> : (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
+          <table className="w-full text-sm min-w-[800px]">
+            <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
+              <tr>
+                <th className="px-5 py-3 text-left">Produto</th>
+                <th className="px-5 py-3 text-left">Tipo / Ciclo</th>
+                <th className="px-5 py-3 text-left">Preço</th>
+                <th className="px-5 py-3 text-left">URL Checkout</th>
+                <th className="px-5 py-3 text-center">Ativo</th>
+                <th className="px-5 py-3 text-center">Destaque</th>
+                <th className="px-5 py-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {products.map(p => (
+                <tr key={p.id} className="hover:bg-gray-50/50">
+                  <td className="px-5 py-3">
+                    <p className="font-bold text-gray-900">{p.product_name}</p>
+                    <p className="text-xs text-gray-400 font-mono">{p.kiwify_product_id}</p>
+                    {p.badge_text && <span className="inline-block mt-0.5 text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">{p.badge_text}</span>}
+                  </td>
+                  <td className="px-5 py-3">
+                    <Badge color={p.product_type === 'subscription' ? 'blue' : 'yellow'}>
+                      {p.product_type === 'subscription' ? 'Assinatura' : 'Créditos'}
+                    </Badge>
+                    {p.billing_cycle && (
+                      <p className="text-xs text-gray-400 mt-0.5">{p.billing_cycle === 'monthly' ? 'Mensal' : 'Anual'}</p>
+                    )}
+                  </td>
+                  <td className="px-5 py-3">
+                    <span className="font-bold text-gray-900">R$ {Number(p.price_brl).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                    {p.product_type === 'credits' && p.credits_amount > 0 && (
+                      <p className="text-xs text-gray-400">{p.credits_amount} créditos</p>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 max-w-xs">
+                    {p.checkout_url && p.checkout_url !== '#' ? (
+                      <div className="flex items-center gap-1.5">
+                        <a href={p.checkout_url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline font-mono truncate max-w-[180px]">
+                          {p.checkout_url.replace('https://', '')}
+                        </a>
+                        <button onClick={() => { navigator.clipboard.writeText(p.checkout_url); }} className="text-gray-400 hover:text-gray-600 shrink-0">
+                          <Copy size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-red-500 font-semibold">⚠ Sem URL</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-center">
+                    <span className={`w-2.5 h-2.5 rounded-full inline-block ${p.is_active ? 'bg-green-500' : 'bg-gray-300'}`} />
+                  </td>
+                  <td className="px-5 py-3 text-center">
+                    {p.is_featured && <span className="text-amber-500 font-bold text-xs">★</span>}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button onClick={() => setEditing({ ...p })} className="px-3 py-1.5 text-xs font-bold bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center gap-1 ml-auto">
+                      <Edit3 size={11} /> Editar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// TAB: CUPONS & CAMPANHAS
+// ============================================================================
+
+const EMPTY_COUPON: Partial<CeoCoupon> = {
+  code: '', description: '', campaign_name: '', plan_code: undefined,
+  billing_cycle: undefined, discount_type: 'percentage', discount_value: 0,
+  checkout_url_override: '', valid_until: undefined, max_uses: undefined,
+  is_active: true,
+};
+
+const CouponsTab = ({ adminUser }: { adminUser: AdminUser }) => {
+  const [coupons, setCoupons] = useState<CeoCoupon[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Partial<CeoCoupon> | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setCoupons(await getCoupons()); } catch { /**/ }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSave = async () => {
+    if (!editing?.code?.trim()) return alert('Código é obrigatório.');
+    setSaving(true);
+    try {
+      await upsertCoupon(editing as CeoCoupon & { code: string }, adminUser);
+      setEditing(null);
+      await load();
+    } catch (e: any) { alert(e.message); }
+    finally { setSaving(false); }
+  };
+
+  const handleToggle = async (c: CeoCoupon) => {
+    try {
+      await toggleCoupon(c.id, c.code, !c.is_active, adminUser);
+      await load();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const handleDelete = async (c: CeoCoupon) => {
+    if (!confirm(`Remover o cupom "${c.code}"?`)) return;
+    try {
+      await deleteCoupon(c.id, c.code, adminUser);
+      await load();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const handleCopyLink = (c: CeoCoupon) => {
+    const { link } = buildCouponShareLink(c);
+    navigator.clipboard.writeText(link);
+    setCopiedId(c.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none';
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-2xl font-bold">Cupons &amp; Campanhas</h2>
+          <p className="text-gray-400 text-sm">Crie, ative e distribua cupons com link pronto.</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setEditing({ ...EMPTY_COUPON })} className="bg-gray-900 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-gray-800">
+            <PlusCircle size={14} /> Novo Cupom
+          </button>
+          <button onClick={load} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"><RefreshCw size={15} /></button>
+        </div>
+      </div>
+
+      {/* Form de criação/edição */}
+      {editing && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6 shadow-sm">
+          <h3 className="font-bold text-gray-800 mb-4">{editing.id ? `Editar: ${editing.code}` : 'Novo Cupom'}</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Código *</label>
+              <input className={inp + ' uppercase font-mono font-bold tracking-widest'} value={editing.code ?? ''} onChange={e => setEditing({ ...editing, code: e.target.value.toUpperCase() })} placeholder="INCLUIAI59" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Campanha</label>
+              <input className={inp} value={editing.campaign_name ?? ''} onChange={e => setEditing({ ...editing, campaign_name: e.target.value })} placeholder="Grupo WhatsApp Abril" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Plano</label>
+              <select className={inp} value={editing.plan_code ?? ''} onChange={e => setEditing({ ...editing, plan_code: e.target.value || undefined })}>
+                <option value="">Qualquer plano</option>
+                <option value="PRO">PRO</option>
+                <option value="MASTER">PREMIUM (MASTER)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Ciclo</label>
+              <select className={inp} value={editing.billing_cycle ?? ''} onChange={e => setEditing({ ...editing, billing_cycle: (e.target.value || undefined) as any })}>
+                <option value="">Qualquer ciclo</option>
+                <option value="monthly">Mensal</option>
+                <option value="annual">Anual</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Tipo de desconto</label>
+              <select className={inp} value={editing.discount_type ?? 'percentage'} onChange={e => setEditing({ ...editing, discount_type: e.target.value as any })}>
+                <option value="percentage">Percentual (%)</option>
+                <option value="fixed">Valor fixo (R$)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">
+                {editing.discount_type === 'fixed' ? 'Valor (R$)' : 'Desconto (%)'}
+              </label>
+              <input type="number" className={inp} value={editing.discount_value ?? 0} onChange={e => setEditing({ ...editing, discount_value: Number(e.target.value) })} />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-bold text-gray-500 mb-1">URL de Checkout com cupom (Kiwify)</label>
+              <input className={inp + ' font-mono text-xs'} value={editing.checkout_url_override ?? ''} onChange={e => setEditing({ ...editing, checkout_url_override: e.target.value || undefined })} placeholder="https://pay.kiwify.com.br/...?coupon=INCLUIAI59" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Válido até</label>
+              <input type="date" className={inp} value={editing.valid_until ? editing.valid_until.slice(0, 10) : ''} onChange={e => setEditing({ ...editing, valid_until: e.target.value || undefined })} />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Limite de usos (vazio = ilimitado)</label>
+              <input type="number" className={inp} value={editing.max_uses ?? ''} onChange={e => setEditing({ ...editing, max_uses: e.target.value ? Number(e.target.value) : undefined })} placeholder="ex: 100" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-bold text-gray-500 mb-1">Descrição interna</label>
+              <input className={inp} value={editing.description ?? ''} onChange={e => setEditing({ ...editing, description: e.target.value })} placeholder="Cupom para campanha de lançamento" />
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-bold text-gray-600">Ativo</label>
+              <input type="checkbox" checked={editing.is_active ?? true} onChange={e => setEditing({ ...editing, is_active: e.target.checked })} className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <button onClick={handleSave} disabled={saving} className="bg-gray-900 text-white px-5 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-gray-800 disabled:opacity-50">
+              <Save size={14} /> {saving ? 'Salvando...' : 'Salvar'}
+            </button>
+            <button onClick={() => setEditing(null)} className="border border-gray-200 px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <div className="text-gray-400 text-sm">Carregando cupons...</div> : (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
+          <table className="w-full text-sm min-w-[900px]">
+            <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
+              <tr>
+                <th className="px-5 py-3 text-left">Código</th>
+                <th className="px-5 py-3 text-left">Plano / Ciclo</th>
+                <th className="px-5 py-3 text-left">Desconto</th>
+                <th className="px-5 py-3 text-left">Campanha</th>
+                <th className="px-5 py-3 text-left">Validade</th>
+                <th className="px-5 py-3 text-center">Usos</th>
+                <th className="px-5 py-3 text-center">Status</th>
+                <th className="px-5 py-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {coupons.map(c => {
+                const { waUrl, link } = buildCouponShareLink(c);
+                const expired = c.valid_until ? new Date(c.valid_until) < new Date() : false;
+                return (
+                  <tr key={c.id} className="hover:bg-gray-50/50">
+                    <td className="px-5 py-3">
+                      <span className="font-mono font-extrabold tracking-widest text-gray-900">{c.code}</span>
+                      {c.description && <p className="text-xs text-gray-400 mt-0.5">{c.description}</p>}
+                    </td>
+                    <td className="px-5 py-3">
+                      {c.plan_code ? <Badge color={c.plan_code === 'PRO' ? 'blue' : 'purple'}>{c.plan_code}</Badge> : <span className="text-xs text-gray-400">Qualquer</span>}
+                      {c.billing_cycle && <p className="text-xs text-gray-400 mt-0.5">{c.billing_cycle === 'annual' ? 'Anual' : 'Mensal'}</p>}
+                    </td>
+                    <td className="px-5 py-3">
+                      <span className="font-bold text-green-700">
+                        {c.discount_type === 'percentage' ? `${c.discount_value}%` : `R$ ${c.discount_value}`}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-xs text-gray-500">{c.campaign_name ?? '—'}</td>
+                    <td className="px-5 py-3">
+                      {c.valid_until ? (
+                        <span className={`text-xs font-semibold ${expired ? 'text-red-500' : 'text-gray-600'}`}>
+                          {expired ? '⚠ ' : ''}{new Date(c.valid_until).toLocaleDateString('pt-BR')}
+                        </span>
+                      ) : <span className="text-xs text-gray-400">Sem expiração</span>}
+                    </td>
+                    <td className="px-5 py-3 text-center text-xs font-bold text-gray-600 tabular-nums">
+                      {c.uses_count}{c.max_uses ? `/${c.max_uses}` : ''}
+                    </td>
+                    <td className="px-5 py-3 text-center">
+                      <button onClick={() => handleToggle(c)} className="flex items-center gap-1 mx-auto text-xs font-bold">
+                        {c.is_active
+                          ? <><ToggleRight size={18} className="text-green-500" /><span className="text-green-700">Ativo</span></>
+                          : <><ToggleLeft size={18} className="text-gray-400" /><span className="text-gray-500">Inativo</span></>
+                        }
+                      </button>
+                    </td>
+                    <td className="px-5 py-3">
+                      <div className="flex gap-1 justify-end">
+                        <button onClick={() => setEditing({ ...c })} className="px-2 py-1 text-xs font-bold bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center gap-1">
+                          <Edit3 size={10} /> Editar
+                        </button>
+                        <button onClick={() => handleCopyLink(c)} className={`px-2 py-1 text-xs font-bold rounded flex items-center gap-1 ${copiedId === c.id ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
+                          <Copy size={10} /> {copiedId === c.id ? 'Copiado!' : 'Link'}
+                        </button>
+                        <a href={waUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 text-xs font-bold bg-green-50 text-green-700 rounded hover:bg-green-100 flex items-center gap-1">
+                          <Share2 size={10} /> WA
+                        </a>
+                        <button onClick={() => handleDelete(c)} className="px-2 py-1 text-xs font-bold bg-red-50 text-red-600 rounded hover:bg-red-100 flex items-center gap-1">
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {coupons.length === 0 && (
+                <tr><td colSpan={8} className="px-5 py-8 text-center text-gray-400 text-sm">Nenhum cupom criado ainda.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
