@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, resolvePlanTier, PLAN_LIMITS, formatPlanDisplayName, formatStudentLimit } from '../types';
 import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
-import { Plus, Trash2, School, User as UserIcon, CreditCard, Star, Settings, Sparkles, AlertTriangle, ShoppingCart, Upload, Building2, MapPin, Phone, Hash, FileText, AlertCircle, ChevronDown, RefreshCw, ExternalLink, Search, CheckCircle, Gift, Copy, Share2, Users } from 'lucide-react';
-import { ReferralService, type ReferralStats } from '../services/referralService';
+import { Plus, Trash2, School, User as UserIcon, CreditCard, Star, Settings, Sparkles, AlertTriangle, ShoppingCart, Upload, Building2, MapPin, Phone, Hash, FileText, AlertCircle, ChevronDown, RefreshCw, ExternalLink, Search, CheckCircle } from 'lucide-react';
 import { fetchSchoolByINEP, validateINEPCode, type INEPFetchError } from '../services/inepService';
 import { fetchAddressByCep, validateCep, normalizeCep, formatCep } from '../services/cepService';
 import { PaymentService, /* DEFAULT_ADDONS */ } from '../services/paymentService';
@@ -101,10 +100,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
   const [creditLedger, setCreditLedger] = useState<CreditLedgerEntry[]>([]);
   const [showLedger, setShowLedger] = useState(false);
 
-  // Referral
-  const [referralStats, setReferralStats]   = useState<ReferralStats | null>(null);
-  const [refLoading, setRefLoading]         = useState(false);
-  const [refCopied, setRefCopied]           = useState(false);
   const [activeSubscription, setActiveSubscription] = useState<ActiveSubscriptionInfo | null>(null);
 
   const totalStudentLimit = useMemo(() => {
@@ -136,17 +131,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
             if (alive) setCreditLedger(ledger);
             if (alive) setActiveSubscription(sub);
           } catch { /* silencioso */ }
-        }
-        // Carrega dados de indicação
-        if (alive) {
-          setRefLoading(true);
-          try {
-            const code  = await ReferralService.getOrCreateReferralCode(user.id);
-            const stats = await ReferralService.getStats(user.id);
-            if (alive) setReferralStats({ ...stats, referralCode: code });
-          } catch { /* silencioso */ } finally {
-            if (alive) setRefLoading(false);
-          }
         }
       } catch (e: any) {
         if (alive) setFinanceError(e?.message || 'Falha ao carregar dados financeiros');
@@ -963,135 +947,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
               </div>
             </div>
 
-            {/* INDIQUE E GANHE */}
-            {(() => {
-              const refCode = referralStats?.referralCode ?? '';
-              const refLink = refCode ? ReferralService.getReferralLink(refCode) : '';
-              const waText  = encodeURIComponent(
-                `Olá! Estou usando o IncluiAI para criar documentos pedagógicos com IA (PEI, PAEE, PDI). ` +
-                `Experimente grátis: ${refLink}`
-              );
-
-              const handleCopy = async () => {
-                if (!refLink) return;
-                await navigator.clipboard.writeText(refLink);
-                setRefCopied(true);
-                setTimeout(() => setRefCopied(false), 2000);
-              };
-
-              return (
-                <div className="bg-gradient-to-br from-[#1F4E5F] to-[#2E3A59] p-8 rounded-2xl shadow-sm text-white">
-                  <div className="flex items-start gap-4 mb-6">
-                    <div className="bg-white/10 p-3 rounded-2xl shrink-0">
-                      <Gift size={24} className="text-[#C69214]" />
-                    </div>
-                    <div>
-                      <h4 className="text-lg font-extrabold flex items-center gap-2">
-                        🎁 Indique e Ganhe Créditos IA
-                      </h4>
-                      <p className="text-sm text-white/70 mt-1">
-                        Convide colegas para usar o IncluiAI. Quando alguém assinar um plano usando seu link,
-                        você ganha créditos IA automaticamente.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Recompensas */}
-                  <div className="grid grid-cols-2 gap-3 mb-6">
-                    <div className="bg-white/10 rounded-xl p-4 text-center">
-                      <div className="text-2xl font-extrabold text-[#C69214]">10</div>
-                      <div className="text-xs text-white/70 mt-1">créditos ao indicar<br/>quem assina o PRO</div>
-                    </div>
-                    <div className="bg-white/10 rounded-xl p-4 text-center">
-                      <div className="text-2xl font-extrabold text-[#C69214]">20</div>
-                      <div className="text-xs text-white/70 mt-1">créditos ao indicar<br/>quem assina o PREMIUM</div>
-                    </div>
-                  </div>
-
-                  {/* Código e link */}
-                  {refLoading ? (
-                    <div className="flex items-center gap-2 text-white/60 text-sm">
-                      <RefreshCw size={14} className="animate-spin" /> Gerando seu código…
-                    </div>
-                  ) : refCode ? (
-                    <>
-                      <div className="mb-3">
-                        <p className="text-xs font-bold text-white/50 uppercase mb-1">Seu código de indicação</p>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xl font-extrabold tracking-widest text-[#C69214]">
-                            {refCode}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="bg-white/10 rounded-xl px-4 py-3 mb-4">
-                        <p className="text-xs text-white/50 mb-1">Seu link único</p>
-                        <p className="text-sm font-mono text-white/90 break-all">{refLink}</p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-3">
-                        <button
-                          onClick={handleCopy}
-                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm bg-white text-[#1F4E5F] hover:bg-white/90 transition"
-                        >
-                          {refCopied ? <CheckCircle size={16} className="text-green-600" /> : <Copy size={16} />}
-                          {refCopied ? 'Copiado!' : 'Copiar link'}
-                        </button>
-                        <a
-                          href={`https://wa.me/?text=${waText}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm bg-green-500 text-white hover:bg-green-600 transition"
-                        >
-                          <Share2 size={16} /> Compartilhar no WhatsApp
-                        </a>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-sm text-white/50">Não foi possível carregar seu código. Recarregue a página.</p>
-                  )}
-
-                  {/* Stats — sempre visível */}
-                  <div className="mt-6 pt-6 border-t border-white/10">
-                    {referralStats && referralStats.totalReferrals === 0 ? (
-                      <p className="text-xs text-white/40 text-center">
-                        Você ainda não indicou ninguém. Compartilhe seu link e ganhe créditos quando alguém assinar!
-                      </p>
-                    ) : referralStats ? (
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="flex items-center gap-2">
-                          <div className="bg-white/10 p-2 rounded-lg shrink-0">
-                            <Users size={16} className="text-white/70" />
-                          </div>
-                          <div>
-                            <div className="text-lg font-extrabold">{referralStats.totalReferrals}</div>
-                            <div className="text-xs text-white/50">Indicações</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="bg-white/10 p-2 rounded-lg shrink-0">
-                            <CheckCircle size={16} className="text-green-400" />
-                          </div>
-                          <div>
-                            <div className="text-lg font-extrabold text-green-400">{referralStats.convertedReferrals}</div>
-                            <div className="text-xs text-white/50">Convertidas</div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="bg-white/10 p-2 rounded-lg shrink-0">
-                            <Sparkles size={16} className="text-[#C69214]" />
-                          </div>
-                          <div>
-                            <div className="text-lg font-extrabold text-[#C69214]">+{referralStats.creditsEarned}</div>
-                            <div className="text-xs text-white/50">Créditos ganhos</div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })()}
 
           </div>
       )}
