@@ -54,26 +54,61 @@ export const CreditWalletService = {
 // LEDGER (razão)
 // ---------------------------------------------------------------------------
 
+/**
+ * Identifica lançamentos de bootstrap FREE legados que não devem
+ * aparecer no histórico visual de tenants com plano pago.
+ *
+ * Dois sinais são usados em conjunto para robustez:
+ *   1. source = 'free_bootstrap'  → marcado pelo SQL fix_billing_v7
+ *   2. Padrão de descrição        → fallback para entradas já existentes
+ *
+ * AUDITORIA: getGlobalHistory() NÃO aplica este filtro — CEO vê tudo.
+ */
+export function isFreeBootstrapEntry(entry: CreditLedgerEntry): boolean {
+  if (entry.source === 'free_bootstrap') return true;
+  const desc = (entry.description ?? '').toLowerCase();
+  return (
+    entry.amount > 0 &&
+    entry.amount <= 60 &&
+    desc.includes('iniciais') &&
+    desc.includes('free')
+  );
+}
+
 export const CreditLedgerService = {
-  /** Histórico de movimentações de um tenant */
-  async getHistory(tenantId: string, limit = 50): Promise<CreditLedgerEntry[]> {
-    // Tabela real: credits_ledger (não credit_ledger)
-    // Colunas reais: id, tenant_id, user_id, type, amount, description, created_at
+  /**
+   * Histórico de movimentações de um tenant.
+   *
+   * @param options.excludeFreeBootstrap  Quando true, omite o lançamento
+   *   inicial FREE (60 créditos de boas-vindas) se o tenant já tiver
+   *   ativado um plano pago. Não apaga dados — apenas filtra a exibição.
+   */
+  async getHistory(
+    tenantId: string,
+    limit = 50,
+    options?: { excludeFreeBootstrap?: boolean },
+  ): Promise<CreditLedgerEntry[]> {
     const { data, error } = await supabase
       .from('credits_ledger')
-      .select('id, tenant_id, user_id, type, amount, description, created_at')
+      .select('id, tenant_id, user_id, type, amount, description, source, created_at')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(limit);
     if (error) throw error;
-    return (data ?? []).map(mapLedgerEntry);
+
+    const entries = (data ?? []).map(mapLedgerEntry);
+
+    if (options?.excludeFreeBootstrap) {
+      return entries.filter(e => !isFreeBootstrapEntry(e));
+    }
+    return entries;
   },
 
-  /** Histórico global (para o painel CEO) */
+  /** Histórico global (para o painel CEO) — sem filtros, auditoria completa. */
   async getGlobalHistory(limit = 100): Promise<CreditLedgerEntry[]> {
     const { data, error } = await supabase
       .from('credits_ledger')
-      .select('id, tenant_id, user_id, type, amount, description, created_at')
+      .select('id, tenant_id, user_id, type, amount, description, source, created_at')
       .order('created_at', { ascending: false })
       .limit(limit);
     if (error) throw error;
@@ -242,6 +277,7 @@ function mapLedgerEntry(row: any): CreditLedgerEntry {
     type: row.type,
     amount: Number(row.amount),
     description: row.description,
+    source: row.source ?? undefined,
     reference_type: row.reference_type,
     reference_id: row.reference_id,
     created_by: row.created_by,

@@ -7,7 +7,7 @@ import { fetchAddressByCep, validateCep, normalizeCep, formatCep } from '../serv
 import { PaymentService, /* DEFAULT_ADDONS */ } from '../services/paymentService';
 import { databaseService } from '../services/databaseService';
 import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
-import { CreditWalletService, CreditLedgerService } from '../services/creditService';
+import { CreditWalletService, CreditLedgerService, isFreeBootstrapEntry } from '../services/creditService';
 import type { CreditLedgerEntry } from '../types';
 import { getActiveSubscription, type ActiveSubscriptionInfo } from '../services/subscriptionService';
 // Preços oficiais (Kiwify) — fonte única: atualize apenas aqui
@@ -124,12 +124,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
         // Carrega histórico do ledger + assinatura ativa (silencioso se falhar)
         if (alive && summary?.tenantId) {
           try {
-            const [ledger, sub] = await Promise.all([
+            const [rawLedger, sub] = await Promise.all([
               CreditLedgerService.getHistory(summary.tenantId, 20),
               getActiveSubscription(summary.tenantId).catch(() => null),
             ]);
-            if (alive) setCreditLedger(ledger);
-            if (alive) setActiveSubscription(sub);
+            if (alive) {
+              // Para tenants com plano pago, oculta o lançamento de bootstrap FREE
+              // legado (+60 "Créditos iniciais plano FREE") que aparecia junto ao
+              // saldo correto do plano pago. O dado permanece íntegro no banco.
+              const isPaidPlan = sub?.planCode != null && sub.planCode !== 'FREE';
+              setCreditLedger(
+                isPaidPlan ? rawLedger.filter(e => !isFreeBootstrapEntry(e)) : rawLedger
+              );
+              setActiveSubscription(sub);
+            }
           } catch { /* silencioso */ }
         }
       } catch (e: any) {

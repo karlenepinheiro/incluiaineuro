@@ -692,6 +692,8 @@ export interface CreditLedgerEntry {
   type: CreditLedgerType;
   amount: number;
   description?: string;
+  /** Origem do lançamento (ex: 'kiwify_activation', 'free_bootstrap'). */
+  source?: string;
   reference_type?: string;
   reference_id?: string;
   created_by?: string;
