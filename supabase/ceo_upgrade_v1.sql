@@ -105,14 +105,21 @@ CREATE INDEX IF NOT EXISTS idx_admin_audit_log_admin_email  ON public.admin_audi
 -- Dados corretos com produtos atuais e preços reais.
 -- ============================================================
 
--- Garante todas as colunas necessárias
+-- Garante todas as colunas necessárias (inclui colunas ausentes no schema original)
 ALTER TABLE public.kiwify_products
+  ADD COLUMN IF NOT EXISTS updated_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS badge_text           TEXT,
   ADD COLUMN IF NOT EXISTS billing_cycle        TEXT CHECK (billing_cycle IN ('monthly','annual')),
   ADD COLUMN IF NOT EXISTS product_key          TEXT,     -- ex: PRO_MONTHLY, MASTER_ANNUAL
   ADD COLUMN IF NOT EXISTS display_order        INT DEFAULT 0,
   ADD COLUMN IF NOT EXISTS is_featured          BOOLEAN DEFAULT false,
   ADD COLUMN IF NOT EXISTS commercial_note      TEXT,
   ADD COLUMN IF NOT EXISTS checkout_url_annual  TEXT;
+
+-- kiwify_purchases também não tem price_brl no schema original
+-- (será preenchido pelo webhook; até lá fica NULL → coalesce para 0)
+ALTER TABLE public.kiwify_purchases
+  ADD COLUMN IF NOT EXISTS price_brl NUMERIC(10,2);
 
 -- Remove seed errado se ainda existir
 DELETE FROM public.kiwify_products
@@ -234,7 +241,7 @@ DROP VIEW IF EXISTS public.v_ceo_financial_kpis CASCADE;
 CREATE OR REPLACE VIEW public.v_ceo_financial_kpis AS
 WITH latest_subs AS (
   SELECT DISTINCT ON (tenant_id)
-    tenant_id, plan_id, status, billing_cycle
+    tenant_id, plan_id, status, billing_cycle, current_period_end
   FROM public.subscriptions
   ORDER BY tenant_id, created_at DESC
 ),
