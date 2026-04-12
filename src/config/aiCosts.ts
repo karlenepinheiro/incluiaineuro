@@ -51,7 +51,7 @@ export const SUBSCRIPTION_PLANS = {
     students: 30,
   },
   MASTER: { // PREMIUM é referenciado como MASTER no sistema
-    name: 'Master',
+    name: 'Premium',
     credits: 700,  // regra oficial: 700 créditos/mês
     students: 9999,
   }

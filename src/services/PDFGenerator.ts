@@ -100,6 +100,33 @@ function getInitials(name: string): string {
   return (p[0][0] + p[p.length - 1][0]).toUpperCase();
 }
 
+/**
+ * Recorta uma imagem em círculo usando Canvas e retorna data URL PNG.
+ * Garante que jsPDF exiba a foto redonda sem bordas quadradas visíveis.
+ */
+async function cropToCircle(dataUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const size = Math.min(img.width, img.height);
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      const offsetX = (img.width  - size) / 2;
+      const offsetY = (img.height - size) / 2;
+      ctx.drawImage(img, -offsetX, -offsetY, img.width, img.height);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
 async function buildQr(code: string): Promise<string | undefined> {
   try {
     return await QRCode.toDataURL(
@@ -121,7 +148,9 @@ function addRunningHeader(
   let textX = ML;
   if (school?.logoUrl) {
     try {
-      doc.addImage(school.logoUrl, ML, 1.5, 7, 7);
+      const logoSrc = school.logoUrl;
+      const logoFmt = logoSrc.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+      doc.addImage(logoSrc, logoFmt, ML, 1.5, 7, 7);
       textX = ML + 9; // desloca texto 9 mm à direita
     } catch { /* logo inválido — ignora */ }
   }
@@ -260,6 +289,27 @@ function drawAvatar(doc: any, name: string, cx: number, cy: number, r: number): 
   doc.setFontSize(r * 1.3);
   sc(doc, WHITE);
   doc.text(getInitials(name), cx, cy + r * 0.35, { align: 'center' });
+}
+
+// ─── DRAW STUDENT PHOTO OR AVATAR ────────────────────────────────────────────
+// Se circularDataUrl disponível: renderiza foto já recortada em círculo pelo canvas.
+// O crop é feito antes desta chamada via cropToCircle(). Senão: avatar com iniciais.
+function drawStudentPhoto(doc: any, name: string, circularDataUrl: string | undefined, cx: number, cy: number, r: number): void {
+  if (circularDataUrl) {
+    try {
+      const imgX = cx - r;
+      const imgY = cy - r;
+      const size = r * 2;
+      // Borda petrol
+      sf(doc, PETROL);
+      sd(doc, PETROL);
+      doc.circle(cx, cy, r + 0.5, 'F');
+      // Imagem já recortada em círculo pelo canvas — PNG com fundo transparente
+      doc.addImage(circularDataUrl, 'PNG', imgX, imgY, size, size, undefined, 'FAST');
+      return;
+    } catch { /* falha → usa avatar com iniciais */ }
+  }
+  drawAvatar(doc, name, cx, cy, r);
 }
 
 // ─── KEY-VALUE PAIRS IN 2-COL CARD ───────────────────────────────────────────
@@ -771,6 +821,9 @@ export const PDFGenerator = {
     const halfW    = (maxW - 4) / 2;
     const subtitle = getDocSubtitle(docType);
 
+    // Pré-processa foto em círculo via Canvas (antes do jsPDF — único método confiável)
+    const circularPhoto = student.photoUrl ? await cropToCircle(student.photoUrl).catch(() => undefined) : undefined;
+
     // Page 1: cover block only
     let y = addCoverBlock(doc, docTitle, subtitle, auditCode, qrUrl, sName);
 
@@ -786,14 +839,21 @@ export const PDFGenerator = {
     const avDataX  = ML + 22;
     const avDataW  = maxW - 22;
     const avStartY = y;
-    drawAvatar(doc, student.name, ML + 8, y + 9, 8);
+    drawStudentPhoto(doc, student.name, circularPhoto, ML + 8, y + 9, 8);
+    const enderecoStr = [
+      [student.street, (student as any).streetNumber, (student as any).complement].filter(Boolean).join(', '),
+      (student as any).neighborhood,
+      [(student as any).city, (student as any).state].filter(Boolean).join(' — '),
+      (student as any).zipcode ? `CEP ${(student as any).zipcode}` : '',
+    ].filter(Boolean).join(' | ');
     y = kvGrid(doc, [
       ['Nome Completo:',      student.name],
       ['Data de Nasc.:',      student.birthDate || '—'],
       ['Série / Turma:',      student.grade || '—'],
       ['Escola:',             sName],
-      ['Matrícula:',          student.id?.slice(-8) || '—'],
+      ['Código Único:',       (student as any).unique_code || student.id?.slice(-8) || '—'],
       ['CID / Diagnóstico:',  (student.diagnosis || []).join(', ') || '—'],
+      ...(enderecoStr ? [['Endereço:', enderecoStr] as [string, string]] : []),
     ], avDataX, y, avDataW);
     y = Math.max(y, avStartY + 24); // garante espaço abaixo do avatar
 
@@ -1069,6 +1129,9 @@ export const PDFGenerator = {
     const subtitle = getDocSubtitle(docType);
     const sName    = school?.schoolName || 'Escola';
 
+    // Pré-processa foto em círculo via Canvas
+    const circularPhoto = student.photoUrl ? await cropToCircle(student.photoUrl).catch(() => undefined) : undefined;
+
     let y = addCoverBlock(doc, docTitle, subtitle, auditCode, qrUrl, sName);
 
     const newPage = (): number => {
@@ -1079,16 +1142,23 @@ export const PDFGenerator = {
     // ══ SEÇÃO I: IDENTIFICAÇÃO DO ALUNO (padrão todos os documentos) ══════════
     y = sectionBanner(doc, 'I. Identificação do Aluno', ML, y, maxW);
     const avStartY = y;
-    drawAvatar(doc, student.name, ML + 8, y + 9, 8);
+    drawStudentPhoto(doc, student.name, circularPhoto, ML + 8, y + 9, 8);
+    const enderecoStrFS = [
+      [(student as any).street, (student as any).streetNumber, (student as any).complement].filter(Boolean).join(', '),
+      (student as any).neighborhood,
+      [(student as any).city, (student as any).state].filter(Boolean).join(' — '),
+      (student as any).zipcode ? `CEP ${(student as any).zipcode}` : '',
+    ].filter(Boolean).join(' | ');
     y = kvGrid(doc, [
       ['Nome Completo:',      student.name],
       ['Data de Nasc.:',      student.birthDate || '—'],
       ['Série / Turma:',      student.grade || '—'],
       ['Escola:',             sName],
-      ['Matrícula:',          student.id?.slice(-8) || '—'],
+      ['Código Único:',       (student as any).unique_code || student.id?.slice(-8) || '—'],
       ['CID / Diagnóstico:',  (student.diagnosis || []).join(', ') || '—'],
+      ...(enderecoStrFS ? [['Endereço:', enderecoStrFS] as [string, string]] : []),
     ], ML + 22, y, maxW - 22);
-    y = Math.max(y, avStartY + 24); 
+    y = Math.max(y, avStartY + 24);
 
     for (const sec of sections) {
       const H = doc.internal.pageSize.getHeight();

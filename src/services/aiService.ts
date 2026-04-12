@@ -1,5 +1,6 @@
 // aiService.ts
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import { supabase } from "./supabase";
 import { User, DocumentType, Student, DocumentAnalysis, AIModelConfig, AIModelContext, AIOutputType } from "../types";
 import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from "../config/aiCosts";
@@ -66,11 +67,14 @@ export interface ActivityImageOptions {
 // 1. PROVIDER: GOOGLE GEMINI (Atualizado para a biblioteca correta)
 class GeminiProvider implements AIProvider {
   private client: GoogleGenerativeAI | null;
-  private modelId = "gemini-2.5-flash"; 
+  private genAiClient: GoogleGenAI | null;
+  private modelId = "gemini-2.5-flash";
+  private imageModelId = "gemini-2.0-flash-preview-image-generation";
 
   constructor() {
     const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || (import.meta as any).env?.VITE_GOOGLE_API_KEY || (import.meta as any).env?.VITE_API_KEY || (process as any)?.env?.API_KEY;
     this.client = apiKey ? new GoogleGenerativeAI(apiKey) : null;
+    this.genAiClient = apiKey ? new GoogleGenAI({ apiKey }) : null;
   }
 
   async generateText(prompt: string, imageBase64?: string): Promise<string> {
@@ -148,10 +152,34 @@ class GeminiProvider implements AIProvider {
     }
   }
 
-  async generateImage(_prompt: string): Promise<string> {
-      // Gemini Imagen não é suportado pela biblioteca @google/generative-ai.
-      // O FallbackProvider encaminha geração de imagens para OpenAI DALL-E 3.
-      throw new Error('CONFIG_IMAGE');
+  async generateImage(prompt: string): Promise<string> {
+    if (!this.genAiClient) {
+      throw new Error('CONFIG_GEMINI');
+    }
+    const safePrompt = [
+      'Ilustração educativa infantil para impressão pedagógica (A4).',
+      'Traço limpo, alto contraste, poucos elementos visuais, SEM texto na imagem.',
+      'Estilo: livro didático inclusivo, cores suaves, fundo branco, amigável.',
+      `Tema: ${prompt}`,
+    ].join(' ');
+    try {
+      const response = await this.genAiClient.models.generateContent({
+        model: this.imageModelId,
+        contents: safePrompt,
+        config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
+      });
+      const parts = response.candidates?.[0]?.content?.parts ?? [];
+      for (const part of parts) {
+        if (part.inlineData?.data && part.inlineData?.mimeType) {
+          return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        }
+      }
+      throw new Error('Gemini não retornou imagem na resposta.');
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      console.error('[Gemini] generateImage ERRO:', msg);
+      throw new Error(`Gemini Imagem (${this.imageModelId}): ${msg}`);
+    }
   }
 }
 
@@ -257,7 +285,19 @@ class FallbackProvider implements AIProvider {
     }
 
     async generateImage(prompt: string): Promise<string> {
-        // Geração de imagem usa DALL-E 3 (OpenAI) — Gemini não suporta neste SDK.
+        // Gemini é o provider padrão para geração de imagens.
+        // OpenAI DALL-E 3 é usado apenas como fallback se Gemini falhar.
+        if (this.hasGemini) {
+            try {
+                return await this.gemini.generateImage(prompt);
+            } catch (e: any) {
+                console.warn('[FallbackProvider] Gemini imagem falhou, tentando OpenAI:', e?.message);
+                if (this.hasOpenAI) {
+                    return this.openai.generateImage(prompt);
+                }
+                throw e;
+            }
+        }
         if (this.hasOpenAI) {
             return this.openai.generateImage(prompt);
         }
@@ -342,7 +382,7 @@ export const AI_MODEL_CONFIGS: AIModelConfig[] = [
     credit_cost: INCLUILAB_MODEL_COSTS.NANO_BANANA, // 30 créditos — regra oficial (passado como costOverride para generateImageFromPrompt)
     active: true,
     allowed_contexts: ['activities', 'incluilab'],
-    description: 'Texto + imagem pedagógica (Gemini + DALL-E)',
+    description: 'Texto + imagem pedagógica (Gemini)',
     warning: `Consome ${INCLUILAB_MODEL_COSTS.NANO_BANANA} créditos por geração`,
   },
   {
@@ -350,11 +390,10 @@ export const AI_MODEL_CONFIGS: AIModelConfig[] = [
     name: 'ChatGPT Imagem',
     provider: 'openai',
     output_type: 'text_image',
-    credit_cost: INCLUILAB_MODEL_COSTS.GPT_IMAGE,   // 50 créditos — regra oficial
-    active: true,
+    credit_cost: INCLUILAB_MODEL_COSTS.GPT_IMAGE,
+    active: false, // desativado — IncluiLAB usa exclusivamente Gemini
     allowed_contexts: ['activities', 'incluilab'],
-    description: 'Texto + DALL-E 3 alta qualidade',
-    warning: `Consome ${INCLUILAB_MODEL_COSTS.GPT_IMAGE} créditos por imagem gerada`,
+    description: 'Texto + DALL-E 3 (desativado)',
   },
 ];
 
@@ -850,15 +889,18 @@ Retorne JSON com: resumo, achados, recomendações, sinais de alerta, e sugestõ
       return aiProvider.generateText(prompt, imageBase64);
   },
 
-  async generateImageFromPrompt(prompt: string, user: User, costOverride?: number): Promise<string> {
+  async generateImageFromPrompt(prompt: string, user: User, costOverride?: number, skipDeduction = false): Promise<string> {
       // costOverride permite que o chamador injete o custo real do modelo (ex.: 30 para Nano Banana Pro)
+      // skipDeduction=true permite que o chamador faça deducção em lote (evita double-billing em loops)
       const cost = costOverride ?? CREDIT_COSTS.INCLUILAB_IMAGE;
-      if (!(await this.checkCredits(user, cost))) {
-        const balance = await this.getCreditsBalance(user);
-        throw insufficientCreditsError(cost, balance, 'gerar esta imagem');
+      if (!skipDeduction) {
+        if (!(await this.checkCredits(user, cost))) {
+          const balance = await this.getCreditsBalance(user);
+          throw insufficientCreditsError(cost, balance, 'gerar esta imagem');
+        }
       }
       const result = await aiProvider.generateImage(prompt);
-      if (result) await this.deductCredits(user, 'INCLUILAB_IMAGE', cost);
+      if (result && !skipDeduction) await this.deductCredits(user, 'INCLUILAB_IMAGE', cost);
       return result;
   },
 
@@ -948,8 +990,16 @@ Retorne SOMENTE a atividade adaptada, pronta para uso.`;
     modelUsed?: string;
     /** Tipo de saída: 'text' ou 'text_image' */
     outputType?: AIOutputType;
+    /** URLs reais das imagens geradas (persistidas no Storage) */
+    imageUrls?: string[];
   }): Promise<{ id: string }> {
-    const { user, title, templateType, content, imageCount, creditsUsed, studentId, modelUsed, outputType } = params;
+    const { user, title, templateType, content, imageCount, creditsUsed, studentId, modelUsed, outputType, imageUrls } = params;
+
+    // Salva a primeira URL real em image_url; demais em guidance como JSON
+    const firstUrl = imageUrls?.find(u => !!u) ?? null;
+    const guidanceData = imageUrls && imageUrls.length > 0
+      ? JSON.stringify({ imageUrls, count: imageUrls.length })
+      : (imageCount > 0 ? JSON.stringify({ count: imageCount }) : null);
 
     const { data, error } = await supabase
       .from('generated_activities')
@@ -962,7 +1012,8 @@ Retorne SOMENTE a atividade adaptada, pronta para uso.`;
         tags:         templateType ? [templateType] : [],
         is_adapted:   true,
         credits_used: creditsUsed,
-        guidance:     imageCount > 0 ? `${imageCount} imagens geradas` : null,
+        image_url:    firstUrl,
+        guidance:     guidanceData,
         model_used:   modelUsed ?? null,
         output_type:  outputType ?? 'text',
       })

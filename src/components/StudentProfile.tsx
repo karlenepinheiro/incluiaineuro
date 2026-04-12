@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Student, Protocol, DocumentType, PlanTier, ServiceRecord,
+  Student, Protocol, DocumentType, PlanTier, ServiceRecord, Appointment,
   DocumentAnalysis, FichaComplementar, StudentEvolution, User as UserType,
 } from '../types';
 import {
@@ -14,6 +14,7 @@ import { SmartTextarea } from './SmartTextarea';
 import { AIService } from '../services/aiService';
 import { ExportService } from '../services/exportService';
 import { databaseService } from '../services/databaseService';
+import { PDFGenerator } from '../services/PDFGenerator';
 import { StorageService } from '../services/storageService';
 import {
   StudentDocumentService, MedicalReportService, TimelineService,
@@ -139,6 +140,7 @@ interface StudentProfileProps {
   userPlan?: PlanTier;
   user?: UserType;
   serviceRecords?: ServiceRecord[];
+  appointments?: Appointment[];
   onAddServiceRecord?: (record: ServiceRecord) => void;
   onUpdateStudent?: (s: Student) => void;
   onNavigateTo?: (view: string) => void; // para abrir FichasComplementaresView
@@ -154,6 +156,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   userPlan = PlanTier.FREE,
   user,
   serviceRecords = [],
+  appointments = [],
   onUpdateStudent,
   onNavigateTo,
 }) => {
@@ -306,29 +309,67 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     setBatchProgress(ordered.map(t => ({ type: t.id as string, status: 'pending' })));
     setBatchRunning(true);
 
+    const schoolCfg = (user as any).schoolConfigs?.[0] ?? null;
+
     for (let i = 0; i < ordered.length; i++) {
       const t = ordered[i];
       setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'generating' } : p));
       try {
         const jsonStr = await AIService.generateProtocolJSON(t.id, student, user as any);
         const parsed = JSON.parse(jsonStr);
+        const sections = parsed?.sections ?? [];
+
+        // Gera código de auditoria único para este documento
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let rand = '';
+        for (let k = 0; k < 8; k++) rand += chars.charAt(Math.floor(Math.random() * chars.length));
+        const auditCode = `${rand}-${(user as any).name?.split(' ')[0]?.toUpperCase() ?? 'INC'}-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '')}`;
+
+        // Salva DRAFT no banco
         await databaseService.saveDocument({
-          tenant_id:  (user as any).tenant_id,
-          studentId:  student.id,
-          userId:     (user as any).id,
-          doc_type:   t.id,
-          title:      `${t.label} — ${student.name}`,
-          content:    jsonStr,
-          sections:   parsed?.sections ?? [],
-          status:     'DRAFT',
+          tenant_id:   (user as any).tenant_id,
+          studentId:   student.id,
+          userId:      (user as any).id,
+          doc_type:    t.id,
+          title:       `${t.label} — ${student.name}`,
+          content:     jsonStr,
+          sections,
+          status:      'DRAFT',
           generatedBy: (user as any).name || 'Sistema',
+          auditCode,
         });
+
+        // Gera e baixa o PDF
+        const blob = await PDFGenerator.generateFromSections({
+          docType:   t.id as string,
+          student,
+          user:      user as any,
+          school:    schoolCfg,
+          sections,
+          auditCode,
+        });
+        PDFGenerator.download(blob, `${t.id}_${student.name.replace(/\s+/g, '_')}.pdf`);
+
+        // Registra evento na linha do tempo
+        if ((user as any)?.tenant_id) {
+          TimelineService.add({
+            tenantId:    (user as any).tenant_id,
+            studentId:   student.id,
+            eventType:   'documento',
+            title:       `${t.label} gerado em lote`,
+            description: `Documento gerado por ${(user as any).name ?? 'Sistema'} · Cód. ${auditCode}`,
+            author:      (user as any).name,
+          }).catch(() => {});
+        }
+
         setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'done' } : p));
       } catch (err: any) {
         setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'error', msg: err?.message || 'Erro' } : p));
       }
     }
     setBatchRunning(false);
+    // Recarrega documentos para refletir na aba Documentos
+    loadDbDocs();
   };
 
   const handleSaveHistory = async () => {
@@ -734,6 +775,22 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   </div>
                 )}
 
+                {/* Endereço */}
+                {(student.street || student.zipcode || student.city) && (
+                  <div className="bg-gray-50 rounded-lg p-3 border border-gray-100 text-xs space-y-1">
+                    <p className="font-bold text-gray-600 text-[10px] uppercase tracking-wider mb-1.5">Endereço</p>
+                    {student.street && (
+                      <InfoRow
+                        label="Logradouro"
+                        value={[student.street, student.streetNumber, student.complement].filter(Boolean).join(', ')}
+                      />
+                    )}
+                    {student.neighborhood && <InfoRow label="Bairro"  value={student.neighborhood} />}
+                    {student.city         && <InfoRow label="Cidade"  value={[student.city, student.state].filter(Boolean).join(' — ')} />}
+                    {student.zipcode      && <InfoRow label="CEP"     value={student.zipcode} />}
+                  </div>
+                )}
+
                 {/* Observações */}
                 {student.observations && (
                   <div>
@@ -1008,63 +1065,112 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           TAB 3 — AGENDA
           Atendimentos registrados do aluno
          ══════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'agenda' && (
-        <div className="space-y-5">
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-            <SectionHeader
-              icon={<Calendar size={16} style={{ color: '#1F4E5F' }}/>}
-              title="6. Agenda de Atendimento"
-              subtitle={`${totalServices} atendimentos registrados · ${presenceRate}% de presença`}
-            />
-
-            {serviceRecords.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-gray-200 p-10 text-center">
-                <Calendar size={32} className="mx-auto mb-3 text-gray-200"/>
-                <p className="text-gray-400 text-sm">Nenhum atendimento registrado ainda.</p>
-                <p className="text-xs text-gray-300 mt-1">Use o Controle de Serviços para registrar atendimentos.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead>
-                    <tr className="text-[10px] text-gray-500 uppercase bg-gray-50 border-b border-gray-100">
-                      <th className="px-4 py-3 font-bold">Data</th>
-                      <th className="px-4 py-3 font-bold">Hora</th>
-                      <th className="px-4 py-3 font-bold">Tipo</th>
-                      <th className="px-4 py-3 font-bold">Profissional</th>
-                      <th className="px-4 py-3 font-bold">Frequência</th>
-                      <th className="px-4 py-3 font-bold">Presença</th>
-                      <th className="px-4 py-3 font-bold">Observações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {serviceRecords.map(r => (
-                      <tr key={r.id} className="hover:bg-gray-50 transition">
-                        <td className="px-4 py-3 font-semibold text-gray-700 whitespace-nowrap">
-                          {new Date(r.date).toLocaleDateString('pt-BR')}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{r.time ?? '—'}</td>
-                        <td className="px-4 py-3 text-gray-700">{r.type}</td>
-                        <td className="px-4 py-3 text-gray-600">{r.professional}</td>
-                        <td className="px-4 py-3 text-gray-500 text-xs">{r.recurrence ?? '—'}</td>
-                        <td className="px-4 py-3">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            r.attendance === 'Presente' ? 'bg-green-100 text-green-700' :
-                            r.attendance === 'Falta' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'
-                          }`}>
-                            {r.attendance ?? '—'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-gray-400 text-xs max-w-xs truncate" title={r.observations}>{r.observations ?? '—'}</td>
+      {activeTab === 'agenda' && (() => {
+        const studentAppointments = appointments
+          .filter(a => a.studentId === student.id)
+          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        return (
+          <div className="space-y-5">
+            {/* ── Agendamentos (AppointmentsView) ── */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+              <SectionHeader
+                icon={<Calendar size={16} style={{ color: '#1F4E5F' }}/>}
+                title="6. Agendamentos"
+                subtitle={`${studentAppointments.length} agendamento(s) para este aluno`}
+              />
+              {studentAppointments.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gray-200 p-8 text-center">
+                  <Calendar size={28} className="mx-auto mb-2 text-gray-200"/>
+                  <p className="text-gray-400 text-sm">Nenhum agendamento vinculado.</p>
+                  <p className="text-xs text-gray-300 mt-1">Crie um agendamento na Agenda e vincule este aluno.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead>
+                      <tr className="text-[10px] text-gray-500 uppercase bg-gray-50 border-b border-gray-100">
+                        <th className="px-4 py-3 font-bold">Data</th>
+                        <th className="px-4 py-3 font-bold">Hora</th>
+                        <th className="px-4 py-3 font-bold">Título</th>
+                        <th className="px-4 py-3 font-bold">Tipo</th>
+                        <th className="px-4 py-3 font-bold">Profissional</th>
+                        <th className="px-4 py-3 font-bold">Local</th>
+                        <th className="px-4 py-3 font-bold">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {studentAppointments.map(a => (
+                        <tr key={a.id} className="hover:bg-gray-50 transition">
+                          <td className="px-4 py-3 font-semibold text-gray-700 whitespace-nowrap">
+                            {new Date(a.date + 'T00:00:00').toLocaleDateString('pt-BR')}
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{a.time ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-800 font-medium">{a.title}</td>
+                          <td className="px-4 py-3 text-gray-600">{a.type}</td>
+                          <td className="px-4 py-3 text-gray-500">{a.professional}</td>
+                          <td className="px-4 py-3 text-gray-400 text-xs">{a.location ?? '—'}</td>
+                          <td className="px-4 py-3">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              a.status === 'realizado'  ? 'bg-green-100 text-green-700' :
+                              a.status === 'cancelado'  ? 'bg-red-100 text-red-600' :
+                              a.status === 'falta'      ? 'bg-orange-100 text-orange-700' :
+                              'bg-blue-100 text-blue-700'
+                            }`}>{a.status ?? 'agendado'}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* ── Controle de Atendimento (ServiceControlView) ── */}
+            {serviceRecords.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+                <SectionHeader
+                  icon={<CheckCircle size={16} style={{ color: '#1F4E5F' }}/>}
+                  title="Controle de Atendimentos"
+                  subtitle={`${totalServices} atendimentos · ${presenceRate}% de presença`}
+                />
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead>
+                      <tr className="text-[10px] text-gray-500 uppercase bg-gray-50 border-b border-gray-100">
+                        <th className="px-4 py-3 font-bold">Data</th>
+                        <th className="px-4 py-3 font-bold">Hora</th>
+                        <th className="px-4 py-3 font-bold">Tipo</th>
+                        <th className="px-4 py-3 font-bold">Profissional</th>
+                        <th className="px-4 py-3 font-bold">Presença</th>
+                        <th className="px-4 py-3 font-bold">Observações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {serviceRecords.map(r => (
+                        <tr key={r.id} className="hover:bg-gray-50 transition">
+                          <td className="px-4 py-3 font-semibold text-gray-700 whitespace-nowrap">
+                            {new Date(r.date).toLocaleDateString('pt-BR')}
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{r.time ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-700">{r.type}</td>
+                          <td className="px-4 py-3 text-gray-600">{r.professional}</td>
+                          <td className="px-4 py-3">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              r.attendance === 'Presente' ? 'bg-green-100 text-green-700' :
+                              r.attendance === 'Falta' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'
+                            }`}>{r.attendance ?? '—'}</span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-400 text-xs max-w-xs truncate" title={r.observations}>{r.observations ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ══════════════════════════════════════════════════════════════════════
           TAB 4 — DOCUMENTOS

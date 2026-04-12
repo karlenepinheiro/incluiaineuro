@@ -661,20 +661,12 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
           onChange={e => setSelectedStudentId(e.target.value)}
         >
           <option value="">Selecione o aluno...</option>
-          {(activeTab === 'fichas'
-            ? students.filter(s => s.tipo_aluno === 'em_triagem' || !s.tipo_aluno)
-            : students
-          ).map(s => (
+          {students.map(s => (
             <option key={s.id} value={s.id}>
               {s.name}{s.grade ? ` — ${s.grade}` : ''}
             </option>
           ))}
         </select>
-        {activeTab === 'fichas' && students.filter(s => s.tipo_aluno === 'em_triagem').length === 0 && (
-          <p className="text-xs text-gray-400 italic mt-2">
-            Nenhum aluno em triagem. Crie em "Meus Alunos → Aluno em Triagem".
-          </p>
-        )}
       </div>
 
       {/* ─── TAB 1: FICHAS DE OBSERVAÇÃO ─────────────────────────────── */}

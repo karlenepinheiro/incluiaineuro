@@ -105,8 +105,8 @@ interface NodeData extends WorkflowState {
 const fileToBase64 = (f: File): Promise<string> =>
   new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(f); });
 
-const calcCredits = (model: AIModel, imageCount: number) =>
-  (model === 'openai' ? AI_CREDIT_COSTS.IMAGEM_PREMIUM : AI_CREDIT_COSTS.IMAGEM_LEVE) * imageCount;
+const calcCredits = (_model: AIModel, imageCount: number) =>
+  AI_CREDIT_COSTS.IMAGEM_PREMIUM * imageCount;
 
 const DISCIPLINES = ['Língua Portuguesa','Matemática','Ciências','História','Geografia','Arte','Educação Física','Inglês','Educação Especial'];
 const GRADES = ['1º Ano EF','2º Ano EF','3º Ano EF','4º Ano EF','5º Ano EF','6º Ano EF','7º Ano EF','8º Ano EF','9º Ano EF','1º Ano EM','2º Ano EM','3º Ano EM'];
@@ -399,42 +399,12 @@ const ComposicaoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
       <Handle type="target" position={Position.Left}  style={{ background: C.petrol, border: `2px solid ${C.surface}`, width: 10, height: 10 }} />
       <Handle type="source" position={Position.Right} style={{ background: C.petrol, border: `2px solid ${C.surface}`, width: 10, height: 10 }} />
 
-      {/* Model */}
-      <div>
-        <Label>Modelo de IA</Label>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-          {(['gemini', 'openai'] as AIModel[]).map(m => {
-            const isSel = model === m;
-            const costPerImg = m === 'openai' ? AI_CREDIT_COSTS.IMAGEM_PREMIUM : AI_CREDIT_COSTS.IMAGEM_LEVE;
-            const desc = m === 'gemini' ? 'Qualidade balanceada' : 'Alta qualidade visual';
-            return (
-              <button key={m} onClick={() => d.onUpdate({ model: m })}
-                style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 3,
-                  padding: '8px 10px', borderRadius: 10, cursor: 'pointer', outline: 'none',
-                  border: `2px solid ${isSel ? C.petrol : C.border}`,
-                  background: isSel ? C.petrol : C.surface,
-                  boxShadow: isSel ? '0 2px 6px rgba(31,78,95,0.2)' : 'none',
-                  transition: 'all 0.15s', textAlign: 'left',
-                }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: isSel ? '#fff' : C.dark }}>
-                  {m === 'gemini' ? 'Gemini' : 'ChatGPT'}
-                </span>
-                <span style={{ fontSize: 9, color: isSel ? 'rgba(255,255,255,0.72)' : C.textSec }}>
-                  {desc}
-                </span>
-                <span style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 4,
-                  padding: '1px 6px', borderRadius: 20, fontSize: 9, fontWeight: 700,
-                  background: isSel ? 'rgba(255,255,255,0.18)' : C.goldLight,
-                  color: isSel ? '#fff' : C.gold,
-                  border: `1px solid ${isSel ? 'rgba(255,255,255,0.25)' : C.border}`,
-                }}>
-                  <Coins size={8} />{costPerImg} cr./img
-                </span>
-              </button>
-            );
-          })}
+      {/* Model — imagens sempre via DALL-E 3 (OpenAI) */}
+      <div style={{ background: C.petrol + '10', border: `1px solid ${C.petrol}30`, borderRadius: 10, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 13 }}>🎨</span>
+        <div>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.dark }}>DALL-E 3 (OpenAI)</span>
+          <span style={{ display: 'block', fontSize: 9, color: C.textSec }}>Alta qualidade visual · {AI_CREDIT_COSTS.IMAGEM_PREMIUM} créditos/imagem</span>
         </div>
       </div>
 
@@ -490,7 +460,7 @@ const ComposicaoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
         <span style={{ fontSize: 12, fontWeight: 700, color: C.dark }}>
           Esta geração consumirá <strong style={{ color: C.petrol }}>{credits} créditos</strong>
         </span>
-        <span style={{ fontSize: 10, color: C.textSec, marginLeft: 'auto' }}>{model === 'gemini' ? '×2' : '×3'}/img</span>
+        <span style={{ fontSize: 10, color: C.textSec, marginLeft: 'auto' }}>{AI_CREDIT_COSTS.IMAGEM_PREMIUM}c/img</span>
       </div>
     </NodeShell>
   );
@@ -569,11 +539,25 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
   const isTextOnly = d.results.length === 0 && !!d.adaptedText;
   const isDone = d.nodeStatus === 'done';
 
+  // FIX: download via blob para contornar bloqueio CORS do atributo download em URLs cross-origin
+  const downloadImageBlob = async (url: string, filename: string) => {
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error('Falha ao baixar');
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl; a.download = filename; a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      window.open(url, '_blank');
+    }
+  };
+
   const downloadAll = () => {
     d.results.forEach((img, i) => {
       if (img.imageUrl) {
-        const a = document.createElement('a');
-        a.href = img.imageUrl; a.download = `ativaIA_${i + 1}.png`; a.click();
+        downloadImageBlob(img.imageUrl, `ativaIA_${i + 1}.png`);
       }
     });
   };
@@ -652,7 +636,7 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
                 <div style={{ padding: '3px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 9, color: C.textSec, fontWeight: 700 }}>#{i + 1}</span>
                   {img.imageUrl && (
-                    <button onClick={() => { const a = document.createElement('a'); a.href = img.imageUrl; a.download = `img_${i + 1}.png`; a.click(); }}
+                    <button onClick={() => downloadImageBlob(img.imageUrl, `ativaIA_img_${i + 1}.png`)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
                       <Download size={10} color={C.textSec} />
                     </button>
@@ -838,7 +822,7 @@ const edgeTypes = { premiumEdge: PremiumEdge };
 const mkDefaultData = (schools: SchoolConfig[]): NodeData => ({
   uploadFile: null, uploadPreview: null, prompt: '', discipline: '', grade: '',
   bnccCode: '', bnccDescription: '', bnccJustification: '',
-  model: 'gemini', imageCount: 5, pageSize: 'A4', borders: true,
+  model: 'openai', imageCount: 5, pageSize: 'A4', borders: true,
   schoolId: schools[0]?.id ?? '', results: [], pdfReady: false,
   extractedText: '', adaptedText: '', adaptationType: 'autismo', adaptarInputText: '',
   templateType: 'tea', creditsUsed: 0,
@@ -1231,7 +1215,7 @@ const InnerCanvas: React.FC<{
   const [wf, setWf] = useState<WorkflowState>({
     uploadFile: null, uploadPreview: null, prompt: '', discipline: '', grade: '',
     bnccCode: '', bnccDescription: '', bnccJustification: '',
-    model: 'gemini', imageCount: 5, pageSize: 'A4', borders: true,
+    model: 'openai', imageCount: 5, pageSize: 'A4', borders: true,
     schoolId: schools[0]?.id ?? '', results: [], pdfReady: false,
     extractedText: '', adaptedText: '', adaptationType: 'autismo', adaptarInputText: '',
     templateType: 'tea', creditsUsed: 0,
@@ -1627,11 +1611,14 @@ Retorne SOMENTE JSON: {"code":"EF00XX00","description":"Descrição completa","j
 
       // ── 6. Composição + Imagens (somente se o nó existe) ──────────────────
       let generated: ResultImage[] = [];
+      let imagesGenerated = 0; // declarado fora para ser acessível no passo 8
       if (hasComposicao) {
         step('composicao', 'running'); setProgress('Gerando prompts de imagem…');
         const curFinal = wfRef.current;
         let imagePrompts: string[] = [];
         const count = curFinal.imageCount;
+        // Custo real por imagem conforme modelo selecionado pelo usuário
+        const costPerImage = AI_CREDIT_COSTS.IMAGEM_PREMIUM; // sempre DALL-E 3
 
         if (curFinal.uploadPreview) {
           const raw = await AIService.generateFromPromptWithImage(
@@ -1645,12 +1632,62 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
           imagePrompts.push(`Inclusive educational illustration ${imagePrompts.length + 1}: ${curFinal.prompt}, simple, colorful, accessible`);
         }
 
+        // FIX: deducção em lote — evita double-billing (pre-flight já verificou o total)
+        // skipDeduction=true: não debita por imagem, debitamos uma vez abaixo com o total real
+        let imageErrors = 0;
+        let lastImageErrorMsg = '';
+        const { supabase } = await import('../../lib/supabaseClient');
+        const tenantId = (user as any).tenant_id ?? user.id;
+
         for (let i = 0; i < imagePrompts.length; i++) {
           setProgress(`Gerando imagem ${i + 1} de ${imagePrompts.length}…`);
           let imageUrl = '';
-          try { imageUrl = await AIService.generateImageFromPrompt(imagePrompts[i], user); } catch {}
+          try {
+            // FIX: skipDeduction=true — deducção controlada em lote abaixo
+            const tempUrl = await AIService.generateImageFromPrompt(imagePrompts[i], user, costPerImage, true);
+            imagesGenerated++;
+            // FIX: persiste no Storage — URLs DALL-E expiram em 60 minutos
+            try {
+              const resp = await fetch(tempUrl);
+              if (resp.ok) {
+                const blob = await resp.blob();
+                const ext = blob.type.includes('png') ? 'png' : 'jpg';
+                const path = `${tenantId}/${Date.now()}_${i}.${ext}`;
+                const { error: upErr } = await supabase.storage
+                  .from('imagens_atividades')
+                  .upload(path, blob, { cacheControl: '31536000', upsert: false });
+                if (!upErr) {
+                  const { data: urlData } = supabase.storage.from('imagens_atividades').getPublicUrl(path);
+                  imageUrl = urlData?.publicUrl ?? tempUrl;
+                } else {
+                  imageUrl = tempUrl; // fallback para URL temporária se storage falhar
+                }
+              } else {
+                imageUrl = tempUrl;
+              }
+            } catch {
+              imageUrl = tempUrl; // fallback se storage não configurado
+            }
+          } catch (imgErr: any) {
+            imageErrors++;
+            lastImageErrorMsg = imgErr?.message || String(imgErr);
+            console.error(`[AtivaIA] Falha na geração da imagem ${i + 1} — erro real:`, lastImageErrorMsg, imgErr);
+            // imageUrl permanece '' — placeholder será exibido
+          }
           generated.push({ id: `img-${Date.now()}-${i}`, imageUrl, description: imagePrompts[i] });
           setWf(prev => ({ ...prev, results: [...generated] }));
+        }
+
+        if (imageErrors === imagePrompts.length) {
+          // Todas as imagens falharam — expõe o erro real da API
+          step('composicao', 'error');
+          throw new Error(`Nenhuma imagem foi gerada. Erro da API: ${lastImageErrorMsg || 'desconhecido — verifique o console do browser.'}`);
+        }
+
+        // FIX: debita apenas as imagens que foram efetivamente geradas (sem double-billing)
+        if (imagesGenerated > 0) {
+          const totalImageCost = costPerImage * imagesGenerated;
+          await AIService.deductCredits(user, `ATIVAIAI_IMAGENS:${curFinal.model}:${imagesGenerated}`, totalImageCost);
         }
         step('composicao', 'done');
       }
@@ -1665,7 +1702,10 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
       const ocrC      = nodes.some(n => n.id === 'ocr')      ? AI_CREDIT_COSTS.OCR              : 0;
       const adaptarC  = nodes.some(n => n.id === 'adaptar')  ? AI_CREDIT_COSTS.ADAPTAR_ATIVIDADE : 0;
       const bnccC     = nodes.some(n => n.id === 'bncc')     ? AI_CREDIT_COSTS.TEXTO_SIMPLES     : 0;
-      const imageC    = nodes.some(n => n.id === 'composicao') ? calcCredits(wfRef.current.model, wfRef.current.imageCount) : 0;
+      // FIX: usa imagesGenerated (real) e costPerImage correto, não a estimativa do imageCount inicial
+      const imageC    = nodes.some(n => n.id === 'composicao')
+        ? AI_CREDIT_COSTS.IMAGEM_PREMIUM * imagesGenerated // sempre DALL-E 3
+        : 0;
       const relatorioC = (nodes.some(n => n.id === 'prompt') && !nodes.some(n => n.id === 'composicao') && !nodes.some(n => n.id === 'adaptar')) ? AI_CREDIT_COSTS.RELATORIO_PADRAO : 0;
       const totalCredits = ocrC + adaptarC + bnccC + imageC + relatorioC;
       updateWf({ creditsUsed: totalCredits });
@@ -1899,6 +1939,9 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
   const handleSaveActivity = useCallback(async (title: string, studentId?: string) => {
     const cur = wfRef.current;
     const content = cur.adaptedText || cur.prompt || cur.extractedText;
+    // FIX: passa as URLs reais das imagens persistidas no Storage
+    const imageUrls = cur.results.map(r => r.imageUrl).filter(Boolean);
+    const hasImages = imageUrls.length > 0;
     try {
       await AIService.saveGeneratedActivity({
         user,
@@ -1908,6 +1951,9 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
         imageCount: cur.results.length,
         creditsUsed: cur.creditsUsed,
         studentId,
+        modelUsed: cur.model,
+        outputType: hasImages ? 'text_image' : 'text',
+        imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
       });
     } catch (err: any) {
       const msg = err?.message ?? 'Erro ao salvar atividade.';
@@ -1935,7 +1981,7 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
     const fresh: WorkflowState = {
       uploadFile: null, uploadPreview: null, prompt: '', discipline: '', grade: '',
       bnccCode: '', bnccDescription: '', bnccJustification: '',
-      model: 'gemini', imageCount: 5, pageSize: 'A4', borders: true,
+      model: 'openai', imageCount: 5, pageSize: 'A4', borders: true,
       schoolId: schools[0]?.id ?? '', results: [], pdfReady: false,
       extractedText: '', adaptedText: '', adaptationType: 'autismo', adaptarInputText: '',
       templateType: 'tea', creditsUsed: 0,
@@ -2096,7 +2142,7 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
           ...(hasOcrNode      ? [{ label: 'OCR — Extrair Texto',    cost: ocrCost,      color: '#7C3AED' }] : []),
           ...(hasAdaptarNode  ? [{ label: 'Adaptação Inclusiva',     cost: adaptarCost,  color: '#D97706' }] : []),
           ...(hasBnccNode     ? [{ label: 'BNCC Smart',              cost: bnccCost,     color: C.petrol  }] : []),
-          ...(hasComposicaoN  ? [{ label: `Imagens (${wf.imageCount}× ${wf.model === 'openai' ? '3c' : '2c'})`, cost: imageCost, color: C.dark }] : []),
+          ...(hasComposicaoN  ? [{ label: `Imagens (${wf.imageCount}× DALL-E 3)`, cost: imageCost, color: C.dark }] : []),
           ...(hasPromptN && !hasComposicaoN && !hasAdaptarNode ? [{ label: 'Relatório Pedagógico', cost: relatorioCost, color: C.dark }] : []),
         ]}
       />

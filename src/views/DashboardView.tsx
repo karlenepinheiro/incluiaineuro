@@ -1,27 +1,40 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Users, FileText, AlertCircle, Zap, TrendingUp, CheckCircle2, Clock, ArrowRight, Calendar, CalendarDays, ChevronLeft, ChevronRight, MapPin, User, Gift, Copy, CheckCircle as CheckCircleIcon } from 'lucide-react';
-import { ReferralService } from '../services/referralService';
+import {
+  Users, FileText, Zap, CheckCircle2, Clock, ArrowRight,
+  ChevronLeft, ChevronRight,
+  MapPin, User, BookOpen, Sparkles, FlaskConical,
+  BarChart3, AlertTriangle, TrendingUp, Star, ShieldCheck, Activity,
+} from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Student, Protocol, Appointment } from '../types';
 import { AI_CREDIT_COSTS, SUBSCRIPTION_PLANS } from '../config/aiCosts';
 import { PaymentService } from '../services/paymentService';
 import { PlanTier } from '../types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/src/components/ui/card';
-import { Badge } from '@/src/components/ui/badge';
 import { NumberTicker } from '@/src/components/magicui/number-ticker';
 
+// ─── Design tokens ──────────────────────────────────────────────────────────
+
 const C = {
-  bg: '#F6F4EF',
-  surface: '#FFFFFF',
-  text: '#1F2937',
-  textSec: '#667085',
-  petrol: '#1F4E5F',
-  dark: '#2E3A59',
-  gold: '#C69214',
+  bg:        '#F6F4EF',
+  surface:   '#FFFFFF',
+  text:      '#1F2937',
+  textSec:   '#667085',
+  petrol:    '#1F4E5F',
+  dark:      '#2E3A59',
+  gold:      '#C69214',
   goldLight: '#FDF6E3',
-  border: '#E7E2D8',
+  border:    '#E7E2D8',
   borderMid: '#C9C3B5',
+  emerald:   '#059669',
+  violet:    '#7C3AED',
+  amber:     '#D97706',
+  blue:      '#0369A1',
+  rose:      '#E11D48',
 };
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+type MeterLevel = 'normal' | 'warning' | 'danger';
 
 interface DashboardViewProps {
   userName?: string;
@@ -29,39 +42,27 @@ interface DashboardViewProps {
   protocols: Protocol[];
   appointments?: Appointment[];
   planMaxStudents?: number;
-  /** Label de exibição do limite de alunos: "Ilimitado" para MASTER, número para outros */
   planMaxStudentsLabel?: string;
   planMonthlyCredits?: number;
   creditsAvailable?: number;
-  /** Créditos avulsos comprados (ledger) */
   creditsPurchased?: number;
-  /** Créditos consumidos no ciclo (ledger) */
   creditsConsumedCycle?: number;
   creditsResetAt?: string | null;
-  /** Nome de exibição do plano com ciclo. Ex: "PRO MENSAL", "PREMIUM ANUAL", "FREE" */
   planName?: string;
-  /** ISO date da expiração da assinatura */
   subscriptionExpiry?: string | null;
   onNavigate?: (view: string) => void;
   userId?: string;
 }
 
-function clamp(n: number, a = 0, b = 100) {
-  return Math.max(a, Math.min(b, n));
-}
+// ─── Utils ───────────────────────────────────────────────────────────────────
+
+function clamp(n: number, a = 0, b = 100) { return Math.max(a, Math.min(b, n)); }
 
 function greetingByHour(date = new Date()) {
   const h = date.getHours();
   if (h < 12) return 'Bom dia';
   if (h < 18) return 'Boa tarde';
   return 'Boa noite';
-}
-
-function greetingEmojiByHour(date = new Date()) {
-  const h = date.getHours();
-  if (h < 12) return '☀️';
-  if (h < 18) return '🌤️';
-  return '🌙';
 }
 
 function fmtDateBR(iso?: string | null) {
@@ -71,83 +72,114 @@ function fmtDateBR(iso?: string | null) {
   return d.toLocaleDateString('pt-BR');
 }
 
-function ArcMeter({ valuePct, danger, level }: { valuePct: number; danger?: boolean; level?: MeterLevel }) {
-  const v = clamp(valuePct);
-  const r = 40;
-  const circumference = Math.PI * r;
-  const dash = (v / 100) * circumference;
-  const lvl: MeterLevel = level ?? (danger ? 'danger' : 'normal');
-  const col = meterColors(lvl);
-  const gradId = `arc-${lvl}`;
-
-  return (
-    <div className="flex flex-col items-center">
-      <svg width="120" height="70" viewBox="0 0 120 70">
-        <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="120" y2="0">
-            {lvl === 'danger' ? (
-              <><stop offset="0%" stopColor="#EF4444" /><stop offset="100%" stopColor="#F43F5E" /></>
-            ) : lvl === 'warning' ? (
-              <><stop offset="0%" stopColor="#F59E0B" /><stop offset="100%" stopColor="#EF4444" /></>
-            ) : (
-              <><stop offset="0%" stopColor={C.petrol} /><stop offset="100%" stopColor={C.gold} /></>
-            )}
-          </linearGradient>
-        </defs>
-        <path d="M10,60 A50,50 0 0 1 110,60" fill="none" stroke={col.track} strokeWidth="10" strokeLinecap="round" />
-        <path
-          d="M10,60 A50,50 0 0 1 110,60"
-          fill="none"
-          stroke={`url(#${gradId})`}
-          strokeWidth="10"
-          strokeLinecap="round"
-          strokeDasharray={`${dash} ${circumference}`}
-          style={{ transition: 'stroke-dasharray 0.7s ease-out' }}
-        />
-        <text x="60" y="52" textAnchor="middle" fontSize="15" fontWeight="700" fill={col.text}>
-          {Math.round(v)}%
-        </text>
-      </svg>
-    </div>
-  );
-}
-
-type MeterLevel = 'normal' | 'warning' | 'danger';
-
-function meterColors(level: MeterLevel) {
-  if (level === 'danger')  return { track: '#FEE2E2', bar: 'linear-gradient(90deg,#EF4444,#F43F5E)', text: '#EF4444' };
-  if (level === 'warning') return { track: '#FEF3C7', bar: 'linear-gradient(90deg,#F59E0B,#EF4444)', text: '#D97706' };
-  return { track: C.border, bar: `linear-gradient(90deg,${C.petrol},${C.gold})`, text: C.petrol };
-}
-
-function LinearMeter({ valuePct, danger, level }: { valuePct: number; danger?: boolean; level?: MeterLevel }) {
-  const v = clamp(valuePct);
-  const lvl: MeterLevel = level ?? (danger ? 'danger' : 'normal');
-  const col = meterColors(lvl);
-  return (
-    <div className="w-full">
-      <div className="w-full h-3 rounded-full overflow-hidden" style={{ background: col.track }}>
-        <div
-          className="h-full rounded-full"
-          style={{ width: `${v}%`, background: col.bar, transition: 'width 0.7s ease-out' }}
-        />
-      </div>
-      <div className="text-right text-xs font-bold mt-1" style={{ color: col.text }}>
-        {Math.round(v)}%
-      </div>
-    </div>
-  );
-}
-
-// ─── Mini Calendar ─────────────────────────────────────────────────────────
-
 const MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const DAYS_SHORT = ['D','S','T','Q','Q','S','S'];
-
 function getDaysInMonth(year: number, month: number) { return new Date(year, month + 1, 0).getDate(); }
 function getFirstDay(year: number, month: number)    { return new Date(year, month, 1).getDay(); }
 
-function MiniCalendar({ appointments = [], onViewAgenda }: { appointments: Appointment[]; onViewAgenda?: () => void }) {
+// ─── Mini progress bar ───────────────────────────────────────────────────────
+
+function MiniBar({ pct, color }: { pct: number; color: string }) {
+  return (
+    <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: color + '22' }}>
+      <div
+        className="h-full rounded-full"
+        style={{ width: `${clamp(pct)}%`, background: color, transition: 'width 0.7s ease-out' }}
+      />
+    </div>
+  );
+}
+
+// ─── Stat Card ───────────────────────────────────────────────────────────────
+
+function StatCard({
+  icon: Icon, label, value, sub, color, pct, badge, onClick,
+}: {
+  icon: React.ElementType; label: string; value: string | number;
+  sub?: string; color: string; pct?: number; badge?: string; onClick?: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35 }}
+      onClick={onClick}
+      className={`rounded-2xl p-5 flex flex-col gap-3 relative overflow-hidden ${onClick ? 'cursor-pointer' : ''}`}
+      style={{
+        background: `linear-gradient(135deg, ${color}14 0%, ${color}08 100%)`,
+        border: `1.5px solid ${color}30`,
+        boxShadow: `0 2px 12px ${color}12`,
+      }}
+      whileHover={onClick ? { y: -3, boxShadow: `0 8px 28px ${color}25` } : {}}
+    >
+      {/* Decorative circle */}
+      <div className="absolute -right-6 -top-6 w-24 h-24 rounded-full opacity-10" style={{ background: color }} />
+
+      <div className="flex items-center justify-between">
+        <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: color + '22', boxShadow: `0 2px 8px ${color}20` }}>
+          <Icon size={21} style={{ color }} />
+        </div>
+        {badge && (
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+            style={{ background: color + '20', color }}>
+            {badge}
+          </span>
+        )}
+      </div>
+
+      <div>
+        <div className="text-2xl font-extrabold leading-none mb-1" style={{ color }}>
+          {typeof value === 'number'
+            ? <NumberTicker value={value} className="text-2xl font-extrabold" />
+            : value}
+        </div>
+        <div className="text-xs font-semibold" style={{ color: C.dark }}>{label}</div>
+        {sub && <div className="text-[11px] mt-0.5 truncate" style={{ color: C.textSec }}>{sub}</div>}
+      </div>
+
+      {pct !== undefined && <MiniBar pct={pct} color={color} />}
+    </motion.div>
+  );
+}
+
+// ─── Quick Action Button ──────────────────────────────────────────────────────
+
+function QuickAction({
+  icon: Icon, label, sub, color, onClick,
+}: {
+  icon: React.ElementType; label: string; sub: string;
+  color: string; bg?: string; onClick?: () => void;
+}) {
+  return (
+    <motion.button
+      onClick={onClick}
+      className="flex items-center gap-3 rounded-2xl p-4 text-left w-full transition relative overflow-hidden"
+      style={{
+        background: `linear-gradient(135deg, ${color}18 0%, ${color}0a 100%)`,
+        border: `1.5px solid ${color}30`,
+        boxShadow: `0 2px 10px ${color}12`,
+      }}
+      whileHover={{ scale: 1.02, boxShadow: `0 6px 22px ${color}28` }}
+      whileTap={{ scale: 0.98 }}
+    >
+      <div className="absolute -right-4 -bottom-4 w-16 h-16 rounded-full opacity-10" style={{ background: color }} />
+      <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+        style={{ background: color, boxShadow: `0 2px 10px ${color}40` }}>
+        <Icon size={20} color="#fff" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-bold truncate" style={{ color: C.dark }}>{label}</div>
+        <div className="text-[11px] truncate" style={{ color: C.textSec }}>{sub}</div>
+      </div>
+      <ArrowRight size={14} style={{ color }} />
+    </motion.button>
+  );
+}
+
+// ─── Mini Calendar ────────────────────────────────────────────────────────────
+
+function MiniCalendar({ appointments = [] }: { appointments: Appointment[] }) {
   const today = new Date();
   const [calYear, setCalYear]   = useState(today.getFullYear());
   const [calMonth, setCalMonth] = useState(today.getMonth());
@@ -155,8 +187,7 @@ function MiniCalendar({ appointments = [], onViewAgenda }: { appointments: Appoi
   const aptDays = useMemo(() => {
     const s = new Set<string>();
     appointments.forEach(a => {
-      const parts = a.date.slice(0, 10).split('-').map(Number);
-      const [ay, am] = parts;
+      const [ay, am] = a.date.slice(0, 10).split('-').map(Number);
       if (ay === calYear && am - 1 === calMonth) s.add(a.date.slice(8, 10));
     });
     return s;
@@ -164,72 +195,62 @@ function MiniCalendar({ appointments = [], onViewAgenda }: { appointments: Appoi
 
   const days     = getDaysInMonth(calYear, calMonth);
   const firstDay = getFirstDay(calYear, calMonth);
-
   const prevMonth = () => { if (calMonth === 0) { setCalYear(y => y - 1); setCalMonth(11); } else setCalMonth(m => m - 1); };
   const nextMonth = () => { if (calMonth === 11) { setCalYear(y => y + 1); setCalMonth(0); } else setCalMonth(m => m + 1); };
 
   return (
-    <Card>
-      <CardContent className="p-5">
-        <div className="flex items-center justify-between mb-3">
-          <button onClick={prevMonth} className="p-1 rounded-lg transition hover:bg-gray-100">
-            <ChevronLeft size={14} style={{ color: C.textSec }} />
-          </button>
-          <div>
-            <div className="text-xs font-bold text-center" style={{ color: C.dark }}>{MONTHS_PT[calMonth]}</div>
-            <div className="text-[10px] text-center" style={{ color: C.textSec }}>{calYear}</div>
-          </div>
-          <button onClick={nextMonth} className="p-1 rounded-lg transition hover:bg-gray-100">
-            <ChevronRight size={14} style={{ color: C.textSec }} />
-          </button>
+    <div className="rounded-2xl p-5 h-full" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+      <div className="flex items-center justify-between mb-4">
+        <button onClick={prevMonth} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 transition">
+          <ChevronLeft size={14} style={{ color: C.textSec }} />
+        </button>
+        <div className="text-center">
+          <div className="text-xs font-bold" style={{ color: C.dark }}>{MONTHS_PT[calMonth]}</div>
+          <div className="text-[10px]" style={{ color: C.textSec }}>{calYear}</div>
         </div>
+        <button onClick={nextMonth} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 transition">
+          <ChevronRight size={14} style={{ color: C.textSec }} />
+        </button>
+      </div>
 
-        <div className="grid grid-cols-7 mb-1">
-          {DAYS_SHORT.map((d, i) => (
-            <div key={i} className="text-center text-[9px] font-bold py-0.5" style={{ color: C.textSec }}>{d}</div>
-          ))}
-        </div>
+      <div className="grid grid-cols-7 mb-2">
+        {DAYS_SHORT.map((d, i) => (
+          <div key={i} className="text-center text-[9px] font-bold py-0.5" style={{ color: C.textSec }}>{d}</div>
+        ))}
+      </div>
 
-        <div className="grid grid-cols-7 gap-0.5">
-          {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
-          {Array.from({ length: days }).map((_, i) => {
-            const d   = i + 1;
-            const ds  = String(d).padStart(2, '0');
-            const isT = d === today.getDate() && calMonth === today.getMonth() && calYear === today.getFullYear();
-            const hasA = aptDays.has(ds);
-            return (
-              <div key={d} className="flex flex-col items-center py-1 rounded-lg" style={{ background: isT ? C.petrol : 'transparent' }}>
-                <span className="text-[10px] font-bold leading-none" style={{ color: isT ? '#fff' : C.dark }}>{d}</span>
-                {hasA && <div className="w-1 h-1 rounded-full mt-0.5" style={{ background: isT ? 'rgba(255,255,255,0.8)' : C.gold }} />}
-              </div>
-            );
-          })}
-        </div>
+      <div className="grid grid-cols-7 gap-y-1">
+        {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
+        {Array.from({ length: days }).map((_, i) => {
+          const d   = i + 1;
+          const ds  = String(d).padStart(2, '0');
+          const isT = d === today.getDate() && calMonth === today.getMonth() && calYear === today.getFullYear();
+          const hasA = aptDays.has(ds);
+          return (
+            <div key={d} className="flex flex-col items-center py-1 rounded-lg" style={{ background: isT ? C.petrol : 'transparent' }}>
+              <span className="text-[10px] font-bold leading-none" style={{ color: isT ? '#fff' : C.dark }}>{d}</span>
+              {hasA && <div className="w-1 h-1 rounded-full mt-0.5" style={{ background: isT ? 'rgba(255,255,255,0.8)' : C.gold }} />}
+            </div>
+          );
+        })}
+      </div>
 
-        {onViewAgenda && (
-          <button
-            onClick={onViewAgenda}
-            className="w-full mt-3 text-[10px] font-semibold text-center py-1.5 rounded-lg transition"
-            style={{ color: C.petrol, background: C.petrol + '10' }}
-          >
-            Ver agenda completa →
-          </button>
-        )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }
 
-// ─── Atendimentos do Dia ────────────────────────────────────────────────────
+// ─── Status colors ────────────────────────────────────────────────────────────
 
-const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  agendado:   { bg: '#EFF9FF', color: '#0369A1' },
-  realizado:  { bg: '#F0FDF4', color: '#166534' },
-  cancelado:  { bg: '#FEF2F2', color: '#991B1B' },
-  reagendado: { bg: '#FFFBEB', color: '#92400E' },
+const STATUS_COLORS: Record<string, { bg: string; color: string; label: string }> = {
+  agendado:   { bg: '#EFF9FF', color: '#0369A1', label: 'Agendado' },
+  realizado:  { bg: '#F0FDF4', color: '#166534', label: 'Realizado' },
+  cancelado:  { bg: '#FEF2F2', color: '#991B1B', label: 'Cancelado' },
+  reagendado: { bg: '#FFFBEB', color: '#92400E', label: 'Reagendado' },
 };
 
-function TodayAppointments({ appointments, onViewAgenda }: { appointments: Appointment[]; onViewAgenda?: () => void }) {
+// ─── Today Appointments ───────────────────────────────────────────────────────
+
+function TodayAppointments({ appointments, onNavigate }: { appointments: Appointment[]; onNavigate?: (view: string) => void }) {
   const today = new Date().toISOString().slice(0, 10);
   const todayApts = useMemo(
     () => appointments.filter(a => a.date.slice(0, 10) === today).sort((a, b) => a.time.localeCompare(b.time)),
@@ -237,131 +258,101 @@ function TodayAppointments({ appointments, onViewAgenda }: { appointments: Appoi
   );
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-sm font-bold" style={{ color: C.dark }}>Atendimentos Hoje</CardTitle>
-            <p className="text-xs mt-0.5" style={{ color: C.textSec }}>
-              {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
-            </p>
-          </div>
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: C.petrol + '15' }}>
-            <CalendarDays size={16} style={{ color: C.petrol }} />
-          </div>
+    <div className="rounded-2xl overflow-hidden h-full flex flex-col" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+      <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: `1px solid ${C.border}` }}>
+        <div>
+          <h3 className="text-sm font-bold" style={{ color: C.dark }}>Atendimentos do Dia</h3>
+          <p className="text-[11px]" style={{ color: C.textSec }}>
+            {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </p>
         </div>
-      </CardHeader>
-      <CardContent className="pt-0">
+        <button
+          onClick={() => onNavigate?.('appointments')}
+          className="text-[11px] font-semibold transition hover:opacity-70"
+          style={{ color: C.petrol }}
+        >
+          Ver Agenda →
+        </button>
+      </div>
+
+      <div className="flex-1 p-4 space-y-2 overflow-auto">
         {todayApts.length === 0 ? (
-          <div className="flex flex-col items-center py-6 rounded-xl" style={{ background: C.bg, border: `1px dashed ${C.border}` }}>
-            <Calendar size={24} style={{ color: C.border }} />
-            <p className="text-xs mt-2" style={{ color: C.textSec }}>Nenhum atendimento hoje</p>
-            {onViewAgenda && (
-              <button onClick={onViewAgenda} className="mt-2 text-[10px] font-semibold" style={{ color: C.petrol }}>
-                Agendar →
-              </button>
-            )}
+          <div className="flex flex-col items-center py-8 rounded-xl" style={{ background: `linear-gradient(135deg, ${C.petrol}08, ${C.dark}05)` }}>
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mb-2"
+              style={{ background: `linear-gradient(135deg, ${C.petrol}20, ${C.dark}15)` }}>
+              <Activity size={20} style={{ color: C.petrol }} />
+            </div>
+            <p className="text-xs font-medium mb-3" style={{ color: C.textSec }}>Nenhum atendimento agendado para hoje</p>
+            <button
+              onClick={() => onNavigate?.('appointments')}
+              className="text-[11px] font-bold px-4 py-2 rounded-xl transition"
+              style={{ background: C.petrol, color: '#fff', boxShadow: `0 2px 10px ${C.petrol}30` }}
+            >
+              + Agendar Atendimento
+            </button>
           </div>
         ) : (
-          <div className="space-y-2">
-            {todayApts.map((apt: Appointment) => {
-              const sc = STATUS_COLORS[apt.status] ?? { bg: C.bg, color: C.dark };
-              return (
-                <div key={apt.id} className="flex items-start gap-3 rounded-xl p-3" style={{ background: sc.bg }}>
-                  <div className="rounded-lg px-2 py-1 text-center shrink-0" style={{ background: C.petrol, minWidth: 44 }}>
-                    <div className="text-[10px] font-black text-white leading-none">{apt.time}</div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-bold truncate" style={{ color: C.dark }}>{apt.title}</div>
-                    {apt.studentName && (
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <User size={9} style={{ color: C.textSec }} />
-                        <span className="text-[10px] truncate" style={{ color: C.textSec }}>{apt.studentName}</span>
-                      </div>
-                    )}
-                    {apt.location && (
-                      <div className="flex items-center gap-1">
-                        <MapPin size={9} style={{ color: C.textSec }} />
-                        <span className="text-[10px] truncate" style={{ color: C.textSec }}>{apt.location}</span>
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: sc.color + '20', color: sc.color }}>
-                    {apt.status}
-                  </span>
+          todayApts.map((apt: Appointment) => {
+            const sc = STATUS_COLORS[apt.status] ?? { bg: C.bg, color: C.dark, label: apt.status };
+            return (
+              <div key={apt.id} className="flex items-start gap-3 rounded-xl p-3" style={{ background: sc.bg }}>
+                <div className="rounded-xl px-2.5 py-1.5 text-center shrink-0" style={{ background: C.petrol, minWidth: 46 }}>
+                  <div className="text-[10px] font-black text-white leading-none">{apt.time}</div>
                 </div>
-              );
-            })}
-            {onViewAgenda && (
-              <button
-                onClick={onViewAgenda}
-                className="w-full text-[10px] font-semibold py-1.5 rounded-lg mt-1 transition"
-                style={{ color: C.petrol, background: C.petrol + '10' }}
-              >
-                Ver agenda completa →
-              </button>
-            )}
-          </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold truncate" style={{ color: C.dark }}>{apt.title}</div>
+                  {apt.studentName && (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <User size={9} style={{ color: C.textSec }} />
+                      <span className="text-[10px] truncate" style={{ color: C.textSec }}>{apt.studentName}</span>
+                    </div>
+                  )}
+                  {apt.location && (
+                    <div className="flex items-center gap-1">
+                      <MapPin size={9} style={{ color: C.textSec }} />
+                      <span className="text-[10px] truncate" style={{ color: C.textSec }}>{apt.location}</span>
+                    </div>
+                  )}
+                </div>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0"
+                  style={{ background: sc.color + '20', color: sc.color }}>
+                  {sc.label}
+                </span>
+              </div>
+            );
+          })
         )}
-      </CardContent>
-    </Card>
+      </div>
+
+    </div>
   );
 }
 
-type MeterMode = 'arc' | 'bar';
+// ─── Alert / Suggestion Card ──────────────────────────────────────────────────
 
-function MeterCard({ title, subtitle, valuePct, mode, onToggle, footer, danger, level }: {
-  title: string; subtitle: string; valuePct: number; mode: MeterMode;
-  onToggle: () => void; footer?: React.ReactNode; danger?: boolean; level?: MeterLevel;
+function AlertCard({ icon: Icon, title, body, color, action, onAction }: {
+  icon: React.ElementType; title: string; body: string;
+  color: string; action?: string; onAction?: () => void;
 }) {
   return (
-    <Card>
-      <CardContent className="p-6">
-        <div className="flex items-start justify-between gap-4 mb-4">
-          <div>
-            <div className="text-sm font-bold" style={{ color: C.dark }}>{title}</div>
-            <div className="text-xs mt-0.5" style={{ color: C.textSec }}>{subtitle}</div>
-          </div>
-          <button
-            onClick={onToggle}
-            className="text-xs px-3 py-1 rounded-full transition"
-            style={{ border: `1px solid ${C.border}`, color: C.textSec, background: C.bg }}
-          >
-            {mode === 'arc' ? 'Arco' : 'Barra'}
+    <div className="flex items-start gap-3 rounded-2xl p-4" style={{ background: color + '0f', border: `1px solid ${color}30` }}>
+      <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: color + '20' }}>
+        <Icon size={16} style={{ color }} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-bold mb-0.5" style={{ color: C.dark }}>{title}</div>
+        <div className="text-[11px] leading-relaxed" style={{ color: C.textSec }}>{body}</div>
+        {action && onAction && (
+          <button onClick={onAction} className="mt-2 text-[11px] font-bold" style={{ color }}>
+            {action} →
           </button>
-        </div>
-        {mode === 'arc' ? <ArcMeter valuePct={valuePct} danger={danger} level={level} /> : (
-          <div className="py-2"><LinearMeter valuePct={valuePct} danger={danger} level={level} /></div>
         )}
-        {footer && <div className="mt-4 text-xs" style={{ color: C.textSec }}>{footer}</div>}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 
-function KpiCard({ icon: Icon, label, value, accent }: {
-  icon: React.ElementType; label: string; value: number; accent: string;
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-    >
-      <Card className="hover:shadow-md transition-shadow">
-        <CardContent className="p-5">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style={{ background: accent + '18' }}>
-            <Icon size={20} style={{ color: accent }} />
-          </div>
-          <div className="text-3xl font-bold mb-1" style={{ color: C.dark }}>
-            <NumberTicker value={value} className="text-3xl font-bold" />
-          </div>
-          <div className="text-xs font-medium" style={{ color: C.textSec }}>{label}</div>
-        </CardContent>
-      </Card>
-    </motion.div>
-  );
-}
+// ─── Main Export ──────────────────────────────────────────────────────────────
 
 export function DashboardView({
   userName,
@@ -380,368 +371,448 @@ export function DashboardView({
   onNavigate,
   userId,
 }: DashboardViewProps) {
-  const [modeStudents, setModeStudents] = useState<MeterMode>('arc');
-  const [modeCredits, setModeCredits] = useState<MeterMode>('bar');
 
-  // Referral state
-  const [refCode, setRefCode] = useState('');
-  const [refCopied, setRefCopied] = useState(false);
-  const [refTotal, setRefTotal] = useState(0);
-  const [refCreditsEarned, setRefCreditsEarned] = useState(0);
+  const [showDocPicker, setShowDocPicker] = useState(false);
 
-  useEffect(() => {
-    if (!userId) return;
-    ReferralService.getOrCreateReferralCode(userId).then(setRefCode).catch(() => {});
-    ReferralService.getStats(userId).then(s => {
-      setRefTotal(s.totalReferrals);
-      setRefCreditsEarned(s.creditsEarned);
-    }).catch(() => {});
-  }, [userId]);
+  // ── Derived values ──────────────────────────────────────────────────────────
+  const maxStudents    = Number.isFinite(planMaxStudents as number) ? (planMaxStudents as number) : 0;
+  const monthlyCredits = Number.isFinite(planMonthlyCredits as number) ? (planMonthlyCredits as number) : 0;
+  const available      = Number.isFinite(creditsAvailable as number) ? (creditsAvailable as number) : 0;
+  const purchased      = Number.isFinite(creditsPurchased) ? creditsPurchased : 0;
+  const creditsUsed    = Number.isFinite(creditsConsumedCycle as number) && (creditsConsumedCycle as number) >= 0
+    ? (creditsConsumedCycle as number)
+    : monthlyCredits > 0 ? Math.max(0, monthlyCredits - available) : 0;
+  const totalCreditsBase  = monthlyCredits + purchased;
+  const creditsPct        = totalCreditsBase > 0 ? Math.min(100, (creditsUsed / totalCreditsBase) * 100) : 0;
+  const creditsLevel: MeterLevel = creditsPct >= 85 ? 'danger' : creditsPct >= 60 ? 'warning' : 'normal';
+  const studentsPct       = maxStudents > 0 && maxStudents < 9999 ? (students.length / maxStudents) * 100 : 0;
 
   const kpis = useMemo(() => {
     const finals = protocols.filter(p => p.status === 'FINAL').length;
     const drafts = protocols.filter(p => p.status === 'DRAFT').length;
-    const byType = protocols.reduce<Record<string, number>>((acc, p) => {
-      acc[String(p.type)] = (acc[String(p.type)] || 0) + 1;
-      return acc;
-    }, {});
-    return { total: protocols.length, finals, drafts, byType };
+    return { total: protocols.length, finals, drafts };
   }, [protocols]);
 
-  const maxStudents    = Number.isFinite(planMaxStudents as number) ? (planMaxStudents as number) : 0;
-  const monthlyCredits = Number.isFinite(planMonthlyCredits as number) ? (planMonthlyCredits as number) : 0;
-  const available      = Number.isFinite(creditsAvailable as number) ? (creditsAvailable as number) : 0;
-  const hasCredits     = available > 0 || monthlyCredits > 0;
-  const purchased      = Number.isFinite(creditsPurchased) ? creditsPurchased : 0;
-
-  const studentsPct  = maxStudents > 0 ? (students.length / maxStudents) * 100 : 0;
-  // creditsUsed: usa dado real do ledger quando disponível; fallback para inferência (plan - available)
-  const creditsUsed = Number.isFinite(creditsConsumedCycle as number) && (creditsConsumedCycle as number) >= 0
-    ? (creditsConsumedCycle as number)
-    : monthlyCredits > 0 ? Math.max(0, monthlyCredits - available) : 0;
-  // total base para percentual: plan + comprados
-  const totalCreditsBase = monthlyCredits + purchased;
-  const creditsPct   = totalCreditsBase > 0 ? Math.min(100, (creditsUsed / totalCreditsBase) * 100) : 0;
-  const creditsLevel: MeterLevel = creditsPct >= 85 ? 'danger' : creditsPct >= 60 ? 'warning' : 'normal';
-  const creditsLow   = hasCredits && creditsPct >= 60;
-
-  const typeBars = useMemo(() => {
-    const entries = (Object.entries(kpis.byType) as [string, number][]).sort((a, b) => b[1] - a[1]).slice(0, 6);
-    const max = Math.max(1, ...entries.map(([, v]) => v));
-    return entries.map(([name, value]) => ({ name, value, pct: (value / max) * 100 }));
-  }, [kpis.byType]);
-
-  const resetBR  = fmtDateBR(creditsResetAt);
-  const greet    = greetingByHour();
-  const emoji    = greetingEmojiByHour();
-  const safeName = (userName ?? '').trim() || 'Professora';
-
   const recent = useMemo(
-    () => [...protocols].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 4),
+    () => [...protocols].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5),
     [protocols]
   );
 
+  const recentStudents = useMemo(
+    () => [...students].slice(-5).reverse(),
+    [students]
+  );
+
+  const greet    = greetingByHour();
+  const safeName = (userName ?? '').trim() || 'Professora';
+  const resetBR  = fmtDateBR(creditsResetAt);
+  const isUnlimited = maxStudents >= 9999;
+  const isFree   = planName === 'FREE';
+  const isPro    = planName?.startsWith('PRO') ?? false;
+
+  // ── Suggestions ─────────────────────────────────────────────────────────────
+  const suggestions: { icon: React.ElementType; title: string; body: string; color: string; action?: string; nav?: string }[] = [];
+
+  if (creditsLevel === 'danger') {
+    suggestions.push({
+      icon: AlertTriangle, color: C.rose,
+      title: 'Créditos quase no limite',
+      body: `Você já usou ${Math.round(creditsPct)}% dos seus créditos. Considere comprar um pacote avulso para não ser interrompido.`,
+      action: 'Ver pacotes', nav: 'subscription',
+    });
+  } else if (creditsLevel === 'warning') {
+    suggestions.push({
+      icon: Zap, color: C.amber,
+      title: 'Créditos em atenção',
+      body: `${available} créditos disponíveis. Renova em ${resetBR ?? 'breve'}.`,
+    });
+  }
+
+  if (isFree || isPro) {
+    suggestions.push({
+      icon: Star, color: C.gold,
+      title: isFree ? 'Desbloqueie recursos PRO' : 'Acesse tudo com o PREMIUM',
+      body: isFree
+        ? `Tenha ${SUBSCRIPTION_PLANS.PRO.credits} créditos/mês, Triagem, IncluiLab e muito mais.`
+        : `Com o PREMIUM: ${SUBSCRIPTION_PLANS.MASTER.credits} créditos/mês, fichas e controle de atendimento.`,
+      action: 'Ver planos', nav: 'subscription',
+    });
+  }
+
+  if (students.length === 0) {
+    suggestions.push({
+      icon: Users, color: C.blue,
+      title: 'Cadastre seu primeiro aluno',
+      body: 'Comece adicionando um aluno para acessar os documentos e relatórios personalizados.',
+      action: 'Adicionar aluno', nav: 'students',
+    });
+  }
+
+  if (kpis.drafts > 0) {
+    suggestions.push({
+      icon: Clock, color: C.violet,
+      title: `${kpis.drafts} rascunho${kpis.drafts > 1 ? 's' : ''} pendente${kpis.drafts > 1 ? 's' : ''}`,
+      body: 'Você tem documentos em rascunho aguardando finalização.',
+      action: 'Ver documentos', nav: 'protocols',
+    });
+  }
+
+  if (suggestions.length === 0) {
+    suggestions.push({
+      icon: CheckCircle2, color: C.emerald,
+      title: 'Tudo em ordem!',
+      body: 'Sua plataforma está organizada. Continue gerando documentos de qualidade para seus alunos.',
+    });
+  }
+
+  // ── Plan label ───────────────────────────────────────────────────────────────
+  const planBadge =
+    planName === 'FREE'     ? 'FREE'    :
+    planName?.startsWith('PRO') ? 'PRO'    :
+    planName?.startsWith('PREM') || planName?.startsWith('MAST') ? 'PREMIUM' : planName ?? '—';
+
+  const planColor =
+    planBadge === 'FREE'    ? C.textSec :
+    planBadge === 'PRO'     ? C.blue    : C.gold;
+
   return (
-    <div className="min-h-screen p-6 space-y-6" style={{ background: C.bg }}>
-      {/* Header greeting */}
+    <div className="min-h-screen p-5 md:p-7 space-y-6" style={{ background: C.bg }}>
+
+      {/* ── Welcome Hero ──────────────────────────────────────────────────── */}
       <motion.div
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        className="rounded-2xl p-7 relative overflow-hidden"
+        transition={{ duration: 0.45 }}
+        className="rounded-3xl p-7 md:p-8 relative overflow-hidden"
         style={{
-          background: `linear-gradient(135deg, ${C.petrol} 0%, ${C.dark} 100%)`,
-          boxShadow: '0 4px 24px rgba(31,78,95,0.18)',
+          background: `linear-gradient(135deg, ${C.petrol} 0%, #163748 50%, ${C.dark} 100%)`,
+          boxShadow: '0 8px 32px rgba(31,78,95,0.22)',
         }}
       >
-        <div
-          className="absolute inset-0 opacity-10"
-          style={{
-            backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
-            backgroundSize: '28px 28px',
-          }}
-        />
-        <div className="relative z-10 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-white mb-1">
-              {emoji} {greet}, {safeName}!
+        {/* Dot pattern */}
+        <div className="absolute inset-0 opacity-[0.07]"
+          style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)', backgroundSize: '24px 24px' }} />
+
+        {/* Glow */}
+        <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full opacity-10"
+          style={{ background: C.gold, filter: 'blur(60px)' }} />
+
+        <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-6">
+          {/* Left: greeting */}
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[11px] font-bold px-3 py-1 rounded-full"
+                style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)' }}>
+                IncluiAI — Plataforma de Educação Inclusiva
+              </span>
+            </div>
+            <h1 className="text-2xl md:text-3xl font-extrabold text-white mb-2 leading-tight">
+              {greet}, {safeName}! 👋
             </h1>
-            <p className="text-sm" style={{ color: 'rgba(255,255,255,0.7)' }}>
-              Aqui está o resumo do seu trabalho hoje.
+            <p className="text-sm leading-relaxed max-w-lg" style={{ color: 'rgba(255,255,255,0.68)' }}>
+              Documentos com IA, planos inclusivos e gestão de alunos — tudo em um lugar só.
             </p>
+            <div className="flex items-center gap-3 mt-5 flex-wrap">
+              <button
+                onClick={() => onNavigate?.('students')}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm text-white transition"
+                style={{ background: C.gold, boxShadow: '0 2px 12px rgba(198,146,20,0.35)' }}
+              >
+                <Sparkles size={15} />
+                Gerar documento
+              </button>
+              <button
+                onClick={() => onNavigate?.('incluilab')}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition"
+                style={{ background: 'rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.85)',
+                  border: '1px solid rgba(255,255,255,0.15)' }}
+              >
+                <FlaskConical size={15} />
+                Abrir IncluiLAB
+              </button>
+            </div>
           </div>
-          <div
-            className="text-right text-xs px-4 py-2 rounded-xl"
-            style={{ background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)' }}
-          >
-            <div className="font-bold">{students.length} alunos</div>
-            <div style={{ color: 'rgba(255,255,255,0.6)' }}>cadastrados</div>
+
+          {/* Right: quick numbers */}
+          <div className="flex md:flex-col gap-3 md:gap-2 flex-wrap">
+            {[
+              { label: 'Alunos',      value: students.length,  color: '#6EE7B7' },
+              { label: 'Documentos',  value: kpis.total,        color: '#93C5FD' },
+              { label: 'Finalizados', value: kpis.finals,       color: '#FCD34D' },
+            ].map(s => (
+              <div key={s.label} className="rounded-2xl px-4 py-3 flex items-center gap-3"
+                style={{ background: 'rgba(255,255,255,0.08)', minWidth: 120 }}>
+                <span className="text-xl font-extrabold" style={{ color: s.color }}>{s.value}</span>
+                <span className="text-xs" style={{ color: 'rgba(255,255,255,0.55)' }}>{s.label}</span>
+              </div>
+            ))}
           </div>
         </div>
       </motion.div>
 
-      {/* Meters */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <MeterCard
-          title="Limite de alunos"
-          subtitle={
-            maxStudents >= 9999
-              ? `${students.length} alunos · Ilimitado`
-              : maxStudents > 0
-              ? `${students.length} de ${planMaxStudentsLabel ?? maxStudents} alunos`
-              : `${students.length} alunos ativos`
-          }
-          valuePct={maxStudents >= 9999 ? 0 : studentsPct}
-          mode={modeStudents}
-          onToggle={() => setModeStudents(m => (m === 'arc' ? 'bar' : 'arc'))}
+      {/* ── 4 Stat Cards ─────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard
+          icon={ShieldCheck}
+          label="Plano atual"
+          value={planBadge}
+          sub={subscriptionExpiry ? `Vence ${fmtDateBR(subscriptionExpiry)}` : monthlyCredits > 0 ? `${monthlyCredits} créditos/mês` : undefined}
+          color={planColor}
+          badge={planBadge !== 'PREMIUM' ? 'Ativo' : undefined}
+          onClick={() => onNavigate?.('subscription')}
         />
-        <MeterCard
-          title="Créditos IA"
-          subtitle={
-            hasCredits && monthlyCredits > 0
-              ? `Plano: ${monthlyCredits}${purchased > 0 ? ` + ${purchased} comprados` : ''} · Usados: ${creditsUsed} · Disponível: ${available}`
-              : hasCredits
-              ? `${available} disponíveis (bônus/indicação)`
-              : 'Créditos não disponíveis neste plano'
-          }
-          valuePct={creditsPct}
-          mode={modeCredits}
-          onToggle={() => setModeCredits(m => (m === 'arc' ? 'bar' : 'arc'))}
-          danger={creditsLevel === 'danger'}
-          level={creditsLevel}
-          footer={
-            <div className="space-y-2 text-xs" style={{ color: C.textSec }}>
-              {planName && (
-                <div className="flex justify-between">
-                  <span>Plano atual:</span>
-                  <strong style={{ color: C.dark }}>{planName}</strong>
-                </div>
-              )}
-              {monthlyCredits > 0 && (
-                <div className="flex justify-between">
-                  <span>📅 Créditos do plano:</span>
-                  <strong style={{ color: C.dark }}>{monthlyCredits}</strong>
-                </div>
-              )}
-              {purchased > 0 && (
-                <div className="flex justify-between">
-                  <span>🛒 Créditos comprados:</span>
-                  <strong style={{ color: '#15803D' }}>+{purchased}</strong>
-                </div>
-              )}
-              {(creditsUsed > 0 || monthlyCredits > 0) && (
-                <div className="flex justify-between">
-                  <span>⚡ Consumidos (ciclo):</span>
-                  <strong style={{ color: creditsLevel === 'normal' ? C.dark : creditsLevel === 'warning' ? '#D97706' : '#EF4444' }}>−{creditsUsed}</strong>
-                </div>
-              )}
-              <div className="flex justify-between font-bold">
-                <span>💰 Saldo disponível:</span>
-                <strong style={{ color: '#D97706' }}>{available}</strong>
-              </div>
-              {resetBR && (() => {
-                const end = new Date(creditsResetAt!);
-                const start = new Date(end);
-                start.setDate(start.getDate() - 30);
-                return (
-                  <div className="flex justify-between">
-                    <span>Ciclo atual:</span>
-                    <strong style={{ color: C.dark }}>
-                      {start.toLocaleDateString('pt-BR')} → {end.toLocaleDateString('pt-BR')}
-                    </strong>
-                  </div>
-                );
-              })()}
-              {subscriptionExpiry && (
-                <div className="flex justify-between">
-                  <span>Vencimento assinatura:</span>
-                  <strong style={{ color: C.dark }}>{fmtDateBR(subscriptionExpiry)}</strong>
-                </div>
-              )}
-              {creditsLow && (
-                <div className="font-bold rounded-lg px-3 py-2 mt-1" style={{ color: creditsLevel === 'danger' ? '#EF4444' : '#D97706', background: creditsLevel === 'danger' ? '#FEE2E2' : '#FEF3C7' }}>
-                  ⚠️ Não fique sem créditos — reabasteça antes de acabar
-                </div>
-              )}
-              <div className="pt-2 mt-1" style={{ borderTop: '1px solid ' + C.border }}>
-                <p className="text-[10px] font-bold uppercase mb-1" style={{ color: C.textSec }}>Custo por documento</p>
-                <div className="grid grid-cols-2 gap-x-3" style={{ color: C.textSec }}>
-                  <span>📄 Estudo de Caso</span><span className="text-right font-semibold">{AI_CREDIT_COSTS.ESTUDO_DE_CASO} créditos</span>
-                  <span>📋 PAEE</span><span className="text-right font-semibold">{AI_CREDIT_COSTS.PAEE} créditos</span>
-                  <span>📘 PEI</span><span className="text-right font-semibold">{AI_CREDIT_COSTS.PEI} créditos</span>
-                  <span>📗 PDI</span><span className="text-right font-semibold">{AI_CREDIT_COSTS.PDI} créditos</span>
-                  <span>📎 Modelo próprio</span><span className="text-right font-semibold">{AI_CREDIT_COSTS.TEMPLATE} créditos</span>
-                </div>
-              </div>
-            </div>
-          }
+        <StatCard
+          icon={Zap}
+          label="Créditos IA disponíveis"
+          value={available}
+          sub={totalCreditsBase > 0 ? `${Math.round(creditsPct)}% utilizado neste ciclo` : 'Sem créditos no plano'}
+          color={creditsLevel === 'danger' ? C.rose : creditsLevel === 'warning' ? C.amber : C.petrol}
+          pct={creditsPct}
+          onClick={() => onNavigate?.('subscription')}
+        />
+        <StatCard
+          icon={Users}
+          label="Alunos cadastrados"
+          value={students.length}
+          sub={isUnlimited ? 'Ilimitados no seu plano' : maxStudents > 0 ? `de ${planMaxStudentsLabel ?? maxStudents} permitidos` : undefined}
+          color={C.emerald}
+          pct={!isUnlimited && maxStudents > 0 ? studentsPct : undefined}
+          onClick={() => onNavigate?.('students')}
+        />
+        <StatCard
+          icon={FileText}
+          label="Documentos gerados"
+          value={kpis.total}
+          sub={`${kpis.finals} finalizados · ${kpis.drafts} rascunhos`}
+          color={C.violet}
+          onClick={() => onNavigate?.('protocols')}
         />
       </div>
 
-      {/* Upgrade CTA — visível apenas para FREE e PRO */}
-      {(planName === 'FREE' || planName?.startsWith('PRO')) && (
-        <div
-          className="rounded-2xl p-5 flex items-center justify-between gap-4 flex-wrap"
-          style={{ background: `linear-gradient(135deg, ${C.petrol} 0%, ${C.dark} 100%)` }}
-        >
-          <div>
-            <p className="font-extrabold text-white text-sm">
-              {planName === 'FREE' ? '🚀 Desbloqueie todo o potencial — assine o PRO ou PREMIUM' : '⚡ Faça upgrade para PREMIUM e tenha ' + SUBSCRIPTION_PLANS.MASTER.credits + ' créditos/mês'}
-            </p>
-            <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.6)' }}>
-              {planName === 'FREE'
-                ? `PRO: ${SUBSCRIPTION_PLANS.PRO.credits} créditos/mês · ${SUBSCRIPTION_PLANS.PRO.students} alunos`
-                : `PREMIUM: ${SUBSCRIPTION_PLANS.MASTER.credits} créditos/mês · alunos ilimitados`}
-            </p>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={async () => {
-                const plan = planName === 'FREE' ? PlanTier.PRO : PlanTier.PREMIUM;
-                const url = await PaymentService.getAnnualCheckoutUrl(plan, {});
-                window.open(url, '_blank', 'noopener,noreferrer');
-              }}
-              className="px-4 py-2.5 rounded-xl font-bold text-sm text-white flex items-center gap-1.5"
-              style={{ background: C.gold }}
+      {/* ── Quick Actions ──────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-sm font-bold mb-3" style={{ color: C.dark }}>Ações rápidas</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          <QuickAction
+            icon={BookOpen} label="Novo Estudo de Caso" sub="1º passo da documentação"
+            color={C.petrol}
+            onClick={() => onNavigate?.('estudo_caso')}
+          />
+          {showDocPicker ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="rounded-2xl p-4 flex flex-col gap-2"
+              style={{ background: C.violet + '08', border: `1px solid ${C.violet}28` }}
             >
-              ★ Anual (melhor preço)
-            </button>
-            <button
-              onClick={async () => {
-                const plan = planName === 'FREE' ? PlanTier.PRO : PlanTier.PREMIUM;
-                const url = await PaymentService.getCheckoutUrl(plan, {});
-                window.open(url, '_blank', 'noopener,noreferrer');
-              }}
-              className="px-4 py-2 rounded-xl font-bold text-sm border"
-              style={{ borderColor: 'rgba(255,255,255,0.4)', color: 'rgba(255,255,255,0.85)' }}
-            >
-              Mensal
-            </button>
-          </div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold" style={{ color: C.dark }}>Qual documento?</span>
+                <button onClick={() => setShowDocPicker(false)} className="text-[11px]" style={{ color: C.textSec }}>✕</button>
+              </div>
+              <button
+                onClick={() => { setShowDocPicker(false); onNavigate?.('paee'); }}
+                className="flex items-center gap-2 rounded-xl px-3 py-2 text-left transition"
+                style={{ background: C.violet + '15', color: C.violet }}
+              >
+                <FileText size={14} />
+                <div>
+                  <div className="text-xs font-bold">PAEE</div>
+                  <div className="text-[10px] opacity-70">Plano de AEE · 2º passo</div>
+                </div>
+              </button>
+              <button
+                onClick={() => { setShowDocPicker(false); onNavigate?.('protocols'); }}
+                className="flex items-center gap-2 rounded-xl px-3 py-2 text-left transition"
+                style={{ background: C.violet + '15', color: C.violet }}
+              >
+                <FileText size={14} />
+                <div>
+                  <div className="text-xs font-bold">PEI</div>
+                  <div className="text-[10px] opacity-70">Plano Educacional · 3º passo</div>
+                </div>
+              </button>
+            </motion.div>
+          ) : (
+            <QuickAction
+              icon={FileText} label="Gerar PEI / PAEE" sub="Plano educacional inclusivo"
+              color={C.violet} bg={C.violet + '08'}
+              onClick={() => setShowDocPicker(true)}
+            />
+          )}
+          <QuickAction
+            icon={FlaskConical} label="Abrir IncluiLab" sub="Adaptar atividades com IA"
+            color={C.emerald} bg={C.emerald + '08'}
+            onClick={() => onNavigate?.('incluilab')}
+          />
+          <QuickAction
+            icon={BarChart3} label="Perfil Cognitivo" sub="Radar de habilidades"
+            color={C.gold} bg={C.goldLight}
+            onClick={() => onNavigate?.('reports')}
+          />
         </div>
-      )}
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KpiCard icon={CheckCircle2} label="Documentos finalizados" value={kpis.finals}       accent={C.petrol} />
-        <KpiCard icon={Users}        label="Alunos cadastrados"     value={students.length}   accent={C.gold} />
-        <KpiCard icon={Clock}        label="Rascunhos pendentes"    value={kpis.drafts}        accent="#F59E0B" />
-        <KpiCard icon={FileText}     label="Total de documentos"    value={kpis.total}         accent={C.dark} />
       </div>
 
-      {/* Referral Card — Em breve */}
-      {userId && (
-        <div
-          className="rounded-2xl overflow-hidden shadow-sm"
-          style={{ background: `linear-gradient(135deg, ${C.petrol} 0%, ${C.dark} 100%)` }}
-        >
-          <div className="p-6">
-            <div className="flex items-start gap-3 mb-4">
-              <div className="rounded-xl p-2.5 shrink-0" style={{ background: 'rgba(255,255,255,0.12)' }}>
-                <Gift size={20} style={{ color: C.gold }} />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <h3 className="font-extrabold text-white text-base">🎁 Indique e Ganhe Créditos IA</h3>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: 'rgba(198,146,20,0.25)', color: C.gold }}>
-                    EM BREVE
-                  </span>
-                </div>
-                <p className="text-xs mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
-                  Em breve você poderá indicar amigos e ganhar créditos IA automaticamente.
-                </p>
-              </div>
-            </div>
-
-            <div className="rounded-xl px-4 py-3 text-center" style={{ background: 'rgba(255,255,255,0.08)' }}>
-              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                Funcionalidade em desenvolvimento — em breve você poderá gerar seu link de indicação e acompanhar créditos ganhos aqui.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Agenda widgets */}
+      {/* ── Agenda + Calendar ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
           <TodayAppointments
             appointments={appointments}
-            onViewAgenda={onNavigate ? () => onNavigate('agenda') : undefined}
+            onNavigate={onNavigate}
           />
         </div>
         <MiniCalendar
           appointments={appointments}
-          onViewAgenda={onNavigate ? () => onNavigate('agenda') : undefined}
         />
       </div>
 
-      {/* Distribution + Recent */}
+      {/* ── Recent Docs + Recent Students ─────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-bold" style={{ color: C.dark }}>Distribuição por tipo</CardTitle>
-            <p className="text-xs" style={{ color: C.textSec }}>Top 6 documentos gerados</p>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {typeBars.length === 0 && (
-                <div className="text-sm py-6 text-center" style={{ color: C.textSec }}>Nenhum documento ainda.</div>
-              )}
-              {typeBars.map(b => (
-                <div key={b.name} className="flex items-center gap-3">
-                  <div className="w-40 text-xs truncate" style={{ color: C.textSec }}>{b.name}</div>
-                  <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: C.border }}>
-                    <div
-                      className="h-full rounded-full"
-                      style={{ width: `${b.pct}%`, background: `linear-gradient(90deg,${C.petrol},${C.gold})`, transition: 'width 0.7s ease-out' }}
-                    />
-                  </div>
-                  <div className="w-8 text-xs text-right font-bold" style={{ color: C.dark }}>{b.value}</div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-bold" style={{ color: C.dark }}>Documentos recentes</CardTitle>
-            <p className="text-xs" style={{ color: C.textSec }}>Últimas atividades</p>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {recent.length === 0 && (
-                <div className="text-sm py-6 text-center" style={{ color: C.textSec }}>Nenhum documento ainda.</div>
-              )}
-              {recent.map(p => (
-                <div
-                  key={p.id}
-                  className="flex items-center gap-3 rounded-xl p-3 transition"
-                  style={{ background: C.bg, border: `1px solid ${C.border}` }}
-                >
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: C.petrol + '18' }}>
-                    <FileText size={14} style={{ color: C.petrol }} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-bold truncate" style={{ color: C.dark }}>{p.studentName}</div>
-                    <div className="text-xs truncate" style={{ color: C.textSec }}>{p.type}</div>
-                  </div>
-                  <Badge
-                    variant={p.status === 'FINAL' ? 'default' : 'outline'}
-                    className="text-[10px] shrink-0"
-                    style={p.status === 'FINAL'
-                      ? { background: '#166534', color: '#fff', border: 'none' }
-                      : { color: C.gold, borderColor: C.borderMid }}
-                  >
-                    {p.status === 'FINAL' ? 'Final' : 'Rascunho'}
-                  </Badge>
-                </div>
-              ))}
+        {/* Recent documents */}
+        <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+          <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: `1px solid ${C.border}` }}>
+            <div>
+              <h3 className="text-sm font-bold" style={{ color: C.dark }}>Documentos recentes</h3>
+              <p className="text-[11px]" style={{ color: C.textSec }}>Últimas atividades</p>
             </div>
-          </CardContent>
-        </Card>
+            <button onClick={() => onNavigate?.('protocols')} className="text-[11px] font-semibold" style={{ color: C.petrol }}>
+              Ver todos →
+            </button>
+          </div>
+          <div className="p-4 space-y-2">
+            {recent.length === 0 ? (
+              <div className="py-8 text-center text-sm" style={{ color: C.textSec }}>Nenhum documento ainda.</div>
+            ) : recent.map(p => (
+              <div key={p.id} className="flex items-center gap-3 rounded-xl p-3 transition hover:bg-gray-50"
+                style={{ border: `1px solid ${C.border}` }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: C.violet + '15' }}>
+                  <FileText size={15} style={{ color: C.violet }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold truncate" style={{ color: C.dark }}>{p.studentName}</div>
+                  <div className="text-[11px] truncate" style={{ color: C.textSec }}>{p.type}</div>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0"
+                  style={p.status === 'FINAL'
+                    ? { background: '#DCFCE7', color: '#166534' }
+                    : { background: C.goldLight, color: C.gold }}>
+                  {p.status === 'FINAL' ? 'Final' : 'Rascunho'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Recent students */}
+        <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+          <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: `1px solid ${C.border}` }}>
+            <div>
+              <h3 className="text-sm font-bold" style={{ color: C.dark }}>Alunos recentes</h3>
+              <p className="text-[11px]" style={{ color: C.textSec }}>Últimos cadastrados</p>
+            </div>
+            <button onClick={() => onNavigate?.('students')} className="text-[11px] font-semibold" style={{ color: C.petrol }}>
+              Ver todos →
+            </button>
+          </div>
+          <div className="p-4 space-y-2">
+            {recentStudents.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-sm mb-3" style={{ color: C.textSec }}>Nenhum aluno cadastrado ainda.</p>
+                <button onClick={() => onNavigate?.('students')}
+                  className="text-xs font-bold px-4 py-2 rounded-xl"
+                  style={{ background: C.emerald + '15', color: C.emerald }}>
+                  + Adicionar aluno
+                </button>
+              </div>
+            ) : recentStudents.map(s => (
+              <div key={s.id} className="flex items-center gap-3 rounded-xl p-3 transition hover:bg-gray-50"
+                style={{ border: `1px solid ${C.border}` }}>
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-sm text-white"
+                  style={{ background: `linear-gradient(135deg, ${C.petrol}, ${C.dark})` }}>
+                  {(s.name ?? '?')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold truncate" style={{ color: C.dark }}>{s.name}</div>
+                  <div className="text-[11px] truncate" style={{ color: C.textSec }}>
+                    {s.grade ?? s.school ?? 'Sem turma'}
+                  </div>
+                </div>
+                <TrendingUp size={13} style={{ color: C.emerald, opacity: 0.7 }} />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
+
+      {/* ── Smart Suggestions ─────────────────────────────────────────────── */}
+      {suggestions.length > 0 && (
+        <div>
+          <h2 className="text-sm font-bold mb-3" style={{ color: C.dark }}>Sugestões inteligentes</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {suggestions.map((s, i) => (
+              <AlertCard
+                key={i}
+                icon={s.icon}
+                title={s.title}
+                body={s.body}
+                color={s.color}
+                action={s.action}
+                onAction={s.nav ? () => onNavigate?.(s.nav!) : undefined}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Upgrade CTA ───────────────────────────────────────────────────── */}
+      {(isFree || isPro) && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          className="rounded-3xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 relative overflow-hidden"
+          style={{ background: `linear-gradient(135deg, ${C.petrol} 0%, ${C.dark} 100%)` }}
+        >
+          <div className="absolute -bottom-8 -right-8 w-40 h-40 rounded-full opacity-10"
+            style={{ background: C.gold, filter: 'blur(40px)' }} />
+          <div className="relative z-10">
+            <p className="font-extrabold text-white text-base mb-1">
+              {isFree ? '🚀 Eleve sua prática com o PRO ou PREMIUM' : `⚡ Upgrade para PREMIUM — ${SUBSCRIPTION_PLANS.MASTER.credits} créditos/mês`}
+            </p>
+            <p className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>
+              {isFree
+                ? `PRO: ${SUBSCRIPTION_PLANS.PRO.credits} créditos · ${SUBSCRIPTION_PLANS.PRO.students} alunos · Triagem · IncluiLab`
+                : 'Fichas complementares · Controle de atendimento · Alunos ilimitados'}
+            </p>
+          </div>
+          <div className="flex gap-2 flex-wrap relative z-10">
+            <button
+              onClick={async () => {
+                const plan = isFree ? PlanTier.PRO : PlanTier.PREMIUM;
+                const url = await PaymentService.getAnnualCheckoutUrl(plan, {});
+                window.open(url, '_blank', 'noopener,noreferrer');
+              }}
+              className="px-5 py-2.5 rounded-xl font-bold text-sm text-white flex items-center gap-1.5 transition"
+              style={{ background: C.gold, boxShadow: '0 2px 12px rgba(198,146,20,0.4)' }}
+            >
+              ★ Anual — melhor preço
+            </button>
+            <button
+              onClick={async () => {
+                const plan = isFree ? PlanTier.PRO : PlanTier.PREMIUM;
+                const url = await PaymentService.getCheckoutUrl(plan, {});
+                window.open(url, '_blank', 'noopener,noreferrer');
+              }}
+              className="px-5 py-2.5 rounded-xl font-semibold text-sm border transition"
+              style={{ borderColor: 'rgba(255,255,255,0.3)', color: 'rgba(255,255,255,0.85)' }}
+            >
+              Mensal
+            </button>
+          </div>
+        </motion.div>
+      )}
+
     </div>
   );
 }

@@ -795,7 +795,7 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
                                     <select className="border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-300 outline-none" value={actionPlan} onChange={e => setActionPlan(e.target.value)}>
                                       <option value="FREE">FREE — Starter (60 créditos / 5 alunos)</option>
                                       <option value="PRO">PRO — Profissional (500 créditos / 30 alunos)</option>
-                                      <option value="MASTER">MASTER — Clínicas (700 créditos / ilimitado)</option>
+                                      <option value="MASTER">PREMIUM — Clínicas (700 créditos / ilimitado)</option>
                                       <option value="INSTITUTIONAL">INSTITUTIONAL</option>
                                     </select>
                                   </div>
@@ -1308,7 +1308,7 @@ const LDPlanosEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson
 
   return (
     <div style={LD_CARD}>
-      <span style={LD_SECTION_TAG}>Planos PRO e MASTER — preços, taglines e features</span>
+      <span style={LD_SECTION_TAG}>Planos PRO e PREMIUM — preços, taglines e features</span>
       <div style={LD_GRID2}>
         <PlanCard plan="pro" label="PRO" color="#1E3A5F" />
         <PlanCard plan="premium" label="PREMIUM" color="#7C3AED" />
@@ -1338,7 +1338,7 @@ const LDDescontosEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJ
           </div>
           {/* MASTER */}
           <div style={{ border: '1.5px solid #DDD6FE', borderRadius: 14, padding: 18, background: '#FAF5FF' }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: '#7C3AED', marginBottom: 14 }}>Cupom MASTER</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#7C3AED', marginBottom: 14 }}>Cupom PREMIUM</div>
             <label style={LD_LABEL}>Código</label>
             <input style={{ ...LD_FIELD, fontFamily: 'monospace', fontWeight: 800, fontSize: 17, letterSpacing: '0.06em', marginBottom: 12 }}
               value={String(cj.premium_coupon ?? '')}
@@ -1846,7 +1846,7 @@ const TestAccountsTab = ({ adminUser }: { adminUser: AdminUser }) => {
                 <select className={inp} value={form.planCode} onChange={e => setForm({ ...form, planCode: e.target.value })}>
                   <option value="FREE">FREE — Starter</option>
                   <option value="PRO">PRO — Profissional</option>
-                  <option value="MASTER">MASTER — Clínicas/Escolas</option>
+                  <option value="MASTER">PREMIUM — Clínicas/Escolas</option>
                 </select>
               </div>
               <div>

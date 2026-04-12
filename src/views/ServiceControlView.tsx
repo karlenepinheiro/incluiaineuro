@@ -69,7 +69,8 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
               professional: user.name,
               duration: newRecord.duration || 50,
               observation: newRecord.observation || '',
-              attendance: newRecord.attendance || 'Presente'
+              attendance: newRecord.attendance || 'Presente',
+              createdAt: new Date().toISOString(),
           };
           onAddRecord(record);
       }

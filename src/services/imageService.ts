@@ -19,6 +19,9 @@ export class ImageService {
   static async generateActivityImage(prompt: string): Promise<ImageGenerationResult> {
     const apiKey = this.getApiKey();
 
+    // LOG DIAGNÓSTICO — remova após confirmar o problema
+    console.log('[ImageService] chave presente:', !!apiKey, '| tamanho:', apiKey?.length, '| prefixo:', apiKey?.slice(0, 10));
+
     if (!apiKey) {
       throw new Error('CONFIG_IMAGE');
     }

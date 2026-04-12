@@ -54,8 +54,18 @@ interface Props {
 export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, regentName, availableSchools = [], userPlan }) => {
   const defaultSchoolId = availableSchools && availableSchools.length > 0 ? availableSchools[0].id : '';
 
+  const generateUniqueCode = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < 4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+    code += '-';
+    for (let i = 0; i < 4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+    return `INC-${code}`;
+  };
+
   const [formData, setFormData] = useState<Student>({
     id: initialData?.id || crypto.randomUUID(),
+    unique_code: initialData?.unique_code || generateUniqueCode(),
     name: initialData?.name || '',
     birthDate: initialData?.birthDate || '',
     gender: initialData?.gender || '',
@@ -86,10 +96,17 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
     observations: initialData?.observations || '',
     schoolHistory: initialData?.schoolHistory || '',
     familyContext: initialData?.familyContext || '',
-    history: initialData?.history || '', 
+    history: initialData?.history || '',
     photoUrl: initialData?.photoUrl || '',
     registrationDate: initialData?.registrationDate || new Date().toISOString(),
-    documents: initialData?.documents || []
+    documents: initialData?.documents || [],
+    zipcode: initialData?.zipcode || '',
+    street: initialData?.street || '',
+    streetNumber: initialData?.streetNumber || '',
+    complement: initialData?.complement || '',
+    neighborhood: initialData?.neighborhood || '',
+    city: initialData?.city || '',
+    state: initialData?.state || '',
   });
 
   const [cidInput, setCidInput] = useState('');
@@ -342,8 +359,58 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
                 <div><label className="label">Gênero</label><select name="gender" value={formData.gender} onChange={handleChange} className="input-field"><option value="">Selecione</option><option value="M">Masculino</option><option value="F">Feminino</option></select></div>
                 <div><label className="label">Responsável Legal</label><input name="guardianName" value={formData.guardianName} onChange={handleChange} className="input-field" /></div>
                 <div><label className="label">Telefone/WhatsApp</label><input name="guardianPhone" value={formData.guardianPhone} onChange={handleChange} className="input-field" /></div>
+                {formData.unique_code && (
+                  <div className="md:col-span-2">
+                    <label className="label">Código Único do Aluno</label>
+                    <div className="flex items-center gap-2">
+                      <input readOnly value={formData.unique_code} className="input-field font-mono text-xs bg-gray-50 text-petrol font-bold tracking-widest cursor-default" />
+                      <button type="button" onClick={() => navigator.clipboard.writeText(formData.unique_code!)} className="text-xs text-gray-400 hover:text-petrol border rounded px-2 py-1 whitespace-nowrap">Copiar</button>
+                    </div>
+                    <p className="text-[10px] text-gray-400 mt-1">Código único e imutável. Pode ser usado para localizar este aluno entre escolas.</p>
+                  </div>
+                )}
             </div>
         </div>
+
+        {/* Endereço */}
+        <section>
+          <h3 className="section-title">📍 Endereço Residencial</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="label">CEP</label>
+              <input name="zipcode" value={formData.zipcode || ''} onChange={handleChange} className="input-field" placeholder="00000-000" maxLength={9} />
+            </div>
+            <div className="md:col-span-2">
+              <label className="label">Logradouro</label>
+              <input name="street" value={formData.street || ''} onChange={handleChange} className="input-field" placeholder="Rua, Avenida, Travessa..." />
+            </div>
+            <div>
+              <label className="label">Número</label>
+              <input name="streetNumber" value={formData.streetNumber || ''} onChange={handleChange} className="input-field" placeholder="Nº" />
+            </div>
+            <div>
+              <label className="label">Complemento</label>
+              <input name="complement" value={formData.complement || ''} onChange={handleChange} className="input-field" placeholder="Apto, Bloco, Casa..." />
+            </div>
+            <div>
+              <label className="label">Bairro</label>
+              <input name="neighborhood" value={formData.neighborhood || ''} onChange={handleChange} className="input-field" placeholder="Bairro" />
+            </div>
+            <div>
+              <label className="label">Cidade</label>
+              <input name="city" value={formData.city || ''} onChange={handleChange} className="input-field" placeholder="Cidade" />
+            </div>
+            <div>
+              <label className="label">Estado (UF)</label>
+              <select name="state" value={formData.state || ''} onChange={handleChange} className="input-field">
+                <option value="">Selecione</option>
+                {['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'].map(uf => (
+                  <option key={uf} value={uf}>{uf}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </section>
 
         {/* Dados Escolares & Vínculos */}
         <section>

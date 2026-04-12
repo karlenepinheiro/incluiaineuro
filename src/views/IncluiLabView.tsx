@@ -5,11 +5,11 @@ import {
   Download, ChevronRight, Brain,
   Camera, Printer, Layers,
   Lightbulb, Loader,
-  ArrowLeft, Sparkles, Coins,
+  ArrowLeft, Sparkles, Coins, AlertTriangle,
 } from 'lucide-react';
 import { User, Student } from '../types';
 import { AIService, getModelsForContext, getModelConfig, modelGeneratesImage, friendlyAIError } from '../services/aiService';
-import { CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
+import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { WorkflowCanvas as AtivaIACanvas } from '../components/ativaIA/WorkflowCanvas';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -38,9 +38,22 @@ const ADAPTATION_TYPES = [
   { id: 'geral', label: 'Simplificação Geral' },
 ];
 
-/** Retorna o custo em créditos do modelo selecionado. */
-function calcCredits(modelId: ActivityModelId): number {
-  return getModelConfig(modelId).credit_cost;
+/** Custo fixo de OCR (extração de conteúdo da imagem/PDF). */
+const OCR_COST = AI_CREDIT_COSTS.OCR;           // 1 crédito
+/** Custo fixo de adaptação/redesenho de texto (Gemini). */
+const TEXT_COST = INCLUILAB_MODEL_COSTS.TEXT;   // 3 créditos
+/** Custo de geração de imagem para um dado modelo (apenas para modelos text_image). */
+function imageCostFor(modelId: ActivityModelId): number {
+  const cfg = getModelConfig(modelId);
+  return cfg.output_type === 'text_image' ? cfg.credit_cost : 0;
+}
+/** Custo total para a aba Scanner: OCR + texto + imagem opcional. */
+function scannerTotalCost(modelId: ActivityModelId): number {
+  return OCR_COST + TEXT_COST + imageCostFor(modelId);
+}
+/** Custo total para a aba NeuroDesign: texto + imagem opcional (sem OCR). */
+function redesignTotalCost(modelId: ActivityModelId): number {
+  return TEXT_COST + imageCostFor(modelId);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -76,7 +89,9 @@ const MC = { petrol: '#1F4E5F', dark: '#2E3A59', gold: '#C69214', goldLight: '#F
 const ModelSelector: React.FC<{
   model: ActivityModelId;
   onChange: (m: ActivityModelId) => void;
-}> = ({ model, onChange }) => {
+  /** Custo base adicional ao modelo (ex.: OCR). Incluído no badge de cada opção. */
+  baseCost?: number;
+}> = ({ model, onChange, baseCost = 0 }) => {
   const selectedCfg = getModelConfig(model);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -113,7 +128,7 @@ const ModelSelector: React.FC<{
                 border: `1px solid ${isSel ? 'rgba(255,255,255,0.25)' : MC.border}`,
               }}>
                 <Coins size={9} />
-                {m.credit_cost} crédito{m.credit_cost !== 1 ? 's' : ''}
+                {m.output_type === 'text_image' ? TEXT_COST + m.credit_cost + baseCost : m.credit_cost + baseCost} cr
               </span>
             </button>
           );
@@ -129,14 +144,68 @@ const ModelSelector: React.FC<{
 };
 
 // ─── Helper: debita créditos e dispara refresh global ────────────────────────
-async function safeDeductCredits(user: User, action: string, cost: number) {
+async function safeDeductCredits(user: User, action: string, cost: number): Promise<void> {
+  const { AIService: AI } = await import('../services/aiService');
+  await (AI as any).deductCredits(user, action, cost);
+  // Notifica App.tsx para atualizar tenantSummary sem re-login
+  window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
+}
+
+/**
+ * Faz download de uma imagem cross-origin convertendo para blob local primeiro.
+ * O atributo `download` de <a> não funciona para URLs de outras origens.
+ */
+async function downloadImageAsFile(url: string, filename: string): Promise<void> {
   try {
-    const { AIService: AI } = await import('../services/aiService');
-    await (AI as any).deductCredits(user, action, cost);
-    // Notifica App.tsx para atualizar tenantSummary sem re-login
-    window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-  } catch (e) {
-    console.warn('[IncluiLabView] erro ao debitar créditos (não crítico):', e);
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('Falha ao baixar imagem.');
+    const blob = await resp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(blobUrl);
+  } catch {
+    // Fallback: abre em nova aba
+    window.open(url, '_blank');
+  }
+}
+
+/**
+ * Faz upload de uma imagem para o Supabase Storage.
+ * Aceita URL temporária (DALL-E) ou data URI base64 (Gemini inline).
+ * Retorna a URL pública permanente, ou null se falhar.
+ */
+async function persistImageToStorage(urlOrBase64: string, tenantId: string): Promise<string | null> {
+  try {
+    const { supabase } = await import('../lib/supabaseClient');
+    let blob: Blob;
+    if (urlOrBase64.startsWith('data:')) {
+      // Base64 inline (Gemini)
+      const [header, data] = urlOrBase64.split(',');
+      const mimeMatch = header.match(/data:([^;]+)/);
+      const mimeType = mimeMatch?.[1] ?? 'image/png';
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      blob = new Blob([bytes], { type: mimeType });
+    } else {
+      // URL temporária (DALL-E)
+      const resp = await fetch(urlOrBase64);
+      if (!resp.ok) return null;
+      blob = await resp.blob();
+    }
+    const ext = blob.type.includes('png') ? 'png' : 'jpg';
+    const path = `${tenantId}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage
+      .from('imagens_atividades')
+      .upload(path, blob, { cacheControl: '31536000', upsert: false });
+    if (error) return null;
+    const { data: urlData } = supabase.storage.from('imagens_atividades').getPublicUrl(path);
+    return urlData?.publicUrl ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -147,9 +216,11 @@ interface IncluiLabViewProps {
   defaultTab?: Tab;
   sidebarOpen?: boolean;
   onWorkflowNodesChange?: (nodeIds: string[]) => void;
+  /** Saldo de créditos já calculado pelo App (ledger-based) — evita split-brain */
+  creditsAvailable?: number;
 }
 
-export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, defaultTab, sidebarOpen = true, onWorkflowNodesChange }) => {
+export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, defaultTab, sidebarOpen = true, onWorkflowNodesChange, creditsAvailable }) => {
   const [activeTab, setActiveTab] = useState<Tab | null>(defaultTab ?? null);
 
   useEffect(() => {
@@ -204,7 +275,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, de
           </div>
           <div className="mt-10 text-center">
             <span className="inline-flex items-center gap-2 text-xs text-gray-400 bg-white/60 backdrop-blur px-4 py-2 rounded-full border border-orange-100">
-              <Brain size={12} className="text-brand-500" /> Gemini + OpenAI — Fallback automático
+              <Brain size={12} className="text-brand-500" /> Gemini (provider padrão) · OpenAI como fallback opcional
             </span>
           </div>
         </div>
@@ -252,8 +323,8 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, de
 
       <div className="max-w-6xl mx-auto p-4 md:p-6">
         {activeTab === 'workflow' && <AtivaIACanvas user={user} students={students as any} sidebarOpen={sidebarOpen} onWorkflowNodesChange={onWorkflowNodesChange} />}
-        {activeTab === 'scanner'  && <ScannerTab user={user} />}
-        {activeTab === 'redesign' && <RedesignTab user={user} />}
+        {activeTab === 'scanner'  && <ScannerTab user={user} creditsAvailable={creditsAvailable} />}
+        {activeTab === 'redesign' && <RedesignTab user={user} creditsAvailable={creditsAvailable} />}
       </div>
     </div>
   );
@@ -262,7 +333,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, de
 // ═══════════════════════════════════════════════════════════════════════════════
 // EDULEISIA — Scanner Pedagógico
 // ═══════════════════════════════════════════════════════════════════════════════
-const ScannerTab: React.FC<{ user: User }> = ({ user }) => {
+const ScannerTab: React.FC<{ user: User; creditsAvailable?: number }> = ({ user, creditsAvailable }) => {
   const [file, setFile]                   = useState<File | null>(null);
   const [preview, setPreview]             = useState<string | null>(null);
   const [adaptationType, setAdaptationType] = useState('autismo');
@@ -270,9 +341,12 @@ const ScannerTab: React.FC<{ user: User }> = ({ user }) => {
   const [loading, setLoading]             = useState(false);
   const [result, setResult]               = useState<AdaptedActivity | null>(null);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
+  const [imageError, setImageError]               = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraRef    = useRef<HTMLInputElement>(null);
-  const credits = calcCredits(model);
+
+  const imgCost    = imageCostFor(model);
+  const totalCredits = scannerTotalCost(model);
 
   const handleFileChange = async (f: File) => {
     setFile(f); setResult(null);
@@ -282,15 +356,16 @@ const ScannerTab: React.FC<{ user: User }> = ({ user }) => {
 
   const handleAdapt = async () => {
     if (!file) { alert('Envie um arquivo primeiro.'); return; }
-    // Valida contexto: modelos de imagem não são permitidos sem texto base
-    const modelCfg = getModelConfig(model);
-    // Valida saldo ANTES de chamar a API
-    const hasCredits = await AIService.checkCredits(user, credits);
+
+    const hasCredits = creditsAvailable !== undefined
+      ? creditsAvailable >= totalCredits
+      : await AIService.checkCredits(user, totalCredits);
     if (!hasCredits) {
       alert(CREDIT_INSUFFICIENT_MSG);
       return;
     }
-    setLoading(true); setResult(null); setGeneratedImageUrl(null);
+
+    setLoading(true); setResult(null); setGeneratedImageUrl(null); setImageError(null);
     try {
       const base64 = await fileToBase64(file);
       const adaptLabel = ADAPTATION_TYPES.find(a => a.id === adaptationType)?.label || adaptationType;
@@ -315,20 +390,46 @@ Retorne SOMENTE um JSON válido:
       } catch { parsed = { original: '', adapted: raw, adaptationType: adaptLabel }; }
       setResult(parsed);
 
-      // Pipeline visual: só chamar se o modelo gera imagem
+      // Débita OCR + texto imediatamente — entrega já ocorreu
+      try {
+        await safeDeductCredits(user, `EDULEISIA_OCR_ADAPTAR:${model}`, OCR_COST + TEXT_COST);
+      } catch (e: any) {
+        console.error('[EduLensIA] falha ao debitar OCR+texto:', e?.message);
+      }
+
+      // Geração de imagem: débito somente após sucesso comprovado
+      let finalImageUrl: string | null = null;
       if (modelGeneratesImage(model)) {
         try {
           const imgPrompt = `Ilustração educativa inclusiva para atividade sobre "${adaptLabel}", estilo pedagógico infantil, traço limpo, alto contraste, fundo branco, sem texto.`;
-          const imgUrl = await AIService.generateImageFromPrompt(imgPrompt, user, credits);
-          setGeneratedImageUrl(imgUrl);
+          // skipDeduction=true: não checa/debita internamente; controlamos aqui
+          const tempUrl = await AIService.generateImageFromPrompt(imgPrompt, user, imgCost, true);
+          const persistedUrl = await persistImageToStorage(tempUrl, (user as any).tenant_id ?? user.id);
+          finalImageUrl = persistedUrl ?? tempUrl;
+          setGeneratedImageUrl(finalImageUrl);
+          // Débita somente após URL confirmada
+          await safeDeductCredits(user, `EDULEISIA_IMAGEM:${model}`, imgCost);
         } catch (imgErr: any) {
-          console.warn('[EduLensIA] imagem não gerada:', imgErr?.message);
+          setImageError(friendlyAIError(imgErr));
         }
       }
 
-      // Debitar créditos após sucesso (pipeline texto; imagem é debitada dentro de generateImageFromPrompt)
-      if (!modelGeneratesImage(model)) {
-        await safeDeductCredits(user, `EDULEISIA_ADAPTAR:${model}`, credits);
+      // Persiste com créditos reais consumidos
+      const creditsUsed = OCR_COST + TEXT_COST + (finalImageUrl ? imgCost : 0);
+      try {
+        const { GeneratedActivityService } = await import('../services/persistenceService');
+        await GeneratedActivityService.save({
+          tenantId:    (user as any).tenant_id ?? '',
+          userId:      user.id,
+          title:       `EduLensIA — ${adaptLabel} (${new Date().toLocaleDateString('pt-BR')})`,
+          content:     parsed.adapted,
+          imageUrl:    finalImageUrl ?? undefined,
+          isAdapted:   true,
+          creditsUsed,
+          tags:        ['eduleisia', model, adaptationType],
+        });
+      } catch (saveErr: any) {
+        console.warn('[EduLensIA] falha ao salvar atividade no banco:', saveErr?.message);
       }
     } catch (e: any) {
       alert(friendlyAIError(e));
@@ -343,7 +444,7 @@ Retorne SOMENTE um JSON válido:
             <Camera size={18} className="text-brand-600" /> Scanner Pedagógico
           </h2>
         </div>
-        <ModelSelector model={model} onChange={setModel} />
+        <ModelSelector model={model} onChange={setModel} baseCost={OCR_COST} />
 
         <div onClick={() => fileInputRef.current?.click()}
           className="border-2 border-dashed border-orange-200 rounded-2xl p-8 text-center cursor-pointer hover:border-brand-400 hover:bg-orange-50 transition mb-4">
@@ -383,13 +484,33 @@ Retorne SOMENTE um JSON válido:
           </div>
         </div>
 
-        {/* Credit notice */}
-        <div className="mb-4 mt-3 flex items-center gap-2 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2 text-xs">
-          <Coins size={13} className="text-brand-500 shrink-0" />
-          <span className="text-gray-600">
-            Consumirá <strong className="text-brand-700">{credits} crédito{credits !== 1 ? 's' : ''}</strong>
-            {' '}— saída: <strong>{modelGeneratesImage(model) ? 'texto + imagem' : 'somente texto'}</strong>
-          </span>
+        {/* Preflight de créditos */}
+        <div className="mb-4 mt-3 bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 text-xs space-y-1">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Coins size={13} className="text-brand-500 shrink-0" />
+            <span className="font-bold text-gray-700">Custo previsto</span>
+          </div>
+          <div className="flex justify-between text-gray-600">
+            <span>OCR + Extração de conteúdo</span>
+            <strong className="text-brand-700">{OCR_COST} crédito</strong>
+          </div>
+          <div className="flex justify-between text-gray-600">
+            <span>Adaptação pedagógica (texto)</span>
+            <strong className="text-brand-700">{TEXT_COST} créditos</strong>
+          </div>
+          {modelGeneratesImage(model) && (
+            <div className="flex justify-between text-gray-600">
+              <span>Geração de imagem ({getModelConfig(model).name})</span>
+              <strong className="text-brand-700">{imgCost} créditos</strong>
+            </div>
+          )}
+          <div className="flex justify-between font-bold text-gray-800 border-t border-orange-200 pt-1.5 mt-0.5">
+            <span>Total</span>
+            <strong className="text-brand-700">{totalCredits} créditos</strong>
+          </div>
+          {modelGeneratesImage(model) && (
+            <p className="text-[10px] text-gray-400 pt-0.5">Imagem cobrada somente se geração tiver sucesso.</p>
+          )}
         </div>
 
         <button onClick={handleAdapt} disabled={loading || !file}
@@ -397,6 +518,17 @@ Retorne SOMENTE um JSON válido:
           {loading ? <><Loader size={16} className="animate-spin" /> Adaptando…</> : <><Brain size={16} /> Adaptar Atividade com IA</>}
         </button>
       </div>
+
+      {imageError && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+          <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-amber-800">Imagem não foi gerada</p>
+            <p className="text-xs text-amber-700 mt-1">{imageError}</p>
+            <p className="text-xs text-amber-500 mt-1">Créditos de geração de imagem não foram cobrados.</p>
+          </div>
+        </div>
+      )}
 
       {result && (
         <div className="space-y-4">
@@ -431,10 +563,12 @@ Retorne SOMENTE um JSON válido:
               <div className="flex items-center gap-2 mb-3">
                 <Sparkles size={15} className="text-brand-600" />
                 <span className="text-xs font-bold text-brand-700 uppercase">Imagem Pedagógica Gerada</span>
-                <a href={generatedImageUrl} download="imagem_atividade.png"
+                {/* FIX: usa blob download para evitar falha cross-origin do atributo download */}
+                <button
+                  onClick={() => downloadImageAsFile(generatedImageUrl, 'imagem_atividade.png')}
                   className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-600 font-bold hover:bg-brand-100">
                   <Download size={10} /> Baixar
-                </a>
+                </button>
               </div>
               <img src={generatedImageUrl} alt="Imagem gerada para atividade" className="max-h-64 mx-auto rounded-xl object-contain border border-gray-100" />
             </div>
@@ -448,24 +582,29 @@ Retorne SOMENTE um JSON válido:
 // ═══════════════════════════════════════════════════════════════════════════════
 // NEURODESIGN — Redesenho Inclusivo
 // ═══════════════════════════════════════════════════════════════════════════════
-const RedesignTab: React.FC<{ user: User }> = ({ user }) => {
+const RedesignTab: React.FC<{ user: User; creditsAvailable?: number }> = ({ user, creditsAvailable }) => {
   const [inputText, setInputText]         = useState('');
   const [model, setModel]                 = useState<ActivityModelId>('texto_apenas');
   const [loading, setLoading]             = useState(false);
   const [result, setResult]               = useState<RedesignedActivity | null>(null);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
-  const credits = calcCredits(model);
+  const [imageError, setImageError]               = useState<string | null>(null);
+
+  const imgCost      = imageCostFor(model);
+  const totalCredits = redesignTotalCost(model);
 
   const handleRedesign = async () => {
     if (!inputText.trim()) { alert('Cole o conteúdo da atividade que deseja redesenhar.'); return; }
-    const modelCfg = getModelConfig(model);
-    // Valida saldo ANTES de chamar a API
-    const hasCredits = await AIService.checkCredits(user, credits);
+
+    const hasCredits = creditsAvailable !== undefined
+      ? creditsAvailable >= totalCredits
+      : await AIService.checkCredits(user, totalCredits);
     if (!hasCredits) {
       alert(CREDIT_INSUFFICIENT_MSG);
       return;
     }
-    setLoading(true); setResult(null); setGeneratedImageUrl(null);
+
+    setLoading(true); setResult(null); setGeneratedImageUrl(null); setImageError(null);
     try {
       const prompt = `Você é um designer instrucional especialista em educação inclusiva.
 Receba esta atividade e faça um REDESENHO PEDAGÓGICO INCLUSIVO completo.
@@ -493,20 +632,46 @@ Retorne SOMENTE um JSON válido:
       } catch { parsed = { original: inputText, redesigned: raw, suggestions: [] }; }
       setResult(parsed);
 
-      // Pipeline visual: só chamar se o modelo gera imagem
+      // Débita texto imediatamente — entrega já ocorreu
+      try {
+        await safeDeductCredits(user, `NEURODESIGN_REDESIGN:${model}`, TEXT_COST);
+      } catch (e: any) {
+        console.error('[NeuroDesign] falha ao debitar texto:', e?.message);
+      }
+
+      // Geração de imagem: débito somente após sucesso comprovado
+      let finalImageUrl: string | null = null;
       if (modelGeneratesImage(model)) {
         try {
           const imgPrompt = `Ilustração educativa inclusiva para atividade pedagógica redesenhada, estilo visual acessível, traço limpo, alto contraste, fundo branco, sem texto.`;
-          const imgUrl = await AIService.generateImageFromPrompt(imgPrompt, user, credits);
-          setGeneratedImageUrl(imgUrl);
+          // skipDeduction=true: controlamos o débito aqui
+          const tempUrl = await AIService.generateImageFromPrompt(imgPrompt, user, imgCost, true);
+          const persistedUrl = await persistImageToStorage(tempUrl, (user as any).tenant_id ?? user.id);
+          finalImageUrl = persistedUrl ?? tempUrl;
+          setGeneratedImageUrl(finalImageUrl);
+          // Débita somente após URL confirmada
+          await safeDeductCredits(user, `NEURODESIGN_IMAGEM:${model}`, imgCost);
         } catch (imgErr: any) {
-          console.warn('[NeuroDesign] imagem não gerada:', imgErr?.message);
+          setImageError(friendlyAIError(imgErr));
         }
       }
 
-      // Debitar créditos após sucesso (imagem é debitada dentro de generateImageFromPrompt)
-      if (!modelGeneratesImage(model)) {
-        await safeDeductCredits(user, `NEURODESIGN_REDESIGN:${model}`, credits);
+      // Persiste com créditos reais consumidos
+      const creditsUsed = TEXT_COST + (finalImageUrl ? imgCost : 0);
+      try {
+        const { GeneratedActivityService } = await import('../services/persistenceService');
+        await GeneratedActivityService.save({
+          tenantId:    (user as any).tenant_id ?? '',
+          userId:      user.id,
+          title:       `NeuroDesign — Redesenho (${new Date().toLocaleDateString('pt-BR')})`,
+          content:     parsed.redesigned,
+          imageUrl:    finalImageUrl ?? undefined,
+          isAdapted:   true,
+          creditsUsed,
+          tags:        ['neurodesign', model],
+        });
+      } catch (saveErr: any) {
+        console.warn('[NeuroDesign] falha ao salvar atividade no banco:', saveErr?.message);
       }
     } catch (e: any) {
       alert(friendlyAIError(e));
@@ -522,20 +687,36 @@ Retorne SOMENTE um JSON válido:
           </h2>
         </div>
         <p className="text-sm text-gray-500 mb-4">Cole qualquer atividade existente e a IA vai redesenhá-la com layout pedagógico acessível.</p>
-        <ModelSelector model={model} onChange={setModel} />
+        <ModelSelector model={model} onChange={setModel} baseCost={0} />
 
         <textarea value={inputText} onChange={e => setInputText(e.target.value)}
           placeholder="Cole aqui o texto da atividade que deseja redesenhar…"
           className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 resize-none"
           rows={8} />
 
-        {/* Credit notice */}
-        <div className="mt-3 mb-4 flex items-center gap-2 bg-orange-50 border border-orange-100 rounded-xl px-4 py-2 text-xs">
-          <Coins size={13} className="text-brand-500 shrink-0" />
-          <span className="text-gray-600">
-            Consumirá <strong className="text-brand-700">{credits} crédito{credits !== 1 ? 's' : ''}</strong>
-            {' '}— saída: <strong>{modelGeneratesImage(model) ? 'texto + imagem' : 'somente texto'}</strong>
-          </span>
+        {/* Preflight de créditos */}
+        <div className="mt-3 mb-4 bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 text-xs space-y-1">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Coins size={13} className="text-brand-500 shrink-0" />
+            <span className="font-bold text-gray-700">Custo previsto</span>
+          </div>
+          <div className="flex justify-between text-gray-600">
+            <span>Redesenho pedagógico (texto)</span>
+            <strong className="text-brand-700">{TEXT_COST} créditos</strong>
+          </div>
+          {modelGeneratesImage(model) && (
+            <div className="flex justify-between text-gray-600">
+              <span>Geração de imagem ({getModelConfig(model).name})</span>
+              <strong className="text-brand-700">{imgCost} créditos</strong>
+            </div>
+          )}
+          <div className="flex justify-between font-bold text-gray-800 border-t border-orange-200 pt-1.5 mt-0.5">
+            <span>Total</span>
+            <strong className="text-brand-700">{totalCredits} créditos</strong>
+          </div>
+          {modelGeneratesImage(model) && (
+            <p className="text-[10px] text-gray-400 pt-0.5">Imagem cobrada somente se geração tiver sucesso.</p>
+          )}
         </div>
 
         <button onClick={handleRedesign} disabled={loading}
@@ -543,6 +724,17 @@ Retorne SOMENTE um JSON válido:
           {loading ? <><Loader size={16} className="animate-spin" /> Redesenhando…</> : <><Wand2 size={16} /> Redesenhar Atividade com IA</>}
         </button>
       </div>
+
+      {imageError && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+          <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-amber-800">Imagem não foi gerada</p>
+            <p className="text-xs text-amber-700 mt-1">{imageError}</p>
+            <p className="text-xs text-amber-500 mt-1">Créditos de geração de imagem não foram cobrados.</p>
+          </div>
+        </div>
+      )}
 
       {result && (
         <div className="space-y-4">
@@ -595,10 +787,12 @@ Retorne SOMENTE um JSON válido:
               <div className="flex items-center gap-2 mb-3">
                 <Sparkles size={15} className="text-brand-600" />
                 <span className="text-xs font-bold text-brand-700 uppercase">Imagem Pedagógica Gerada</span>
-                <a href={generatedImageUrl} download="imagem_redesenhada.png"
+                {/* FIX: blob download para cross-origin */}
+                <button
+                  onClick={() => downloadImageAsFile(generatedImageUrl, 'imagem_redesenhada.png')}
                   className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-600 font-bold hover:bg-brand-100">
                   <Download size={10} /> Baixar
-                </a>
+                </button>
               </div>
               <img src={generatedImageUrl} alt="Imagem gerada para atividade redesenhada" className="max-h-64 mx-auto rounded-xl object-contain border border-gray-100" />
             </div>

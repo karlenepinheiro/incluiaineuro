@@ -325,6 +325,9 @@ export const databaseService = {
       'support_level', 'medication', 'professionals', 'shift', 'aee_teacher',
       'coordinator', 'family_context', 'school_history', 'observations',
       'communication', 'photo_url',
+      // unique student code + address fields:
+      'unique_code', 'zipcode', 'street', 'street_number', 'complement',
+      'neighborhood', 'city', 'state',
     ]);
 
     // 2. dbPayload: mapeamento camelCase/legado → nomes reais das colunas
@@ -408,6 +411,16 @@ export const databaseService = {
     dbPayload.photo_url        = student?.photoUrl        ?? student?.photo_url       ?? null;
     dbPayload.professionals    = Array.isArray(student?.professionals) ? student.professionals : [];
     dbPayload.communication    = Array.isArray(student?.communication) ? student.communication : [];
+
+    // Código único do aluno + campos de endereço
+    if (student?.unique_code)  dbPayload.unique_code   = student.unique_code;
+    if (student?.zipcode)      dbPayload.zipcode        = student.zipcode       ?? null;
+    if (student?.street)       dbPayload.street         = student.street        ?? null;
+    if (student?.streetNumber) dbPayload.street_number  = student.streetNumber  ?? null;
+    if (student?.complement)   dbPayload.complement     = student.complement    ?? null;
+    if (student?.neighborhood) dbPayload.neighborhood   = student.neighborhood  ?? null;
+    if (student?.city)         dbPayload.city           = student.city          ?? null;
+    if (student?.state)        dbPayload.state          = student.state         ?? null;
 
     if (student?.id) dbPayload.id = student.id;
     // created_by é NOT NULL — usa o ID do usuário autenticado como fallback
@@ -618,6 +631,15 @@ export const databaseService = {
       photoUrl:         r.photo_url       ?? r.photoUrl      ?? '',
       shift:            r.shift           ?? '',
       coordinator:      r.coordinator     ?? '',
+      // Código único + endereço
+      unique_code:      r.unique_code     ?? '',
+      zipcode:          r.zipcode         ?? '',
+      street:           r.street          ?? '',
+      streetNumber:     r.street_number   ?? '',
+      complement:       r.complement      ?? '',
+      neighborhood:     r.neighborhood    ?? '',
+      city:             r.city            ?? '',
+      state:            r.state           ?? '',
     })) as any;
   },
 
@@ -848,6 +870,29 @@ export const databaseService = {
       }
     } catch {
       // ledger opcional — não bloqueia
+    }
+
+    // ── Sincroniza credits_wallet.balance com o saldo calculado via ledger ────
+    // Garante que checkCredits() (que lê credits_wallet diretamente) enxergue
+    // o mesmo valor que a UI exibe. Fonte de verdade = ledger.
+    const computedBalance = Math.max(0, planCreditsMonthly + creditsPurchased - creditsConsumedCycle);
+    try {
+      if (walletAvail !== null) {
+        // Wallet existe — atualiza para refletir a verdade do ledger
+        await supabase
+          .from('credits_wallet')
+          .update({ balance: computedBalance, updated_at: new Date().toISOString() })
+          .eq('tenant_id', tenantId);
+      } else {
+        // Wallet não existia — cria com saldo correto
+        await supabase.from('credits_wallet').insert({
+          tenant_id: tenantId,
+          balance: computedBalance,
+        });
+      }
+      walletAvail = computedBalance;
+    } catch {
+      // não crítico — próxima chamada vai corrigir
     }
 
     const billingCycle: 'monthly' | 'annual' =

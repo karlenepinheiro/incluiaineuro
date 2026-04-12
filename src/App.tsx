@@ -15,6 +15,7 @@ import {
   DocumentType,
   Student,
   Protocol,
+  Appointment,
   User,
   SchoolConfig,
   DocumentData,
@@ -32,6 +33,7 @@ import { DocumentBuilder } from './components/DocumentBuilder';
 import { AdminDashboard } from './views/AdminDashboard';
 import { StudentsListView } from './views/StudentsListView';
 import { ReportsView } from './views/ReportsView';
+import { AppointmentsView } from './views/AppointmentsView';
 import { SchoolTemplatesView } from './views/SchoolTemplatesView';
 import { ReferralService } from './services/referralService';
 import { FichasComplementaresView } from './views/FichasComplementaresView';
@@ -50,7 +52,7 @@ import { checkPurchaseByEmail, activatePurchaseForUser } from './services/purcha
 import { ActivationView } from './components/ActivationView';
 import { supabase, DEMO_MODE } from './services/supabase';
 import { databaseService } from './services/databaseService';
-import { ServiceRecordService } from './services/persistenceService';
+import { ServiceRecordService, AppointmentService } from './services/persistenceService';
 
 // --- Helper ---
 const generateAuditCode = (userName: string) => {
@@ -207,6 +209,7 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User>(MOCK_USER);
   const [students, setStudents] = useState<Student[]>([]);
   const [protocols, setProtocols] = useState<Protocol[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [serviceRecords, setServiceRecords] = useState<ServiceRecord[]>([]);
 
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
@@ -481,13 +484,14 @@ const App: React.FC = () => {
         .catch(() => { /* não crítico — não bloqueia o fluxo */ });
     }
 
-    const [studentsDb, protocolsDb, summaryDb, plansDb, subInfo, serviceRecordsDb] = await Promise.all([
+    const [studentsDb, protocolsDb, summaryDb, plansDb, subInfo, serviceRecordsDb, appointmentsDb] = await Promise.all([
       databaseService.getStudents(profile.id),
       databaseService.getProtocols(profile.id),
       databaseService.getTenantSummary(profile.id),
       databaseService.getEffectivePlans(),
       profile.tenant_id ? getActiveSubscription(profile.tenant_id) : Promise.resolve(null),
       profile.tenant_id ? ServiceRecordService.list(profile.tenant_id) : Promise.resolve([]),
+      AppointmentService.getAll(profile.id).catch(() => [] as Appointment[]),
     ]);
 
     setStudents(studentsDb);
@@ -496,6 +500,7 @@ const App: React.FC = () => {
     setEffectivePlans(plansDb);
     setActiveSubscription(subInfo);
     setServiceRecords(serviceRecordsDb);
+    setAppointments(appointmentsDb);
     if (subInfo?.status) {
       setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status }));
     }
@@ -1197,7 +1202,7 @@ const App: React.FC = () => {
                 userName={user.name}
                 students={students}
                 protocols={protocols}
-                appointments={[]}
+                appointments={appointments}
                 planMaxStudents={planMaxStudents}
                 planMaxStudentsLabel={planMaxStudentsLabel}
                 planMonthlyCredits={planMonthlyCredits}
@@ -1208,7 +1213,7 @@ const App: React.FC = () => {
                 planName={planDisplayName}
                 subscriptionExpiry={activeSubscription?.currentPeriodEnd ?? tenantSummary?.renewalDatePlan ?? null}
                 userId={user.id}
-                onNavigate={setView}
+                onNavigate={handleSetView}
               />
             )}
 
@@ -1237,11 +1242,38 @@ const App: React.FC = () => {
                 userPlan={user.plan}
                 user={user}
                 serviceRecords={[]}
+                appointments={appointments}
                 onAddServiceRecord={() => {}}
                 onUpdateStudent={updatedStudent => {
                   setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
                 }}
                 onNavigateTo={handleSetView}
+              />
+            )}
+
+            {view === 'appointments' && (
+              <AppointmentsView
+                students={students}
+                user={user}
+                appointments={appointments}
+                onAddAppointment={async apt => {
+                  setAppointments(prev => [apt, ...prev]);
+                  AppointmentService.save(apt, user.id).catch(e =>
+                    console.error('[Appointment] save error:', e)
+                  );
+                }}
+                onUpdateAppointment={async apt => {
+                  setAppointments(prev => prev.map(a => a.id === apt.id ? apt : a));
+                  AppointmentService.save(apt, user.id).catch(e =>
+                    console.error('[Appointment] update error:', e)
+                  );
+                }}
+                onDeleteAppointment={async id => {
+                  setAppointments(prev => prev.filter(a => a.id !== id));
+                  AppointmentService.delete(id).catch(e =>
+                    console.error('[Appointment] delete error:', e)
+                  );
+                }}
               />
             )}
 
@@ -1410,6 +1442,7 @@ const App: React.FC = () => {
                 user={user}
                 students={students}
                 sidebarOpen={isSidebarOpen}
+                creditsAvailable={creditsAvailable}
               />
             )}
           </main>

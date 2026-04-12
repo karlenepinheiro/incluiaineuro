@@ -374,6 +374,9 @@ export interface Student {
   tenant_id?: string;
   tipo_aluno?: StudentType;
 
+  /** Código único do aluno — gerado automaticamente. Futuro: busca entre escolas. */
+  unique_code?: string;
+
   name: string;
   birthDate: string;
   gender: string;
@@ -381,6 +384,15 @@ export interface Student {
   guardianName: string;
   guardianPhone: string;
   guardianEmail?: string;
+
+  // ── Endereço ──────────────────────────────────────────────────────────────
+  zipcode?: string;      // CEP
+  street?: string;       // Logradouro
+  streetNumber?: string; // Número
+  complement?: string;   // Complemento
+  neighborhood?: string; // Bairro
+  city?: string;         // Cidade
+  state?: string;        // Estado (UF)
 
   schoolId: string;
   schoolName?: string; // resolved from schoolId for DB persistence (school_name column)
@@ -445,6 +457,7 @@ export interface ServiceRecord {
   observation: string;
   attendance: 'Presente' | 'Falta' | 'Reposição';
   dailyChecklist?: ServiceDailyChecklist; // Ficha avaliativa diária (opcional)
+  createdAt?: string; // ISO 8601 — data/hora exata em que o registro foi criado
 }
 
 export interface DocField {

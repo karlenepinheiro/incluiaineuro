@@ -10,13 +10,11 @@ import {
   GraduationCap,
   ClipboardList,
   PieChart,
-  FolderOpen,
   LayoutTemplate,
   FileEdit,
-  Gift,
-  Search,
   Activity,
   CreditCard,
+  Calendar,
   FlaskConical,
 } from 'lucide-react';
 
@@ -63,7 +61,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const p = user.plan;
     if (p === PlanTier.FREE) return 'FREE';
     if (p === PlanTier.PRO) return 'PRO';
-    if (p === PlanTier.PREMIUM) return 'MASTER';
+    if (p === PlanTier.PREMIUM) return 'PREMIUM';
     return String(p ?? '').split(' ')[0] || 'FREE';
   }, [user.plan]);
 
@@ -215,48 +213,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
               Geral
             </div>
-            <NavItem viewId="dashboard" icon={Home} label="Dashboard" />
-            <NavItem viewId="students"  icon={Users} label="Alunos" />
-
-            {/* Triagem — item em destaque (PRO+) */}
-            {isPaid ? (
-              <button
-                onClick={() => setView('triagem')}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-bold transition-all duration-150 mt-1"
-                style={
-                  currentView === 'triagem'
-                    ? { background: '#F59E0B', color: '#fff' }
-                    : { background: '#FFFBEB', color: '#92400E', border: '1.5px solid #FDE68A' }
-                }
-              >
-                <Search size={18} className="shrink-0" />
-                <span className="whitespace-nowrap flex-1 text-left">Triagem</span>
-                {triagemCount > 0 && (
-                  <span
-                    className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                    style={
-                      currentView === 'triagem'
-                        ? { background: 'rgba(255,255,255,0.3)', color: '#fff' }
-                        : { background: '#FDE68A', color: '#92400E' }
-                    }
-                  >
-                    {triagemCount}
-                  </span>
-                )}
-              </button>
-            ) : (
-              <LockedNavItemPro icon={Search} label="Triagem" />
-            )}
+            <NavItem viewId="dashboard"   icon={Home}     label="Dashboard" />
+            <NavItem viewId="students"    icon={Users}    label="Alunos" />
+            <NavItem viewId="appointments" icon={Calendar} label="Agenda" />
 
             {/* Documentação pedagógica */}
             <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
               Documentação
             </div>
-            <NavItem viewId="estudo_caso" icon={FileSearch}    label="Estudo de Caso" badge="1º" />
-            <NavItem viewId="paee"        icon={ClipboardList} label="PAEE"            badge="2º" />
-            <NavItem viewId="protocols"   icon={FileText}      label="PEI"             badge="3º" />
-            <NavItem viewId="pdi"         icon={GraduationCap} label="PDI"             badge="4º" />
+            <NavItem viewId="estudo_caso" icon={FileSearch}    label="Estudo de Caso" />
+            <NavItem viewId="paee"        icon={ClipboardList} label="PAEE" />
+            <NavItem viewId="protocols"   icon={FileText}      label="PEI" />
+            <NavItem viewId="pdi"         icon={GraduationCap} label="PDI" />
+            {isPaid
+              ? <NavItem viewId="school_templates" icon={LayoutTemplate} label="Meus Modelos" />
+              : <LockedNavItemPro icon={LayoutTemplate} label="Meus Modelos" />
+            }
 
+            {/* Ferramentas IA */}
+            <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
+              Ferramentas IA
+            </div>
+            {isPaid
+              ? <NavItem viewId="incluilab" icon={FlaskConical} label="Laboratório de Adaptações" />
+              : <LockedNavItemPro icon={FlaskConical} label="Laboratório de Adaptações" />
+            }
+
+            {/* Avaliação & Histórico */}
             <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
               Avaliação & Histórico
             </div>
@@ -264,29 +247,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ? <NavItem viewId="reports" icon={Brain} label="Perfil Cognitivo" />
               : <LockedNavItemPro icon={Brain} label="Perfil Cognitivo" />
             }
-            {isPaid
-              ? <NavItem viewId="incluilab" icon={FlaskConical} label="IncluiLAB" />
-              : <LockedNavItemPro icon={FlaskConical} label="IncluiLAB" />
-            }
             {isPremium
               ? <NavItem viewId="service_control" icon={Activity} label="Controle de Atendimento" />
               : <LockedNavItem icon={Activity} label="Controle de Atendimento" />
             }
-            <NavItem viewId="documents"         icon={FolderOpen}     label="Documentos" />
             {isPremium
               ? <NavItem viewId="fichas" icon={FileEdit} label="Fichas Complementares" />
               : <LockedNavItem icon={FileEdit} label="Fichas Complementares" />
             }
-            {isPaid
-              ? <NavItem viewId="school_templates" icon={LayoutTemplate} label="Meus Modelos" />
-              : <LockedNavItemPro icon={LayoutTemplate} label="Meus Modelos" />
-            }
-            <NavItem viewId="subscription"      icon={CreditCard}     label="Assinatura & Créditos" />
 
             {/* Rodapé */}
             <div className="pt-4 mt-2">
               <Separator className="mb-3" />
-              <NavItem viewId="settings" icon={Settings} label="Configurações" />
+              <NavItem viewId="subscription" icon={CreditCard} label="Assinatura & Créditos" />
+              <NavItem viewId="settings"     icon={Settings}   label="Configurações" />
               {user.isAdmin && (
                 <NavItem viewId="admin" icon={PieChart} label="Painel CEO" />
               )}

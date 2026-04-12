@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Plus, Trash2, Save, Printer, FileText, Sparkles, Edit3, 
-  Search, ChevronUp, ChevronDown, 
+import {
+  Plus, Trash2, Save, Printer, FileText, Sparkles, Edit3,
+  Search, ChevronUp, ChevronDown,
   Clock, History, FileType, File, CheckCircle, FileOutput, Lock, AlertTriangle, FileInput, Info, Upload, Eye, Download,
-  X, AlertCircle, ArrowUp, ArrowDown, GripVertical, Settings, Mic
+  X, AlertCircle, ArrowUp, ArrowDown, GripVertical, Settings, Mic, Library, Star
 } from 'lucide-react';
 import { DocumentType, DocumentData, DocSection, Student, User as UserType, Protocol, PlanTier, getPlanLimits, ProtocolStatus, DocField } from '../types';
 import { AudioEnhancedTextarea } from './AudioEnhancedTextarea';
@@ -14,6 +14,8 @@ import { StorageService } from '../services/storageService';
 import { AIService } from '../services/aiService';
 import { StudentContextService } from '../services/studentContextService';
 import { AI_CREDIT_COSTS } from '../config/aiCosts';
+import { StoredTemplateSelector } from './StoredTemplateSelector';
+import { SchoolTemplate } from '../services/templateService';
 
 // Seções esperadas por tipo de documento — contexto para análise via upload
 const STANDARD_DOC_FIELDS: Record<string, string> = {
@@ -146,7 +148,11 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
   const [currentAuditCode, setCurrentAuditCode] = useState(initialProtocol?.auditCode || '');
   const [isEditing, setIsEditing] = useState(initialProtocol ? initialProtocol.status !== 'FINAL' : true); 
   const [isUploading, setIsUploading] = useState(false);
-  
+  const [showStoredTemplateSelector, setShowStoredTemplateSelector] = useState(false);
+
+  // ── Verificação de plano Premium ─────────────────────────────────────────────
+  const isPremiumUser = ['MASTER', 'PREMIUM', 'INSTITUTIONAL'].includes(user.plan as string);
+
   // Custom Fields & Reordering
   const [isReordering, setIsReordering] = useState(false);
   const [showCustomFieldModal, setShowCustomFieldModal] = useState(false);
@@ -869,6 +875,95 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
       }
   };
 
+  /**
+   * Aplica um modelo da biblioteca Premium como base do documento.
+   * Usa os metadados já processados (tagsInjected) para montar as seções
+   * sem necessidade de nova análise IA — zero consumo adicional de créditos.
+   */
+  const handleUseStoredTemplate = (template: SchoolTemplate) => {
+    if (!selectedStudent) return;
+    setShowStoredTemplateSelector(false);
+
+    const school = user.schoolConfigs?.find(s => s.id === selectedStudent.schoolId);
+
+    // Mapa de valores reais do aluno para as tags padrão
+    const tagValues: Record<string, string> = {
+      '{{nome_estudante}}':         selectedStudent.name,
+      '{{data_nascimento}}':        new Date(selectedStudent.birthDate).toLocaleDateString(),
+      '{{idade}}':                  String(new Date().getFullYear() - new Date(selectedStudent.birthDate).getFullYear()),
+      '{{escola}}':                 school?.schoolName || '',
+      '{{turma}}':                  selectedStudent.grade || '',
+      '{{turno}}':                  selectedStudent.shift || '',
+      '{{professor_regente}}':      selectedStudent.regentTeacher || '',
+      '{{professor_aee}}':          selectedStudent.aeeTeacher || '',
+      '{{coordenador}}':            selectedStudent.coordinator || '',
+      '{{diagnostico}}':            (selectedStudent.diagnosis || []).join(', '),
+      '{{habilidades}}':            (selectedStudent.abilities || []).join('\n'),
+      '{{dificuldades}}':           (selectedStudent.difficulties || []).join('\n'),
+      '{{historico_escolar}}':      selectedStudent.schoolHistory || '',
+      '{{contexto_familiar}}':      selectedStudent.familyContext  || '',
+      '{{medicacao}}':              selectedStudent.medication     || '',
+      '{{data_elaboracao}}':        new Date().toLocaleDateString(),
+      '{{profissional_responsavel}}': user.name || '',
+    };
+
+    // Seção de identificação — sempre presente
+    const headerSection: DocSection = {
+      id: 'header',
+      title: 'Identificação',
+      fields: [
+        { id: 'name',   label: 'Nome do Aluno',    type: 'text', value: selectedStudent.name,                                      allowAudio: 'none' },
+        { id: 'age',    label: 'Data de Nascimento',type: 'text', value: new Date(selectedStudent.birthDate).toLocaleDateString(), allowAudio: 'none' },
+        { id: 'school', label: 'Unidade Escolar',  type: 'text', value: school?.schoolName || '',                                  allowAudio: 'none' },
+        { id: 'grade',  label: 'Ano/Série',         type: 'text', value: `${selectedStudent.grade} - ${selectedStudent.shift}`,    allowAudio: 'none' },
+        { id: 'regent', label: 'Professor Regente', type: 'text', value: selectedStudent.regentTeacher || '',                      allowAudio: 'none' },
+        { id: 'aee',    label: 'Prof. AEE',          type: 'text', value: selectedStudent.aeeTeacher || '',                        allowAudio: 'none' },
+      ],
+    };
+
+    // Campos derivados das tags encontradas no modelo
+    const contentTags = (template.tagsInjected || []).filter(t => t.found);
+    const identTagSet = new Set([
+      '{{nome_estudante}}', '{{data_nascimento}}', '{{idade}}',
+      '{{escola}}', '{{turma}}', '{{turno}}', '{{professor_regente}}',
+      '{{professor_aee}}', '{{coordenador}}', '{{data_elaboracao}}',
+      '{{profissional_responsavel}}',
+    ]);
+    const contentFields = contentTags
+      .filter(t => !identTagSet.has(t.tag))
+      .map((t, i) => ({
+        id:       `tmpl_${i}`,
+        label:    t.label,
+        type:     'textarea' as const,
+        value:    tagValues[t.tag] || '',
+        allowAudio: 'optional' as const,
+        placeholder: `Preencha: ${t.label}`,
+      }));
+
+    // Se o modelo tiver campos de conteúdo, usamos. Caso contrário usamos
+    // o template padrão do tipo de documento (fallback didático).
+    if (contentFields.length > 0) {
+      const templateSection: DocSection = {
+        id:     'template_fields',
+        title:  `Campos do Modelo — ${template.name}`,
+        fields: contentFields,
+      };
+      const built = [headerSection, templateSection];
+      setSections(built);
+      setStep('editor');
+      setIsEditing(true);
+      onSave(
+        { sections: built, templateId: template.id } as any,
+        selectedStudent,
+        `Modelo da biblioteca: ${template.name}`,
+        'DRAFT',
+      );
+    } else {
+      // Fallback: estrutura padrão do tipo de documento
+      loadTemplate(type, isReducedMode);
+    }
+  };
+
   const handlePrint = () => window.print();
 
   // ── Geração de PDF via PDFGenerator (design unificado) ──────────────────────
@@ -1101,30 +1196,122 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-6">
-                    <button onClick={() => onGenerateAI(selectedStudent!)} disabled={isGenerating} className="p-6 bg-white border-2 border-brand-100 rounded-2xl hover:border-brand-500 hover:shadow-lg transition flex flex-col items-center group">
-                        <div className="bg-brand-50 p-4 rounded-full mb-4 group-hover:bg-brand-100 transition"><Sparkles size={24} className="text-brand-600"/></div>
-                        <h3 className="text-lg font-bold text-gray-900">Gerar com IA</h3>
-                        <p className="text-xs text-gray-500 mt-2">Cria um rascunho com base nos dados do aluno.</p>
-                        <CreditBadge type={type} />
-                        {isGenerating && <span className="text-brand-600 text-xs font-bold mt-2 animate-pulse">Gerando...</span>}
-                    </button>
+                {/* Grade de 4 opções */}
+                <div className="grid md:grid-cols-2 gap-4">
 
-                    <button onClick={() => loadTemplate(type, isReducedMode)} className="p-6 bg-white border-2 border-gray-100 rounded-2xl hover:border-gray-400 hover:shadow-lg transition flex flex-col items-center group">
-                        <div className="bg-gray-50 p-4 rounded-full mb-4 group-hover:bg-gray-100 transition"><Edit3 size={24} className="text-gray-500"/></div>
-                        <h3 className="text-lg font-bold text-gray-900">Gerar Manual</h3>
-                        <p className="text-xs text-gray-500 mt-2">Preencher você mesmo. {isReducedMode ? 'Versão essencial.' : 'Versão completa.'}</p>
-                    </button>
+                  {/* ── Gerar com IA ── */}
+                  <button
+                    onClick={() => onGenerateAI(selectedStudent!)}
+                    disabled={isGenerating}
+                    className="p-5 bg-white border-2 border-brand-100 rounded-2xl hover:border-brand-500 hover:shadow-lg transition flex flex-col items-start group text-left"
+                  >
+                    <div className="bg-brand-50 p-3 rounded-xl mb-3 group-hover:bg-brand-100 transition">
+                      <Sparkles size={22} className="text-brand-600"/>
+                    </div>
+                    <h3 className="text-base font-bold text-gray-900">Gerar com IA</h3>
+                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">Cria um rascunho completo com base nos dados do aluno.</p>
+                    <CreditBadge type={type} />
+                    {isGenerating && <span className="text-brand-600 text-xs font-bold mt-2 animate-pulse">Gerando...</span>}
+                  </button>
 
-                    <label className="p-6 bg-white border-2 border-dashed border-gray-300 rounded-2xl hover:border-brand-500 hover:bg-gray-50 transition cursor-pointer flex flex-col items-center group">
-                        <div className="bg-gray-100 p-4 rounded-full mb-4 group-hover:bg-white transition"><Upload size={24} className="text-gray-500"/></div>
-                        <h3 className="text-lg font-bold text-gray-900">Upload</h3>
-                        <p className="text-xs text-gray-500 mt-2">Usar um documento existente como base.</p>
-                        <input type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={handleUploadExternal} disabled={isUploading} />
-                        {isUploading && <span className="text-brand-600 text-xs font-bold mt-2">Enviando...</span>}
-                    </label>
+                  {/* ── Gerar Manual ── */}
+                  <button
+                    onClick={() => loadTemplate(type, isReducedMode)}
+                    className="p-5 bg-white border-2 border-gray-100 rounded-2xl hover:border-gray-400 hover:shadow-lg transition flex flex-col items-start group text-left"
+                  >
+                    <div className="bg-gray-50 p-3 rounded-xl mb-3 group-hover:bg-gray-100 transition">
+                      <Edit3 size={22} className="text-gray-500"/>
+                    </div>
+                    <h3 className="text-base font-bold text-gray-900">Preencher Manualmente</h3>
+                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      Formulário {isReducedMode ? 'essencial' : 'completo'} para preenchimento livre.
+                    </p>
+                    <span className="mt-2 text-xs font-semibold text-gray-400">Sem consumo de créditos</span>
+                  </button>
+
+                  {/* ── Upload novo ── */}
+                  <label className="p-5 bg-white border-2 border-dashed border-gray-300 rounded-2xl hover:border-brand-500 hover:bg-gray-50 transition cursor-pointer flex flex-col items-start group text-left">
+                    <div className="bg-gray-100 p-3 rounded-xl mb-3 group-hover:bg-white transition">
+                      <Upload size={22} className="text-gray-500"/>
+                    </div>
+                    <h3 className="text-base font-bold text-gray-900">Upload Avulso</h3>
+                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      Envie um arquivo .docx ou PDF para a IA extrair e estruturar o conteúdo.
+                    </p>
+                    {/* Aviso de créditos */}
+                    <div className="mt-2 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                      <span className="text-xs leading-snug text-amber-800">
+                        <strong>🪙 {AI_CREDIT_COSTS.UPLOAD_MODELO} créditos IA</strong> — a IA analisa e estrutura o documento enviado.
+                      </span>
+                    </div>
+                    <input type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={handleUploadExternal} disabled={isUploading} />
+                    {isUploading && <span className="text-brand-600 text-xs font-bold mt-2 animate-pulse">Analisando com IA...</span>}
+                  </label>
+
+                  {/* ── Usar modelo da biblioteca (Premium) ── */}
+                  {isPremiumUser ? (
+                    <button
+                      onClick={() => setShowStoredTemplateSelector(true)}
+                      className="p-5 bg-white border-2 border-dashed rounded-2xl transition flex flex-col items-start group text-left"
+                      style={{ borderColor: '#1F4E5F', background: '#1F4E5F08' }}
+                    >
+                      <div className="p-3 rounded-xl mb-3 transition" style={{ background: '#1F4E5F15' }}>
+                        <Library size={22} style={{ color: '#1F4E5F' }}/>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-bold" style={{ color: '#1F4E5F' }}>Usar Modelo Salvo</h3>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: '#C69214' }}>PREMIUM</span>
+                      </div>
+                      <p className="text-xs mt-1 leading-relaxed" style={{ color: '#1F4E5F99' }}>
+                        Escolha um modelo da sua biblioteca para usar como base.
+                      </p>
+                      {/* Benefício sem créditos */}
+                      <div className="mt-2 flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5">
+                        <span className="text-xs leading-snug text-green-800">
+                          ✓ <strong>Sem consumo adicional</strong> — modelo já processado na sua biblioteca.
+                        </span>
+                      </div>
+                    </button>
+                  ) : (
+                    /* Bloqueado para não-Premium */
+                    <div
+                      className="p-5 bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-start text-left relative overflow-hidden cursor-not-allowed"
+                    >
+                      {/* Overlay de cadeado */}
+                      <div className="absolute top-3 right-3">
+                        <Lock size={15} className="text-gray-400"/>
+                      </div>
+                      <div className="p-3 rounded-xl mb-3 bg-gray-100 opacity-50">
+                        <Library size={22} className="text-gray-400"/>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-bold text-gray-400">Usar Modelo Salvo</h3>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white bg-gray-400">PREMIUM</span>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                        Acesse sua biblioteca de modelos e reutilize documentos sem novo upload.
+                      </p>
+                      <div className="mt-2 flex items-start gap-1.5 bg-gray-100 border border-gray-200 rounded-lg px-2 py-1.5">
+                        <Lock size={11} className="text-gray-400 mt-0.5 shrink-0"/>
+                        <span className="text-xs leading-snug text-gray-500">
+                          Exclusivo do plano <strong>Master (Premium)</strong>. Faça upgrade para acessar a biblioteca de modelos.
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                 </div>
+
                 <button onClick={() => setStep('select_student')} className="mt-8 text-sm text-gray-400 hover:text-gray-600">Trocar Aluno</button>
+
+                {/* Modal seletor de modelo salvo */}
+                {showStoredTemplateSelector && (
+                  <StoredTemplateSelector
+                    docType={type}
+                    onSelect={handleUseStoredTemplate}
+                    onClose={() => setShowStoredTemplateSelector(false)}
+                  />
+                )}
               </>
             )}
         </div>
