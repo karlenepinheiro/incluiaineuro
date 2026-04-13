@@ -71,6 +71,8 @@ function mapDocTypeToUi(type: string): DocumentType {
   const key = String(type ?? '').toUpperCase();
   switch (key) {
     case 'ESTUDO_CASO':
+    case 'ESTUDO_DE_CASO':
+    case 'ESTUDO DE CASO':
       return DocumentType.ESTUDO_CASO;
     case 'PEI':
       return DocumentType.PEI;
@@ -720,7 +722,6 @@ export const databaseService = {
       .from('documents')
       .select('id, tenant_id, student_id, created_by, doc_type, source_id, title, structured_data, status, audit_code, created_at, updated_at')
       .eq('tenant_id', tenantId)
-      .is('deleted_at', null)
       .order('created_at', { ascending: false });
     if (error) throw error;
 
@@ -751,6 +752,14 @@ export const databaseService = {
       };
       return proto;
     });
+  },
+
+  async deleteDocument(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('documents')
+      .delete()
+      .eq('id', id);
+    if (error) throw error;
   },
 
   // =========================

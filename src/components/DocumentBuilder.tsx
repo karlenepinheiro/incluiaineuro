@@ -198,7 +198,7 @@ const planLimits = getPlanLimits(user.plan);
     if (type !== DocumentType.ESTUDO_CASO) return;
     if (!selectedStudent?.id) return;
     // Só enriquece documentos novos (sem initialData)
-    if (initialData && initialData.sections.length > 0) return;
+    if (initialData && (initialData.sections?.length ?? 0) > 0) return;
 
     StudentContextService.buildContext(selectedStudent.id).then(ctx => {
       if (!StudentContextService.hasData(ctx)) return;
@@ -262,7 +262,7 @@ const planLimits = getPlanLimits(user.plan);
 
   useEffect(() => {
       // Logic to determine if we are loading an existing doc or starting fresh
-      const isExistingDoc = initialData && initialData.sections.length > 0;
+      const isExistingDoc = initialData && (initialData.sections?.length ?? 0) > 0;
 
       if (isExistingDoc) {
           setSections(initialData!.sections);
@@ -315,7 +315,7 @@ const planLimits = getPlanLimits(user.plan);
       title: 'Identificação',
       fields: [
         { id: 'name', label: 'Nome do Aluno', type: 'text', value: selectedStudent.name, allowAudio: 'none' },
-        { id: 'age', label: 'Data de Nascimento', type: 'text', value: new Date(selectedStudent.birthDate).toLocaleDateString(), allowAudio: 'none' },
+        { id: 'age', label: 'Data de Nascimento', type: 'text', value: selectedStudent.birthDate ? new Date(selectedStudent.birthDate + 'T00:00:00').toLocaleDateString('pt-BR') : '—', allowAudio: 'none' },
         { id: 'school', label: 'Unidade Escolar', type: 'text', value: school?.schoolName || '', allowAudio: 'none' },
         { id: 'grade', label: 'Ano/Série', type: 'text', value: `${selectedStudent.grade} - ${selectedStudent.shift}`, allowAudio: 'none' },
         { id: 'regent', label: 'Professor Regente', type: 'text', value: selectedStudent.regentTeacher || '', allowAudio: 'none' },

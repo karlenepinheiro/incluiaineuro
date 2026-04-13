@@ -27,9 +27,9 @@ export const AI_CREDIT_COSTS = {
   TEMPLATE: 5,
 
   // Imagens e Design (EduLens / NeuroDesign / AtivaIA)
-  IMAGEM_LEVE: 30,       // Imagem padrão (Nano Banana Pro)
+  IMAGEM_LEVE: 30,       // Imagem padrão
   IMAGEM_INTERMEDIARIA: 30,
-  IMAGEM_PREMIUM: 50,    // Motor de Imagem Premium (DALL-E 3 / IncluiLab)
+  IMAGEM_PREMIUM: 50,    // Motor de Imagem Premium (Imagen 4.0 / IncluiLab)
   
   // Mapeamento específico por ferramenta (Compatibilidade Legada)
   EDULEISIA_ADAPTAR: 3,
@@ -62,8 +62,8 @@ export const SUBSCRIPTION_PLANS = {
  * Fonte única de verdade. Todos os componentes devem referenciar estes valores.
  *
  *  TEXT        → Texto simples (Gemini): 3 créditos
- *  NANO_BANANA → Imagem padrão (Nano Banana Pro): 30 créditos
- *  GPT_IMAGE   → Imagem detalhada / DALL-E 3 (alta qualidade): 50 créditos
+ *  NANO_BANANA → Imagem padrão: 30 créditos
+ *  GPT_IMAGE   → Imagem detalhada / Imagen 4.0 (alta qualidade): 50 créditos
  */
 export const INCLUILAB_MODEL_COSTS = {
   TEXT:        3,   // Texto simples (IA Gemini)

@@ -438,6 +438,12 @@ Retorne SOMENTE um JSON válido:
 
   return (
     <div className="space-y-6">
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-start gap-3">
+        <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+        <p className="text-xs text-amber-800">
+          <strong>Geração de imagem temporariamente indisponível.</strong> O módulo de ilustração pedagógica está em manutenção. A adaptação e o redesenho de texto funcionam normalmente.
+        </p>
+      </div>
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <h2 className="font-bold text-gray-800 text-lg flex items-center gap-2">

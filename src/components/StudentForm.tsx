@@ -171,9 +171,40 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
       setFormData(prev => ({ ...prev, cid: cidList }));
   }, [cidList]);
 
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState('');
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === 'zipcode') setCepError('');
+  };
+
+  const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, '');
+    if (raw.length !== 8) return;
+    setCepLoading(true);
+    setCepError('');
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
+      if (!res.ok) throw new Error('Serviço indisponível');
+      const data = await res.json();
+      if (data.erro) {
+        setCepError('CEP não encontrado. Verifique e preencha o endereço manualmente.');
+        return;
+      }
+      setFormData(prev => ({
+        ...prev,
+        street:       data.logradouro || prev.street,
+        neighborhood: data.bairro     || prev.neighborhood,
+        city:         data.localidade || prev.city,
+        state:        data.uf         || prev.state,
+      }));
+    } catch {
+      setCepError('Não foi possível buscar o CEP. Preencha o endereço manualmente.');
+    } finally {
+      setCepLoading(false);
+    }
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -366,7 +397,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
                       <input readOnly value={formData.unique_code} className="input-field font-mono text-xs bg-gray-50 text-petrol font-bold tracking-widest cursor-default" />
                       <button type="button" onClick={() => navigator.clipboard.writeText(formData.unique_code!)} className="text-xs text-gray-400 hover:text-petrol border rounded px-2 py-1 whitespace-nowrap">Copiar</button>
                     </div>
-                    <p className="text-[10px] text-gray-400 mt-1">Código único e imutável. Pode ser usado para localizar este aluno entre escolas.</p>
+                    <p className="text-[10px] text-gray-400 mt-1">Este código é único e imutável. A busca de alunos entre escolas ainda não está disponível, mas será liberada em breve em uma próxima atualização.</p>
                   </div>
                 )}
             </div>
@@ -378,7 +409,13 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="label">CEP</label>
-              <input name="zipcode" value={formData.zipcode || ''} onChange={handleChange} className="input-field" placeholder="00000-000" maxLength={9} />
+              <div className="relative">
+                <input name="zipcode" value={formData.zipcode || ''} onChange={handleChange} onBlur={handleCepBlur} className="input-field pr-8" placeholder="00000-000" maxLength={9} />
+                {cepLoading && (
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-petrol animate-spin">⟳</span>
+                )}
+              </div>
+              {cepError && <p className="text-[10px] text-red-500 mt-1">{cepError}</p>}
             </div>
             <div className="md:col-span-2">
               <label className="label">Logradouro</label>

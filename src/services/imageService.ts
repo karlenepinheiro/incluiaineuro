@@ -1,5 +1,12 @@
-// imageService.ts — Geração real de imagens via OpenAI DALL-E 3
-// Custo: AI_CREDIT_COSTS.ATIVIDADE_IMAGEM créditos por imagem (src/config/aiCosts.ts)
+/**
+ * imageService.ts
+ * Geração de imagens pedagógicas.
+ *
+ * Cadeia de fallback:
+ *   1. Imagen 4.0 (imagen-4.0-generate-001)      ← primário
+ *   2. Imagen 4.0 Fast (imagen-4.0-fast-generate-001) ← fallback retryable
+ *   3. OpenAI DALL-E 3                            ← fallback final
+ */
 
 export interface ImageGenerationResult {
   url: string;
@@ -7,26 +14,21 @@ export interface ImageGenerationResult {
 }
 
 export class ImageService {
-  private static getApiKey(): string | undefined {
+  private static getOpenAIKey(): string | undefined {
     return (import.meta as any).env?.VITE_OPENAI_API_KEY;
   }
 
   /**
-   * Gera uma imagem pedagógica via DALL-E 3.
-   * Retorna a URL temporária da imagem (válida por 60 minutos).
-   * Lança erro se a chave não estiver configurada ou a API falhar.
+   * Gera uma imagem pedagógica via DALL-E 3 (OpenAI).
+   * Usado apenas como fallback quando Gemini/Imagen falham.
    */
   static async generateActivityImage(prompt: string): Promise<ImageGenerationResult> {
-    const apiKey = this.getApiKey();
-
-    // LOG DIAGNÓSTICO — remova após confirmar o problema
-    console.log('[ImageService] chave presente:', !!apiKey, '| tamanho:', apiKey?.length, '| prefixo:', apiKey?.slice(0, 10));
-
+    // DALL-E 3 via OpenAI
+    const apiKey = this.getOpenAIKey();
     if (!apiKey) {
-      throw new Error('CONFIG_IMAGE');
+      throw new Error('CONFIG_IMAGE: VITE_OPENAI_API_KEY não configurada. Para geração de imagens, configure a chave da OpenAI no .env ou verifique a chave do Gemini (VITE_GEMINI_API_KEY).');
     }
 
-    // Garante que o prompt seja seguro para DALL-E (sem PII de alunos)
     const safePrompt = [
       'Ilustração educativa infantil para impressão pedagógica (A4).',
       'Traço limpo, alto contraste, poucos elementos visuais, SEM texto na imagem.',
@@ -52,33 +54,33 @@ export class ImageService {
         }),
       });
     } catch (networkErr: any) {
-      throw new Error(
-        `Falha de conexão com a API de imagens OpenAI: ${networkErr?.message || networkErr}`
-      );
+      throw new Error(`Falha de conexão com DALL-E 3: ${networkErr?.message || networkErr}`);
     }
 
     if (!response.ok) {
       const errBody = await response.json().catch(() => ({}));
       const msg = (errBody as any)?.error?.message || response.statusText;
+      if (response.status === 429) {
+        throw new Error(`[QUOTA_EXCEEDED 429] DALL-E 3: ${msg}`);
+      }
+      if (response.status === 403) {
+        throw new Error(`[PERMISSION_DENIED 403] DALL-E 3: ${msg}`);
+      }
       throw new Error(`DALL-E 3 (HTTP ${response.status}): ${msg}`);
     }
 
     const data = await response.json();
     const item = data?.data?.[0];
-
     if (!item?.url) {
       throw new Error('DALL-E 3: resposta da API não contém URL de imagem.');
     }
 
-    return {
-      url: item.url,
-      revisedPrompt: item.revised_prompt,
-    };
+    return { url: item.url, revisedPrompt: item.revised_prompt };
   }
 
   /**
-   * Converte uma URL de imagem OpenAI para base64.
-   * Útil para salvar no Supabase Storage sem expor URLs temporárias.
+   * Converte uma URL de imagem para base64.
+   * Necessário quando a imagem vem de URLs temporárias (DALL-E 3).
    */
   static async urlToBase64(url: string): Promise<string> {
     const response = await fetch(url);

@@ -144,6 +144,7 @@ interface StudentProfileProps {
   onAddServiceRecord?: (record: ServiceRecord) => void;
   onUpdateStudent?: (s: Student) => void;
   onNavigateTo?: (view: string) => void; // para abrir FichasComplementaresView
+  onRefreshProtocols?: () => Promise<void>;
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -159,6 +160,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   appointments = [],
   onUpdateStudent,
   onNavigateTo,
+  onRefreshProtocols,
 }) => {
   type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades';
   const [activeTab, setActiveTab] = useState<Tab>('ficha');
@@ -302,6 +304,18 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [batchSelected, setBatchSelected] = useState<string[]>(['ESTUDO_DE_CASO', 'PAEE', 'PEI']);
   const [batchProgress, setBatchProgress] = useState<{ type: string; status: 'pending' | 'generating' | 'done' | 'error'; msg?: string }[]>([]);
   const [batchRunning, setBatchRunning] = useState(false);
+  const [batchToast, setBatchToast] = useState('');
+
+  const handleDeleteProtocol = async (id: string) => {
+    if (!window.confirm('Excluir este documento? Esta ação não pode ser desfeita.')) return;
+    try {
+      await databaseService.deleteDocument(id);
+      await onRefreshProtocols?.();
+    } catch (err) {
+      console.error('[deleteDocument]', err);
+      alert('Erro ao excluir documento.');
+    }
+  };
 
   const handleBatchGenerate = async () => {
     if (!user || !batchSelected.length) return;
@@ -325,30 +339,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         for (let k = 0; k < 8; k++) rand += chars.charAt(Math.floor(Math.random() * chars.length));
         const auditCode = `${rand}-${(user as any).name?.split(' ')[0]?.toUpperCase() ?? 'INC'}-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '')}`;
 
-        // Salva DRAFT no banco
+        // Salva DRAFT no banco com structuredData correto para que o DocumentBuilder consiga abrir
         await databaseService.saveDocument({
-          tenant_id:   (user as any).tenant_id,
-          studentId:   student.id,
-          userId:      (user as any).id,
-          doc_type:    t.id,
-          title:       `${t.label} — ${student.name}`,
-          content:     jsonStr,
-          sections,
-          status:      'DRAFT',
-          generatedBy: (user as any).name || 'Sistema',
+          tenant_id:      (user as any).tenant_id,
+          studentId:      student.id,
+          userId:         (user as any).id,
+          doc_type:       t.id,
+          title:          `${t.label} — ${student.name}`,
+          content:        jsonStr,
+          structuredData: { sections },
+          status:         'DRAFT',
+          generatedBy:    (user as any).name || 'Sistema',
           auditCode,
         });
-
-        // Gera e baixa o PDF
-        const blob = await PDFGenerator.generateFromSections({
-          docType:   t.id as string,
-          student,
-          user:      user as any,
-          school:    schoolCfg,
-          sections,
-          auditCode,
-        });
-        PDFGenerator.download(blob, `${t.id}_${student.name.replace(/\s+/g, '_')}.pdf`);
 
         // Registra evento na linha do tempo
         if ((user as any)?.tenant_id) {
@@ -369,7 +372,13 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
     setBatchRunning(false);
     // Recarrega documentos para refletir na aba Documentos
-    loadDbDocs();
+    await loadDbDocs();
+    await onRefreshProtocols?.();
+    // Fecha modal, navega para aba Documentos e exibe toast de confirmação
+    setShowBatchModal(false);
+    setActiveTab('documentos');
+    setBatchToast('Documentos gerados com sucesso. Verifique na aba Documentos se o conteúdo está de acordo com a veracidade dos fatos.');
+    setTimeout(() => setBatchToast(''), 8000);
   };
 
   const handleSaveHistory = async () => {
@@ -577,6 +586,13 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto pb-20 space-y-5">
+      {/* ── Toast: geração em lote ── */}
+      {batchToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] bg-green-700 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-xl max-w-md text-center flex items-start gap-3">
+          <CheckCircle size={18} className="shrink-0 mt-0.5 text-green-200" />
+          <span>{batchToast}</span>
+        </div>
+      )}
       {/* ── Header ── */}
       <div className="flex items-center justify-between print:hidden">
         <button onClick={onBack} className="flex items-center gap-2 text-gray-500 hover:text-brand-600 transition text-sm">
@@ -1515,9 +1531,14 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                       <td className="px-5 py-3 text-gray-500 text-xs">{new Date(p.createdAt).toLocaleDateString('pt-BR')}</td>
                       <td className="px-5 py-3">{getStatusBadge(p.status)}</td>
                       <td className="px-5 py-3">
-                        <button onClick={() => onViewProtocol(p)} className="text-brand-600 hover:text-brand-800 text-xs font-bold border border-brand-200 px-3 py-1 rounded-lg">
-                          Abrir
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => onViewProtocol(p)} className="text-brand-600 hover:text-brand-800 text-xs font-bold border border-brand-200 px-3 py-1 rounded-lg">
+                            Abrir
+                          </button>
+                          <button onClick={() => handleDeleteProtocol(p.id)} className="text-red-400 hover:text-red-600 border border-red-100 hover:border-red-300 p-1 rounded-lg" title="Excluir documento">
+                            <Trash2 size={13}/>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1773,8 +1794,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   })}
                 </div>
                 {!batchRunning && (
-                  <button onClick={() => setShowBatchModal(false)} className="w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold hover:bg-black text-sm">
-                    Concluído — Fechar
+                  <button onClick={() => { setShowBatchModal(false); setActiveTab('documentos'); }} className="w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold hover:bg-black text-sm">
+                    Ver Documentos Gerados
                   </button>
                 )}
               </>

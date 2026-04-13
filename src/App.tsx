@@ -1241,9 +1241,15 @@ const App: React.FC = () => {
                 onCreateDerived={handleCreateDerivedProtocol}
                 userPlan={user.plan}
                 user={user}
-                serviceRecords={[]}
+                serviceRecords={serviceRecords.filter(r => r.studentId === viewingStudent.id)}
                 appointments={appointments}
                 onAddServiceRecord={() => {}}
+                onRefreshProtocols={async () => {
+                  try {
+                    const fresh = await databaseService.getProtocols(user.id);
+                    setProtocols(fresh);
+                  } catch (e) { console.error('[refresh protocols]', e); }
+                }}
                 onUpdateStudent={updatedStudent => {
                   setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
                 }}

@@ -83,7 +83,33 @@ const EMPTY_FORM: Partial<Appointment> = {
   status: 'agendado',
   studentId: '',
   studentName: '',
+  recurrence: 'none',
+  recurrenceEndDate: '',
 };
+
+const RECURRENCE_LABELS: Record<string, string> = {
+  none: 'Não repetir',
+  weekly: 'Toda semana',
+  biweekly: 'A cada 2 semanas',
+  monthly: 'Todo mês',
+};
+
+function generateRecurringDates(startDate: string, recurrence: string, endDate: string): string[] {
+  const dates: string[] = [];
+  const start = new Date(startDate + 'T12:00:00');
+  const end = new Date(endDate + 'T12:00:00');
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return dates;
+  const current = new Date(start);
+  while (current <= end) {
+    dates.push(current.toISOString().slice(0, 10));
+    if (recurrence === 'weekly') current.setDate(current.getDate() + 7);
+    else if (recurrence === 'biweekly') current.setDate(current.getDate() + 14);
+    else if (recurrence === 'monthly') current.setMonth(current.getMonth() + 1);
+    else break;
+    if (dates.length > 104) break; // safety cap: ~2 years weekly
+  }
+  return dates;
+}
 
 export const AppointmentsView: React.FC<AppointmentsViewProps> = ({
   students,
@@ -141,23 +167,52 @@ export const AppointmentsView: React.FC<AppointmentsViewProps> = ({
 
   const handleSave = () => {
     if (!form.title?.trim() || !form.date || !form.time) return;
-    const apt: Appointment = {
-      id: editingApt?.id ?? crypto.randomUUID(),
-      title: form.title!,
-      date: form.date!,
-      time: form.time!,
-      duration: form.duration ?? 50,
-      type: form.type ?? 'AEE',
-      professional: form.professional ?? user.name,
-      location: form.location,
-      notes: form.notes,
-      status: form.status ?? 'agendado',
-      studentId: form.studentId,
-      studentName: form.studentName,
-      createdAt: editingApt?.createdAt ?? new Date().toISOString(),
-    };
-    if (editingApt) onUpdateAppointment(apt);
-    else onAddAppointment(apt);
+    const isRecurring = !editingApt && form.recurrence && form.recurrence !== 'none' && form.recurrenceEndDate;
+    const groupId = isRecurring ? crypto.randomUUID() : undefined;
+
+    if (isRecurring) {
+      const dates = generateRecurringDates(form.date!, form.recurrence!, form.recurrenceEndDate!);
+      dates.forEach(date => {
+        const apt: Appointment = {
+          id: crypto.randomUUID(),
+          title: form.title!,
+          date,
+          time: form.time!,
+          duration: form.duration ?? 50,
+          type: form.type ?? 'AEE',
+          professional: form.professional ?? user.name,
+          location: form.location,
+          notes: form.notes,
+          status: 'agendado',
+          studentId: form.studentId,
+          studentName: form.studentName,
+          createdAt: new Date().toISOString(),
+          recurrence: form.recurrence,
+          recurrenceGroupId: groupId,
+        };
+        onAddAppointment(apt);
+      });
+    } else {
+      const apt: Appointment = {
+        id: editingApt?.id ?? crypto.randomUUID(),
+        title: form.title!,
+        date: form.date!,
+        time: form.time!,
+        duration: form.duration ?? 50,
+        type: form.type ?? 'AEE',
+        professional: form.professional ?? user.name,
+        location: form.location,
+        notes: form.notes,
+        status: form.status ?? 'agendado',
+        studentId: form.studentId,
+        studentName: form.studentName,
+        createdAt: editingApt?.createdAt ?? new Date().toISOString(),
+        recurrence: form.recurrence,
+        recurrenceGroupId: editingApt?.recurrenceGroupId,
+      };
+      if (editingApt) onUpdateAppointment(apt);
+      else onAddAppointment(apt);
+    }
     setShowForm(false);
     setEditingApt(null);
   };
@@ -366,6 +421,11 @@ export const AppointmentsView: React.FC<AppointmentsViewProps> = ({
                             <span className="text-[10px]">
                               {apt.time} · {apt.duration}min
                             </span>
+                            {apt.recurrenceGroupId && (
+                              <span className="text-[9px] font-bold px-1 rounded-full ml-1" style={{ background: '#E0F2FE', color: '#0369A1' }}>
+                                Recorrente
+                              </span>
+                            )}
                           </div>
                           {apt.studentName && (
                             <div className="flex items-center gap-1 mt-0.5" style={{ color: C.textSec }}>
@@ -578,6 +638,36 @@ export const AppointmentsView: React.FC<AppointmentsViewProps> = ({
                 </select>
               </Field>
 
+              {!editingApt && (
+                <div className="rounded-xl p-4 space-y-3" style={{ background: C.bg, border: `1.5px solid ${C.border}` }}>
+                  <div className="text-xs font-bold" style={{ color: C.dark }}>Repetição</div>
+                  <Field label="Frequência">
+                    <select
+                      className="w-full rounded-xl px-4 py-2.5 text-sm outline-none"
+                      style={{ border: `1.5px solid ${C.border}`, background: C.surface }}
+                      value={form.recurrence ?? 'none'}
+                      onChange={e => setForm(f => ({ ...f, recurrence: e.target.value as Appointment['recurrence'] }))}
+                    >
+                      {Object.entries(RECURRENCE_LABELS).map(([v, l]) => (
+                        <option key={v} value={v}>{l}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  {form.recurrence && form.recurrence !== 'none' && (
+                    <Field label="Repetir até (data final)*">
+                      <input
+                        type="date"
+                        className="w-full rounded-xl px-4 py-2.5 text-sm outline-none"
+                        style={{ border: `1.5px solid ${C.border}`, background: C.surface }}
+                        value={form.recurrenceEndDate ?? ''}
+                        min={form.date ?? ''}
+                        onChange={e => setForm(f => ({ ...f, recurrenceEndDate: e.target.value }))}
+                      />
+                    </Field>
+                  )}
+                </div>
+              )}
+
               <Field label="Observações">
                 <AudioEnhancedTextarea
                   fieldId="observacoes"
@@ -602,7 +692,11 @@ export const AppointmentsView: React.FC<AppointmentsViewProps> = ({
                 className="flex-1 rounded-xl py-2.5 text-sm font-bold text-white transition"
                 style={{ background: C.petrol }}
               >
-                {editingApt ? 'Salvar alterações' : 'Criar agendamento'}
+                {editingApt
+                  ? 'Salvar alterações'
+                  : form.recurrence && form.recurrence !== 'none' && form.recurrenceEndDate
+                    ? `Criar agendamentos recorrentes`
+                    : 'Criar agendamento'}
               </button>
             </div>
           </div>

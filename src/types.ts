@@ -355,6 +355,9 @@ export interface Appointment {
   notes?: string;
   status: 'agendado' | 'realizado' | 'cancelado' | 'reagendado';
   createdAt: string;
+  recurrence?: 'none' | 'weekly' | 'biweekly' | 'monthly';
+  recurrenceEndDate?: string;
+  recurrenceGroupId?: string;
 }
 
 export interface TimelineEvent {

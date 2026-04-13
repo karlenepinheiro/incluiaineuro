@@ -153,33 +153,65 @@ class GeminiProvider implements AIProvider {
   }
 
   async generateImage(prompt: string): Promise<string> {
-    if (!this.genAiClient) {
-      throw new Error('CONFIG_GEMINI');
-    }
-    const safePrompt = [
-      'Ilustração educativa infantil para impressão pedagógica (A4).',
-      'Traço limpo, alto contraste, poucos elementos visuais, SEM texto na imagem.',
-      'Estilo: livro didático inclusivo, cores suaves, fundo branco, amigável.',
-      `Tema: ${prompt}`,
-    ].join(' ');
+    const errors: string[] = [];
+
+    // ── Estágio 1 (PRIMÁRIO): Imagen 4.0 via Vertex AI ──────────────────────
+    // Usa VITE_GOOGLE_PROJECT_ID + VITE_GOOGLE_LOCATION para billing no Cloud.
+    // Requer Vertex AI habilitado no projeto Google Cloud configurado no .env.
     try {
-      const response = await this.genAiClient.models.generateContent({
-        model: this.imageModelId,
-        contents: safePrompt,
-        config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
-      });
-      const parts = response.candidates?.[0]?.content?.parts ?? [];
-      for (const part of parts) {
-        if (part.inlineData?.data && part.inlineData?.mimeType) {
-          return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+      console.info('[GeminiProvider] Tentando Imagen 4.0 (Vertex AI)...');
+      const { ImageGenerationService } = await import('./imageGenerationService');
+      const result = await ImageGenerationService.generateWithFallback(prompt);
+      console.info('[GeminiProvider] ✓ Imagen 4.0 OK');
+      return result.base64DataUrl;
+    } catch (imagenErr: any) {
+      const msg = imagenErr?.message || String(imagenErr);
+      errors.push(`Imagen 4.0: ${msg}`);
+      console.warn('[GeminiProvider] Imagen 4.0 falhou:', msg);
+    }
+
+    // ── Estágio 2 (BACKUP): Gemini Flash image generation ───────────────────
+    // Funciona com chave Gemini padrão, sem Vertex AI.
+    if (this.genAiClient) {
+      const safePrompt = [
+        'Ilustração educativa infantil para impressão pedagógica (A4).',
+        'Traço limpo, alto contraste, poucos elementos visuais, SEM texto na imagem.',
+        'Estilo: livro didático inclusivo, cores suaves, fundo branco, amigável.',
+        `Tema: ${prompt}`,
+      ].join(' ');
+
+      for (const modelId of [this.imageModelId, 'gemini-2.0-flash-exp']) {
+        try {
+          console.info(`[GeminiProvider] Backup: tentando ${modelId}...`);
+          const response = await this.genAiClient.models.generateContent({
+            model: modelId,
+            contents: safePrompt,
+            config: { responseModalities: [Modality.IMAGE, Modality.TEXT] },
+          });
+          const parts = response.candidates?.[0]?.content?.parts ?? [];
+          for (const part of parts) {
+            if (part.inlineData?.data && part.inlineData?.mimeType) {
+              console.info(`[GeminiProvider] ✓ ${modelId} OK (backup)`);
+              return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+            }
+          }
+          errors.push(`${modelId}: resposta sem dados de imagem`);
+        } catch (e: any) {
+          const msg = e?.message || String(e);
+          errors.push(`${modelId}: ${msg}`);
+          console.warn(`[GeminiProvider] ${modelId} falhou:`, msg);
         }
       }
-      throw new Error('Gemini não retornou imagem na resposta.');
-    } catch (e: any) {
-      const msg = e?.message || String(e);
-      console.error('[Gemini] generateImage ERRO:', msg);
-      throw new Error(`Gemini Imagem (${this.imageModelId}): ${msg}`);
+    } else {
+      errors.push('Gemini Flash: cliente não inicializado');
     }
+
+    // Todos os estágios falharam — mensagem detalhada
+    throw new Error(
+      `Geração de imagem falhou em todos os modelos.\n` +
+      errors.map((e, i) => `  ${i + 1}. ${e}`).join('\n') +
+      `\n\nVerifique VITE_GEMINI_API_KEY, VITE_GOOGLE_PROJECT_ID e VITE_GOOGLE_LOCATION no .env.`
+    );
   }
 }
 
@@ -285,17 +317,28 @@ class FallbackProvider implements AIProvider {
     }
 
     async generateImage(prompt: string): Promise<string> {
-        // Gemini é o provider padrão para geração de imagens.
-        // OpenAI DALL-E 3 é usado apenas como fallback se Gemini falhar.
+        // Primário: Gemini (Gemini Flash → Imagen 4.0)
         if (this.hasGemini) {
             try {
                 return await this.gemini.generateImage(prompt);
-            } catch (e: any) {
-                console.warn('[FallbackProvider] Gemini imagem falhou, tentando OpenAI:', e?.message);
+            } catch (geminiErr: any) {
+                const geminiMsg = geminiErr?.message || String(geminiErr);
+                console.warn('[FallbackProvider] Gemini imagem falhou:', geminiMsg);
+                // Fallback final: OpenAI DALL-E 3 (requer VITE_OPENAI_API_KEY)
                 if (this.hasOpenAI) {
-                    return this.openai.generateImage(prompt);
+                    try {
+                        return await this.openai.generateImage(prompt);
+                    } catch (openaiErr: any) {
+                        const openaiMsg = openaiErr?.message || String(openaiErr);
+                        throw new Error(
+                            `Nenhuma imagem foi gerada.\n` +
+                            `• Google (Gemini/Imagen): ${geminiMsg.split('\n')[0]}\n` +
+                            `• OpenAI (DALL-E 3): ${openaiMsg}`
+                        );
+                    }
                 }
-                throw e;
+                // Sem OpenAI — relança o erro do Gemini com contexto
+                throw new Error(`Nenhuma imagem foi gerada. ${geminiMsg.split('\n')[0]}`);
             }
         }
         if (this.hasOpenAI) {
@@ -376,14 +419,14 @@ export const AI_MODEL_CONFIGS: AIModelConfig[] = [
   },
   {
     id: 'nano_banana_pro',
-    name: 'Nano Banana Pro',
+    name: 'Imagen 4.0',
     provider: 'gemini',
     output_type: 'text_image',
-    credit_cost: INCLUILAB_MODEL_COSTS.NANO_BANANA, // 30 créditos — regra oficial (passado como costOverride para generateImageFromPrompt)
+    credit_cost: INCLUILAB_MODEL_COSTS.GPT_IMAGE,
     active: true,
     allowed_contexts: ['activities', 'incluilab'],
-    description: 'Texto + imagem pedagógica (Gemini)',
-    warning: `Consome ${INCLUILAB_MODEL_COSTS.NANO_BANANA} créditos por geração`,
+    description: 'Texto + imagem pedagógica (Imagen 4.0 · Google)',
+    warning: `Consome ${INCLUILAB_MODEL_COSTS.GPT_IMAGE} créditos por geração`,
   },
   {
     id: 'chatgpt_imagem',
@@ -391,9 +434,9 @@ export const AI_MODEL_CONFIGS: AIModelConfig[] = [
     provider: 'openai',
     output_type: 'text_image',
     credit_cost: INCLUILAB_MODEL_COSTS.GPT_IMAGE,
-    active: false, // desativado — IncluiLAB usa exclusivamente Gemini
+    active: false, // desativado — substituído pelo Imagen 4.0
     allowed_contexts: ['activities', 'incluilab'],
-    description: 'Texto + DALL-E 3 (desativado)',
+    description: 'Texto + imagem (desativado)',
   },
 ];
 
@@ -592,7 +635,9 @@ export const AIService = {
 Gere um documento completo do tipo "${docLabel}" para o aluno abaixo.
 
 Dados cadastrais do aluno:
-- Nome: ${student.name}
+- Nome do aluno: ${student.name}
+- Responsável legal: ${student.guardianName || '—'}
+- Telefone do responsável: ${student.guardianPhone || '—'}
 - Diagnóstico(s): ${diagnosis}
 - CID: ${cid}
 - Nível de Suporte: ${student.supportLevel || 'Não informado'}
@@ -602,8 +647,11 @@ Dados cadastrais do aluno:
 - Série/Turno: ${student.grade || '—'} / ${student.shift || '—'}
 - Professor Regente: ${student.regentTeacher || '—'}
 - Professor AEE: ${student.aeeTeacher || '—'}
+- Coordenação: ${(student as any).coordinator || '—'}
 - Contexto familiar: ${student.familyContext || 'Não informado'}
 - Histórico escolar: ${student.schoolHistory || 'Não informado'}
+
+IMPORTANTE: "Nome do aluno" refere-se APENAS ao estudante. "Responsável legal" é o adulto guardião. "Professor Regente" e "Professor AEE" são educadores. Nunca confunda ou misture essas identidades no documento gerado.
 
 ${ctxBlock}
 

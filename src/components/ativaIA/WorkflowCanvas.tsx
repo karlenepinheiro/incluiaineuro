@@ -399,11 +399,11 @@ const ComposicaoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
       <Handle type="target" position={Position.Left}  style={{ background: C.petrol, border: `2px solid ${C.surface}`, width: 10, height: 10 }} />
       <Handle type="source" position={Position.Right} style={{ background: C.petrol, border: `2px solid ${C.surface}`, width: 10, height: 10 }} />
 
-      {/* Model — imagens sempre via DALL-E 3 (OpenAI) */}
+      {/* Model — imagens via Imagen 4.0 (Google) */}
       <div style={{ background: C.petrol + '10', border: `1px solid ${C.petrol}30`, borderRadius: 10, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 13 }}>🎨</span>
         <div>
-          <span style={{ fontSize: 11, fontWeight: 700, color: C.dark }}>DALL-E 3 (OpenAI)</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.dark }}>Imagen 4.0 (Google)</span>
           <span style={{ display: 'block', fontSize: 9, color: C.textSec }}>Alta qualidade visual · {AI_CREDIT_COSTS.IMAGEM_PREMIUM} créditos/imagem</span>
         </div>
       </div>
@@ -1618,7 +1618,7 @@ Retorne SOMENTE JSON: {"code":"EF00XX00","description":"Descrição completa","j
         let imagePrompts: string[] = [];
         const count = curFinal.imageCount;
         // Custo real por imagem conforme modelo selecionado pelo usuário
-        const costPerImage = AI_CREDIT_COSTS.IMAGEM_PREMIUM; // sempre DALL-E 3
+        const costPerImage = AI_CREDIT_COSTS.IMAGEM_PREMIUM; // Imagen 4.0 (Google)
 
         if (curFinal.uploadPreview) {
           const raw = await AIService.generateFromPromptWithImage(
@@ -1704,7 +1704,7 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
       const bnccC     = nodes.some(n => n.id === 'bncc')     ? AI_CREDIT_COSTS.TEXTO_SIMPLES     : 0;
       // FIX: usa imagesGenerated (real) e costPerImage correto, não a estimativa do imageCount inicial
       const imageC    = nodes.some(n => n.id === 'composicao')
-        ? AI_CREDIT_COSTS.IMAGEM_PREMIUM * imagesGenerated // sempre DALL-E 3
+        ? AI_CREDIT_COSTS.IMAGEM_PREMIUM * imagesGenerated // Imagen 4.0 (Google)
         : 0;
       const relatorioC = (nodes.some(n => n.id === 'prompt') && !nodes.some(n => n.id === 'composicao') && !nodes.some(n => n.id === 'adaptar')) ? AI_CREDIT_COSTS.RELATORIO_PADRAO : 0;
       const totalCredits = ocrC + adaptarC + bnccC + imageC + relatorioC;
@@ -2142,7 +2142,7 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
           ...(hasOcrNode      ? [{ label: 'OCR — Extrair Texto',    cost: ocrCost,      color: '#7C3AED' }] : []),
           ...(hasAdaptarNode  ? [{ label: 'Adaptação Inclusiva',     cost: adaptarCost,  color: '#D97706' }] : []),
           ...(hasBnccNode     ? [{ label: 'BNCC Smart',              cost: bnccCost,     color: C.petrol  }] : []),
-          ...(hasComposicaoN  ? [{ label: `Imagens (${wf.imageCount}× DALL-E 3)`, cost: imageCost, color: C.dark }] : []),
+          ...(hasComposicaoN  ? [{ label: `Imagens (${wf.imageCount}× Imagen 4.0)`, cost: imageCost, color: C.dark }] : []),
           ...(hasPromptN && !hasComposicaoN && !hasAdaptarNode ? [{ label: 'Relatório Pedagógico', cost: relatorioCost, color: C.dark }] : []),
         ]}
       />
