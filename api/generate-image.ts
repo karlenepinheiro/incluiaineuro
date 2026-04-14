@@ -148,7 +148,7 @@ export default async function handler(req: any, res: any) {
       const response = await client.models.generateImages({
         model,
         prompt: safePrompt,
-        config: { numberOfImages: 1, outputMimeType: 'image/jpeg' },
+        config: { numberOfImages: 1, outputMimeType: 'image/png' },
       });
 
       const imageBytes = response.generatedImages?.[0]?.image?.imageBytes;
@@ -156,12 +156,28 @@ export default async function handler(req: any, res: any) {
         throw new Error(`${model}: Imagen retornou resposta sem bytes de imagem`);
       }
 
-      // Node.js: Buffer.from() — sem depender de btoa() do browser
-      const base64 = Buffer.from(imageBytes as unknown as Uint8Array).toString('base64');
-      const base64DataUrl = `data:image/jpeg;base64,${base64}`;
+      // Vertex AI pode retornar imageBytes como string base64 já codificada
+      // ou como Uint8Array de bytes crus — tratamos os dois casos.
+      let base64: string;
+      if (typeof imageBytes === 'string') {
+        // Já é base64 — usa diretamente (sem re-encodar)
+        base64 = imageBytes;
+        console.info(`[generate-image] imageBytes tipo=string (já base64), len=${imageBytes.length}`);
+      } else {
+        // Uint8Array / Buffer — converte para base64
+        base64 = Buffer.from(imageBytes as unknown as Uint8Array).toString('base64');
+        console.info(`[generate-image] imageBytes tipo=Uint8Array, len=${(imageBytes as any).length}`);
+      }
+
+      const base64DataUrl = `data:image/png;base64,${base64}`;
       const durationMs = Date.now() - startMs;
 
-      console.info(`[generate-image] ✓ ${model} OK em ${durationMs}ms (${(imageBytes as any).length} bytes)`);
+      // Sanity-check: prefixo deve estar correto
+      if (!base64DataUrl.startsWith('data:image/png;base64,')) {
+        throw new Error(`${model}: base64DataUrl com prefixo inesperado`);
+      }
+
+      console.info(`[generate-image] ✓ ${model} OK em ${durationMs}ms | base64 len=${base64.length}`);
 
       return res.status(200).json({
         base64DataUrl,

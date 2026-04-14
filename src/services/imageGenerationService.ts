@@ -188,6 +188,14 @@ export class ImageGenerationService {
     const durationMs = Date.now() - startMs;
     const { base64DataUrl, model, promptUsed } = responseData;
 
+    // Debug: tamanho e prefixo do data URL recebido
+    console.log('[ImageGenerationService] Tamanho da imagem recebida:', base64DataUrl?.length ?? 0);
+    console.log('[ImageGenerationService] Prefixo data URL:', base64DataUrl?.slice(0, 30));
+
+    if (!base64DataUrl || !base64DataUrl.startsWith('data:image/')) {
+      throw new Error('Servidor retornou base64DataUrl inválido ou ausente.');
+    }
+
     console.info(`[ImageGenerationService] ✓ Imagem recebida — modelo: ${model} em ${durationMs}ms`);
 
     ImageGenLogger.append({
