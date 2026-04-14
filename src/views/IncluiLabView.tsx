@@ -13,6 +13,7 @@ import {
 import { User, Student } from '../types';
 import { AIService, getModelsForContext, getModelConfig, modelGeneratesImage, friendlyAIError } from '../services/aiService';
 import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
+import { StudentContextService } from '../services/studentContextService';
 import { WorkflowCanvas as AtivaIACanvas } from '../components/ativaIA/WorkflowCanvas';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -28,7 +29,7 @@ interface RedesignedActivity {
   suggestions: string[];
 }
 
-type Tab             = 'workflow' | 'scanner' | 'redesign';
+type Tab             = 'workflow' | 'scanner' | 'redesign' | 'provas';
 type ActivityModelId = 'texto_apenas' | 'nano_banana_pro' | 'chatgpt_imagem';
 
 const ACTIVITY_MODELS = getModelsForContext('incluilab');
@@ -106,8 +107,90 @@ function printContent(content: string, title: string) {
 }
 
 
-// ─── Seletor de Modelo de Atividade (3 opções) ───────────────────────────────
+// ─── Seletor de Aluno (compartilhado entre abas) ─────────────────────────────
 const MC = { petrol: '#1F4E5F', dark: '#2E3A59', gold: '#C69214', goldLight: '#FDF6E3', surface: '#FFFFFF', border: '#E7E2D8', textSec: '#667085' };
+
+const StudentSelector: React.FC<{
+  students: Student[];
+  selectedId: string;
+  onChange: (studentId: string, contextText: string) => void;
+  loading?: boolean;
+}> = ({ students, selectedId, onChange, loading }) => {
+  const [fetching, setFetching] = React.useState(false);
+
+  const handleChange = async (id: string) => {
+    if (!id) { onChange('', ''); return; }
+    const student = students.find(s => s.id === id);
+    if (!student) { onChange(id, ''); return; }
+
+    // Monta contexto básico do objeto Student
+    let ctxText = '';
+    const parts: string[] = [`Aluno: ${student.name}`];
+    if ((student as any).grade)       parts.push(`Ano/Série: ${(student as any).grade}`);
+    if (student.diagnosis?.length)    parts.push(`Diagnóstico(s): ${student.diagnosis.join(', ')}`);
+    if (student.supportLevel)         parts.push(`Nível de suporte: ${student.supportLevel}`);
+    if (student.difficulties?.length) parts.push(`Principais dificuldades: ${student.difficulties.join('; ')}`);
+    if (student.strategies?.length)   parts.push(`Estratégias PEI/PDI: ${student.strategies.join('; ')}`);
+    if (student.abilities?.length)    parts.push(`Habilidades preservadas: ${student.abilities.join('; ')}`);
+    ctxText = parts.join('\n');
+
+    // Enriquece com dados completos do banco (perfis, fichas, laudos)
+    try {
+      setFetching(true);
+      const fullCtx = await StudentContextService.buildContext(id);
+      if (StudentContextService.hasData(fullCtx)) {
+        ctxText = StudentContextService.toPromptText(fullCtx);
+      }
+    } catch { /* usa contexto básico */ } finally {
+      setFetching(false);
+    }
+
+    onChange(id, ctxText);
+  };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: MC.dark, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+        Aluno (opcional — personaliza a adaptação)
+      </label>
+      <div style={{ position: 'relative' }}>
+        <select
+          value={selectedId}
+          onChange={e => handleChange(e.target.value)}
+          disabled={loading || fetching}
+          style={{
+            width: '100%', padding: '9px 36px 9px 12px', borderRadius: 10, fontSize: 13,
+            border: `1.5px solid ${selectedId ? MC.petrol : MC.border}`,
+            background: selectedId ? '#F0F7FA' : MC.surface,
+            color: selectedId ? MC.petrol : '#6B7280',
+            fontWeight: selectedId ? 600 : 400,
+            outline: 'none', cursor: 'pointer', appearance: 'none',
+          }}
+        >
+          <option value="">— Sem aluno específico —</option>
+          {students.map(s => (
+            <option key={s.id} value={s.id}>
+              {s.name}{s.diagnosis?.length ? ` · ${s.diagnosis[0]}` : ''}
+            </option>
+          ))}
+        </select>
+        <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: MC.petrol, fontSize: 12 }}>
+          {fetching ? '⌛' : '▾'}
+        </span>
+      </div>
+      {selectedId && !fetching && (
+        <p style={{ fontSize: 10, color: MC.petrol, marginTop: 4, fontWeight: 500 }}>
+          ✓ Prontuário carregado — a IA usará os dados reais deste aluno no prompt.
+        </p>
+      )}
+      {fetching && (
+        <p style={{ fontSize: 10, color: MC.textSec, marginTop: 4 }}>⌛ Carregando prontuário do banco…</p>
+      )}
+    </div>
+  );
+};
+
+// ─── Seletor de Modelo de Atividade (3 opções) ───────────────────────────────
 
 const ModelSelector: React.FC<{
   model: ActivityModelId;
@@ -251,9 +334,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, de
   }, [defaultTab]);
 
   const modules = [
-    { id: 'workflow' as Tab, icon: Zap,      label: 'AtivaIA',    subtitle: 'Canvas de Atividades', desc: 'Crie fluxos visuais de geração de atividades — envie imagem, escreva o prompt e a IA gera imagens pedagógicas.', iconBg: 'bg-brand-600' },
-    { id: 'scanner'  as Tab, icon: Upload,   label: 'EduLensIA',  subtitle: 'Scanner Pedagógico',   desc: 'Envie foto ou PDF de qualquer atividade e adapte instantaneamente para TEA, TDAH, Dislexia ou DI.', iconBg: 'bg-orange-500' },
-    { id: 'redesign' as Tab, icon: Sparkles, label: 'NeuroDesign', subtitle: 'Redesenho Inclusivo', desc: 'Cole qualquer texto e transforme com layout pedagógico acessível, pictogramas e organização visual.',  iconBg: 'bg-amber-500'  },
+    { id: 'workflow' as Tab, icon: Zap,       label: 'AtivaIA',          subtitle: 'Canvas de Atividades',   desc: 'Crie fluxos visuais de geração de atividades — envie imagem, escreva o prompt e a IA gera imagens pedagógicas.', iconBg: 'bg-brand-600'   },
+    { id: 'scanner'  as Tab, icon: Upload,    label: 'EduLensIA',         subtitle: 'Scanner Pedagógico',     desc: 'Envie foto ou PDF de qualquer atividade e adapte instantaneamente para TEA, TDAH, Dislexia ou DI.', iconBg: 'bg-orange-500' },
+    { id: 'redesign' as Tab, icon: Sparkles,  label: 'NeuroDesign',       subtitle: 'Redesenho Inclusivo',    desc: 'Cole qualquer texto e transforme com layout pedagógico acessível, pictogramas e organização visual.',  iconBg: 'bg-amber-500'  },
+    { id: 'provas'   as Tab, icon: FileText,  label: 'Provas Adaptadas',  subtitle: 'Avaliação Inclusiva',    desc: 'Cole ou escreva uma prova e a IA adapta automaticamente para o perfil real do aluno selecionado.', iconBg: 'bg-teal-600'   },
   ];
 
   // ── HUB ──
@@ -266,6 +350,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, de
           .lab-card:nth-child(1){animation-delay:.05s}
           .lab-card:nth-child(2){animation-delay:.15s}
           .lab-card:nth-child(3){animation-delay:.25s}
+          .lab-card:nth-child(4){animation-delay:.35s}
           .lab-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(234,88,12,0.14)}
         `}</style>
         <div className="max-w-4xl mx-auto">
@@ -276,7 +361,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, de
             <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight mb-2">IncluiLAB</h1>
             <p className="text-base text-gray-500 max-w-md mx-auto">Laboratório de Atividades Inclusivas com Inteligência Artificial</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {modules.map(m => {
               const Icon = m.icon;
               return (
@@ -346,8 +431,9 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, de
 
       <div className="max-w-6xl mx-auto p-4 md:p-6">
         {activeTab === 'workflow' && <AtivaIACanvas user={user} students={students as any} sidebarOpen={sidebarOpen} onWorkflowNodesChange={onWorkflowNodesChange} />}
-        {activeTab === 'scanner'  && <ScannerTab user={user} creditsAvailable={creditsAvailable} />}
-        {activeTab === 'redesign' && <RedesignTab user={user} creditsAvailable={creditsAvailable} />}
+        {activeTab === 'scanner'  && <ScannerTab  user={user} students={students} creditsAvailable={creditsAvailable} />}
+        {activeTab === 'redesign' && <RedesignTab user={user} students={students} creditsAvailable={creditsAvailable} />}
+        {activeTab === 'provas'   && <ProvasTab   user={user} students={students} creditsAvailable={creditsAvailable} />}
       </div>
     </div>
   );
@@ -356,7 +442,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, de
 // ═══════════════════════════════════════════════════════════════════════════════
 // EDULEISIA — Scanner Pedagógico
 // ═══════════════════════════════════════════════════════════════════════════════
-const ScannerTab: React.FC<{ user: User; creditsAvailable?: number }> = ({ user, creditsAvailable }) => {
+const ScannerTab: React.FC<{ user: User; students: Student[]; creditsAvailable?: number }> = ({ user, students, creditsAvailable }) => {
   const [file, setFile]                   = useState<File | null>(null);
   const [preview, setPreview]             = useState<string | null>(null);
   const [adaptationType, setAdaptationType] = useState('autismo');
@@ -365,6 +451,8 @@ const ScannerTab: React.FC<{ user: User; creditsAvailable?: number }> = ({ user,
   const [result, setResult]               = useState<AdaptedActivity | null>(null);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [imageError, setImageError]               = useState<string | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [studentCtxText, setStudentCtxText]       = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraRef    = useRef<HTMLInputElement>(null);
 
@@ -392,7 +480,10 @@ const ScannerTab: React.FC<{ user: User; creditsAvailable?: number }> = ({ user,
     try {
       const base64 = await fileToBase64(file);
       const adaptLabel = ADAPTATION_TYPES.find(a => a.id === adaptationType)?.label || adaptationType;
-      const prompt = `Você é um especialista em educação inclusiva. Analise o conteúdo desta atividade educacional (extraia o texto se for imagem) e crie uma versão adaptada para alunos com ${adaptLabel}.
+      const studentBlock = studentCtxText
+        ? `\n\n${studentCtxText}\n\nIMPORTANTE: Adapte especificamente para este aluno, considerando seu diagnóstico, dificuldades e estratégias acima.`
+        : '';
+      const prompt = `Você é um especialista em educação inclusiva. Analise o conteúdo desta atividade educacional (extraia o texto se for imagem) e crie uma versão adaptada para alunos com ${adaptLabel}.${studentBlock}
 
 Regras:
 - Simplifique a linguagem sem perder o objetivo pedagógico
@@ -469,6 +560,12 @@ Retorne SOMENTE um JSON válido:
           </h2>
         </div>
         <ModelSelector model={model} onChange={setModel} baseCost={OCR_COST} />
+        <StudentSelector
+          students={students}
+          selectedId={selectedStudentId}
+          onChange={(id, ctx) => { setSelectedStudentId(id); setStudentCtxText(ctx); }}
+          loading={loading}
+        />
 
         <div onClick={() => fileInputRef.current?.click()}
           className="border-2 border-dashed border-orange-200 rounded-2xl p-8 text-center cursor-pointer hover:border-brand-400 hover:bg-orange-50 transition mb-4">
@@ -620,13 +717,15 @@ Retorne SOMENTE um JSON válido:
 // ═══════════════════════════════════════════════════════════════════════════════
 // NEURODESIGN — Redesenho Inclusivo
 // ═══════════════════════════════════════════════════════════════════════════════
-const RedesignTab: React.FC<{ user: User; creditsAvailable?: number }> = ({ user, creditsAvailable }) => {
+const RedesignTab: React.FC<{ user: User; students: Student[]; creditsAvailable?: number }> = ({ user, students, creditsAvailable }) => {
   const [inputText, setInputText]         = useState('');
   const [model, setModel]                 = useState<ActivityModelId>('texto_apenas');
   const [loading, setLoading]             = useState(false);
   const [result, setResult]               = useState<RedesignedActivity | null>(null);
   const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
   const [imageError, setImageError]               = useState<string | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [studentCtxText, setStudentCtxText]       = useState('');
 
   const imgCost      = imageCostFor(model);
   const totalCredits = redesignTotalCost(model);
@@ -644,8 +743,11 @@ const RedesignTab: React.FC<{ user: User; creditsAvailable?: number }> = ({ user
 
     setLoading(true); setResult(null); setGeneratedImageUrl(null); setImageError(null);
     try {
+      const studentBlock = studentCtxText
+        ? `\n\n${studentCtxText}\n\nAdapte o redesenho especificamente para este aluno, priorizando suas dificuldades e estratégias indicadas acima.`
+        : '';
       const prompt = `Você é um designer instrucional especialista em educação inclusiva.
-Receba esta atividade e faça um REDESENHO PEDAGÓGICO INCLUSIVO completo.
+Receba esta atividade e faça um REDESENHO PEDAGÓGICO INCLUSIVO completo.${studentBlock}
 
 ATIVIDADE ORIGINAL:
 ${inputText}
@@ -726,6 +828,12 @@ Retorne SOMENTE um JSON válido:
         </div>
         <p className="text-sm text-gray-500 mb-4">Cole qualquer atividade existente e a IA vai redesenhá-la com layout pedagógico acessível.</p>
         <ModelSelector model={model} onChange={setModel} baseCost={0} />
+        <StudentSelector
+          students={students}
+          selectedId={selectedStudentId}
+          onChange={(id, ctx) => { setSelectedStudentId(id); setStudentCtxText(ctx); }}
+          loading={loading}
+        />
 
         <textarea value={inputText} onChange={e => setInputText(e.target.value)}
           placeholder="Cole aqui o texto da atividade que deseja redesenhar…"
@@ -850,6 +958,195 @@ Retorne SOMENTE um JSON válido:
         </div>
         );
       })()}
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROVAS ADAPTADAS — Avaliação Inclusiva personalizada por aluno
+// ═══════════════════════════════════════════════════════════════════════════════
+const ProvasTab: React.FC<{ user: User; students: Student[]; creditsAvailable?: number }> = ({ user, students, creditsAvailable }) => {
+  const [inputText, setInputText]                 = useState('');
+  const [model, setModel]                         = useState<ActivityModelId>('texto_apenas');
+  const [loading, setLoading]                     = useState(false);
+  const [result, setResult]                       = useState<string | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [studentCtxText, setStudentCtxText]       = useState('');
+  const [studentName, setStudentName]             = useState('');
+
+  const totalCredits = TEXT_COST + imageCostFor(model);
+
+  const handleGenerate = async () => {
+    if (!inputText.trim()) { alert('Cole o conteúdo da prova que deseja adaptar.'); return; }
+
+    const hasCredits = creditsAvailable !== undefined
+      ? creditsAvailable >= totalCredits
+      : await AIService.checkCredits(user, totalCredits);
+    if (!hasCredits) { alert(CREDIT_INSUFFICIENT_MSG); return; }
+
+    setLoading(true); setResult(null);
+    try {
+      const selectedStudent = students.find(s => s.id === selectedStudentId);
+      const studentHeader = selectedStudent
+        ? `para o aluno **${selectedStudent.name}**`
+        : 'para um aluno com necessidades educacionais especiais';
+
+      const ctxBlock = studentCtxText
+        ? `\n\n${studentCtxText}\n\nIMPORTANTE: Adapte EXCLUSIVAMENTE para este aluno, considerando cada característica listada acima. Cite as estratégias do prontuário quando aplicável.`
+        : '';
+
+      const prompt = `Você é especialista em avaliação inclusiva e educação especial.
+Adapte a prova/avaliação a seguir ${studentHeader}.${ctxBlock}
+
+PROVA ORIGINAL:
+${inputText}
+
+INSTRUÇÕES DE ADAPTAÇÃO:
+1. Mantenha os objetivos pedagógicos e os conteúdos avaliados
+2. Simplifique enunciados longos em partes menores e numeradas
+3. Use linguagem clara, direta e sem ambiguidades
+4. Adicione espaços maiores para resposta onde necessário
+5. Sugira apoios visuais entre colchetes quando pertinente: [Imagem sugerida: ...]
+6. Ajuste o nível de complexidade ao perfil do aluno
+7. Use **negrito** para palavras-chave e termos importantes
+8. Se houver cálculos, forneça suporte concreto (ex.: tabela de apoio)
+9. Separe cada questão com uma linha horizontal (---)
+10. Ao final, adicione uma seção "📋 Orientações ao Professor" com instruções de aplicação
+
+Formate a saída como uma prova completa, pronta para impressão, em Markdown limpo.
+Comece com: # Prova Adaptada — [Nome do Aluno ou "Avaliação Inclusiva"]`;
+
+      const raw = await AIService.generateFromPrompt(prompt, user);
+      setResult(raw);
+
+      try {
+        await safeDeductCredits(user, `PROVAS_ADAPTADAS:${model}`, TEXT_COST);
+      } catch (e: any) {
+        console.error('[ProvasAdaptadas] falha ao debitar créditos:', e?.message);
+      }
+
+      try {
+        const { GeneratedActivityService } = await import('../services/persistenceService');
+        await GeneratedActivityService.save({
+          tenantId:    (user as any).tenant_id ?? '',
+          userId:      user.id,
+          title:       `Prova Adaptada — ${selectedStudent?.name ?? 'Avaliação'} (${new Date().toLocaleDateString('pt-BR')})`,
+          content:     raw,
+          isAdapted:   true,
+          creditsUsed: TEXT_COST,
+          tags:        ['prova', 'avaliacao', model, selectedStudentId].filter(Boolean),
+        });
+      } catch (saveErr: any) {
+        console.warn('[ProvasAdaptadas] falha ao salvar no banco:', saveErr?.message);
+      }
+    } catch (e: any) {
+      alert(friendlyAIError(e));
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* ── Formulário ── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+          <h2 className="font-bold text-gray-800 text-lg flex items-center gap-2">
+            <FileText size={18} className="text-teal-600" /> Provas Adaptadas
+          </h2>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">
+          Cole o conteúdo de uma prova ou avaliação. Selecione o aluno e a IA adaptará usando o prontuário real do banco.
+        </p>
+
+        <ModelSelector model={model} onChange={setModel} baseCost={0} />
+
+        <StudentSelector
+          students={students}
+          selectedId={selectedStudentId}
+          onChange={(id, ctx) => {
+            setSelectedStudentId(id);
+            setStudentCtxText(ctx);
+            const s = students.find(st => st.id === id);
+            setStudentName(s?.name ?? '');
+          }}
+          loading={loading}
+        />
+
+        <textarea
+          value={inputText}
+          onChange={e => setInputText(e.target.value)}
+          placeholder="Cole aqui o conteúdo da prova ou avaliação original…"
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300 resize-none"
+          rows={10}
+        />
+
+        {/* Preflight de créditos */}
+        <div className="mt-3 mb-4 bg-teal-50 border border-teal-100 rounded-xl px-4 py-3 text-xs space-y-1">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Coins size={13} className="text-teal-600 shrink-0" />
+            <span className="font-bold text-gray-700">Custo previsto</span>
+          </div>
+          <div className="flex justify-between text-gray-600">
+            <span>Adaptação pedagógica da prova</span>
+            <strong className="text-teal-700">{TEXT_COST} créditos</strong>
+          </div>
+          {modelGeneratesImage(model) && (
+            <div className="flex justify-between text-gray-600">
+              <span>Geração de imagem ({getModelConfig(model).name})</span>
+              <strong className="text-teal-700">{imageCostFor(model)} créditos</strong>
+            </div>
+          )}
+          <div className="flex justify-between font-bold text-gray-800 border-t border-teal-200 pt-1.5 mt-0.5">
+            <span>Total</span>
+            <strong className="text-teal-700">{totalCredits} créditos</strong>
+          </div>
+        </div>
+
+        <button
+          onClick={handleGenerate}
+          disabled={loading}
+          className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition shadow-lg disabled:opacity-60"
+          style={{ background: '#0D9488', color: '#fff', boxShadow: '0 4px 14px rgba(13,148,136,0.25)' }}
+        >
+          {loading
+            ? <><Loader size={16} className="animate-spin" /> Adaptando prova…</>
+            : <><Brain size={16} /> Adaptar Prova com IA</>}
+        </button>
+      </div>
+
+      {/* ── Resultado — folha A4 ── */}
+      {result && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <div className="flex items-center gap-2">
+              <CheckCircle size={16} className="text-teal-600" />
+              <span className="text-sm font-bold text-teal-700">
+                Prova Adaptada{studentName ? ` — ${studentName}` : ''}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => exportAsDoc(result, `prova_adaptada${studentName ? '_' + studentName.replace(/\s+/g, '_') : ''}.doc`)}
+                className="flex items-center gap-1 text-[11px] px-3 py-1.5 rounded-lg border border-teal-200 text-teal-700 font-bold hover:bg-teal-50"
+              >
+                <Download size={11} /> DOCX
+              </button>
+              <button
+                onClick={() => printContent(result, `Prova Adaptada${studentName ? ' — ' + studentName : ''}`)}
+                className="flex items-center gap-1 text-[11px] px-3 py-1.5 rounded-lg border border-teal-200 text-teal-700 font-bold hover:bg-teal-50"
+              >
+                <Printer size={11} /> Imprimir / PDF
+              </button>
+            </div>
+          </div>
+
+          {/* Corpo simulando folha A4 */}
+          <div style={{ padding: '32px 40px', maxWidth: 794, margin: '0 auto' }}>
+            <div className="folha-a4">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
