@@ -105,6 +105,31 @@ interface NodeData extends WorkflowState {
 const fileToBase64 = (f: File): Promise<string> =>
   new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(f); });
 
+/**
+ * Detecta se uma string é um JSON de geração de imagem retornado pela IA.
+ * Formato: {"type":"image_generation","base64DataUrl":"data:image/...","..."}
+ * Retorna o base64DataUrl se encontrado, null caso contrário.
+ */
+function extractImageFromJson(content: string): string | null {
+  if (!content || !content.trim().startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(content.trim());
+    if (parsed && parsed.type === 'image_generation' && parsed.base64DataUrl) {
+      return parsed.base64DataUrl as string;
+    }
+    // Tenta campos alternativos usados por diferentes providers
+    if (parsed && (parsed.imageUrl || parsed.image_url || parsed.url)) {
+      const url = parsed.imageUrl || parsed.image_url || parsed.url;
+      if (typeof url === 'string' && (url.startsWith('data:image') || url.startsWith('http'))) {
+        return url;
+      }
+    }
+  } catch {
+    // Não é JSON válido — retorna null
+  }
+  return null;
+}
+
 const calcCredits = (_model: AIModel, imageCount: number) =>
   AI_CREDIT_COSTS.IMAGEM_PREMIUM * imageCount;
 
@@ -507,13 +532,14 @@ const FolhaProntaNode: React.FC<NodeProps> = ({ data, selected, id }) => {
               </div>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-              {d.results.slice(0, 4).map((img, i) => (
-                img.imageUrl
-                  ? <img key={i} src={img.imageUrl} alt="" style={{ borderRadius: 5, aspectRatio: '1', objectFit: 'cover', width: '100%' }} />
+              {d.results.slice(0, 4).map((img, i) => {
+                const url = img.imageUrl ? (extractImageFromJson(img.imageUrl) ?? img.imageUrl) : '';
+                return url
+                  ? <img key={i} src={url} alt="" style={{ borderRadius: 5, aspectRatio: '1', objectFit: 'cover', width: '100%' }} />
                   : <div key={i} style={{ borderRadius: 5, aspectRatio: '1', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <ImageIcon size={14} color={C.borderMid} />
-                    </div>
-              ))}
+                    </div>;
+              })}
             </div>
           </div>
           <button onClick={d.onGeneratePdf}
@@ -534,10 +560,121 @@ const FolhaProntaNode: React.FC<NodeProps> = ({ data, selected, id }) => {
   );
 };
 
+// ─── A4 Print Modal ──────────────────────────────────────────────────────────
+interface A4ModalProps {
+  text: string;
+  imageUrl: string;
+  schoolName?: string;
+  onClose: () => void;
+}
+
+const A4PrintModal: React.FC<A4ModalProps> = ({ text, imageUrl, schoolName, onClose }) => {
+  const handlePrint = () => {
+    const win = window.open('', '_blank');
+    if (!win) return;
+    const escapedText = text
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const imgTag = imageUrl
+      ? `<div class="img-section"><img src="${imageUrl}" alt="Ilustração pedagógica" /></div>`
+      : '';
+    win.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Atividade Pedagógica</title>
+  <style>
+    @page { size: A4; margin: 20mm; }
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; font-size: 12pt; color: #1a1a1a; background: #fff; margin: 0; padding: 0; }
+    .page { width: 170mm; min-height: 237mm; display: flex; flex-direction: column; }
+    .header { border-bottom: 2px solid #1F4E5F; padding-bottom: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+    .header h1 { font-size: 14pt; color: #1F4E5F; margin: 0; }
+    .header .school { font-size: 9pt; color: #667085; }
+    .content { flex: 1; white-space: pre-wrap; line-height: 1.7; font-size: 11pt; }
+    .img-section { margin: 16px 0; text-align: center; }
+    .img-section img { max-width: 100%; max-height: 180mm; object-fit: contain; border-radius: 6px; border: 1px solid #E7E2D8; }
+    .footer { border-top: 1px solid #E7E2D8; padding-top: 6px; margin-top: 16px; font-size: 8pt; color: #999; display: flex; justify-content: space-between; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="header">
+      <h1>Atividade Pedagógica Adaptada</h1>
+      <span class="school">${schoolName ? schoolName.replace(/</g,'&lt;') : 'IncluiAI'}</span>
+    </div>
+    <div class="content">${escapedText}</div>
+    ${imgTag}
+    <div class="footer">
+      <span>Gerado por IncluiAI — inclusão com inteligência</span>
+      <span>${new Date().toLocaleDateString('pt-BR')}</span>
+    </div>
+  </div>
+  <script>window.onload = () => { window.print(); }<\/script>
+</body>
+</html>`);
+    win.document.close();
+  };
+
+  // Layout A4 preview inside modal
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      onClick={onClose}>
+      <div style={{ background: '#fff', borderRadius: 12, maxWidth: 700, width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.35)' }}
+        onClick={e => e.stopPropagation()}>
+        {/* Modal header */}
+        <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: C.bg }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: C.dark }}>Prévia A4 — Atividade Pedagógica</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={handlePrint}
+              style={{ padding: '7px 16px', background: C.petrol, color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Printer size={13} /> Imprimir / Salvar PDF
+            </button>
+            <button onClick={onClose}
+              style={{ padding: '7px 12px', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, cursor: 'pointer', color: C.text }}>
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+        {/* A4 preview */}
+        <div style={{ overflowY: 'auto', padding: 24, background: '#D1D5DB', flex: 1 }}>
+          <div style={{ background: '#fff', margin: '0 auto', width: '100%', maxWidth: 595, minHeight: 842, padding: '28mm 20mm', boxShadow: '0 4px 32px rgba(0,0,0,0.18)', borderRadius: 4, display: 'flex', flexDirection: 'column', fontSize: 11 }}>
+            {/* A4 Header */}
+            <div style={{ borderBottom: `2px solid ${C.petrol}`, paddingBottom: 8, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: 13, color: C.petrol }}>Atividade Pedagógica Adaptada</span>
+              <span style={{ fontSize: 9, color: C.textSec }}>{schoolName || 'IncluiAI'}</span>
+            </div>
+            {/* Activity text */}
+            <div style={{ flex: 1, whiteSpace: 'pre-wrap', lineHeight: 1.7, color: C.text, fontSize: 11 }}>
+              {text}
+            </div>
+            {/* Image */}
+            {imageUrl && (
+              <div style={{ margin: '16px 0', textAlign: 'center' }}>
+                <img
+                  src={imageUrl}
+                  alt="Ilustração pedagógica"
+                  style={{ maxWidth: '100%', maxHeight: 280, objectFit: 'contain', borderRadius: 6, border: `1px solid ${C.border}` }}
+                />
+              </div>
+            )}
+            {/* A4 Footer */}
+            <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 6, marginTop: 16, display: 'flex', justifyContent: 'space-between', fontSize: 8, color: '#999' }}>
+              <span>Gerado por IncluiAI — inclusão com inteligência</span>
+              <span>{new Date().toLocaleDateString('pt-BR')}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
   const d = data as NodeData;
   const isTextOnly = d.results.length === 0 && !!d.adaptedText;
   const isDone = d.nodeStatus === 'done';
+  const [showA4, setShowA4] = React.useState(false);
 
   // FIX: download via blob para contornar bloqueio CORS do atributo download em URLs cross-origin
   const downloadImageBlob = async (url: string, filename: string) => {
@@ -556,8 +693,11 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
 
   const downloadAll = () => {
     d.results.forEach((img, i) => {
-      if (img.imageUrl) {
-        downloadImageBlob(img.imageUrl, `ativaIA_${i + 1}.png`);
+      const resolvedUrl = img.imageUrl
+        ? (extractImageFromJson(img.imageUrl) ?? img.imageUrl)
+        : '';
+      if (resolvedUrl) {
+        downloadImageBlob(resolvedUrl, `ativaIA_${i + 1}.png`);
       }
     });
   };
@@ -586,18 +726,32 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
       )}
 
       {/* Text-only result (relatório / adaptação sem imagens) */}
-      {isDone && isTextOnly && (
+      {isDone && isTextOnly && (() => {
+        const inlineImageUrl = extractImageFromJson(d.adaptedText);
+        return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ background: C.okBg, border: `1px solid ${C.okBorder}`, borderRadius: 10, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
             <CheckCircle size={14} color={C.ok} />
-            <span style={{ fontSize: 12, fontWeight: 700, color: C.ok }}>Documento gerado com sucesso</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: C.ok }}>
+              {inlineImageUrl ? 'Imagem gerada com sucesso' : 'Documento gerado com sucesso'}
+            </span>
           </div>
+          {inlineImageUrl ? (
+            <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
+              <img
+                src={inlineImageUrl}
+                alt="Imagem gerada pela IA"
+                style={{ width: '100%', maxHeight: 280, objectFit: 'contain', display: 'block', background: '#fff' }}
+              />
+            </div>
+          ) : (
           <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 12px', maxHeight: 160, overflowY: 'auto' }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: C.textSec, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Prévia do documento</div>
             <div style={{ fontSize: 11, color: C.text, lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
               {d.adaptedText.slice(0, 500)}{d.adaptedText.length > 500 ? '…' : ''}
             </div>
           </div>
+          )}
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={d.onGeneratePdf}
               style={{ flex: 1, padding: '8px 0', background: C.dark, color: '#fff', border: 'none', borderRadius: 9, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'background .2s' }}
@@ -613,7 +767,8 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
             </button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Image results */}
       {d.results.length > 0 && (
@@ -624,10 +779,15 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
             </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
-            {d.results.map((img, i) => (
+            {d.results.map((img, i) => {
+              // Detecta e extrai URL de image JSON ({"type":"image_generation","base64DataUrl":"..."})
+              const resolvedUrl = img.imageUrl
+                ? (extractImageFromJson(img.imageUrl) ?? img.imageUrl)
+                : '';
+              return (
               <div key={img.id} style={{ background: C.bg, borderRadius: 8, overflow: 'hidden', border: `1px solid ${C.border}` }}>
-                {img.imageUrl
-                  ? <img src={img.imageUrl} alt={`img ${i + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block' }} />
+                {resolvedUrl
+                  ? <img src={resolvedUrl} alt={`img ${i + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block' }} />
                   : <div style={{ width: '100%', aspectRatio: '1', background: `linear-gradient(135deg, ${C.goldLight} 0%, ${C.bg} 100%)`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 6 }}>
                       <ImageIcon size={14} color={C.borderMid} />
                       <span style={{ fontSize: 8, color: C.textSec, textAlign: 'center', marginTop: 2, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as any}>{img.description.slice(0, 50)}</span>
@@ -635,34 +795,59 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
                 }
                 <div style={{ padding: '3px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 9, color: C.textSec, fontWeight: 700 }}>#{i + 1}</span>
-                  {img.imageUrl && (
-                    <button onClick={() => downloadImageBlob(img.imageUrl, `ativaIA_img_${i + 1}.png`)}
+                  {resolvedUrl && (
+                    <button onClick={() => downloadImageBlob(resolvedUrl, `ativaIA_img_${i + 1}.png`)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
                       <Download size={10} color={C.textSec} />
                     </button>
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
           {isDone && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={downloadAll}
-                style={{ flex: 1, padding: '8px 0', border: `1.5px solid ${C.border}`, background: C.surface, borderRadius: 9, fontSize: 11, fontWeight: 700, color: C.text, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all .2s' }}
-                onMouseOver={e => (e.currentTarget.style.background = C.bg)}
-                onMouseOut={e => (e.currentTarget.style.background = C.surface)}>
-                <Download size={12} /> Baixar ({d.results.length})
-              </button>
-              <button onClick={d.onSaveActivity}
-                style={{ flex: 1, padding: '8px 0', background: C.goldLight, color: C.dark, border: `1.5px solid ${C.border}`, borderRadius: 9, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all .2s' }}
-                onMouseOver={e => { (e.currentTarget.style.background = C.gold); (e.currentTarget.style.color = '#fff'); }}
-                onMouseOut={e => { (e.currentTarget.style.background = C.goldLight); (e.currentTarget.style.color = C.dark); }}>
-                <Star size={12} /> Salvar
-              </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {/* A4 layout button — só aparece se há texto E imagem */}
+              {d.adaptedText && d.results.some(r => r.imageUrl || extractImageFromJson(r.imageUrl ?? '')) && (
+                <button onClick={() => setShowA4(true)}
+                  style={{ width: '100%', padding: '8px 0', background: C.petrol, color: '#fff', border: 'none', borderRadius: 9, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <Printer size={12} /> Ver em A4 / Imprimir
+                </button>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={downloadAll}
+                  style={{ flex: 1, padding: '8px 0', border: `1.5px solid ${C.border}`, background: C.surface, borderRadius: 9, fontSize: 11, fontWeight: 700, color: C.text, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all .2s' }}
+                  onMouseOver={e => (e.currentTarget.style.background = C.bg)}
+                  onMouseOut={e => (e.currentTarget.style.background = C.surface)}>
+                  <Download size={12} /> Baixar ({d.results.length})
+                </button>
+                <button onClick={d.onSaveActivity}
+                  style={{ flex: 1, padding: '8px 0', background: C.goldLight, color: C.dark, border: `1.5px solid ${C.border}`, borderRadius: 9, fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all .2s' }}
+                  onMouseOver={e => { (e.currentTarget.style.background = C.gold); (e.currentTarget.style.color = '#fff'); }}
+                  onMouseOut={e => { (e.currentTarget.style.background = C.goldLight); (e.currentTarget.style.color = C.dark); }}>
+                  <Star size={12} /> Salvar
+                </button>
+              </div>
             </div>
           )}
         </div>
       )}
+
+      {/* A4 print modal — renderizado fora do NodeShell para não ser cortado pelo overflow */}
+      {showA4 && (() => {
+        const firstImage = d.results.find(r => r.imageUrl);
+        const resolvedImageUrl = firstImage?.imageUrl
+          ? (extractImageFromJson(firstImage.imageUrl) ?? firstImage.imageUrl)
+          : '';
+        return (
+          <A4PrintModal
+            text={d.adaptedText}
+            imageUrl={resolvedImageUrl}
+            onClose={() => setShowA4(false)}
+          />
+        );
+      })()}
     </NodeShell>
   );
 };
@@ -778,19 +963,25 @@ const AdaptarNode: React.FC<NodeProps> = ({ data, selected, id }) => {
           <div style={{ fontSize: 12, color: C.textSec }}>Adaptando para {ADAPTATION_OPTIONS.find(o => o.id === d.adaptationType)?.label}…</div>
         </div>
       )}
-      {d.nodeStatus === 'done' && d.adaptedText && (
+      {d.nodeStatus === 'done' && d.adaptedText && (() => {
+        const inlineImg = extractImageFromJson(d.adaptedText);
+        return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 9, padding: '8px 10px' }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: '#D97706', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Adaptada — {ADAPTATION_OPTIONS.find(o => o.id === d.adaptationType)?.label}
+              {inlineImg ? 'Imagem gerada' : `Adaptada — ${ADAPTATION_OPTIONS.find(o => o.id === d.adaptationType)?.label}`}
             </div>
-            <div style={{ fontSize: 11, color: C.text, lineHeight: 1.6, maxHeight: 120, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>{d.adaptedText}</div>
+            {inlineImg
+              ? <img src={inlineImg} alt="Imagem gerada" style={{ width: '100%', maxHeight: 180, objectFit: 'contain', borderRadius: 6, background: '#fff' }} />
+              : <div style={{ fontSize: 11, color: C.text, lineHeight: 1.6, maxHeight: 120, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>{d.adaptedText}</div>
+            }
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#166534' }}>
-            <CheckCircle size={12} color="#166534" /> Adaptação concluída
+            <CheckCircle size={12} color="#166534" /> {inlineImg ? 'Imagem gerada com sucesso' : 'Adaptação concluída'}
           </div>
         </div>
-      )}
+        );
+      })()}
       {d.nodeStatus === 'error' && (
         <div style={{ background: C.errBg, border: '1px solid #FECACA', borderRadius: 9, padding: '10px', textAlign: 'center' }}>
           <AlertCircle size={16} color={C.err} style={{ margin: '0 auto 4px' }} />

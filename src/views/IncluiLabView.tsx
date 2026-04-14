@@ -58,6 +58,26 @@ function redesignTotalCost(modelId: ActivityModelId): number {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Detecta se uma string é JSON de geração de imagem {"type":"image_generation","base64DataUrl":"..."}.
+ * Retorna o URL da imagem se encontrado, null caso contrário.
+ */
+function extractImageFromJson(content: string): string | null {
+  if (!content || !content.trim().startsWith('{')) return null;
+  try {
+    const parsed = JSON.parse(content.trim());
+    if (parsed?.type === 'image_generation' && parsed.base64DataUrl) {
+      return parsed.base64DataUrl as string;
+    }
+    const url = parsed?.imageUrl || parsed?.image_url || parsed?.url;
+    if (typeof url === 'string' && (url.startsWith('data:image') || url.startsWith('http'))) {
+      return url;
+    }
+  } catch { /* não é JSON */ }
+  return null;
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -532,8 +552,14 @@ Retorne SOMENTE um JSON válido:
         </div>
       )}
 
-      {result && (
+      {result && (() => {
+        // Detecta se a IA retornou JSON de imagem em vez de texto
+        const inlineImgFromAdapted = extractImageFromJson(result.adapted);
+        const displayImageUrl = inlineImgFromAdapted || generatedImageUrl;
+        const showTextResult  = !inlineImgFromAdapted;
+        return (
         <div className="space-y-4">
+          {showTextResult && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-3">
@@ -560,23 +586,29 @@ Retorne SOMENTE um JSON válido:
               <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{result.adapted}</p>
             </div>
           </div>
-          {generatedImageUrl && (
+          )}
+          {displayImageUrl && (
             <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-3">
                 <Sparkles size={15} className="text-brand-600" />
                 <span className="text-xs font-bold text-brand-700 uppercase">Imagem Pedagógica Gerada</span>
-                {/* FIX: usa blob download para evitar falha cross-origin do atributo download */}
                 <button
-                  onClick={() => downloadImageAsFile(generatedImageUrl, 'imagem_atividade.png')}
+                  onClick={() => downloadImageAsFile(displayImageUrl, 'imagem_atividade.png')}
                   className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-600 font-bold hover:bg-brand-100">
                   <Download size={10} /> Baixar
                 </button>
               </div>
-              <img src={generatedImageUrl} alt="Imagem gerada para atividade" className="max-h-64 mx-auto rounded-xl object-contain border border-gray-100" />
+              <img
+                src={displayImageUrl}
+                alt="Imagem gerada para atividade"
+                className="max-h-64 mx-auto rounded-xl object-contain border border-gray-100"
+                style={{ display: 'block', maxWidth: '100%' }}
+              />
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
@@ -738,9 +770,13 @@ Retorne SOMENTE um JSON válido:
         </div>
       )}
 
-      {result && (
+      {result && (() => {
+        const inlineImgFromRedesigned = extractImageFromJson(result.redesigned);
+        const displayImageUrl = inlineImgFromRedesigned || generatedImageUrl;
+        const showTextResult  = !inlineImgFromRedesigned;
+        return (
         <div className="space-y-4">
-          {(result.suggestions ?? []).length > 0 && (
+          {showTextResult && (result.suggestions ?? []).length > 0 && (
             <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5">
               <div className="flex items-center gap-2 mb-3">
                 <Lightbulb size={15} className="text-amber-600" />
@@ -756,6 +792,7 @@ Retorne SOMENTE um JSON válido:
               </ul>
             </div>
           )}
+          {showTextResult && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-3">
@@ -784,23 +821,29 @@ Retorne SOMENTE um JSON válido:
               <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{result.redesigned}</div>
             </div>
           </div>
-          {generatedImageUrl && (
+          )}
+          {displayImageUrl && (
             <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-3">
                 <Sparkles size={15} className="text-brand-600" />
                 <span className="text-xs font-bold text-brand-700 uppercase">Imagem Pedagógica Gerada</span>
-                {/* FIX: blob download para cross-origin */}
                 <button
-                  onClick={() => downloadImageAsFile(generatedImageUrl, 'imagem_redesenhada.png')}
+                  onClick={() => downloadImageAsFile(displayImageUrl, 'imagem_redesenhada.png')}
                   className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-600 font-bold hover:bg-brand-100">
                   <Download size={10} /> Baixar
                 </button>
               </div>
-              <img src={generatedImageUrl} alt="Imagem gerada para atividade redesenhada" className="max-h-64 mx-auto rounded-xl object-contain border border-gray-100" />
+              <img
+                src={displayImageUrl}
+                alt="Imagem gerada para atividade redesenhada"
+                className="max-h-64 mx-auto rounded-xl object-contain border border-gray-100"
+                style={{ display: 'block', maxWidth: '100%' }}
+              />
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
