@@ -1,20 +1,27 @@
 /**
  * api/generate-image.ts — Vercel Serverless Function (Node.js)
  *
- * Geração de imagens via Imagen 4.0 (Google Vertex AI).
+ * Geração de imagens via Imagen 4.0.
  * Roda no servidor: sem a restrição "browser runtime" do SDK Google.
  *
  * Método obrigatório: client.models.generateImages()  ← plural
  * Modelo primário   : imagen-4.0-generate-001
  * Fallback          : imagen-4.0-fast-generate-001  (só em erros de quota/503/504)
  *
+ * IMPORTANTE — autenticação mutuamente exclusiva:
+ *   • Modo Vertex AI  → NÃO passa apiKey. Usa ADC via GOOGLE_APPLICATION_CREDENTIALS_JSON.
+ *   • Modo Gemini API → usa APENAS apiKey (sem project/location).
+ *
  * Variáveis de ambiente necessárias (Vercel → Settings → Environment Variables):
- *   VITE_GEMINI_API_KEY       — chave Gemini / Vertex AI
- *   VITE_GOOGLE_PROJECT_ID    — ID do projeto Google Cloud
- *   VITE_GOOGLE_LOCATION      — região Vertex AI (ex: us-central1)
+ *   VITE_GEMINI_API_KEY            — chave Gemini API (obrigatória)
+ *   VITE_GOOGLE_PROJECT_ID         — ID do projeto GCP (opcional; ativa modo Vertex AI)
+ *   VITE_GOOGLE_LOCATION           — região Vertex AI (padrão: us-central1)
+ *   GOOGLE_APPLICATION_CREDENTIALS_JSON — JSON da service account GCP (opcional; necessário para Vertex AI)
  */
 
 import { GoogleGenAI } from '@google/genai';
+import { writeFileSync } from 'fs';
+import { join } from 'path';
 
 // ─── CONSTANTES ───────────────────────────────────────────────────────────────
 
@@ -67,31 +74,66 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Campo "prompt" obrigatório e não pode estar vazio.' });
   }
 
-  // ── Valida variáveis de ambiente ────────────────────────────────────────────
-  const apiKey    = process.env.VITE_GEMINI_API_KEY;
-  const projectId = process.env.VITE_GOOGLE_PROJECT_ID;
-  const location  = process.env.VITE_GOOGLE_LOCATION || 'us-central1';
+  // ── Variáveis de ambiente ───────────────────────────────────────────────────
+  const projectId          = process.env.VITE_GOOGLE_PROJECT_ID;
+  const location           = process.env.VITE_GOOGLE_LOCATION || 'us-central1';
+  const serviceAccountJson = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  // apiKey usado apenas como fallback se não houver service account
+  const apiKey             = process.env.VITE_GEMINI_API_KEY;
 
-  if (!apiKey) {
-    console.error('[generate-image] ✗ VITE_GEMINI_API_KEY ausente no servidor');
-    return res.status(500).json({ error: 'CONFIG: VITE_GEMINI_API_KEY não configurada. Adicione no painel Vercel → Environment Variables.' });
-  }
-  if (!projectId) {
-    console.error('[generate-image] ✗ VITE_GOOGLE_PROJECT_ID ausente no servidor');
-    return res.status(500).json({ error: 'CONFIG: VITE_GOOGLE_PROJECT_ID não configurada. Adicione no painel Vercel → Environment Variables.' });
+  if (!serviceAccountJson && !apiKey) {
+    console.error('[generate-image] ✗ Nenhuma credencial configurada');
+    return res.status(500).json({
+      error: 'CONFIG: Adicione GOOGLE_APPLICATION_CREDENTIALS_JSON (Vertex AI) ou VITE_GEMINI_API_KEY no painel Vercel → Environment Variables.',
+    });
   }
 
-  // ── Inicializa cliente Vertex AI (Node.js — sem restrição browser) ──────────
-  const client = new GoogleGenAI({
-    vertexai: true,
-    project:  projectId,
-    location,
-    apiKey,
-  } as any);
+  // ── Inicializa cliente ──────────────────────────────────────────────────────
+  //    apiKey e project/location são MUTUAMENTE EXCLUSIVOS no SDK @google/genai.
+  //    REGRA: se VITE_GOOGLE_PROJECT_ID estiver presente → modo Vertex AI (SEM apiKey).
+  //           caso contrário → modo Gemini API (só apiKey).
+  let client: GoogleGenAI;
+
+  if (projectId) {
+    // Modo Vertex AI — apiKey NUNCA é passada aqui (causaria erro 400 mutually exclusive)
+    if (serviceAccountJson) {
+      try {
+        JSON.parse(serviceAccountJson);
+        const credPath = join('/tmp', 'gcp-sa.json');
+        writeFileSync(credPath, serviceAccountJson, { encoding: 'utf-8' });
+        // google-auth-library lê GOOGLE_APPLICATION_CREDENTIALS automaticamente (ADC)
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
+        console.info('[generate-image] ADC: service account JSON escrito em /tmp/gcp-sa.json');
+      } catch (parseErr) {
+        console.error('[generate-image] ✗ GOOGLE_APPLICATION_CREDENTIALS_JSON inválido:', parseErr);
+        return res.status(500).json({
+          error: 'CONFIG: GOOGLE_APPLICATION_CREDENTIALS_JSON contém JSON inválido. Verifique o conteúdo colado na Vercel.',
+        });
+      }
+    }
+
+    client = new GoogleGenAI({
+      vertexai: true,
+      project:  projectId,
+      location,
+      // ← apiKey ausente: mutuamente exclusivo com project/location
+    } as any);
+
+    console.info(`[generate-image] modo=VertexAI projeto=${projectId} location=${location}`);
+  } else {
+    // Modo Gemini API — usa apenas apiKey, sem project/location
+    if (!apiKey) {
+      return res.status(500).json({
+        error: 'CONFIG: Adicione VITE_GEMINI_API_KEY (Gemini API) ou VITE_GOOGLE_PROJECT_ID + GOOGLE_APPLICATION_CREDENTIALS_JSON (Vertex AI) na Vercel.',
+      });
+    }
+    client = new GoogleGenAI({ apiKey } as any);
+    console.info('[generate-image] modo=GeminiAPI');
+  }
 
   const safePrompt = buildSafePrompt(prompt.trim());
 
-  console.info(`[generate-image] projeto=${projectId} | location=${location}`);
+  console.info(`[generate-image] projeto=${projectId ?? 'n/a'} | location=${location}`);
   console.info(`[generate-image] prompt="${safePrompt.slice(0, 120)}..."`);
 
   const attemptErrors: string[] = [];

@@ -1,4 +1,5 @@
 // IncluiLabView.tsx — Laboratório de Atividades Inclusivas
+// v2.0 — Imagen 4.0 via serverless (api/generate-image.ts)
 import React, { useState, useRef, useEffect } from 'react';
 import {
   FlaskConical, Zap, Upload, Wand2, FileText, CheckCircle,
