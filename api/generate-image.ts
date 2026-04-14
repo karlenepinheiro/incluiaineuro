@@ -61,10 +61,20 @@ function isRetryableError(e: unknown): boolean {
 // ─── HANDLER PRINCIPAL ────────────────────────────────────────────────────────
 
 export default async function handler(req: any, res: any) {
-  // CORS — permite chamada do SPA hospedado no mesmo domínio Vercel
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  // CORS — permite chamada do SPA (mesmo domínio Vercel + domínio customizado)
+  const origin = req.headers['origin'] || '';
+  const allowed = [
+    'https://incluiai.app.br',
+    'https://www.incluiai.app.br',
+  ];
+  if (allowed.includes(origin) || origin.endsWith('.vercel.app')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'https://incluiai.app.br');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Vary', 'Origin');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });

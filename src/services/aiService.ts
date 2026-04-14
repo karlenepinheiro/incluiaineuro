@@ -7,6 +7,7 @@ import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from 
 import { AiAuditService } from "./persistenceService";
 import type { StudentContext } from "./studentContextService";
 import { StudentContextService } from "./studentContextService";
+import { ImageGenerationService } from "./imageGenerationService";
 
 // Ignora o aviso de tipos do TypeScript para o mammoth
 // @ts-ignore
@@ -160,7 +161,6 @@ class GeminiProvider implements AIProvider {
     // Requer Vertex AI habilitado no projeto Google Cloud configurado no .env.
     try {
       console.info('[GeminiProvider] Tentando Imagen 4.0 (Vertex AI)...');
-      const { ImageGenerationService } = await import('./imageGenerationService');
       const result = await ImageGenerationService.generateWithFallback(prompt);
       console.info('[GeminiProvider] ✓ Imagen 4.0 OK');
       return result.base64DataUrl;
@@ -281,12 +281,10 @@ class OpenAIProvider implements AIProvider {
     }
 
     async generateImage(prompt: string): Promise<string> {
-        if (!this.apiKey) {
-            throw new Error('CONFIG_IMAGE');
-        }
-        const { ImageService } = await import('./imageService');
-        const result = await ImageService.generateActivityImage(prompt);
-        return result.url;
+        // Rota obrigatória: toda geração de imagem passa pelo endpoint serverless
+        // para evitar chamadas diretas ao browser (CORS / segredo de API).
+        const result = await ImageGenerationService.generateWithFallback(prompt);
+        return result.base64DataUrl;
     }
 }
 
