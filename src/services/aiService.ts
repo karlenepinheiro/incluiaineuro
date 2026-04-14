@@ -317,19 +317,35 @@ class FallbackProvider implements AIProvider {
     }
 
     async generateImage(prompt: string): Promise<string> {
-        // Primário: Gemini (Gemini Flash → Imagen 4.0)
+        // Primário: Gemini (Imagen 4.0 → Gemini Flash backup)
         if (this.hasGemini) {
             try {
-                return await this.gemini.generateImage(prompt);
+                const result = await this.gemini.generateImage(prompt);
+                console.info('[FallbackProvider] ✓ Imagem gerada via Gemini/Imagen');
+                return result;
             } catch (geminiErr: any) {
                 const geminiMsg = geminiErr?.message || String(geminiErr);
-                console.warn('[FallbackProvider] Gemini imagem falhou:', geminiMsg);
+                // Log detalhado por linha para facilitar diagnóstico no console
+                console.error('[FallbackProvider] ✗ Gemini/Imagen falhou — detalhes abaixo:');
+                geminiMsg.split('\n').forEach((line: string, i: number) => {
+                    if (line.trim()) console.error(`  [${i + 1}] ${line.trim()}`);
+                });
+                console.error('[FallbackProvider] Variáveis lidas:',
+                    'PROJECT_ID=' + (import.meta.env.VITE_GOOGLE_PROJECT_ID ? '✓ presente' : '✗ AUSENTE'),
+                    'LOCATION='   + (import.meta.env.VITE_GOOGLE_LOCATION   ? '✓ presente' : '✗ ausente (default us-central1)'),
+                    'GEMINI_KEY=' + (import.meta.env.VITE_GEMINI_API_KEY    ? '✓ presente' : '✗ AUSENTE'),
+                );
+
                 // Fallback final: OpenAI DALL-E 3 (requer VITE_OPENAI_API_KEY)
                 if (this.hasOpenAI) {
+                    console.warn('[FallbackProvider] Tentando fallback DALL-E 3...');
                     try {
-                        return await this.openai.generateImage(prompt);
+                        const result = await this.openai.generateImage(prompt);
+                        console.info('[FallbackProvider] ✓ Imagem gerada via DALL-E 3 (fallback)');
+                        return result;
                     } catch (openaiErr: any) {
                         const openaiMsg = openaiErr?.message || String(openaiErr);
+                        console.error('[FallbackProvider] ✗ DALL-E 3 também falhou:', openaiMsg);
                         throw new Error(
                             `Nenhuma imagem foi gerada.\n` +
                             `• Google (Gemini/Imagen): ${geminiMsg.split('\n')[0]}\n` +
@@ -342,6 +358,7 @@ class FallbackProvider implements AIProvider {
             }
         }
         if (this.hasOpenAI) {
+            console.warn('[FallbackProvider] Gemini não disponível — usando DALL-E 3 diretamente');
             return this.openai.generateImage(prompt);
         }
         throw new Error('CONFIG_IMAGE');
