@@ -1,303 +1,111 @@
-// IncluiLabView.tsx — Laboratório de Atividades Inclusivas
-// v2.0 — Imagen 4.0 via serverless (api/generate-image.ts)
-import React, { useState, useRef, useEffect } from 'react';
+// IncluiLabView.tsx — Central de Inteligência Inclusiva (chat unificado)
+// v3.0 — Interface Gemini-style: input central, contexto persistente, roteamento automático
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
-  FlaskConical, Zap, Upload, Wand2, FileText, CheckCircle,
-  Download, ChevronRight, Brain,
-  Camera, Printer, Layers,
-  Lightbulb, Loader,
-  ArrowLeft, Sparkles, Coins, AlertTriangle,
+  Send, Paperclip, FlaskConical, Zap, Sparkles, Loader, Download,
+  Printer, BookOpen, ChevronRight, Brain, Coins, X, CheckCircle,
+  FileText, Image as ImageIcon, User as UserIcon, Bot, Bookmark,
+  Trash2, BookMarked, ExternalLink,
 } from 'lucide-react';
 import { User, Student } from '../types';
-import { AIService, getModelsForContext, getModelConfig, modelGeneratesImage, friendlyAIError } from '../services/aiService';
+import { AIService, friendlyAIError, modelGeneratesImage, getModelsForContext, getModelConfig } from '../services/aiService';
 import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { StudentContextService } from '../services/studentContextService';
+import { GeneratedActivityService } from '../services/persistenceService';
 import { WorkflowCanvas as AtivaIACanvas } from '../components/ativaIA/WorkflowCanvas';
 
+// ─── Paleta ───────────────────────────────────────────────────────────────────
+const C = {
+  petrol:  '#1F4E5F',
+  dark:    '#2E3A59',
+  gold:    '#C69214',
+  bg:      '#F6F4EF',
+  surface: '#FFFFFF',
+  border:  '#E7E2D8',
+  sec:     '#667085',
+  light:   '#F0F7FA',
+  orange:  '#EA580C',
+};
+
 // ─── Tipos ────────────────────────────────────────────────────────────────────
-interface AdaptedActivity {
-  original: string;
-  adapted: string;
-  adaptationType: string;
+interface AttachedFile {
+  name:      string;
+  type:      string;   // MIME
+  base64:    string;
+  previewUrl?: string; // para imagens
 }
 
-interface RedesignedActivity {
-  original: string;
-  redesigned: string;
-  suggestions: string[];
+interface ActionButton {
+  label:   string;
+  variant: 'primary' | 'ghost';
+  payload: Record<string, any>;
 }
 
-type Tab             = 'workflow' | 'scanner' | 'redesign' | 'provas';
+interface ChatMessage {
+  id:              string;
+  role:            'user' | 'assistant';
+  text:            string;
+  file?:           AttachedFile;
+  result?:         string;   // markdown gerado
+  resultImageUrl?: string;
+  actionButtons?:  ActionButton[];
+  creditsUsed?:    number;
+  savedId?:        string;   // ID em generated_activities após salvar
+  timestamp:       Date;
+}
+
 type ActivityModelId = 'texto_apenas' | 'nano_banana_pro' | 'chatgpt_imagem';
 
-const ACTIVITY_MODELS = getModelsForContext('incluilab');
-
-const ADAPTATION_TYPES = [
-  { id: 'autismo', label: 'Autismo (TEA)' },
-  { id: 'tdah', label: 'TDAH' },
-  { id: 'dislexia', label: 'Dislexia' },
-  { id: 'di', label: 'Deficiência Intelectual' },
-  { id: 'geral', label: 'Simplificação Geral' },
-];
-
-/** Custo fixo de OCR (extração de conteúdo da imagem/PDF). */
-const OCR_COST = AI_CREDIT_COSTS.OCR;           // 1 crédito
-/** Custo fixo de adaptação/redesenho de texto (Gemini). */
-const TEXT_COST = INCLUILAB_MODEL_COSTS.TEXT;   // 3 créditos
-/** Custo de geração de imagem para um dado modelo (apenas para modelos text_image). */
-function imageCostFor(modelId: ActivityModelId): number {
-  const cfg = getModelConfig(modelId);
-  return cfg.output_type === 'text_image' ? cfg.credit_cost : 0;
-}
-/** Custo total para a aba Scanner: OCR + texto + imagem opcional. */
-function scannerTotalCost(modelId: ActivityModelId): number {
-  return OCR_COST + TEXT_COST + imageCostFor(modelId);
-}
-/** Custo total para a aba NeuroDesign: texto + imagem opcional (sem OCR). */
-function redesignTotalCost(modelId: ActivityModelId): number {
-  return TEXT_COST + imageCostFor(modelId);
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Detecta se uma string é JSON de geração de imagem {"type":"image_generation","base64DataUrl":"..."}.
- * Retorna o URL da imagem se encontrado, null caso contrário.
- */
-function extractImageFromJson(content: string): string | null {
-  if (!content || !content.trim().startsWith('{')) return null;
-  try {
-    const parsed = JSON.parse(content.trim());
-    if (parsed?.type === 'image_generation' && parsed.base64DataUrl) {
-      return parsed.base64DataUrl as string;
-    }
-    const url = parsed?.imageUrl || parsed?.image_url || parsed?.url;
-    if (typeof url === 'string' && (url.startsWith('data:image') || url.startsWith('http'))) {
-      return url;
-    }
-  } catch { /* não é JSON */ }
-  return null;
-}
+function uid() { return Math.random().toString(36).slice(2, 10); }
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+    const r = new FileReader();
+    r.onload = () => resolve(r.result as string);
+    r.onerror = reject;
+    r.readAsDataURL(file);
   });
 }
 
 function exportAsDoc(content: string, filename: string) {
-  const htmlContent = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'/><title>${filename}</title></head><body><pre style="font-family:Arial,sans-serif;font-size:12pt;line-height:1.6">${content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre></body></html>`;
-  const blob = new Blob([htmlContent], { type: 'application/msword;charset=utf-8' });
+  const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office'
+    xmlns:w='urn:schemas-microsoft-com:office:word'
+    xmlns='http://www.w3.org/TR/REC-html40'>
+    <head><meta charset='utf-8'/><title>${filename}</title></head>
+    <body><pre style="font-family:Arial,sans-serif;font-size:12pt;line-height:1.6">
+    ${content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+    </pre></body></html>`;
+  const blob = new Blob([html], { type: 'application/msword;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
 
-function printContent(content: string, title: string) {
+function printMarkdown(content: string, title: string) {
   const win = window.open('', '_blank');
   if (!win) return;
-  win.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:Arial,sans-serif;font-size:12pt;line-height:1.6;padding:40px;max-width:800px;margin:0 auto}pre{white-space:pre-wrap;word-wrap:break-word}@media print{body{padding:20px}}</style></head><body><pre>${content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre><script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`);
+  win.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
+  <style>body{font-family:Arial,sans-serif;font-size:12pt;line-height:1.6;padding:40px;max-width:800px;margin:0 auto}
+  h1,h2,h3{color:#1F4E5F}pre{white-space:pre-wrap}@media print{body{padding:20px}}</style></head>
+  <body><pre>${content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
+  <script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`);
   win.document.close();
 }
 
-
-// ─── Seletor de Aluno (compartilhado entre abas) ─────────────────────────────
-const MC = { petrol: '#1F4E5F', dark: '#2E3A59', gold: '#C69214', goldLight: '#FDF6E3', surface: '#FFFFFF', border: '#E7E2D8', textSec: '#667085' };
-
-const StudentSelector: React.FC<{
-  students: Student[];
-  selectedId: string;
-  onChange: (studentId: string, contextText: string) => void;
-  loading?: boolean;
-}> = ({ students, selectedId, onChange, loading }) => {
-  const [fetching, setFetching] = React.useState(false);
-
-  const handleChange = async (id: string) => {
-    if (!id) { onChange('', ''); return; }
-    const student = students.find(s => s.id === id);
-    if (!student) { onChange(id, ''); return; }
-
-    // Monta contexto básico do objeto Student
-    let ctxText = '';
-    const parts: string[] = [`Aluno: ${student.name}`];
-    if ((student as any).grade)       parts.push(`Ano/Série: ${(student as any).grade}`);
-    if (student.diagnosis?.length)    parts.push(`Diagnóstico(s): ${student.diagnosis.join(', ')}`);
-    if (student.supportLevel)         parts.push(`Nível de suporte: ${student.supportLevel}`);
-    if (student.difficulties?.length) parts.push(`Principais dificuldades: ${student.difficulties.join('; ')}`);
-    if (student.strategies?.length)   parts.push(`Estratégias PEI/PDI: ${student.strategies.join('; ')}`);
-    if (student.abilities?.length)    parts.push(`Habilidades preservadas: ${student.abilities.join('; ')}`);
-    ctxText = parts.join('\n');
-
-    // Enriquece com dados completos do banco (perfis, fichas, laudos)
-    try {
-      setFetching(true);
-      const fullCtx = await StudentContextService.buildContext(id);
-      if (StudentContextService.hasData(fullCtx)) {
-        ctxText = StudentContextService.toPromptText(fullCtx);
-      }
-    } catch { /* usa contexto básico */ } finally {
-      setFetching(false);
-    }
-
-    onChange(id, ctxText);
-  };
-
-  return (
-    <div style={{ marginBottom: 16 }}>
-      <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: MC.dark, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
-        Aluno (opcional — personaliza a adaptação)
-      </label>
-      <div style={{ position: 'relative' }}>
-        <select
-          value={selectedId}
-          onChange={e => handleChange(e.target.value)}
-          disabled={loading || fetching}
-          style={{
-            width: '100%', padding: '9px 36px 9px 12px', borderRadius: 10, fontSize: 13,
-            border: `1.5px solid ${selectedId ? MC.petrol : MC.border}`,
-            background: selectedId ? '#F0F7FA' : MC.surface,
-            color: selectedId ? MC.petrol : '#6B7280',
-            fontWeight: selectedId ? 600 : 400,
-            outline: 'none', cursor: 'pointer', appearance: 'none',
-          }}
-        >
-          <option value="">— Sem aluno específico —</option>
-          {students.map(s => (
-            <option key={s.id} value={s.id}>
-              {s.name}{s.diagnosis?.length ? ` · ${s.diagnosis[0]}` : ''}
-            </option>
-          ))}
-        </select>
-        <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: MC.petrol, fontSize: 12 }}>
-          {fetching ? '⌛' : '▾'}
-        </span>
-      </div>
-      {selectedId && !fetching && (
-        <p style={{ fontSize: 10, color: MC.petrol, marginTop: 4, fontWeight: 500 }}>
-          ✓ Prontuário carregado — a IA usará os dados reais deste aluno no prompt.
-        </p>
-      )}
-      {fetching && (
-        <p style={{ fontSize: 10, color: MC.textSec, marginTop: 4 }}>⌛ Carregando prontuário do banco…</p>
-      )}
-    </div>
-  );
-};
-
-// ─── Seletor de Modelo de Atividade (3 opções) ───────────────────────────────
-
-const ModelSelector: React.FC<{
-  model: ActivityModelId;
-  onChange: (m: ActivityModelId) => void;
-  /** Custo base adicional ao modelo (ex.: OCR). Incluído no badge de cada opção. */
-  baseCost?: number;
-}> = ({ model, onChange, baseCost = 0 }) => {
-  const selectedCfg = getModelConfig(model);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${ACTIVITY_MODELS.length}, 1fr)`, gap: 8 }}>
-        {ACTIVITY_MODELS.map(m => {
-          const isSel = model === m.id;
-          return (
-            <button
-              key={m.id}
-              onClick={() => onChange(m.id as ActivityModelId)}
-              style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4,
-                padding: '10px 12px', borderRadius: 12, cursor: 'pointer', outline: 'none',
-                border: `2px solid ${isSel ? MC.petrol : MC.border}`,
-                background: isSel ? MC.petrol : MC.surface,
-                boxShadow: isSel ? '0 2px 8px rgba(31,78,95,0.18)' : '0 1px 3px rgba(0,0,0,0.04)',
-                transition: 'all 0.15s', textAlign: 'left',
-              }}
-            >
-              <span style={{ fontSize: 12, fontWeight: 700, color: isSel ? '#fff' : MC.dark, lineHeight: 1.2 }}>
-                {m.name}
-              </span>
-              <span style={{ fontSize: 10, fontWeight: 500, color: isSel ? 'rgba(255,255,255,0.75)' : MC.textSec }}>
-                {m.output_type === 'text_image' ? 'texto + imagem' : 'somente texto'}
-              </span>
-              <span style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.65)' : MC.textSec, lineHeight: 1.3, marginTop: 2 }}>
-                {m.description}
-              </span>
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 6,
-                padding: '2px 7px', borderRadius: 20, fontSize: 10, fontWeight: 700,
-                background: isSel ? 'rgba(255,255,255,0.18)' : MC.goldLight,
-                color: isSel ? '#fff' : MC.gold,
-                border: `1px solid ${isSel ? 'rgba(255,255,255,0.25)' : MC.border}`,
-              }}>
-                <Coins size={9} />
-                {m.output_type === 'text_image' ? TEXT_COST + m.credit_cost + baseCost : m.credit_cost + baseCost} cr
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      {selectedCfg.warning && (
-        <p style={{ fontSize: 10, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '6px 10px', margin: 0, lineHeight: 1.4 }}>
-          ⚠️ {selectedCfg.warning}
-        </p>
-      )}
-    </div>
-  );
-};
-
-// ─── Helper: debita créditos e dispara refresh global ────────────────────────
-async function safeDeductCredits(user: User, action: string, cost: number): Promise<void> {
-  const { AIService: AI } = await import('../services/aiService');
-  await (AI as any).deductCredits(user, action, cost);
-  // Notifica App.tsx para atualizar tenantSummary sem re-login
-  window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-}
-
-/**
- * Faz download de uma imagem cross-origin convertendo para blob local primeiro.
- * O atributo `download` de <a> não funciona para URLs de outras origens.
- */
-async function downloadImageAsFile(url: string, filename: string): Promise<void> {
-  try {
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('Falha ao baixar imagem.');
-    const blob = await resp.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(blobUrl);
-  } catch {
-    // Fallback: abre em nova aba
-    window.open(url, '_blank');
-  }
-}
-
-/**
- * Faz upload de uma imagem para o Supabase Storage.
- * Aceita URL temporária (DALL-E) ou data URI base64 (Gemini inline).
- * Retorna a URL pública permanente, ou null se falhar.
- */
 async function persistImageToStorage(urlOrBase64: string, tenantId: string): Promise<string | null> {
   try {
-    const { supabase } = await import('../lib/supabaseClient');
+    const { supabase } = await import('../services/supabase');
     let blob: Blob;
     if (urlOrBase64.startsWith('data:')) {
-      // Base64 inline (Gemini)
       const [header, data] = urlOrBase64.split(',');
-      const mimeMatch = header.match(/data:([^;]+)/);
-      const mimeType = mimeMatch?.[1] ?? 'image/png';
-      const binary = atob(data);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      blob = new Blob([bytes], { type: mimeType });
+      const mime = header.match(/data:([^;]+)/)?.[1] ?? 'image/png';
+      const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+      blob = new Blob([bytes], { type: mime });
     } else {
-      // URL temporária (DALL-E)
       const resp = await fetch(urlOrBase64);
       if (!resp.ok) return null;
       blob = await resp.blob();
@@ -308,845 +116,1020 @@ async function persistImageToStorage(urlOrBase64: string, tenantId: string): Pro
       .from('imagens_atividades')
       .upload(path, blob, { cacheControl: '31536000', upsert: false });
     if (error) return null;
-    const { data: urlData } = supabase.storage.from('imagens_atividades').getPublicUrl(path);
-    return urlData?.publicUrl ?? null;
-  } catch {
-    return null;
-  }
+    const { data } = supabase.storage.from('imagens_atividades').getPublicUrl(path);
+    return data?.publicUrl ?? null;
+  } catch { return null; }
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
-interface IncluiLabViewProps {
-  user: User;
-  students: Student[];
-  defaultTab?: Tab;
-  sidebarOpen?: boolean;
-  onWorkflowNodesChange?: (nodeIds: string[]) => void;
-  /** Saldo de créditos já calculado pelo App (ledger-based) — evita split-brain */
-  creditsAvailable?: number;
+async function safeDeductCredits(user: User, action: string, cost: number) {
+  await (AIService as any).deductCredits(user, action, cost);
+  window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
 }
 
-export const IncluiLabView: React.FC<IncluiLabViewProps> = ({ user, students, defaultTab, sidebarOpen = true, onWorkflowNodesChange, creditsAvailable }) => {
-  const [activeTab, setActiveTab] = useState<Tab | null>(defaultTab ?? null);
+// ─── Prompts de geração ───────────────────────────────────────────────────────
+function buildAdaptPrompt(adaptType: string, studentCtx: string, originalText: string): string {
+  const sb = studentCtx
+    ? `\n\n${studentCtx}\n\nIMPORTANTE: Adapte especificamente para este aluno.`
+    : '';
+  return `Você é especialista em educação inclusiva. Adapte o material abaixo para alunos com ${adaptType}.${sb}
 
-  useEffect(() => {
-    if (defaultTab) setActiveTab(defaultTab);
-  }, [defaultTab]);
+Regras:
+- Simplifique sem perder o objetivo pedagógico
+- Divida instruções em passos numerados curtos
+- Para TEA: linguagem literal, sem ambiguidade, estrutura clara
+- Para TDAH: instruções curtas, destaque o essencial
+- Para Dislexia: frases curtas, vocabulário simples
+- Para DI: linguagem concreta e contextualizada
 
-  const modules = [
-    { id: 'workflow' as Tab, icon: Zap,       label: 'AtivaIA',          subtitle: 'Canvas de Atividades',   desc: 'Crie fluxos visuais de geração de atividades — envie imagem, escreva o prompt e a IA gera imagens pedagógicas.', iconBg: 'bg-brand-600'   },
-    { id: 'scanner'  as Tab, icon: Upload,    label: 'EduLensIA',         subtitle: 'Scanner Pedagógico',     desc: 'Envie foto ou PDF de qualquer atividade e adapte instantaneamente para TEA, TDAH, Dislexia ou DI.', iconBg: 'bg-orange-500' },
-    { id: 'redesign' as Tab, icon: Sparkles,  label: 'NeuroDesign',       subtitle: 'Redesenho Inclusivo',    desc: 'Cole qualquer texto e transforme com layout pedagógico acessível, pictogramas e organização visual.',  iconBg: 'bg-amber-500'  },
-    { id: 'provas'   as Tab, icon: FileText,  label: 'Provas Adaptadas',  subtitle: 'Avaliação Inclusiva',    desc: 'Cole ou escreva uma prova e a IA adapta automaticamente para o perfil real do aluno selecionado.', iconBg: 'bg-teal-600'   },
-  ];
+Material original:
+${originalText}
 
-  // ── HUB ──
-  if (!activeTab) {
-    return (
-      <div className="min-h-screen p-4 md:p-8" style={{ background: 'linear-gradient(160deg,#fff7ed 0%,#ffffff 50%,#ffedd5 100%)' }}>
-        <style>{`
-          @keyframes lab-fade-up { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
-          .lab-card { animation: lab-fade-up .5s ease both; }
-          .lab-card:nth-child(1){animation-delay:.05s}
-          .lab-card:nth-child(2){animation-delay:.15s}
-          .lab-card:nth-child(3){animation-delay:.25s}
-          .lab-card:nth-child(4){animation-delay:.35s}
-          .lab-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(234,88,12,0.14)}
-        `}</style>
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-12" style={{ animation: 'lab-fade-up .4s ease both' }}>
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-3xl bg-brand-600 shadow-xl shadow-orange-200 mb-5">
-              <FlaskConical className="text-white" size={30} />
-            </div>
-            <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight mb-2">IncluiLAB</h1>
-            <p className="text-base text-gray-500 max-w-md mx-auto">Laboratório de Atividades Inclusivas com Inteligência Artificial</p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {modules.map(m => {
-              const Icon = m.icon;
-              return (
-                <button key={m.id} onClick={() => setActiveTab(m.id)}
-                  className="lab-card text-left rounded-3xl border border-orange-100 p-7 transition-all duration-300 cursor-pointer group"
-                  style={{ background: 'rgba(255,255,255,.75)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', boxShadow: '0 4px 24px rgba(234,88,12,.07)' }}>
-                  <div className={`inline-flex items-center justify-center w-12 h-12 rounded-2xl ${m.iconBg} mb-5 shadow-lg group-hover:scale-110 transition-transform duration-300`}>
-                    <Icon className="text-white" size={22} />
-                  </div>
-                  <div className="mb-1 text-[10px] font-bold text-brand-500 uppercase tracking-widest">{m.subtitle}</div>
-                  <h2 className="text-xl font-extrabold text-gray-900 mb-3">{m.label}</h2>
-                  <p className="text-sm text-gray-500 leading-relaxed mb-5">{m.desc}</p>
-                  <div className="flex items-center gap-1.5 text-brand-600 text-xs font-bold group-hover:gap-3 transition-all duration-300">
-                    Acessar <ChevronRight size={14} />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          <div className="mt-10 text-center">
-            <span className="inline-flex items-center gap-2 text-xs text-gray-400 bg-white/60 backdrop-blur px-4 py-2 rounded-full border border-orange-100">
-              <Brain size={12} className="text-brand-500" /> Gemini (provider padrão) · OpenAI como fallback opcional
+Retorne a versão adaptada em Markdown formatado, com:
+# Título da Atividade Adaptada
+## Objetivo
+## Materiais Necessários (se aplicável)
+## Passo a Passo
+## Dica para o Professor`;
+}
+
+function buildFileAdaptPrompt(adaptType: string, studentCtx: string): string {
+  const sb = studentCtx
+    ? `\n\n${studentCtx}\n\nIMPORTANTE: Adapte especificamente para este aluno.`
+    : '';
+  return `Você é especialista em educação inclusiva. Analise o conteúdo desta atividade (extraia o texto da imagem/PDF) e crie uma versão adaptada para alunos com ${adaptType}.${sb}
+
+Regras:
+- Extraia o texto do material e adapte completamente
+- Simplifique sem perder o objetivo pedagógico
+- Divida instruções em passos numerados curtos
+
+Retorne em Markdown formatado:
+# Título da Atividade Adaptada
+## Objetivo
+## Materiais Necessários (se aplicável)
+## Passo a Passo
+## Dica para o Professor`;
+}
+
+function buildActivityFromTopicPrompt(topic: string, studentCtx: string): string {
+  const sb = studentCtx
+    ? `\n\n${studentCtx}\n\nIMPORTANTE: Crie especificamente para este aluno.`
+    : '';
+  return `Você é especialista em educação inclusiva e criação de atividades pedagógicas.${sb}
+
+Crie uma atividade pedagógica inclusiva sobre o tema: "${topic}"
+
+A atividade deve:
+- Ser acessível e inclusiva desde o princípio
+- Ter objetivo claro e alinhado à BNCC
+- Incluir instruções em passos curtos e claros
+- Ser adaptável a diferentes níveis de suporte
+
+Retorne em Markdown formatado:
+# Título da Atividade
+**Tema:** ${topic}
+**Nível:** [Educação Infantil / Anos Iniciais / Anos Finais]
+
+## Objetivo de Aprendizagem
+
+## Materiais Necessários
+
+## Desenvolvimento (Passo a Passo)
+
+## Adaptações Inclusivas
+
+## Avaliação / Registro
+
+## Dica para o Professor`;
+}
+
+// ─── Componente: Bolha de Chat ─────────────────────────────────────────────────
+const ChatBubble: React.FC<{
+  msg:         ChatMessage;
+  studentName: string;
+  onConfirm:   (payload: Record<string, any>) => void;
+  onViewResult:(msg: ChatMessage) => void;
+  isLatest:    boolean;
+}> = ({ msg, studentName, onConfirm, onViewResult, isLatest }) => {
+  const isUser = msg.role === 'user';
+
+  return (
+    <div style={{
+      display: 'flex', gap: 10, marginBottom: 16,
+      flexDirection: isUser ? 'row-reverse' : 'row',
+      alignItems: 'flex-start',
+    }}>
+      {/* Avatar */}
+      <div style={{
+        width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+        background: isUser ? C.dark : C.petrol,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {isUser
+          ? <UserIcon size={15} color="#fff" />
+          : <Bot size={15} color="#fff" />
+        }
+      </div>
+
+      {/* Balão */}
+      <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 6, alignItems: isUser ? 'flex-end' : 'flex-start' }}>
+        {/* File preview */}
+        {msg.file && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '8px 12px', borderRadius: 12,
+            background: isUser ? '#E8F0F7' : C.light,
+            border: `1px solid ${C.border}`, maxWidth: 240,
+          }}>
+            {msg.file.type.startsWith('image/') && msg.file.previewUrl
+              ? <img src={msg.file.previewUrl} alt="preview" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8 }} />
+              : <FileText size={20} color={C.petrol} />
+            }
+            <span style={{ fontSize: 12, color: C.dark, fontWeight: 600, wordBreak: 'break-all' }}>
+              {msg.file.name}
             </span>
           </div>
+        )}
+
+        {/* Texto */}
+        <div style={{
+          padding: '10px 14px', borderRadius: isUser ? '18px 18px 4px 18px' : '4px 18px 18px 18px',
+          background: isUser ? C.dark : C.surface,
+          color: isUser ? '#fff' : C.dark,
+          border: isUser ? 'none' : `1px solid ${C.border}`,
+          fontSize: 14, lineHeight: 1.55,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
+        }}>
+          {msg.text}
+        </div>
+
+        {/* Botões de ação (roteamento automático) */}
+        {msg.actionButtons && msg.actionButtons.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+            {msg.actionButtons.map((btn, i) => (
+              <button key={i} onClick={() => onConfirm(btn.payload)} style={{
+                padding: '7px 16px', borderRadius: 20, fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', border: 'none', outline: 'none',
+                background: btn.variant === 'primary' ? C.petrol : 'transparent',
+                color: btn.variant === 'primary' ? '#fff' : C.sec,
+                border: btn.variant === 'ghost' ? `1px solid ${C.border}` : 'none',
+                transition: 'opacity 0.15s',
+              }}>
+                {btn.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Resultado gerado — preview compacto */}
+        {msg.result && (
+          <div style={{
+            padding: '10px 14px', borderRadius: 12,
+            background: '#F0F9F4', border: '1px solid #BBF7D0',
+            fontSize: 12, color: '#166534', maxWidth: '100%',
+            display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+          }} onClick={() => onViewResult(msg)}>
+            <CheckCircle size={14} color="#16A34A" />
+            <span style={{ fontWeight: 600 }}>Atividade gerada</span>
+            {msg.creditsUsed !== undefined && (
+              <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 3, color: C.gold, fontWeight: 700 }}>
+                <Coins size={10} /> {msg.creditsUsed} cr
+              </span>
+            )}
+            <ChevronRight size={13} color="#16A34A" style={{ marginLeft: 'auto' }} />
+          </div>
+        )}
+
+        {/* Timestamp */}
+        <span style={{ fontSize: 10, color: C.sec, paddingInline: 2 }}>
+          {msg.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+          {msg.savedId && <span style={{ marginLeft: 6, color: '#16A34A', fontWeight: 600 }}>· salvo</span>}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// ─── Componente: Painel A4 ────────────────────────────────────────────────────
+const A4Preview: React.FC<{
+  content:      string;
+  imageUrl?:    string;
+  title:        string;
+  onSave:       () => void;
+  saving:       boolean;
+  saved:        boolean;
+  onExportDoc:  () => void;
+  onPrint:      () => void;
+}> = ({ content, imageUrl, title, onSave, saving, saved, onExportDoc, onPrint }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    {/* Toolbar */}
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+      borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0,
+    }}>
+      <FileText size={14} color={C.petrol} />
+      <span style={{ fontSize: 12, fontWeight: 700, color: C.dark, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {title || 'Atividade Gerada'}
+      </span>
+      <button onClick={onExportDoc} title="Baixar .doc" style={{ ...btnStyle, padding: '5px 8px' }}>
+        <Download size={13} />
+      </button>
+      <button onClick={onPrint} title="Imprimir" style={{ ...btnStyle, padding: '5px 8px' }}>
+        <Printer size={13} />
+      </button>
+      <button onClick={onSave} disabled={saving || saved} style={{
+        ...btnStyle, padding: '5px 12px', fontSize: 12, fontWeight: 700, gap: 5,
+        background: saved ? '#DCFCE7' : C.petrol,
+        color: saved ? '#16A34A' : '#fff',
+        border: saved ? '1px solid #BBF7D0' : 'none',
+        opacity: saving ? 0.7 : 1,
+      }}>
+        {saving ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Bookmark size={12} />}
+        {saved ? 'Salvo!' : 'Salvar'}
+      </button>
+    </div>
+
+    {/* A4 content */}
+    <div style={{ flex: 1, overflowY: 'auto', padding: '20px 16px', background: C.bg }}>
+      <div style={{
+        background: '#fff', borderRadius: 8, padding: '32px 28px',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.08)', minHeight: 640,
+        maxWidth: 640, margin: '0 auto',
+        fontFamily: 'Georgia, serif', fontSize: 13, lineHeight: 1.7, color: '#1a1a1a',
+      }}>
+        {imageUrl && (
+          <img src={imageUrl} alt="ilustração" style={{ width: '100%', borderRadius: 8, marginBottom: 20, objectFit: 'contain', maxHeight: 260 }} />
+        )}
+        <div className="prose" style={{ maxWidth: '100%' }}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
+      </div>
+    </div>
+
+    <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
+  </div>
+);
+
+const btnStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`,
+  background: C.surface, cursor: 'pointer', fontSize: 12, color: C.dark,
+  fontWeight: 500, outline: 'none',
+};
+
+// ─── Componente: Biblioteca de Atividades ─────────────────────────────────────
+const Library: React.FC<{
+  activities:    any[];
+  loading:       boolean;
+  onSelect:      (act: any) => void;
+  onDelete:      (id: string) => void;
+  selectedId?:   string;
+}> = ({ activities, loading, onSelect, onDelete, selectedId }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div style={{ padding: '12px 14px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+      <p style={{ fontSize: 11, fontWeight: 700, color: C.petrol, textTransform: 'uppercase', letterSpacing: 1, margin: 0 }}>
+        Biblioteca Pessoal
+      </p>
+    </div>
+    <div style={{ flex: 1, overflowY: 'auto' }}>
+      {loading && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120 }}>
+          <Loader size={18} color={C.sec} style={{ animation: 'spin 1s linear infinite' }} />
+        </div>
+      )}
+      {!loading && activities.length === 0 && (
+        <div style={{ padding: 24, textAlign: 'center', color: C.sec, fontSize: 13 }}>
+          <BookMarked size={28} color={C.border} style={{ margin: '0 auto 8px' }} />
+          <p style={{ margin: 0 }}>Nenhuma atividade salva ainda.</p>
+          <p style={{ margin: '4px 0 0', fontSize: 11 }}>Gere e salve atividades para criar sua biblioteca.</p>
+        </div>
+      )}
+      {activities.map(act => (
+        <div key={act.id} onClick={() => onSelect(act)} style={{
+          padding: '12px 14px', borderBottom: `1px solid ${C.border}`,
+          cursor: 'pointer', transition: 'background 0.12s',
+          background: selectedId === act.id ? C.light : 'transparent',
+        }}
+          onMouseEnter={e => { if (selectedId !== act.id) (e.currentTarget as HTMLElement).style.background = '#FAFAF8'; }}
+          onMouseLeave={e => { if (selectedId !== act.id) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <BookOpen size={14} color={C.petrol} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: C.dark, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {act.title || 'Atividade sem título'}
+              </p>
+              <p style={{ margin: '2px 0 0', fontSize: 10, color: C.sec }}>
+                {act.is_adapted ? '📎 Adaptada' : '✨ Criada'} · {new Date(act.created_at).toLocaleDateString('pt-BR')}
+                {act.tags?.length ? ` · ${act.tags.slice(0,2).join(', ')}` : ''}
+              </p>
+            </div>
+            <button onClick={e => { e.stopPropagation(); onDelete(act.id); }} style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 4,
+              borderRadius: 6, color: '#ccc', flexShrink: 0,
+            }}
+              onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#ef4444'}
+              onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#ccc'}
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+    <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
+  </div>
+);
+
+// ─── Componente: StudentSelector ──────────────────────────────────────────────
+const StudentSelector: React.FC<{
+  students:   Student[];
+  selectedId: string;
+  onChange:   (id: string, ctx: string, name: string) => void;
+}> = ({ students, selectedId, onChange }) => {
+  const [fetching, setFetching] = useState(false);
+
+  const handleChange = async (id: string) => {
+    if (!id) { onChange('', '', ''); return; }
+    const student = students.find(s => s.id === id);
+    if (!student) { onChange(id, '', ''); return; }
+
+    let ctxText = [`Aluno: ${student.name}`];
+    if ((student as any).grade) ctxText.push(`Ano/Série: ${(student as any).grade}`);
+    if (student.diagnosis?.length) ctxText.push(`Diagnóstico(s): ${student.diagnosis.join(', ')}`);
+    if (student.supportLevel)      ctxText.push(`Nível de suporte: ${student.supportLevel}`);
+    if (student.difficulties?.length) ctxText.push(`Principais dificuldades: ${student.difficulties.join('; ')}`);
+    if (student.strategies?.length)   ctxText.push(`Estratégias PEI/PDI: ${student.strategies.join('; ')}`);
+    if (student.abilities?.length)    ctxText.push(`Habilidades preservadas: ${student.abilities.join('; ')}`);
+    let ctx = ctxText.join('\n');
+
+    try {
+      setFetching(true);
+      const full = await StudentContextService.buildContext(id);
+      if (StudentContextService.hasData(full)) ctx = StudentContextService.toPromptText(full);
+    } catch { /* usa básico */ } finally { setFetching(false); }
+
+    onChange(id, ctx, student.name);
+  };
+
+  const selected = students.find(s => s.id === selectedId);
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <UserIcon size={14} color={C.petrol} />
+      <select
+        value={selectedId}
+        onChange={e => handleChange(e.target.value)}
+        disabled={fetching}
+        style={{
+          padding: '6px 28px 6px 10px', borderRadius: 20, fontSize: 13,
+          border: `1.5px solid ${selectedId ? C.petrol : C.border}`,
+          background: selectedId ? C.light : C.surface,
+          color: selectedId ? C.petrol : C.sec,
+          fontWeight: selectedId ? 600 : 400,
+          outline: 'none', cursor: 'pointer', appearance: 'none',
+          backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'8\' viewBox=\'0 0 12 8\'%3E%3Cpath d=\'M1 1l5 5 5-5\' stroke=\'%231F4E5F\' stroke-width=\'1.5\' fill=\'none\'/%3E%3C/svg%3E")',
+          backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center',
+        }}
+      >
+        <option value="">Sem aluno específico</option>
+        {students.map(s => (
+          <option key={s.id} value={s.id}>
+            {s.name}{s.diagnosis?.length ? ` · ${s.diagnosis[0]}` : ''}
+          </option>
+        ))}
+      </select>
+      {fetching && <Loader size={12} color={C.sec} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
+      {selected && !fetching && (
+        <span style={{ fontSize: 10, color: '#16A34A', fontWeight: 600, whiteSpace: 'nowrap' }}>
+          ✓ prontuário carregado
+        </span>
+      )}
+      <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
+    </div>
+  );
+};
+
+// ─── Props do IncluiLabView ───────────────────────────────────────────────────
+interface IncluiLabViewProps {
+  user:                   User;
+  students:               Student[];
+  defaultTab?:            string;
+  sidebarOpen?:           boolean;
+  onWorkflowNodesChange?: (nodeIds: string[]) => void;
+  creditsAvailable?:      number;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════════════════
+export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
+  user, students, defaultTab, sidebarOpen = true, onWorkflowNodesChange, creditsAvailable,
+}) => {
+  // ── Estado: workflow canvas ──────────────────────────────────────────────────
+  const [showWorkflow, setShowWorkflow] = useState(defaultTab === 'workflow');
+
+  // ── Estado: chat ─────────────────────────────────────────────────────────────
+  const [messages,    setMessages]    = useState<ChatMessage[]>([]);
+  const [inputText,   setInputText]   = useState('');
+  const [pendingFile, setPendingFile] = useState<AttachedFile | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // ── Estado: aluno selecionado ─────────────────────────────────────────────────
+  const [studentId,   setStudentId]   = useState('');
+  const [studentCtx,  setStudentCtx]  = useState('');
+  const [studentName, setStudentName] = useState('');
+
+  // ── Estado: painel direito ───────────────────────────────────────────────────
+  const [rightTab,    setRightTab]    = useState<'preview' | 'library'>('preview');
+  const [previewMsg,  setPreviewMsg]  = useState<ChatMessage | null>(null);  // msg cujo result está em foco
+  const [savingId,    setSavingId]    = useState<string | null>(null);        // msgId sendo salvo
+
+  // ── Estado: biblioteca ────────────────────────────────────────────────────────
+  const [library,      setLibrary]      = useState<any[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [librarySelId,   setLibrarySelId]   = useState<string | null>(null);
+
+  // Modelo de geração
+  const [modelId, setModelId] = useState<ActivityModelId>('texto_apenas');
+
+  const chatEndRef   = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const textAreaRef  = useRef<HTMLTextAreaElement>(null);
+
+  // ── Scroll to bottom ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // ── Carrega biblioteca ao montar ──────────────────────────────────────────────
+  useEffect(() => {
+    loadLibrary();
+  }, []);
+
+  async function loadLibrary() {
+    setLibraryLoading(true);
+    try {
+      const acts = await GeneratedActivityService.getForTenant(user.id);
+      setLibrary(acts || []);
+    } catch { /* silencioso */ } finally {
+      setLibraryLoading(false);
+    }
+  }
+
+  // ── Mensagem de boas-vindas ───────────────────────────────────────────────────
+  useEffect(() => {
+    const welcome: ChatMessage = {
+      id: uid(), role: 'assistant', timestamp: new Date(),
+      text: `Olá! Sou sua Central de Inteligência Inclusiva. 🧠\n\nPosso ajudar você a:\n• **Adaptar materiais** — envie uma foto, PDF ou Word de qualquer atividade\n• **Criar atividades do zero** — descreva o tema e eu gero o material completo\n• **Redesenhar textos** — cole qualquer texto para torná-lo mais acessível\n\nSelecione um aluno no topo para personalizar tudo automaticamente.`,
+    };
+    setMessages([welcome]);
+  }, []);
+
+  // ── Selecionar aluno ──────────────────────────────────────────────────────────
+  const handleStudentChange = useCallback((id: string, ctx: string, name: string) => {
+    setStudentId(id);
+    setStudentCtx(ctx);
+    setStudentName(name);
+    if (id) {
+      addAssistantMsg(`Contexto de **${name}** carregado. Enviarei o prontuário completo em cada solicitação automaticamente.`);
+    }
+  }, []);
+
+  // ── Helpers de mensagens ──────────────────────────────────────────────────────
+  function addAssistantMsg(text: string, extra?: Partial<ChatMessage>) {
+    setMessages(prev => [...prev, { id: uid(), role: 'assistant', text, timestamp: new Date(), ...extra }]);
+  }
+
+  function updateMessage(id: string, patch: Partial<ChatMessage>) {
+    setMessages(prev => prev.map(m => m.id === id ? { ...m, ...patch } : m));
+  }
+
+  // ── Anexar arquivo ────────────────────────────────────────────────────────────
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const base64 = await fileToBase64(file);
+    const previewUrl = file.type.startsWith('image/') ? base64 : undefined;
+    setPendingFile({ name: file.name, type: file.type, base64, previewUrl });
+    e.target.value = '';
+  };
+
+  // ── Enviar mensagem ───────────────────────────────────────────────────────────
+  const handleSend = async () => {
+    const text   = inputText.trim();
+    const file   = pendingFile;
+    if (!text && !file) return;
+    if (isGenerating) return;
+
+    // Mensagem do usuário
+    const userMsgId = uid();
+    const userMsg: ChatMessage = {
+      id: userMsgId, role: 'user', timestamp: new Date(),
+      text: text || (file ? `Enviei: ${file.name}` : ''),
+      file: file ?? undefined,
+    };
+    setMessages(prev => [...prev, userMsg]);
+    setInputText('');
+    setPendingFile(null);
+
+    // ── Roteamento ──────────────────────────────────────────────────────────────
+    if (file) {
+      // Arquivo → pergunta de confirmação
+      const studentLabel = studentName ? `para **${studentName}**` : 'para inclusão geral';
+      const asstMsgId = uid();
+      const asstMsg: ChatMessage = {
+        id: asstMsgId, role: 'assistant', timestamp: new Date(),
+        text: `Recebi **${file.name}**.\n\nDeseja adaptar este material ${studentLabel}?`,
+        actionButtons: [
+          { label: 'Sim, adaptar agora', variant: 'primary', payload: { action: 'adapt_file', fileBase64: file.base64, fileName: file.name, fileType: file.type, studentCtx, studentName, triggerMsgId: asstMsgId } },
+          { label: 'Cancelar', variant: 'ghost', payload: { action: 'cancel', triggerMsgId: asstMsgId } },
+        ],
+      };
+      setMessages(prev => [...prev, asstMsg]);
+    } else if (text) {
+      // Texto → gera atividade do tema
+      await generateActivityFromTopic(text);
+    }
+  };
+
+  // ── Confirmar ação dos botões ────────────────────────────────────────────────
+  const handleConfirm = async (payload: Record<string, any>) => {
+    const { action, triggerMsgId } = payload;
+
+    // Remove os botões da mensagem gatilho para evitar re-clique
+    if (triggerMsgId) {
+      setMessages(prev => prev.map(m => m.id === triggerMsgId ? { ...m, actionButtons: [] } : m));
+    }
+
+    if (action === 'cancel') {
+      addAssistantMsg('Tudo bem! Pode enviar outro arquivo ou digitar um tema para criar uma atividade nova.');
+      return;
+    }
+
+    if (action === 'adapt_file') {
+      await adaptFile(payload.fileBase64, payload.fileName, payload.fileType, payload.studentCtx ?? studentCtx, payload.studentName ?? studentName);
+    }
+
+    if (action === 'adapt_text') {
+      await adaptText(payload.text, payload.studentCtx ?? studentCtx, payload.studentName ?? studentName);
+    }
+  };
+
+  // ── Adaptar arquivo (EduLensIA) ───────────────────────────────────────────────
+  async function adaptFile(base64: string, fileName: string, fileType: string, ctx: string, sName: string) {
+    const OCR_COST  = AI_CREDIT_COSTS.OCR ?? 1;
+    const TEXT_COST = INCLUILAB_MODEL_COSTS.TEXT ?? 3;
+    const totalCost = OCR_COST + TEXT_COST;
+
+    const hasCredits = creditsAvailable !== undefined
+      ? creditsAvailable >= totalCost
+      : await AIService.checkCredits(user, totalCost);
+    if (!hasCredits) { addAssistantMsg(`⚠️ ${CREDIT_INSUFFICIENT_MSG}`); return; }
+
+    setIsGenerating(true);
+    const thinkingId = uid();
+    setMessages(prev => [...prev, { id: thinkingId, role: 'assistant', timestamp: new Date(), text: '⌛ Analisando o material e gerando a adaptação...' }]);
+
+    try {
+      const adaptType = ctx.includes('autismo') || ctx.includes('TEA') ? 'Autismo (TEA)'
+                      : ctx.includes('TDAH') ? 'TDAH'
+                      : ctx.includes('dislexia') ? 'Dislexia'
+                      : ctx.includes('Intelectual') ? 'Deficiência Intelectual'
+                      : 'necessidades de inclusão geral';
+
+      const prompt = buildFileAdaptPrompt(adaptType, ctx);
+      const raw = await AIService.generateFromPromptWithImage(prompt, base64, user);
+
+      await safeDeductCredits(user, `INCLUILAB_ADAPT_FILE:${modelId}`, totalCost);
+
+      const resultMsg: Partial<ChatMessage> = {
+        text: `✅ Material adaptado para **${sName || 'inclusão geral'}** com sucesso!`,
+        result: raw, creditsUsed: totalCost,
+      };
+      setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, ...resultMsg } : m));
+      setPreviewMsg({ id: thinkingId, role: 'assistant', timestamp: new Date(), text: '', ...resultMsg } as ChatMessage);
+      setRightTab('preview');
+    } catch (err: any) {
+      setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, text: `❌ Erro: ${friendlyAIError(err)}` } : m));
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  // ── Adaptar texto ─────────────────────────────────────────────────────────────
+  async function adaptText(text: string, ctx: string, sName: string) {
+    const TEXT_COST = INCLUILAB_MODEL_COSTS.TEXT ?? 3;
+
+    const hasCredits = creditsAvailable !== undefined
+      ? creditsAvailable >= TEXT_COST
+      : await AIService.checkCredits(user, TEXT_COST);
+    if (!hasCredits) { addAssistantMsg(`⚠️ ${CREDIT_INSUFFICIENT_MSG}`); return; }
+
+    setIsGenerating(true);
+    const thinkingId = uid();
+    setMessages(prev => [...prev, { id: thinkingId, role: 'assistant', timestamp: new Date(), text: '⌛ Redesenhando o texto de forma inclusiva...' }]);
+
+    try {
+      const adaptType = 'inclusão geral';
+      const prompt = buildAdaptPrompt(adaptType, ctx, text);
+      const raw = await AIService.generateFromPromptWithImage(prompt, '', user);
+
+      await safeDeductCredits(user, `INCLUILAB_ADAPT_TEXT`, TEXT_COST);
+
+      const resultMsg: Partial<ChatMessage> = {
+        text: `✅ Texto redesenhado${sName ? ` para **${sName}**` : ''}!`,
+        result: raw, creditsUsed: TEXT_COST,
+      };
+      setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, ...resultMsg } : m));
+      setPreviewMsg({ id: thinkingId, role: 'assistant', timestamp: new Date(), text: '', ...resultMsg } as ChatMessage);
+      setRightTab('preview');
+    } catch (err: any) {
+      setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, text: `❌ Erro: ${friendlyAIError(err)}` } : m));
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  // ── Criar atividade a partir de tema ─────────────────────────────────────────
+  async function generateActivityFromTopic(topic: string) {
+    const TEXT_COST = INCLUILAB_MODEL_COSTS.TEXT ?? 3;
+
+    const hasCredits = creditsAvailable !== undefined
+      ? creditsAvailable >= TEXT_COST
+      : await AIService.checkCredits(user, TEXT_COST);
+    if (!hasCredits) { addAssistantMsg(`⚠️ ${CREDIT_INSUFFICIENT_MSG}`); return; }
+
+    setIsGenerating(true);
+    const thinkingId = uid();
+    setMessages(prev => [...prev, { id: thinkingId, role: 'assistant', timestamp: new Date(), text: `⌛ Criando atividade inclusiva sobre "${topic}"...` }]);
+
+    try {
+      const prompt = buildActivityFromTopicPrompt(topic, studentCtx);
+      const raw = await AIService.generateFromPromptWithImage(prompt, '', user);
+
+      await safeDeductCredits(user, `INCLUILAB_CREATE:${modelId}`, TEXT_COST);
+
+      const resultMsg: Partial<ChatMessage> = {
+        text: `✅ Atividade sobre **"${topic}"** criada${studentName ? ` para **${studentName}**` : ''}!`,
+        result: raw, creditsUsed: TEXT_COST,
+      };
+      setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, ...resultMsg } : m));
+      const fullMsg = { id: thinkingId, role: 'assistant' as const, timestamp: new Date(), text: '', ...resultMsg } as ChatMessage;
+      setPreviewMsg(fullMsg);
+      setRightTab('preview');
+    } catch (err: any) {
+      setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, text: `❌ Erro: ${friendlyAIError(err)}` } : m));
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  // ── Salvar atividade na biblioteca ────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!previewMsg?.result) return;
+    setSavingId(previewMsg.id);
+    try {
+      const lines   = previewMsg.result.split('\n');
+      const titleLine = lines.find(l => l.startsWith('#'));
+      const title  = titleLine ? titleLine.replace(/^#+\s*/, '') : 'Atividade IncluiLAB';
+      const id = await GeneratedActivityService.save({
+        tenantId:   (user as any).tenant_id ?? user.id,
+        userId:     user.id,
+        studentId:  studentId || undefined,
+        title,
+        content:    previewMsg.result,
+        imageUrl:   previewMsg.resultImageUrl,
+        isAdapted:  !!previewMsg.file,
+        creditsUsed: previewMsg.creditsUsed ?? 0,
+        modelUsed:  modelId,
+        outputType: modelId === 'texto_apenas' ? 'text' : 'text_image',
+        tags:       studentName ? [studentName] : [],
+      });
+      if (id) {
+        updateMessage(previewMsg.id, { savedId: id });
+        setPreviewMsg(prev => prev ? { ...prev, savedId: id } : prev);
+        await loadLibrary();
+      }
+    } catch (e: any) {
+      console.error('[IncluiLAB] Erro ao salvar:', e?.message);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  // ── Deletar da biblioteca ─────────────────────────────────────────────────────
+  const handleDeleteLib = async (id: string) => {
+    if (!window.confirm('Remover esta atividade da biblioteca?')) return;
+    await GeneratedActivityService.delete(id);
+    setLibrary(prev => prev.filter(a => a.id !== id));
+    if (librarySelId === id) { setLibrarySelId(null); }
+  };
+
+  // ── Selecionar da biblioteca ───────────────────────────────────────────────────
+  const handleLibSelect = (act: any) => {
+    setLibrarySelId(act.id);
+    const fakeMsg: ChatMessage = {
+      id:              act.id,
+      role:            'assistant',
+      text:            act.title,
+      result:          act.content,
+      resultImageUrl:  act.image_url,
+      creditsUsed:     act.credits_used,
+      savedId:         act.id,
+      timestamp:       new Date(act.created_at),
+    };
+    setPreviewMsg(fakeMsg);
+    setRightTab('preview');
+  };
+
+  // ── Keyboard shortcut (Enter) ─────────────────────────────────────────────────
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+
+  // ── Resize textarea ───────────────────────────────────────────────────────────
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputText(e.target.value);
+    const ta = e.target;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+  };
+
+  // ── Sugestões rápidas ─────────────────────────────────────────────────────────
+  const suggestions = [
+    'Atividade de frações para Anos Iniciais',
+    'Leitura e interpretação sobre animais',
+    'Matemática lúdica com material concreto',
+    'Produção de texto com apoio visual',
+  ];
+
+  // ── AtivaIA canvas (modo especial) ────────────────────────────────────────────
+  if (showWorkflow) {
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px',
+          background: C.surface, borderBottom: `1px solid ${C.border}`,
+        }}>
+          <button onClick={() => setShowWorkflow(false)} style={{ ...btnStyle, gap: 6 }}>
+            ← Voltar ao Chat
+          </button>
+          <div style={{ width: 32, height: 32, borderRadius: 10, background: C.petrol, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Zap size={16} color="#fff" />
+          </div>
+          <div>
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 800, color: C.dark }}>AtivaIA</p>
+            <p style={{ margin: 0, fontSize: 11, color: C.petrol }}>Canvas de Atividades com React Flow</p>
+          </div>
+        </div>
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <AtivaIACanvas user={user} students={students as any} sidebarOpen={sidebarOpen} onWorkflowNodesChange={onWorkflowNodesChange} />
         </div>
       </div>
     );
   }
 
-  // ── Sub-page ──
-  const current = modules.find(m => m.id === activeTab)!;
-  const CurrentIcon = current.icon;
+  // ─────────────────────────────────────────────────────────────────────────────
+  // LAYOUT PRINCIPAL: Chat (esquerda) + Painel (direita)
+  // ─────────────────────────────────────────────────────────────────────────────
+  const previewContent  = previewMsg?.result ?? '';
+  const previewImageUrl = previewMsg?.resultImageUrl;
+  const previewTitle    = (() => {
+    if (!previewContent) return '';
+    const line = previewContent.split('\n').find(l => l.startsWith('#'));
+    return line ? line.replace(/^#+\s*/, '') : 'Atividade Gerada';
+  })();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Sub-page header */}
-      <div className="bg-white border-b border-gray-100 px-4 md:px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center gap-3">
-          {!defaultTab && (
-            <button onClick={() => setActiveTab(null)}
-              className="flex items-center gap-1.5 text-sm font-semibold text-gray-500 hover:text-brand-600 transition px-3 py-2 rounded-xl hover:bg-orange-50">
-              <ArrowLeft size={16} /> IncluiLAB
-            </button>
-          )}
-          <div className={`${current.iconBg} p-2.5 rounded-2xl shadow-md shrink-0`}>
-            <CurrentIcon className="text-white" size={20} />
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg }}>
+
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px',
+        background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0,
+        flexWrap: 'wrap', gap: 10,
+      }}>
+        {/* Logo */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 10, background: C.petrol, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Brain size={17} color="#fff" />
           </div>
           <div>
-            <h1 className="text-xl font-extrabold text-gray-900 leading-tight">{current.label}</h1>
-            <p className="text-xs text-brand-500 font-semibold">{current.subtitle}</p>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 800, color: C.dark, lineHeight: 1 }}>IncluiLAB</p>
+            <p style={{ margin: 0, fontSize: 10, color: C.petrol, lineHeight: 1.2 }}>Central de Inteligência</p>
           </div>
-          {!defaultTab && (
-            <div className="ml-auto hidden sm:flex items-center gap-1 bg-gray-100 rounded-xl p-1">
-              {modules.map(m => {
-                const Icon = m.icon;
-                return (
-                  <button key={m.id} onClick={() => setActiveTab(m.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === m.id ? 'bg-brand-600 text-white shadow' : 'text-gray-500 hover:text-brand-600'}`}>
-                    <Icon size={13} /> {m.label}
-                  </button>
-                );
-              })}
+        </div>
+
+        {/* Divisor */}
+        <div style={{ width: 1, height: 28, background: C.border, flexShrink: 0, display: window.innerWidth < 640 ? 'none' : 'block' }} />
+
+        {/* Seletor de aluno */}
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <StudentSelector students={students} selectedId={studentId} onChange={handleStudentChange} />
+        </div>
+
+        {/* AtivaIA button */}
+        <button onClick={() => setShowWorkflow(true)} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '7px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+          background: C.bg, border: `1.5px solid ${C.border}`, cursor: 'pointer',
+          color: C.dark, flexShrink: 0,
+        }}>
+          <Zap size={13} color={C.petrol} /> AtivaIA
+        </button>
+      </div>
+
+      {/* ── Body: Chat + Painel ──────────────────────────────────────────────── */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+
+        {/* ── Coluna Esquerda: Chat ────────────────────────────────────────────── */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, borderRight: `1px solid ${C.border}` }}>
+
+          {/* Mensagens */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px' }}>
+            {messages.map((msg, i) => (
+              <ChatBubble
+                key={msg.id}
+                msg={msg}
+                studentName={studentName}
+                onConfirm={handleConfirm}
+                onViewResult={m => { setPreviewMsg(m); setRightTab('preview'); }}
+                isLatest={i === messages.length - 1}
+              />
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Sugestões (se conversa vazia) */}
+          {messages.length <= 1 && (
+            <div style={{ padding: '0 16px 8px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {suggestions.map(s => (
+                <button key={s} onClick={() => { setInputText(s); textAreaRef.current?.focus(); }} style={{
+                  padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 500,
+                  background: C.surface, border: `1px solid ${C.border}`,
+                  color: C.dark, cursor: 'pointer',
+                }}>
+                  {s}
+                </button>
+              ))}
             </div>
           )}
-        </div>
-      </div>
 
-      <div className="max-w-6xl mx-auto p-4 md:p-6">
-        {activeTab === 'workflow' && <AtivaIACanvas user={user} students={students as any} sidebarOpen={sidebarOpen} onWorkflowNodesChange={onWorkflowNodesChange} />}
-        {activeTab === 'scanner'  && <ScannerTab  user={user} students={students} creditsAvailable={creditsAvailable} />}
-        {activeTab === 'redesign' && <RedesignTab user={user} students={students} creditsAvailable={creditsAvailable} />}
-        {activeTab === 'provas'   && <ProvasTab   user={user} students={students} creditsAvailable={creditsAvailable} />}
-      </div>
-    </div>
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// EDULEISIA — Scanner Pedagógico
-// ═══════════════════════════════════════════════════════════════════════════════
-const ScannerTab: React.FC<{ user: User; students: Student[]; creditsAvailable?: number }> = ({ user, students, creditsAvailable }) => {
-  const [file, setFile]                   = useState<File | null>(null);
-  const [preview, setPreview]             = useState<string | null>(null);
-  const [adaptationType, setAdaptationType] = useState('autismo');
-  const [model, setModel]                 = useState<ActivityModelId>('texto_apenas');
-  const [loading, setLoading]             = useState(false);
-  const [result, setResult]               = useState<AdaptedActivity | null>(null);
-  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
-  const [imageError, setImageError]               = useState<string | null>(null);
-  const [selectedStudentId, setSelectedStudentId] = useState('');
-  const [studentCtxText, setStudentCtxText]       = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraRef    = useRef<HTMLInputElement>(null);
-
-  const imgCost    = imageCostFor(model);
-  const totalCredits = scannerTotalCost(model);
-
-  const handleFileChange = async (f: File) => {
-    setFile(f); setResult(null);
-    if (f.type.startsWith('image/')) setPreview(await fileToBase64(f));
-    else setPreview(null);
-  };
-
-  const handleAdapt = async () => {
-    if (!file) { alert('Envie um arquivo primeiro.'); return; }
-
-    const hasCredits = creditsAvailable !== undefined
-      ? creditsAvailable >= totalCredits
-      : await AIService.checkCredits(user, totalCredits);
-    if (!hasCredits) {
-      alert(CREDIT_INSUFFICIENT_MSG);
-      return;
-    }
-
-    setLoading(true); setResult(null); setGeneratedImageUrl(null); setImageError(null);
-    try {
-      const base64 = await fileToBase64(file);
-      const adaptLabel = ADAPTATION_TYPES.find(a => a.id === adaptationType)?.label || adaptationType;
-      const studentBlock = studentCtxText
-        ? `\n\n${studentCtxText}\n\nIMPORTANTE: Adapte especificamente para este aluno, considerando seu diagnóstico, dificuldades e estratégias acima.`
-        : '';
-      const prompt = `Você é um especialista em educação inclusiva. Analise o conteúdo desta atividade educacional (extraia o texto se for imagem) e crie uma versão adaptada para alunos com ${adaptLabel}.${studentBlock}
-
-Regras:
-- Simplifique a linguagem sem perder o objetivo pedagógico
-- Divida instruções longas em passos numerados curtos
-- Para TEA: estruture claramente, evite ambiguidade, use linguagem literal
-- Para TDAH: instruções curtas, destaque o essencial
-- Para Dislexia: frases curtas, vocabulário simples
-- Para DI: linguagem simples, contexto concreto
-
-Retorne SOMENTE um JSON válido:
-{"original":"texto extraído","adapted":"versão adaptada completa","adaptationType":"${adaptLabel}"}`;
-
-      const raw = await AIService.generateFromPromptWithImage(prompt, base64, user);
-      let parsed: AdaptedActivity;
-      try {
-        const m = raw.match(/\{[\s\S]*\}/);
-        parsed = m ? JSON.parse(m[0]) : { original: '', adapted: raw, adaptationType: adaptLabel };
-      } catch { parsed = { original: '', adapted: raw, adaptationType: adaptLabel }; }
-      setResult(parsed);
-
-      // Débita OCR + texto imediatamente — entrega já ocorreu
-      try {
-        await safeDeductCredits(user, `EDULEISIA_OCR_ADAPTAR:${model}`, OCR_COST + TEXT_COST);
-      } catch (e: any) {
-        console.error('[EduLensIA] falha ao debitar OCR+texto:', e?.message);
-      }
-
-      // Geração de imagem: débito somente após sucesso comprovado
-      let finalImageUrl: string | null = null;
-      if (modelGeneratesImage(model)) {
-        try {
-          const imgPrompt = `Ilustração educativa inclusiva para atividade sobre "${adaptLabel}", estilo pedagógico infantil, traço limpo, alto contraste, fundo branco, sem texto.`;
-          // skipDeduction=true: não checa/debita internamente; controlamos aqui
-          const tempUrl = await AIService.generateImageFromPrompt(imgPrompt, user, imgCost, true);
-          const persistedUrl = await persistImageToStorage(tempUrl, (user as any).tenant_id ?? user.id);
-          finalImageUrl = persistedUrl ?? tempUrl;
-          setGeneratedImageUrl(finalImageUrl);
-          // Débita somente após URL confirmada
-          await safeDeductCredits(user, `EDULEISIA_IMAGEM:${model}`, imgCost);
-        } catch (imgErr: any) {
-          setImageError(friendlyAIError(imgErr));
-        }
-      }
-
-      // Persiste com créditos reais consumidos
-      const creditsUsed = OCR_COST + TEXT_COST + (finalImageUrl ? imgCost : 0);
-      try {
-        const { GeneratedActivityService } = await import('../services/persistenceService');
-        await GeneratedActivityService.save({
-          tenantId:    (user as any).tenant_id ?? '',
-          userId:      user.id,
-          title:       `EduLensIA — ${adaptLabel} (${new Date().toLocaleDateString('pt-BR')})`,
-          content:     parsed.adapted,
-          imageUrl:    finalImageUrl ?? undefined,
-          isAdapted:   true,
-          creditsUsed,
-          tags:        ['eduleisia', model, adaptationType],
-        });
-      } catch (saveErr: any) {
-        console.warn('[EduLensIA] falha ao salvar atividade no banco:', saveErr?.message);
-      }
-    } catch (e: any) {
-      alert(friendlyAIError(e));
-    } finally { setLoading(false); }
-  };
-
-  return (
-    <div className="space-y-6">
-
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <h2 className="font-bold text-gray-800 text-lg flex items-center gap-2">
-            <Camera size={18} className="text-brand-600" /> Scanner Pedagógico
-          </h2>
-        </div>
-        <ModelSelector model={model} onChange={setModel} baseCost={OCR_COST} />
-        <StudentSelector
-          students={students}
-          selectedId={selectedStudentId}
-          onChange={(id, ctx) => { setSelectedStudentId(id); setStudentCtxText(ctx); }}
-          loading={loading}
-        />
-
-        <div onClick={() => fileInputRef.current?.click()}
-          className="border-2 border-dashed border-orange-200 rounded-2xl p-8 text-center cursor-pointer hover:border-brand-400 hover:bg-orange-50 transition mb-4">
-          {preview ? (
-            <img src={preview} alt="preview" className="max-h-40 mx-auto rounded-lg object-contain" />
-          ) : (
-            <>
-              <Upload size={32} className="text-brand-400 mx-auto mb-3" />
-              <p className="text-sm font-semibold text-gray-600">Arraste ou clique para enviar</p>
-              <p className="text-xs text-gray-400 mt-1">PDF, JPG, PNG aceitos</p>
-              {file && <p className="text-xs text-brand-600 font-bold mt-2">{file.name}</p>}
-            </>
+          {/* Preview do arquivo pendente */}
+          {pendingFile && (
+            <div style={{
+              margin: '0 16px 8px', padding: '8px 12px', borderRadius: 12,
+              background: C.light, border: `1px solid ${C.border}`,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              {pendingFile.type.startsWith('image/') && pendingFile.previewUrl
+                ? <img src={pendingFile.previewUrl} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6 }} />
+                : <FileText size={18} color={C.petrol} />
+              }
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.dark, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {pendingFile.name}
+              </span>
+              <button onClick={() => setPendingFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sec, padding: 2 }}>
+                <X size={14} />
+              </button>
+            </div>
           )}
-        </div>
-        <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
-          onChange={e => e.target.files?.[0] && handleFileChange(e.target.files[0])} />
 
-        <div className="flex gap-2 mb-5">
-          <button onClick={() => cameraRef.current?.click()}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:bg-gray-50">
-            <Camera size={15} /> Usar câmera
-          </button>
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden"
-            onChange={e => e.target.files?.[0] && handleFileChange(e.target.files[0])} />
-          {file && <span className="flex items-center gap-1 text-xs text-brand-600 font-bold"><CheckCircle size={13} /> {file.name}</span>}
+          {/* Input bar */}
+          <div style={{
+            padding: '10px 16px 14px', background: C.surface,
+            borderTop: `1px solid ${C.border}`, flexShrink: 0,
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'flex-end', gap: 8,
+              border: `1.5px solid ${isGenerating ? C.border : C.petrol}`,
+              borderRadius: 20, padding: '8px 10px',
+              background: C.surface, transition: 'border-color 0.2s',
+            }}>
+              {/* Attach */}
+              <button onClick={() => fileInputRef.current?.click()} title="Anexar arquivo" style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: C.sec, padding: '2px 4px', flexShrink: 0, borderRadius: 8,
+                transition: 'color 0.15s',
+              }}
+                onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = C.petrol}
+                onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = C.sec}
+              >
+                <Paperclip size={18} />
+              </button>
+
+              {/* Textarea */}
+              <textarea
+                ref={textAreaRef}
+                value={inputText}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder={isGenerating ? 'Aguarde…' : 'Descreva o tema ou envie um arquivo…'}
+                disabled={isGenerating}
+                rows={1}
+                style={{
+                  flex: 1, border: 'none', outline: 'none', resize: 'none',
+                  fontSize: 14, lineHeight: 1.5, fontFamily: 'inherit',
+                  background: 'transparent', color: C.dark,
+                  minHeight: 24, maxHeight: 120,
+                }}
+              />
+
+              {/* Send */}
+              <button
+                onClick={handleSend}
+                disabled={isGenerating || (!inputText.trim() && !pendingFile)}
+                style={{
+                  width: 34, height: 34, borderRadius: '50%', border: 'none',
+                  background: (isGenerating || (!inputText.trim() && !pendingFile)) ? C.border : C.petrol,
+                  cursor: (isGenerating || (!inputText.trim() && !pendingFile)) ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0, transition: 'background 0.15s',
+                }}
+              >
+                {isGenerating
+                  ? <Loader size={15} color="#fff" style={{ animation: 'spin 1s linear infinite' }} />
+                  : <Send size={15} color="#fff" />
+                }
+              </button>
+            </div>
+
+            <p style={{ fontSize: 10, color: C.sec, margin: '6px 0 0', textAlign: 'center' }}>
+              Enter para enviar · Shift+Enter para nova linha · Aceita PDF, PNG, JPG, DOCX
+            </p>
+          </div>
+
+          {/* Input file oculto */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.docx,.doc"
+            style={{ display: 'none' }}
+            onChange={handleFileSelect}
+          />
         </div>
 
-        <div className="mb-5">
-          <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Tipo de Adaptação</label>
-          <div className="flex flex-wrap gap-2">
-            {ADAPTATION_TYPES.map(a => (
-              <button key={a.id} onClick={() => setAdaptationType(a.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold border-2 transition ${adaptationType === a.id ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'}`}>
-                {a.label}
+        {/* ── Painel Direito ────────────────────────────────────────────────────── */}
+        <div style={{ width: 420, flexShrink: 0, display: 'flex', flexDirection: 'column', background: C.surface }}>
+
+          {/* Tabs do painel */}
+          <div style={{
+            display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0,
+          }}>
+            {([
+              { key: 'preview', label: 'Visualização A4', icon: FileText },
+              { key: 'library', label: `Biblioteca (${library.length})`, icon: BookMarked },
+            ] as const).map(({ key, label, icon: Icon }) => (
+              <button key={key} onClick={() => setRightTab(key)} style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                padding: '11px 8px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                border: 'none', borderBottom: rightTab === key ? `2px solid ${C.petrol}` : '2px solid transparent',
+                background: 'transparent', color: rightTab === key ? C.petrol : C.sec,
+                transition: 'all 0.15s',
+              }}>
+                <Icon size={13} /> {label}
               </button>
             ))}
           </div>
-        </div>
 
-        {/* Preflight de créditos */}
-        <div className="mb-4 mt-3 bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 text-xs space-y-1">
-          <div className="flex items-center gap-2 mb-1.5">
-            <Coins size={13} className="text-brand-500 shrink-0" />
-            <span className="font-bold text-gray-700">Custo previsto</span>
-          </div>
-          <div className="flex justify-between text-gray-600">
-            <span>OCR + Extração de conteúdo</span>
-            <strong className="text-brand-700">{OCR_COST} crédito</strong>
-          </div>
-          <div className="flex justify-between text-gray-600">
-            <span>Adaptação pedagógica (texto)</span>
-            <strong className="text-brand-700">{TEXT_COST} créditos</strong>
-          </div>
-          {modelGeneratesImage(model) && (
-            <div className="flex justify-between text-gray-600">
-              <span>Geração de imagem ({getModelConfig(model).name})</span>
-              <strong className="text-brand-700">{imgCost} créditos</strong>
-            </div>
-          )}
-          <div className="flex justify-between font-bold text-gray-800 border-t border-orange-200 pt-1.5 mt-0.5">
-            <span>Total</span>
-            <strong className="text-brand-700">{totalCredits} créditos</strong>
-          </div>
-          {modelGeneratesImage(model) && (
-            <p className="text-[10px] text-gray-400 pt-0.5">Imagem cobrada somente se geração tiver sucesso.</p>
-          )}
-        </div>
-
-        <button onClick={handleAdapt} disabled={loading || !file}
-          className="w-full bg-brand-600 hover:bg-brand-700 text-white py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition shadow-lg shadow-orange-200 disabled:opacity-60">
-          {loading ? <><Loader size={16} className="animate-spin" /> Adaptando…</> : <><Brain size={16} /> Adaptar Atividade com IA</>}
-        </button>
-      </div>
-
-      {imageError && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
-          <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-bold text-amber-800">Imagem não foi gerada</p>
-            <p className="text-xs text-amber-700 mt-1">{imageError}</p>
-            <p className="text-xs text-amber-500 mt-1">Créditos de geração de imagem não foram cobrados.</p>
-          </div>
-        </div>
-      )}
-
-      {result && (() => {
-        // Detecta se a IA retornou JSON de imagem em vez de texto
-        const inlineImgFromAdapted = extractImageFromJson(result.adapted);
-        const displayImageUrl = inlineImgFromAdapted || generatedImageUrl;
-        const showTextResult  = !inlineImgFromAdapted;
-        return (
-        <div className="space-y-4">
-          {showTextResult && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <FileText size={15} className="text-gray-500" />
-                <span className="text-xs font-bold text-gray-500 uppercase">Original</span>
-              </div>
-              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{result.original || '(texto extraído da imagem)'}</p>
-            </div>
-            <div className="bg-orange-50 rounded-2xl border border-orange-100 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <CheckCircle size={15} className="text-brand-600" />
-                <span className="text-xs font-bold text-brand-700 uppercase">Adaptada — {result.adaptationType}</span>
-                <div className="ml-auto flex gap-1">
-                  <button onClick={() => exportAsDoc(result.adapted, 'atividade_adaptada.doc')}
-                    className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">
-                    <Download size={10} /> DOCX
-                  </button>
-                  <button onClick={() => printContent(result.adapted, 'Atividade Adaptada')}
-                    className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">
-                    <Printer size={10} /> PDF
-                  </button>
+          {/* Conteúdo do painel */}
+          <div style={{ flex: 1, overflow: 'hidden' }}>
+            {rightTab === 'preview' ? (
+              previewContent ? (
+                <A4Preview
+                  content={previewContent}
+                  imageUrl={previewImageUrl}
+                  title={previewTitle}
+                  onSave={handleSave}
+                  saving={savingId === previewMsg?.id}
+                  saved={!!previewMsg?.savedId}
+                  onExportDoc={() => exportAsDoc(previewContent, `${previewTitle}.doc`)}
+                  onPrint={() => printMarkdown(previewContent, previewTitle)}
+                />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: C.sec, padding: 32, textAlign: 'center' }}>
+                  <Sparkles size={36} color={C.border} style={{ marginBottom: 12 }} />
+                  <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: C.dark }}>Folha A4 pronta</p>
+                  <p style={{ margin: '6px 0 0', fontSize: 12 }}>Gere uma atividade para visualizá-la aqui. As adaptações aparecem em formato de folha imprimível.</p>
                 </div>
-              </div>
-              <div className="folha-a4-compact">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.adapted}</ReactMarkdown>
-              </div>
-            </div>
-          </div>
-          )}
-          {displayImageUrl && (
-            <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles size={15} className="text-brand-600" />
-                <span className="text-xs font-bold text-brand-700 uppercase">Imagem Pedagógica Gerada</span>
-                <button
-                  onClick={() => downloadImageAsFile(displayImageUrl, 'imagem_atividade.png')}
-                  className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-600 font-bold hover:bg-brand-100">
-                  <Download size={10} /> Baixar
-                </button>
-              </div>
-              <img
-                src={displayImageUrl}
-                alt="Imagem gerada para atividade"
-                className="max-h-64 mx-auto rounded-xl object-contain border border-gray-100"
-                style={{ display: 'block', maxWidth: '100%' }}
+              )
+            ) : (
+              <Library
+                activities={library}
+                loading={libraryLoading}
+                onSelect={handleLibSelect}
+                onDelete={handleDeleteLib}
+                selectedId={librarySelId ?? undefined}
               />
-            </div>
-          )}
-        </div>
-        );
-      })()}
-    </div>
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// NEURODESIGN — Redesenho Inclusivo
-// ═══════════════════════════════════════════════════════════════════════════════
-const RedesignTab: React.FC<{ user: User; students: Student[]; creditsAvailable?: number }> = ({ user, students, creditsAvailable }) => {
-  const [inputText, setInputText]         = useState('');
-  const [model, setModel]                 = useState<ActivityModelId>('texto_apenas');
-  const [loading, setLoading]             = useState(false);
-  const [result, setResult]               = useState<RedesignedActivity | null>(null);
-  const [generatedImageUrl, setGeneratedImageUrl] = useState<string | null>(null);
-  const [imageError, setImageError]               = useState<string | null>(null);
-  const [selectedStudentId, setSelectedStudentId] = useState('');
-  const [studentCtxText, setStudentCtxText]       = useState('');
-
-  const imgCost      = imageCostFor(model);
-  const totalCredits = redesignTotalCost(model);
-
-  const handleRedesign = async () => {
-    if (!inputText.trim()) { alert('Cole o conteúdo da atividade que deseja redesenhar.'); return; }
-
-    const hasCredits = creditsAvailable !== undefined
-      ? creditsAvailable >= totalCredits
-      : await AIService.checkCredits(user, totalCredits);
-    if (!hasCredits) {
-      alert(CREDIT_INSUFFICIENT_MSG);
-      return;
-    }
-
-    setLoading(true); setResult(null); setGeneratedImageUrl(null); setImageError(null);
-    try {
-      const studentBlock = studentCtxText
-        ? `\n\n${studentCtxText}\n\nAdapte o redesenho especificamente para este aluno, priorizando suas dificuldades e estratégias indicadas acima.`
-        : '';
-      const prompt = `Você é um designer instrucional especialista em educação inclusiva.
-Receba esta atividade e faça um REDESENHO PEDAGÓGICO INCLUSIVO completo.${studentBlock}
-
-ATIVIDADE ORIGINAL:
-${inputText}
-
-Aplique:
-1. Reorganize o layout (títulos, seções numeradas)
-2. Insira apoio visual em texto (📌 Imagem sugerida: ...)
-3. Sugira ícones/pictogramas (🔢, 🔤, etc)
-4. Melhore a organização para TEA e dislexia
-5. Separe instruções em passos numerados
-6. Use **negrito** para palavras-chave
-7. Adicione "Espaço para resposta:" depois de cada pergunta
-
-Retorne SOMENTE um JSON válido:
-{"original":"texto original","redesigned":"atividade redesenhada completa","suggestions":["Sugestão 1","Sugestão 2","Sugestão 3"]}`;
-
-      const raw = await AIService.generateFromPrompt(prompt, user);
-      let parsed: RedesignedActivity;
-      try {
-        const m = raw.match(/\{[\s\S]*\}/);
-        parsed = m ? JSON.parse(m[0]) : { original: inputText, redesigned: raw, suggestions: [] };
-      } catch { parsed = { original: inputText, redesigned: raw, suggestions: [] }; }
-      setResult(parsed);
-
-      // Débita texto imediatamente — entrega já ocorreu
-      try {
-        await safeDeductCredits(user, `NEURODESIGN_REDESIGN:${model}`, TEXT_COST);
-      } catch (e: any) {
-        console.error('[NeuroDesign] falha ao debitar texto:', e?.message);
-      }
-
-      // Geração de imagem: débito somente após sucesso comprovado
-      let finalImageUrl: string | null = null;
-      if (modelGeneratesImage(model)) {
-        try {
-          const imgPrompt = `Ilustração educativa inclusiva para atividade pedagógica redesenhada, estilo visual acessível, traço limpo, alto contraste, fundo branco, sem texto.`;
-          // skipDeduction=true: controlamos o débito aqui
-          const tempUrl = await AIService.generateImageFromPrompt(imgPrompt, user, imgCost, true);
-          const persistedUrl = await persistImageToStorage(tempUrl, (user as any).tenant_id ?? user.id);
-          finalImageUrl = persistedUrl ?? tempUrl;
-          setGeneratedImageUrl(finalImageUrl);
-          // Débita somente após URL confirmada
-          await safeDeductCredits(user, `NEURODESIGN_IMAGEM:${model}`, imgCost);
-        } catch (imgErr: any) {
-          setImageError(friendlyAIError(imgErr));
-        }
-      }
-
-      // Persiste com créditos reais consumidos
-      const creditsUsed = TEXT_COST + (finalImageUrl ? imgCost : 0);
-      try {
-        const { GeneratedActivityService } = await import('../services/persistenceService');
-        await GeneratedActivityService.save({
-          tenantId:    (user as any).tenant_id ?? '',
-          userId:      user.id,
-          title:       `NeuroDesign — Redesenho (${new Date().toLocaleDateString('pt-BR')})`,
-          content:     parsed.redesigned,
-          imageUrl:    finalImageUrl ?? undefined,
-          isAdapted:   true,
-          creditsUsed,
-          tags:        ['neurodesign', model],
-        });
-      } catch (saveErr: any) {
-        console.warn('[NeuroDesign] falha ao salvar atividade no banco:', saveErr?.message);
-      }
-    } catch (e: any) {
-      alert(friendlyAIError(e));
-    } finally { setLoading(false); }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
-          <h2 className="font-bold text-gray-800 text-lg flex items-center gap-2">
-            <Layers size={18} className="text-brand-600" /> Redesenho Inclusivo
-          </h2>
-        </div>
-        <p className="text-sm text-gray-500 mb-4">Cole qualquer atividade existente e a IA vai redesenhá-la com layout pedagógico acessível.</p>
-        <ModelSelector model={model} onChange={setModel} baseCost={0} />
-        <StudentSelector
-          students={students}
-          selectedId={selectedStudentId}
-          onChange={(id, ctx) => { setSelectedStudentId(id); setStudentCtxText(ctx); }}
-          loading={loading}
-        />
-
-        <textarea value={inputText} onChange={e => setInputText(e.target.value)}
-          placeholder="Cole aqui o texto da atividade que deseja redesenhar…"
-          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 resize-none"
-          rows={8} />
-
-        {/* Preflight de créditos */}
-        <div className="mt-3 mb-4 bg-orange-50 border border-orange-100 rounded-xl px-4 py-3 text-xs space-y-1">
-          <div className="flex items-center gap-2 mb-1.5">
-            <Coins size={13} className="text-brand-500 shrink-0" />
-            <span className="font-bold text-gray-700">Custo previsto</span>
+            )}
           </div>
-          <div className="flex justify-between text-gray-600">
-            <span>Redesenho pedagógico (texto)</span>
-            <strong className="text-brand-700">{TEXT_COST} créditos</strong>
-          </div>
-          {modelGeneratesImage(model) && (
-            <div className="flex justify-between text-gray-600">
-              <span>Geração de imagem ({getModelConfig(model).name})</span>
-              <strong className="text-brand-700">{imgCost} créditos</strong>
-            </div>
-          )}
-          <div className="flex justify-between font-bold text-gray-800 border-t border-orange-200 pt-1.5 mt-0.5">
-            <span>Total</span>
-            <strong className="text-brand-700">{totalCredits} créditos</strong>
-          </div>
-          {modelGeneratesImage(model) && (
-            <p className="text-[10px] text-gray-400 pt-0.5">Imagem cobrada somente se geração tiver sucesso.</p>
-          )}
         </div>
-
-        <button onClick={handleRedesign} disabled={loading}
-          className="w-full bg-brand-600 hover:bg-brand-700 text-white py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition shadow-lg shadow-orange-200 disabled:opacity-60">
-          {loading ? <><Loader size={16} className="animate-spin" /> Redesenhando…</> : <><Wand2 size={16} /> Redesenhar Atividade com IA</>}
-        </button>
       </div>
 
-      {imageError && (
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
-          <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-bold text-amber-800">Imagem não foi gerada</p>
-            <p className="text-xs text-amber-700 mt-1">{imageError}</p>
-            <p className="text-xs text-amber-500 mt-1">Créditos de geração de imagem não foram cobrados.</p>
-          </div>
-        </div>
-      )}
-
-      {result && (() => {
-        const inlineImgFromRedesigned = extractImageFromJson(result.redesigned);
-        const displayImageUrl = inlineImgFromRedesigned || generatedImageUrl;
-        const showTextResult  = !inlineImgFromRedesigned;
-        return (
-        <div className="space-y-4">
-          {showTextResult && (result.suggestions ?? []).length > 0 && (
-            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <Lightbulb size={15} className="text-amber-600" />
-                <span className="text-xs font-bold text-amber-700 uppercase">Sugestões de Melhoria</span>
-              </div>
-              <ul className="space-y-1.5">
-                {(result.suggestions ?? []).map((s, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-amber-800">
-                    <span className="bg-amber-200 text-amber-800 text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                    {s}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {showTextResult && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <FileText size={15} className="text-gray-500" />
-                <span className="text-xs font-bold text-gray-500 uppercase">Original</span>
-              </div>
-              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{result.original}</p>
-            </div>
-            <div className="bg-orange-50 rounded-2xl border border-orange-100 shadow-sm p-5">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <Wand2 size={15} className="text-brand-600" />
-                  <span className="text-xs font-bold text-brand-700 uppercase">Redesenhada</span>
-                </div>
-                <div className="flex gap-1">
-                  <button onClick={() => exportAsDoc(result.redesigned, 'atividade_redesenhada.doc')}
-                    className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">
-                    <Download size={10} /> DOCX
-                  </button>
-                  <button onClick={() => window.print()}
-                    className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-brand-600 font-bold hover:bg-orange-100">
-                    <Printer size={10} /> PDF
-                  </button>
-                </div>
-              </div>
-              <div className="folha-a4-compact">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.redesigned}</ReactMarkdown>
-              </div>
-            </div>
-          </div>
-          )}
-          {displayImageUrl && (
-            <div className="bg-white rounded-2xl border border-brand-100 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles size={15} className="text-brand-600" />
-                <span className="text-xs font-bold text-brand-700 uppercase">Imagem Pedagógica Gerada</span>
-                <button
-                  onClick={() => downloadImageAsFile(displayImageUrl, 'imagem_redesenhada.png')}
-                  className="ml-auto flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-brand-50 border border-brand-200 text-brand-600 font-bold hover:bg-brand-100">
-                  <Download size={10} /> Baixar
-                </button>
-              </div>
-              <img
-                src={displayImageUrl}
-                alt="Imagem gerada para atividade redesenhada"
-                className="max-h-64 mx-auto rounded-xl object-contain border border-gray-100"
-                style={{ display: 'block', maxWidth: '100%' }}
-              />
-            </div>
-          )}
-        </div>
-        );
-      })()}
+      <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
     </div>
   );
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// PROVAS ADAPTADAS — Avaliação Inclusiva personalizada por aluno
-// ═══════════════════════════════════════════════════════════════════════════════
-const ProvasTab: React.FC<{ user: User; students: Student[]; creditsAvailable?: number }> = ({ user, students, creditsAvailable }) => {
-  const [inputText, setInputText]                 = useState('');
-  const [model, setModel]                         = useState<ActivityModelId>('texto_apenas');
-  const [loading, setLoading]                     = useState(false);
-  const [result, setResult]                       = useState<string | null>(null);
-  const [selectedStudentId, setSelectedStudentId] = useState('');
-  const [studentCtxText, setStudentCtxText]       = useState('');
-  const [studentName, setStudentName]             = useState('');
-
-  const totalCredits = TEXT_COST + imageCostFor(model);
-
-  const handleGenerate = async () => {
-    if (!inputText.trim()) { alert('Cole o conteúdo da prova que deseja adaptar.'); return; }
-
-    const hasCredits = creditsAvailable !== undefined
-      ? creditsAvailable >= totalCredits
-      : await AIService.checkCredits(user, totalCredits);
-    if (!hasCredits) { alert(CREDIT_INSUFFICIENT_MSG); return; }
-
-    setLoading(true); setResult(null);
-    try {
-      const selectedStudent = students.find(s => s.id === selectedStudentId);
-      const studentHeader = selectedStudent
-        ? `para o aluno **${selectedStudent.name}**`
-        : 'para um aluno com necessidades educacionais especiais';
-
-      const ctxBlock = studentCtxText
-        ? `\n\n${studentCtxText}\n\nIMPORTANTE: Adapte EXCLUSIVAMENTE para este aluno, considerando cada característica listada acima. Cite as estratégias do prontuário quando aplicável.`
-        : '';
-
-      const prompt = `Você é especialista em avaliação inclusiva e educação especial.
-Adapte a prova/avaliação a seguir ${studentHeader}.${ctxBlock}
-
-PROVA ORIGINAL:
-${inputText}
-
-INSTRUÇÕES DE ADAPTAÇÃO:
-1. Mantenha os objetivos pedagógicos e os conteúdos avaliados
-2. Simplifique enunciados longos em partes menores e numeradas
-3. Use linguagem clara, direta e sem ambiguidades
-4. Adicione espaços maiores para resposta onde necessário
-5. Sugira apoios visuais entre colchetes quando pertinente: [Imagem sugerida: ...]
-6. Ajuste o nível de complexidade ao perfil do aluno
-7. Use **negrito** para palavras-chave e termos importantes
-8. Se houver cálculos, forneça suporte concreto (ex.: tabela de apoio)
-9. Separe cada questão com uma linha horizontal (---)
-10. Ao final, adicione uma seção "📋 Orientações ao Professor" com instruções de aplicação
-
-Formate a saída como uma prova completa, pronta para impressão, em Markdown limpo.
-Comece com: # Prova Adaptada — [Nome do Aluno ou "Avaliação Inclusiva"]`;
-
-      const raw = await AIService.generateFromPrompt(prompt, user);
-      setResult(raw);
-
-      try {
-        await safeDeductCredits(user, `PROVAS_ADAPTADAS:${model}`, TEXT_COST);
-      } catch (e: any) {
-        console.error('[ProvasAdaptadas] falha ao debitar créditos:', e?.message);
-      }
-
-      try {
-        const { GeneratedActivityService } = await import('../services/persistenceService');
-        await GeneratedActivityService.save({
-          tenantId:    (user as any).tenant_id ?? '',
-          userId:      user.id,
-          title:       `Prova Adaptada — ${selectedStudent?.name ?? 'Avaliação'} (${new Date().toLocaleDateString('pt-BR')})`,
-          content:     raw,
-          isAdapted:   true,
-          creditsUsed: TEXT_COST,
-          tags:        ['prova', 'avaliacao', model, selectedStudentId].filter(Boolean),
-        });
-      } catch (saveErr: any) {
-        console.warn('[ProvasAdaptadas] falha ao salvar no banco:', saveErr?.message);
-      }
-    } catch (e: any) {
-      alert(friendlyAIError(e));
-    } finally { setLoading(false); }
-  };
-
-  return (
-    <div className="space-y-6">
-      {/* ── Formulário ── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
-          <h2 className="font-bold text-gray-800 text-lg flex items-center gap-2">
-            <FileText size={18} className="text-teal-600" /> Provas Adaptadas
-          </h2>
-        </div>
-        <p className="text-sm text-gray-500 mb-4">
-          Cole o conteúdo de uma prova ou avaliação. Selecione o aluno e a IA adaptará usando o prontuário real do banco.
-        </p>
-
-        <ModelSelector model={model} onChange={setModel} baseCost={0} />
-
-        <StudentSelector
-          students={students}
-          selectedId={selectedStudentId}
-          onChange={(id, ctx) => {
-            setSelectedStudentId(id);
-            setStudentCtxText(ctx);
-            const s = students.find(st => st.id === id);
-            setStudentName(s?.name ?? '');
-          }}
-          loading={loading}
-        />
-
-        <textarea
-          value={inputText}
-          onChange={e => setInputText(e.target.value)}
-          placeholder="Cole aqui o conteúdo da prova ou avaliação original…"
-          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-300 resize-none"
-          rows={10}
-        />
-
-        {/* Preflight de créditos */}
-        <div className="mt-3 mb-4 bg-teal-50 border border-teal-100 rounded-xl px-4 py-3 text-xs space-y-1">
-          <div className="flex items-center gap-2 mb-1.5">
-            <Coins size={13} className="text-teal-600 shrink-0" />
-            <span className="font-bold text-gray-700">Custo previsto</span>
-          </div>
-          <div className="flex justify-between text-gray-600">
-            <span>Adaptação pedagógica da prova</span>
-            <strong className="text-teal-700">{TEXT_COST} créditos</strong>
-          </div>
-          {modelGeneratesImage(model) && (
-            <div className="flex justify-between text-gray-600">
-              <span>Geração de imagem ({getModelConfig(model).name})</span>
-              <strong className="text-teal-700">{imageCostFor(model)} créditos</strong>
-            </div>
-          )}
-          <div className="flex justify-between font-bold text-gray-800 border-t border-teal-200 pt-1.5 mt-0.5">
-            <span>Total</span>
-            <strong className="text-teal-700">{totalCredits} créditos</strong>
-          </div>
-        </div>
-
-        <button
-          onClick={handleGenerate}
-          disabled={loading}
-          className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition shadow-lg disabled:opacity-60"
-          style={{ background: '#0D9488', color: '#fff', boxShadow: '0 4px 14px rgba(13,148,136,0.25)' }}
-        >
-          {loading
-            ? <><Loader size={16} className="animate-spin" /> Adaptando prova…</>
-            : <><Brain size={16} /> Adaptar Prova com IA</>}
-        </button>
-      </div>
-
-      {/* ── Resultado — folha A4 ── */}
-      {result && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-            <div className="flex items-center gap-2">
-              <CheckCircle size={16} className="text-teal-600" />
-              <span className="text-sm font-bold text-teal-700">
-                Prova Adaptada{studentName ? ` — ${studentName}` : ''}
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => exportAsDoc(result, `prova_adaptada${studentName ? '_' + studentName.replace(/\s+/g, '_') : ''}.doc`)}
-                className="flex items-center gap-1 text-[11px] px-3 py-1.5 rounded-lg border border-teal-200 text-teal-700 font-bold hover:bg-teal-50"
-              >
-                <Download size={11} /> DOCX
-              </button>
-              <button
-                onClick={() => printContent(result, `Prova Adaptada${studentName ? ' — ' + studentName : ''}`)}
-                className="flex items-center gap-1 text-[11px] px-3 py-1.5 rounded-lg border border-teal-200 text-teal-700 font-bold hover:bg-teal-50"
-              >
-                <Printer size={11} /> Imprimir / PDF
-              </button>
-            </div>
-          </div>
-
-          {/* Corpo simulando folha A4 */}
-          <div style={{ padding: '32px 40px', maxWidth: 794, margin: '0 auto' }}>
-            <div className="folha-a4">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+export default IncluiLabView;
