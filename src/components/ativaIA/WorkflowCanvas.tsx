@@ -85,6 +85,8 @@ interface WorkflowState {
   // Sprint 3: Save & metadata
   templateType: string;
   creditsUsed: number;
+  // Sprint — Seleção de aluno para contextualizar a IA
+  selectedStudentId: string;
 }
 
 interface ResultImage { id: string; imageUrl: string; description: string; }
@@ -93,6 +95,7 @@ interface NodeData extends WorkflowState {
   nodeStatus: NodeStatus;
   progress: string;
   schools: SchoolConfig[];
+  students: Student[];
   onUpdate: (patch: Partial<WorkflowState>) => void;
   onRunBncc: () => void;
   onGeneratePdf: () => void;
@@ -132,6 +135,26 @@ function extractImageFromJson(content: string): string | null {
 
 const calcCredits = (_model: AIModel, imageCount: number) =>
   AI_CREDIT_COSTS.IMAGEM_PREMIUM * imageCount;
+
+/**
+ * Gera um bloco de contexto do aluno para enriquecer os prompts da IA.
+ * Inclui nome, diagnóstico, nível de suporte, dificuldades e estratégias (PEI/PDI).
+ */
+function buildStudentContext(student: Student | undefined): string {
+  if (!student) return '';
+  const parts: string[] = [];
+  parts.push(`Aluno: ${student.name}`);
+  if (student.grade) parts.push(`Ano/Série: ${student.grade}`);
+  if (student.diagnosis?.length) parts.push(`Diagnóstico(s): ${student.diagnosis.join(', ')}`);
+  if (student.supportLevel) parts.push(`Nível de suporte: ${student.supportLevel}`);
+  if (student.difficulties?.length) parts.push(`Principais dificuldades: ${student.difficulties.join('; ')}`);
+  if (student.strategies?.length) parts.push(`Estratégias PEI/PDI recomendadas: ${student.strategies.join('; ')}`);
+  if (student.abilities?.length) parts.push(`Habilidades preservadas: ${student.abilities.join('; ')}`);
+  if (student.communication?.length) parts.push(`Comunicação: ${student.communication.join('; ')}`);
+  return parts.length
+    ? `\n\n--- CONTEXTO DO ALUNO ---\n${parts.join('\n')}\n---`
+    : '';
+}
 
 const DISCIPLINES = ['Língua Portuguesa','Matemática','Ciências','História','Geografia','Arte','Educação Física','Inglês','Educação Especial'];
 const GRADES = ['1º Ano EF','2º Ano EF','3º Ano EF','4º Ano EF','5º Ano EF','6º Ano EF','7º Ano EF','8º Ano EF','9º Ano EF','1º Ano EM','2º Ano EM','3º Ano EM'];
@@ -565,10 +588,11 @@ interface A4ModalProps {
   text: string;
   imageUrl: string;
   schoolName?: string;
+  studentName?: string;
   onClose: () => void;
 }
 
-const A4PrintModal: React.FC<A4ModalProps> = ({ text, imageUrl, schoolName, onClose }) => {
+const A4PrintModal: React.FC<A4ModalProps> = ({ text, imageUrl, schoolName, studentName, onClose }) => {
   const handlePrint = () => {
     const win = window.open('', '_blank');
     if (!win) return;
@@ -577,11 +601,14 @@ const A4PrintModal: React.FC<A4ModalProps> = ({ text, imageUrl, schoolName, onCl
     const imgTag = imageUrl
       ? `<div class="img-section"><img src="${imageUrl}" alt="Ilustração pedagógica" /></div>`
       : '';
+    const studentTag = studentName
+      ? `<div class="student-badge">Aluno: ${studentName.replace(/</g,'&lt;')}</div>`
+      : '';
     win.document.write(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8"/>
-  <title>Atividade Pedagógica</title>
+  <title>Atividade Pedagógica${studentName ? ` — ${studentName}` : ''}</title>
   <style>
     @page { size: A4; margin: 20mm; }
     * { box-sizing: border-box; }
@@ -590,6 +617,7 @@ const A4PrintModal: React.FC<A4ModalProps> = ({ text, imageUrl, schoolName, onCl
     .header { border-bottom: 2px solid #1F4E5F; padding-bottom: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
     .header h1 { font-size: 14pt; color: #1F4E5F; margin: 0; }
     .header .school { font-size: 9pt; color: #667085; }
+    .student-badge { display: inline-block; background: #EFF6FF; border: 1px solid #BFDBFE; color: #1D4ED8; font-size: 9pt; font-weight: 600; padding: 2px 10px; border-radius: 20px; margin-bottom: 10px; }
     .content { flex: 1; white-space: pre-wrap; line-height: 1.7; font-size: 11pt; }
     .img-section { margin: 16px 0; text-align: center; }
     .img-section img { max-width: 100%; max-height: 180mm; object-fit: contain; border-radius: 6px; border: 1px solid #E7E2D8; }
@@ -603,6 +631,7 @@ const A4PrintModal: React.FC<A4ModalProps> = ({ text, imageUrl, schoolName, onCl
       <h1>Atividade Pedagógica Adaptada</h1>
       <span class="school">${schoolName ? schoolName.replace(/</g,'&lt;') : 'IncluiAI'}</span>
     </div>
+    ${studentTag}
     <div class="content">${escapedText}</div>
     ${imgTag}
     <div class="footer">
@@ -640,10 +669,15 @@ const A4PrintModal: React.FC<A4ModalProps> = ({ text, imageUrl, schoolName, onCl
         <div style={{ overflowY: 'auto', padding: 24, background: '#D1D5DB', flex: 1 }}>
           <div style={{ background: '#fff', margin: '0 auto', width: '100%', maxWidth: 595, minHeight: 842, padding: '28mm 20mm', boxShadow: '0 4px 32px rgba(0,0,0,0.18)', borderRadius: 4, display: 'flex', flexDirection: 'column', fontSize: 11 }}>
             {/* A4 Header */}
-            <div style={{ borderBottom: `2px solid ${C.petrol}`, paddingBottom: 8, marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ borderBottom: `2px solid ${C.petrol}`, paddingBottom: 8, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 700, fontSize: 13, color: C.petrol }}>Atividade Pedagógica Adaptada</span>
               <span style={{ fontSize: 9, color: C.textSec }}>{schoolName || 'IncluiAI'}</span>
             </div>
+            {studentName && (
+              <div style={{ display: 'inline-block', background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1D4ED8', fontSize: 9, fontWeight: 600, padding: '2px 10px', borderRadius: 20, marginBottom: 10 }}>
+                Aluno: {studentName}
+              </div>
+            )}
             {/* Activity text */}
             <div style={{ flex: 1, whiteSpace: 'pre-wrap', lineHeight: 1.7, color: C.text, fontSize: 11 }}>
               {text}
@@ -840,10 +874,12 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
         const resolvedImageUrl = firstImage?.imageUrl
           ? (extractImageFromJson(firstImage.imageUrl) ?? firstImage.imageUrl)
           : '';
+        const selStudent = (d.students || []).find((s: Student) => s.id === d.selectedStudentId);
         return (
           <A4PrintModal
             text={d.adaptedText}
             imageUrl={resolvedImageUrl}
+            studentName={selStudent?.name}
             onClose={() => setShowA4(false)}
           />
         );
@@ -1016,8 +1052,8 @@ const mkDefaultData = (schools: SchoolConfig[]): NodeData => ({
   model: 'openai', imageCount: 5, pageSize: 'A4', borders: true,
   schoolId: schools[0]?.id ?? '', results: [], pdfReady: false,
   extractedText: '', adaptedText: '', adaptationType: 'autismo', adaptarInputText: '',
-  templateType: 'tea', creditsUsed: 0,
-  nodeStatus: 'idle', progress: '', schools,
+  templateType: 'tea', creditsUsed: 0, selectedStudentId: '',
+  nodeStatus: 'idle', progress: '', schools, students: [],
   onUpdate: () => {}, onRunBncc: () => {}, onGeneratePdf: () => {}, onSaveActivity: () => {}, onDeleteNode: () => {},
 });
 
@@ -1409,7 +1445,7 @@ const InnerCanvas: React.FC<{
     model: 'openai', imageCount: 5, pageSize: 'A4', borders: true,
     schoolId: schools[0]?.id ?? '', results: [], pdfReady: false,
     extractedText: '', adaptedText: '', adaptationType: 'autismo', adaptarInputText: '',
-    templateType: 'tea', creditsUsed: 0,
+    templateType: 'tea', creditsUsed: 0, selectedStudentId: '',
   });
   const [stepStatus, setStepStatus] = useState<Record<string, NodeStatus>>({
     upload: 'idle', prompt: 'idle', bncc: 'idle', ocr: 'idle', adaptar: 'idle',
@@ -1531,13 +1567,14 @@ const InnerCanvas: React.FC<{
     nodeStatus: 'idle',
     progress: '',
     schools,
+    students,
     onUpdate: (p) => updateWfRef.current(p),
     onRunBncc: () => runBnccRef.current(),
     onGeneratePdf: () => genPdfRef.current(),
     onSaveActivity: () => saveActivityRef.current(),
     onDeleteNode: (id: string) => deleteNodeRef.current(id),
     ...overrides,
-  }), [schools]);
+  }), [schools, students]);
 
   // Initial nodes (full chain) — default is TEA template
   const [nodes, setNodes, onNodesChange] = useNodesState(
@@ -1649,10 +1686,12 @@ const InnerCanvas: React.FC<{
     setProgress('Identificando habilidade BNCC…');
     setEdgeActive('prompt', true);
     try {
+      const selStudentBncc = students.find(s => s.id === cur.selectedStudentId);
+      const studentCtxBncc = buildStudentContext(selStudentBncc);
       const raw = await AIService.generateFromPrompt(
         `Você é especialista em BNCC.
-Identifique a habilidade BNCC mais adequada para uma atividade de ${cur.discipline || 'disciplina geral'} para o ${cur.grade || 'Ensino Fundamental'}.
-Contexto: "${cur.prompt || 'Atividade educacional inclusiva'}"
+Identifique a habilidade BNCC mais adequada para uma atividade de ${cur.discipline || 'disciplina geral'} para o ${selStudentBncc?.grade || cur.grade || 'Ensino Fundamental'}.
+Contexto: "${cur.prompt || 'Atividade educacional inclusiva'}"${studentCtxBncc ? `\n${studentCtxBncc}` : ''}
 Retorne SOMENTE JSON: {"code":"EF00XX00","description":"Descrição completa","justification":"Justificativa da escolha"}`,
         user
       );
@@ -1755,10 +1794,18 @@ Retorne SOMENTE JSON: {"code":"EF00XX00","description":"Descrição completa","j
             step('adaptar', 'error');
             setEdgeActive('ocr', false);
           } else {
+            const selStudent = students.find(s => s.id === wfRef.current.selectedStudentId);
+            // Usa dados reais do aluno (diagnóstico, série) quando disponível
+            const adaptDiag = selStudent
+              ? (selStudent.diagnosis || []).join(', ') || wfRef.current.adaptationType
+              : wfRef.current.adaptationType;
+            const adaptGrade = selStudent?.grade || wfRef.current.grade;
+            const studentCtx = buildStudentContext(selStudent);
+            const sourceWithCtx = studentCtx ? `${source}${studentCtx}` : source;
             const adapted = await AIService.adaptActivityText(
-              source,
-              wfRef.current.adaptationType || 'autismo',
-              wfRef.current.grade,
+              sourceWithCtx,
+              adaptDiag,
+              adaptGrade,
               user
             );
             updateWf({ adaptedText: adapted, prompt: adapted.slice(0, 400) });
@@ -1779,7 +1826,10 @@ Retorne SOMENTE JSON: {"code":"EF00XX00","description":"Descrição completa","j
         setEdgeActive('ocr', true);
         try {
           const context = wfRef.current.extractedText;
-          const instruction = wfRef.current.prompt;
+          const selStudentR = students.find(s => s.id === wfRef.current.selectedStudentId);
+          const studentCtxR = buildStudentContext(selStudentR);
+          const instruction = wfRef.current.prompt
+            + (studentCtxR ? `\n\nConsidere o seguinte perfil do aluno ao gerar a atividade:${studentCtxR}` : '');
           if (instruction.trim()) {
             const report = await AIService.generateReport(context, instruction, user);
             updateWf({ adaptedText: report });
@@ -1811,16 +1861,21 @@ Retorne SOMENTE JSON: {"code":"EF00XX00","description":"Descrição completa","j
         // Custo real por imagem conforme modelo selecionado pelo usuário
         const costPerImage = AI_CREDIT_COSTS.IMAGEM_PREMIUM; // Imagen 4.0 (Google)
 
+        const selStudentImg = students.find(s => s.id === curFinal.selectedStudentId);
+        const studentCtxImg = buildStudentContext(selStudentImg);
+        // Resumo compacto para enriquecer o prompt da imagem (inglês, sem dados pessoais)
+        const studentHintEn = selStudentImg
+          ? `, adapted for student with ${(selStudentImg.diagnosis || []).join(', ') || 'special needs'}, support level: ${selStudentImg.supportLevel || 'moderate'}`
+          : '';
+
         if (curFinal.uploadPreview) {
-          const raw = await AIService.generateFromPromptWithImage(
-            `Analise esta atividade. Com base na instrução: "${curFinal.prompt}"
-Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas inclusivas, separados por |||, sem numeração.`,
-            curFinal.uploadPreview, user
-          );
+          const enrichedInstruction = `Analise esta atividade. Com base na instrução: "${curFinal.prompt}"${studentCtxImg ? `\n\nPerfil do aluno:${studentCtxImg}` : ''}
+Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas inclusivas${studentHintEn ? ` (${studentHintEn})` : ''}, separados por |||, sem numeração.`;
+          const raw = await AIService.generateFromPromptWithImage(enrichedInstruction, curFinal.uploadPreview, user);
           imagePrompts = raw.split('|||').map(p => p.trim()).filter(Boolean).slice(0, count);
         }
         while (imagePrompts.length < count) {
-          imagePrompts.push(`Inclusive educational illustration ${imagePrompts.length + 1}: ${curFinal.prompt}, simple, colorful, accessible`);
+          imagePrompts.push(`Inclusive educational illustration ${imagePrompts.length + 1}: ${curFinal.prompt}${studentHintEn}, simple, colorful, accessible, clean lines, white background`);
         }
 
         // FIX: deducção em lote — evita double-billing (pre-flight já verificou o total)
@@ -2175,7 +2230,7 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
       model: 'openai', imageCount: 5, pageSize: 'A4', borders: true,
       schoolId: schools[0]?.id ?? '', results: [], pdfReady: false,
       extractedText: '', adaptedText: '', adaptationType: 'autismo', adaptarInputText: '',
-      templateType: 'tea', creditsUsed: 0,
+      templateType: 'tea', creditsUsed: 0, selectedStudentId: '',
     };
     setWf(fresh);
     setStepStatus(Object.fromEntries(nodes.map(n => [n.id, 'idle' as NodeStatus])));
@@ -2200,11 +2255,42 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
   const credits = imageCost + ocrCost + adaptarCost + bnccCost + relatorioCost;
   const isDone = Object.values(stepStatus).some(s => s === 'done');
 
+  // Resolve o aluno selecionado a partir do id salvo no estado
+  const selectedStudent = students.find(s => s.id === wf.selectedStudentId);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
       {/* Toolbar */}
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '10px 16px', background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          {/* ── Seletor de aluno ────────────────────────────────────────────── */}
+          {students.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <GraduationCap size={13} color={C.petrol} />
+              <select
+                value={wf.selectedStudentId}
+                onChange={e => updateWf({ selectedStudentId: e.target.value })}
+                style={{
+                  fontSize: 12, fontWeight: 600, color: wf.selectedStudentId ? C.petrol : C.textSec,
+                  border: `1.5px solid ${wf.selectedStudentId ? C.petrol : C.border}`,
+                  borderRadius: 9, padding: '5px 28px 5px 10px', background: wf.selectedStudentId ? `${C.petrol}10` : C.surface,
+                  cursor: 'pointer', outline: 'none', appearance: 'none',
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%231F4E5F'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center',
+                  maxWidth: 180,
+                }}>
+                <option value="">— Sem aluno —</option>
+                {students.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+              {selectedStudent && (
+                <span style={{ fontSize: 10, color: C.textSec, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '2px 7px', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {(selectedStudent.diagnosis || []).slice(0, 2).join(', ') || 'sem diagnóstico'}
+                </span>
+              )}
+            </div>
+          )}
           <button onClick={() => setShowAddMenu(v => !v)}
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', border: `1.5px solid ${C.border}`, borderRadius: 9, background: showAddMenu ? C.bg : C.surface, fontSize: 12, fontWeight: 700, color: C.text, cursor: 'pointer', transition: 'all .2s' }}>
             <Plus size={13} /> Bloco

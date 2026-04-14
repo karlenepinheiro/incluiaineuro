@@ -1,6 +1,8 @@
 // IncluiLabView.tsx — Laboratório de Atividades Inclusivas
 // v2.0 — Imagen 4.0 via serverless (api/generate-image.ts)
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   FlaskConical, Zap, Upload, Wand2, FileText, CheckCircle,
   Download, ChevronRight, Brain,
@@ -583,7 +585,9 @@ Retorne SOMENTE um JSON válido:
                   </button>
                 </div>
               </div>
-              <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{result.adapted}</p>
+              <div className="folha-a4-compact">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.adapted}</ReactMarkdown>
+              </div>
             </div>
           </div>
           )}
@@ -818,7 +822,9 @@ Retorne SOMENTE um JSON válido:
                   </button>
                 </div>
               </div>
-              <div className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{result.redesigned}</div>
+              <div className="folha-a4-compact">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.redesigned}</ReactMarkdown>
+              </div>
             </div>
           </div>
           )}

@@ -71,6 +71,92 @@ body { margin: 0; }
   }
 }
 
+/* ─── Folha A4 — container estilo papel impresso ──────────────────────────── */
+.folha-a4 {
+  background: #ffffff;
+  border: 1px solid #E7E2D8;
+  border-radius: 6px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.06);
+  padding: 32px 36px;
+  max-width: 720px;
+  margin: 0 auto;
+  font-family: 'Georgia', 'Times New Roman', serif;
+  font-size: 13px;
+  line-height: 1.75;
+  color: #1a1a2e;
+}
+
+/* Tipografia Markdown dentro de .folha-a4 */
+.folha-a4 h1 { font-size: 1.35em; font-weight: 700; color: #1F4E5F; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 2px solid #1F4E5F; }
+.folha-a4 h2 { font-size: 1.1em;  font-weight: 700; color: #2E3A59; margin: 20px 0 6px; }
+.folha-a4 h3 { font-size: 1em;    font-weight: 600; color: #2E3A59; margin: 14px 0 4px; }
+.folha-a4 p  { margin: 0 0 10px; }
+.folha-a4 ul, .folha-a4 ol { padding-left: 22px; margin: 0 0 10px; }
+.folha-a4 li { margin-bottom: 4px; }
+.folha-a4 strong { color: #1F4E5F; }
+.folha-a4 em { color: #4B5563; }
+.folha-a4 hr { border: none; border-top: 1px solid #E7E2D8; margin: 16px 0; }
+.folha-a4 blockquote {
+  border-left: 3px solid #C69214;
+  background: #FDF6E3;
+  padding: 8px 14px;
+  margin: 10px 0;
+  border-radius: 0 6px 6px 0;
+  color: #4B5563;
+}
+.folha-a4 code {
+  background: #F3F4F6;
+  border: 1px solid #E5E7EB;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 0.9em;
+  font-family: 'Courier New', monospace;
+}
+.folha-a4 table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 0.9em;
+}
+.folha-a4 th {
+  background: #1F4E5F;
+  color: #fff;
+  padding: 7px 10px;
+  text-align: left;
+  font-weight: 600;
+}
+.folha-a4 td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #E7E2D8;
+}
+.folha-a4 tr:nth-child(even) td { background: #F9F8F6; }
+
+/* Versão compacta para pré-visualizações dentro de cards menores */
+.folha-a4-compact {
+  background: #fff;
+  padding: 14px 18px;
+  border-radius: 10px;
+  border: 1px solid #E7E2D8;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #1a1a2e;
+}
+.folha-a4-compact h1 { font-size: 1.05em; font-weight: 700; color: #1F4E5F; margin: 0 0 8px; }
+.folha-a4-compact h2 { font-size: 0.95em; font-weight: 700; color: #2E3A59; margin: 12px 0 4px; }
+.folha-a4-compact h3 { font-size: 0.88em; font-weight: 600; color: #2E3A59; margin: 8px 0 3px; }
+.folha-a4-compact p  { margin: 0 0 6px; }
+.folha-a4-compact ul, .folha-a4-compact ol { padding-left: 18px; margin: 0 0 6px; }
+.folha-a4-compact li { margin-bottom: 2px; }
+.folha-a4-compact strong { color: #1F4E5F; }
+.folha-a4-compact blockquote {
+  border-left: 3px solid #C69214;
+  background: #FDF6E3;
+  padding: 5px 10px;
+  margin: 6px 0;
+  border-radius: 0 4px 4px 0;
+  color: #4B5563;
+}
+
 /* Worksheet-like primitives (usable later in Activities) */
 .ws-box { border: 1.5px solid #111; border-radius: 10px; padding: 12px; }
 .ws-card { border: 1px solid #bbb; border-radius: 10px; padding: 12px; }

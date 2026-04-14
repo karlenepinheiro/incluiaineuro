@@ -224,7 +224,7 @@ const App: React.FC = () => {
   const [auditSearch, setAuditSearch] = useState('');
   const [auditResult, setAuditResult] = useState<{ found: boolean; type?: string; studentName?: string; issuedAt?: string; code?: string } | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
-  const [showLGPD, setShowLGPD] = useState(false);
+  const [showLGPD, setShowLGPD] = useState(false); // inicializado false — verificação real ocorre no _loadAfterAuth
   // E-mail pré-preenchido vindo do redirect pós-pagamento da Kiwify (?activate=1&email=...)
   const [activationEmail, setActivationEmail] = useState('');
 
@@ -430,7 +430,8 @@ const App: React.FC = () => {
 
   // ── Helper: carrega dados do usuário após autenticação ─────────────────────
   const _loadAfterAuth = async (profile: User) => {
-    const needsLGPD = !profile.lgpdConsent?.accepted;
+    const lgpdAlreadyAccepted = localStorage.getItem('incluiai_lgpd_accepted') === 'true';
+    const needsLGPD = !lgpdAlreadyAccepted && !profile.lgpdConsent?.accepted;
     const needsSchoolSetup =
       !profile.schoolConfigs ||
       profile.schoolConfigs.length === 0 ||
@@ -610,6 +611,7 @@ const App: React.FC = () => {
   };
 
   const handleLGPDAccept = async () => {
+    localStorage.setItem('incluiai_lgpd_accepted', 'true');
     try { await databaseService.acceptLGPD(user.id, { termVersion: 'v1.0' }); } catch {}
     setUser(prev => ({
       ...prev,
