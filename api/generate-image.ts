@@ -19,6 +19,7 @@
  *   GOOGLE_APPLICATION_CREDENTIALS_JSON — JSON da service account GCP (opcional; necessário para Vertex AI)
  */
 
+// Forçando novo build v2
 import { GoogleGenAI } from '@google/genai';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
