@@ -269,7 +269,7 @@ const ChatBubble: React.FC<{
             {msg.actionButtons.map((btn, i) => (
               <button key={i} onClick={() => onConfirm(btn.payload)} style={{
                 padding: '7px 16px', borderRadius: 20, fontSize: 13, fontWeight: 600,
-                cursor: 'pointer', border: 'none', outline: 'none',
+                cursor: 'pointer', outline: 'none',
                 background: btn.variant === 'primary' ? C.petrol : 'transparent',
                 color: btn.variant === 'primary' ? '#fff' : C.sec,
                 border: btn.variant === 'ghost' ? `1px solid ${C.border}` : 'none',
@@ -906,7 +906,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px',
+        display: 'flex', alignItems: 'center', padding: '10px 16px',
         background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0,
         flexWrap: 'wrap', gap: 10,
       }}>

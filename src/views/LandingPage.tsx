@@ -13,6 +13,7 @@ import { SiteConfig } from '../types';
 import { AdminService } from '../services/adminService';
 import { LandingService } from '../services/landingService';
 import { PricingSection } from '../components/PricingSection';
+import Hero from '../components/Hero';
 
 interface Props {
   onLogin: () => void;
@@ -394,105 +395,10 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
       <main>
 
         {/* ════════════════════════ HERO ════════════════════════ */}
-        <section style={{
-          background: 'linear-gradient(155deg, #EFF6FF 0%, #F8FAFC 45%, #F0FDF4 100%)',
-          overflow: 'hidden',
-          position: 'relative',
-          paddingTop: 64,
-        }}>
-          {/* Decorative blobs */}
-          <div style={{ position: 'absolute', top: 80, left: -100, width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(37,99,235,0.06) 0%, transparent 70%)', pointerEvents: 'none' }} />
-          <div style={{ position: 'absolute', bottom: 0, right: -60, width: 320, height: 320, borderRadius: '50%', background: 'radial-gradient(circle, rgba(34,197,94,0.07) 0%, transparent 70%)', pointerEvents: 'none' }} />
+        <Hero onRegister={_onRegister} />
 
-          <div className="hero-inner" style={{ maxWidth: 1200, margin: '0 auto', padding: '80px 28px 48px' }}>
-            <div style={{ maxWidth: 860, margin: '0 auto', textAlign: 'center' }}>
-
-              {/* Pain badge */}
-              <div className="lp-1" style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
-                <div style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 10,
-                  background: '#FEF2F2',
-                  border: '1.5px solid #FECACA',
-                  borderRadius: 100, padding: '8px 22px',
-                }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: P.red, display: 'inline-block', flexShrink: 0 }} />
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#7F1D1D', letterSpacing: '0.01em' }}>
-                    fichas repetidas&nbsp; • &nbsp;documentos perdidos&nbsp; • &nbsp;retrabalho constante
-                  </span>
-                </div>
-              </div>
-
-              {/* Headline */}
-              <h1 className="lp-2" style={{
-                fontSize: 'clamp(32px, 5vw, 62px)',
-                fontWeight: 900,
-                color: P.ink,
-                lineHeight: 1.08,
-                letterSpacing: '-0.04em',
-                marginBottom: 24,
-              }}>
-                Você não foi formada<br />
-                para preencher papel.{' '}
-                <span style={{ color: P.red, display: 'inline-block', position: 'relative' }}>
-                  Mas é isso
-                  <svg style={{ position: 'absolute', bottom: -4, left: 0, width: '100%', height: 8 }} viewBox="0 0 200 8" preserveAspectRatio="none">
-                    <path d="M0 6 Q50 0 100 5 Q150 10 200 4" stroke="#EF4444" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
-                  </svg>
-                </span>
-                <br />
-                que está consumindo seu dia.
-              </h1>
-
-              {/* Subheadline */}
-              <p className="lp-3" style={{
-                fontSize: 18,
-                color: P.muted,
-                lineHeight: 1.72,
-                maxWidth: 600,
-                margin: '0 auto 44px',
-              }}>
-                O IncluiAI elimina a burocracia pedagógica, organiza tudo em um só lugar
-                e transforma horas de trabalho em minutos — para você voltar o foco ao que importa.
-              </p>
-
-              {/* CTAs */}
-              <div className="lp-4 hero-ctas" style={{ display: 'flex', gap: 12, justifyContent: 'center', marginBottom: 52, flexWrap: 'wrap' }}>
-                <button onClick={onLogin} className="btn-blue" style={{
-                  fontSize: 16, padding: '16px 36px', borderRadius: 10,
-                  display: 'inline-flex', alignItems: 'center', gap: 10,
-                  boxShadow: '0 8px 24px rgba(37,99,235,0.28)',
-                }}>
-                  Começar grátis <ArrowRight size={18} />
-                </button>
-                <button onClick={onLogin} className="btn-outline-blue" style={{
-                  fontSize: 16, padding: '16px 32px', borderRadius: 10,
-                  display: 'inline-flex', alignItems: 'center', gap: 8,
-                }}>
-                  Quero parar de perder tempo
-                </button>
-              </div>
-
-              {/* Social proof bar */}
-              <div className="lp-5" style={{
-                display: 'flex', gap: 40, justifyContent: 'center', flexWrap: 'wrap',
-                paddingTop: 32, borderTop: `1px solid ${P.border}`,
-              }}>
-                {[
-                  { val: '+12.000', label: 'Documentos gerados' },
-                  { val: '+1.800',  label: 'Professores ativos'  },
-                  { val: '< 5min',  label: 'Para gerar um PEI'   },
-                  { val: '100%',    label: 'LGPD conforme'        },
-                ].map(s => (
-                  <div key={s.label} style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 26, fontWeight: 800, color: P.blue, letterSpacing: '-0.03em' }}>{s.val}</div>
-                    <div style={{ fontSize: 11, color: P.muted, fontWeight: 500, marginTop: 2, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Dashboard preview */}
+        {/* ════════ Dashboard preview ════════ */}
+        <section style={{ background: 'linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%)', paddingTop: 64, paddingBottom: 0, overflow: 'hidden' }}>
           <div style={{ maxWidth: 1100, margin: '0 auto', padding: '0 28px 0' }}>
             <div className="mockup-float" style={{
               border: `1px solid ${P.border}`,
