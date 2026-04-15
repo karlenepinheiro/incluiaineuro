@@ -23,8 +23,8 @@ async function loadJsPDF(): Promise<any> {
 const ML = 15;
 const MR = 15;
 const MB = 10;
-const FOOTER_H  = 8;
-const RUN_HDR_H = 10;
+const FOOTER_H  = 14;   // maior para 3 linhas de rodapé
+const RUN_HDR_H = 12;   // cabeçalho de página com cidade/estado
 
 // Hierarquia tipográfica (jsPDF usa pontos tipográficos)
 const TITLE_SIZE   = 16;   // Título principal do documento
@@ -53,6 +53,25 @@ const GBKG:   [number,number,number] = [248, 249, 250];
 // Fallback silencioso para Helvetica em caso de falha de rede / CORS.
 let _docFont = 'helvetica';
 const _fontB64Cache = new Map<string, string>(); // file → base64
+
+// ─── Metadados do documento corrente (usados no rodapé/cabeçalho) ─────────────
+let _currentAuditCode = '';
+let _currentUserName  = '';
+let _currentSchool: SchoolConfig | null = null;
+
+/** Calcula idade em anos a partir de dd/mm/aaaa. Retorna '' se inválido. */
+function calcAge(birthDate?: string): string {
+  if (!birthDate) return '';
+  const parts = birthDate.includes('/') ? birthDate.split('/') : birthDate.split('-');
+  const [d, m, y] = parts.map(Number);
+  if (!y || !m) return '';
+  const today = new Date();
+  let age = today.getFullYear() - y;
+  const monthOk = today.getMonth() + 1 < m ||
+    (today.getMonth() + 1 === m && today.getDate() < d);
+  if (monthOk) age--;
+  return age >= 0 ? `${age} anos` : '';
+}
 
 function _arrBufToB64(buf: ArrayBuffer): string {
   let bin = '';
@@ -101,16 +120,39 @@ function getInitials(name: string): string {
 }
 
 /**
+ * Converte qualquer photoUrl (data URL ou HTTPS) em data URL PNG.
+ * Para URLs HTTPS, faz fetch e converte via FileReader para evitar
+ * que o canvas fique "tainted" (que causaria SecurityError em toDataURL).
+ */
+async function resolvePhotoUrl(photoUrl: string): Promise<string> {
+  if (!photoUrl) throw new Error('empty');
+  if (photoUrl.startsWith('data:')) return photoUrl; // já é base64
+
+  // URL HTTPS: fetch → blob → base64 (evita taint do canvas)
+  const resp = await fetch(photoUrl, { mode: 'cors' });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const blob = await resp.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror   = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
  * Recorta uma imagem em círculo usando Canvas e retorna data URL PNG.
  * Garante que jsPDF exiba a foto redonda sem bordas quadradas visíveis.
+ * Sempre opera sobre uma data URL (não HTTPS) para evitar taint do canvas.
  */
-async function cropToCircle(dataUrl: string): Promise<string> {
+async function cropToCircle(photoUrl: string): Promise<string> {
+  const dataUrl = await resolvePhotoUrl(photoUrl);
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       const size = Math.min(img.width, img.height);
       const canvas = document.createElement('canvas');
-      canvas.width = size;
+      canvas.width  = size;
       canvas.height = size;
       const ctx = canvas.getContext('2d')!;
       ctx.beginPath();
@@ -136,44 +178,65 @@ async function buildQr(code: string): Promise<string | undefined> {
   } catch { return undefined; }
 }
 
-// ─── RUNNING HEADER (every page) ─────────────────────────────────────────────
-// Logo (7×7 mm) + "Nome da escola"  |  "Cód. Validação: CODE"  + thin rule
+// ─── RUNNING HEADER (todas as páginas exceto capa) ───────────────────────────
+// Logo + Nome da escola / Cidade–Estado  |  Cód. Validação  +  linha separadora
 function addRunningHeader(
   doc: any, auditCode: string, school?: SchoolConfig | null,
 ): number {
-  const W = doc.internal.pageSize.getWidth();
-  const label = school?.schoolName?.trim() || 'Sistema IncluiAI';
+  const W  = doc.internal.pageSize.getWidth();
+  const s  = school ?? _currentSchool;
+  const name     = s?.schoolName?.trim() || 'Sistema IncluiAI';
+  const cityLine = [s?.city, s?.state].filter(Boolean).join(' – ');
 
-  // Logo institucional (opcional) — máx 7 × 7 mm alinhado ao topo
+  // Logo institucional — máx 7 × 7 mm
   let textX = ML;
-  if (school?.logoUrl) {
+  if (s?.logoUrl) {
     try {
-      const logoSrc = school.logoUrl;
-      const logoFmt = logoSrc.startsWith('data:image/png') ? 'PNG' : 'JPEG';
-      doc.addImage(logoSrc, logoFmt, ML, 1.5, 7, 7);
-      textX = ML + 9; // desloca texto 9 mm à direita
-    } catch { /* logo inválido — ignora */ }
+      const fmt = s.logoUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+      doc.addImage(s.logoUrl, fmt, ML, 1.5, 7, 7);
+      textX = ML + 9;
+    } catch {}
   }
 
-  doc.setFont(_docFont,'bold');
+  // Nome da escola
+  doc.setFont(_docFont, 'bold');
   doc.setFontSize(SMALL_SIZE);
   sc(doc, DARK);
-  doc.text(label, textX, 6.5);
+  doc.text(name, textX, 6);
 
+  // Município – Estado (linha secundária, se disponível)
+  if (cityLine) {
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(TINY_SIZE);
+    sc(doc, GRAY);
+    doc.text(cityLine, textX, 9.5);
+  }
+
+  // Código de validação (direita)
   doc.setFont('courier', 'normal');
   doc.setFontSize(SMALL_SIZE - 0.5);
   sc(doc, GRAY);
   doc.text(`Cód. Validação: ${auditCode}`, W - MR, 6.5, { align: 'right' });
 
+  // Linha separadora
   sd(doc, BORDER);
   doc.setLineWidth(0.3);
-  doc.line(ML, 9, W - MR, 9);
+  doc.line(ML, 11, W - MR, 11);
 
-  return RUN_HDR_H;
+  return RUN_HDR_H; // 12 mm
 }
 
-// ─── COVER BLOCK (page 1 only) ────────────────────────────────────────────────
-// Large title + subtitle + metadata + QR + petrol banner
+// ─── COVER BLOCK (página 1 — padrão Visual Law institucional) ────────────────
+// Estrutura:
+//  [BANNER PETROL 46 mm]
+//   Logo | Nome da Escola / Secretaria / Município–Estado   | QR Code
+//   ─── linha ouro fina ───────────────────────────────────────────────
+//   TÍTULO DO DOCUMENTO (destaque)
+//   Subtítulo / EDUCAÇÃO INCLUSIVA
+//   Código de validação (direita)
+//  [LINHA OURO 1,5 mm]
+//  Emissão  |  Cód. Validação  |  URL
+//  ─── linha separadora ───
 function addCoverBlock(
   doc: any,
   title: string,
@@ -182,72 +245,132 @@ function addCoverBlock(
   qrUrl: string | undefined,
   schoolName: string,
 ): number {
-  const W    = doc.internal.pageSize.getWidth();
-  const maxW = W - ML - MR;
-  const qrSz = 24;
-  
-  // PETROL BANNER
-  sf(doc, PETROL);
-  doc.rect(0, 0, W, 38, 'F');
-  
-  // GOLD LINE
-  sf(doc, GOLD);
-  doc.rect(0, 38, W, 1.5, 'F');
-  
-  // School Name / Header
-  doc.setFont(_docFont,'bold');
-  doc.setFontSize(10);
-  sc(doc, WHITE);
-  doc.text(schoolName.toUpperCase(), ML, 14);
-  
-  // Title
-  doc.setFont(_docFont,'bold');
-  doc.setFontSize(TITLE_SIZE);
-  const textW = qrUrl ? maxW - qrSz - 6 : maxW;
-  const tLines = doc.splitTextToSize(title, textW);
-  doc.text(tLines, ML, 23);
-  let y = 23 + tLines.length * 6;
-  
-  if (subtitle) {
-    doc.setFont(_docFont,'normal');
-    doc.setFontSize(11);
-    doc.text(subtitle, ML, y);
-    y += 7;
-  }
+  const W      = doc.internal.pageSize.getWidth();
+  const maxW   = W - ML - MR;
+  const school = _currentSchool;
 
+  const cityLine = [school?.city, school?.state].filter(Boolean).join(' – ');
+  const secLine  = (school as any)?.secretaria as string | undefined;
+
+  const bannerH = 46;
+
+  // ── BANNER PETROL ─────────────────────────────────────────────────────────────
+  sf(doc, PETROL);
+  doc.rect(0, 0, W, bannerH, 'F');
+
+  // ── LINHA OURO (base do banner) ───────────────────────────────────────────────
+  sf(doc, GOLD);
+  doc.rect(0, bannerH, W, 1.5, 'F');
+
+  // ── QR CODE (canto superior direito, fundo branco) ────────────────────────────
+  const qrSz = 20;
+  const qrX  = W - MR - qrSz;
   if (qrUrl) {
     try {
       sf(doc, WHITE);
-      doc.roundedRect(W - MR - qrSz - 2, 7, qrSz + 4, qrSz + 4, 1, 1, 'F');
-      doc.addImage(qrUrl, 'PNG', W - MR - qrSz, 9, qrSz, qrSz); 
+      doc.roundedRect(qrX - 2, 2, qrSz + 4, qrSz + 4, 1.5, 1.5, 'F');
+      doc.addImage(qrUrl, 'PNG', qrX, 3, qrSz, qrSz);
     } catch {}
   }
-  
-  // Metadata row below the banner
-  y = 48;
-  const nowStr = new Date().toLocaleDateString('pt-BR');
 
-  doc.setFont(_docFont,'normal');
+  // ── LOGO (esquerda) ───────────────────────────────────────────────────────────
+  let textX = ML;
+  if (school?.logoUrl) {
+    try {
+      const fmt = school.logoUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+      doc.addImage(school.logoUrl, fmt, ML, 2, 9, 9);
+      textX = ML + 11;
+    } catch {}
+  }
+
+  // ── BLOCO IDENTIDADE DA ESCOLA (topo esquerdo) ────────────────────────────────
+  const idAreaW = qrX - textX - 4;
+  doc.setFont(_docFont, 'bold');
+  doc.setFontSize(9.5);
+  sc(doc, WHITE);
+  const snLines: string[] = doc.splitTextToSize(schoolName.toUpperCase(), idAreaW);
+  doc.text(snLines, textX, 8);
+  let infoY = 8 + snLines.length * 4.2;
+
+  if (secLine) {
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(7.5);
+    sc(doc, [200, 225, 235] as [number, number, number]);
+    doc.text(secLine, textX, infoY);
+    infoY += 4;
+  }
+  if (cityLine) {
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(7.5);
+    sc(doc, [175, 210, 228] as [number, number, number]);
+    doc.text(cityLine, textX, infoY);
+  }
+
+  // ── LINHA OURO FINA (divisória dentro do banner) ──────────────────────────────
+  sf(doc, GOLD);
+  doc.rect(ML, 17, maxW, 0.3, 'F');
+
+  // ── TÍTULO DO DOCUMENTO (centro do banner) ────────────────────────────────────
+  const titleAreaW = qrUrl ? qrX - ML - 4 : maxW;
+  doc.setFont(_docFont, 'bold');
+  doc.setFontSize(14);
+  sc(doc, WHITE);
+  const tLines: string[] = doc.splitTextToSize(title, titleAreaW);
+  doc.text(tLines, ML, 25);
+  const afterTitleY = 25 + tLines.length * 5.8;
+
+  // ── SUBTÍTULO / EDUCAÇÃO INCLUSIVA ────────────────────────────────────────────
+  const eduLabel = subtitle || 'EDUCAÇÃO INCLUSIVA';
+  doc.setFont(_docFont, 'normal');
+  doc.setFontSize(8);
+  sc(doc, [175, 215, 232] as [number, number, number]);
+  const subLines: string[] = doc.splitTextToSize(eduLabel, titleAreaW);
+  const subY = Math.min(afterTitleY, bannerH - 7);
+  doc.text(subLines, ML, subY);
+
+  // ── CÓDIGO DE VALIDAÇÃO (abaixo do QR) ───────────────────────────────────────
+  if (qrUrl) {
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(6.5);
+    sc(doc, GOLD);
+    doc.text(auditCode, W - MR, 26, { align: 'right' });
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(6);
+    sc(doc, [175, 210, 225] as [number, number, number]);
+    doc.text('Validar: incluiai.app.br', W - MR, 30, { align: 'right' });
+  }
+
+  // ── LINHA DE METADADOS (abaixo do banner) ─────────────────────────────────────
+  const metaY   = bannerH + 8;
+  const nowStr  = new Date().toLocaleDateString('pt-BR');
+
+  doc.setFont(_docFont, 'normal');
   doc.setFontSize(SMALL_SIZE);
   sc(doc, GRAY);
-  doc.text(`Data de Emissão: ${nowStr}`, ML, y);
-  
-  doc.setFont(_docFont,'bold');
-  const codeLabel = 'Cód. Validação: ';
-  doc.text(codeLabel, W / 2 - 15, y);
-  doc.setFont('courier', 'bold');
+  doc.text(`Emissão: ${nowStr}`, ML, metaY);
+
+  // Código centralizado
+  doc.setFont(_docFont, 'bold');
+  doc.setFontSize(SMALL_SIZE);
   sc(doc, PETROL);
-  doc.text(auditCode, W / 2 - 15 + doc.getTextWidth(codeLabel), y);
-  
-  doc.setFont(_docFont,'normal');
+  const cLabel  = 'Cód. Validação: ';
+  const cLabelW = doc.getTextWidth(cLabel);
+  const codeW   = doc.getTextWidth(auditCode);
+  const codeX   = W / 2 - (cLabelW + codeW) / 2;
+  doc.text(cLabel, codeX, metaY);
+  doc.setFont('courier', 'bold');
+  doc.text(auditCode, codeX + cLabelW, metaY);
+
+  doc.setFont(_docFont, 'normal');
+  doc.setFontSize(SMALL_SIZE);
   sc(doc, GRAY);
-  doc.text('www.incluiai.app.br/validar', W - MR, y, { align: 'right' });
-  
+  doc.text('incluiai.app.br/validar', W - MR, metaY, { align: 'right' });
+
   sd(doc, BORDER);
   doc.setLineWidth(0.3);
-  doc.line(ML, y + 4, W - MR, y + 4);
+  doc.line(ML, metaY + 4, W - MR, metaY + 4);
 
-  return y + 10;
+  return metaY + 10;
 }
 
 // ─── SECTION BANNER (faixa petrol full-width — SECTION_SIZE 11 pt) ──────────
@@ -318,6 +441,15 @@ function kvGrid(
   pairs: Array<[string, string]>,
   x: number, y: number, maxW: number,
 ): number {
+  // Remove pares com valor vazio ou "—" para não poluir o documento
+  const filtered = pairs.filter(([, v]) => {
+    const s = String(v ?? '').trim();
+    return s !== '' && s !== '—' && s !== '-';
+  });
+  if (!filtered.length) return y;
+  // eslint-disable-next-line no-param-reassign
+  pairs = filtered;
+
   const colW = (maxW - 10) / 2;
   const rows = Math.ceil(pairs.length / 2);
   const rowH = LINE_H + 2.5;
@@ -350,6 +482,72 @@ function kvGrid(
   });
   
   return y + boxH + 5;
+}
+
+// ─── STUDENT IDENTIFICATION BLOCK ────────────────────────────────────────────
+// Layout padrão para todos os documentos:
+//  [ grade petrol "I. Identificação do Aluno" ]
+//  [ kvGrid com dados (esquerda)   |   foto circular (DIREITA 22×22 mm) ]
+//
+// • photo on right (fixed 22 mm diameter)
+// • kvGrid fills remaining left width
+// • skips empty fields automatically
+// • returns y position after the block
+function buildStudentBlock(
+  doc: any,
+  student: Student,
+  circularPhoto: string | undefined,
+  x: number, y: number, maxW: number,
+  extra?: Array<[string, string]>,
+): number {
+  const photoD = 22;
+  const photoX = x + maxW - photoD;
+  const photoY = y;
+  const dataW  = maxW - photoD - 5; // largura do grid (esquerda)
+
+  // ── Campos do aluno — ignorar vazios ─────────────────────────────────────────
+  const age         = calcAge(student.birthDate);
+  const rawGender   = (student as any).gender || (student as any).sex || '';
+  const gLabel      = rawGender === 'M' ? 'Masculino'
+                    : rawGender === 'F' ? 'Feminino'
+                    : rawGender;
+  const supportLvl  = (student as any).supportLevel || (student as any).support_level || '';
+  const medication  = (student as any).medication || '';
+  const shift       = student.shift || (student as any).turno || '';
+  const uniqueCode  = (student as any).unique_code || (student.id?.slice(-8) ?? '');
+  const schoolLabel = _currentSchool?.schoolName || (student as any).schoolName || '';
+  const diagStr     = (student.diagnosis || []).join(', ');
+
+  const pairs: Array<[string, string]> = ([
+    ['Nome Completo:',    student.name            ],
+    ['Data de Nasc.:',   student.birthDate || ''  ],
+    ['Idade:',           age                      ],
+    ['Sexo:',            gLabel                   ],
+    ['Série / Turma:',   student.grade || ''      ],
+    ['Turno:',           shift                    ],
+    ['Escola:',          schoolLabel              ],
+    ['Nível de Suporte:', supportLvl              ],
+    ['CID / Diagnóstico:', diagStr                ],
+    ['Medicação:',       medication               ],
+    ['Código Único:',    uniqueCode               ],
+    ...(extra ?? []),
+  ] as Array<[string, string]>).filter(([, v]) => !!String(v ?? '').trim());
+
+  const gridEndY = kvGrid(doc, pairs, x, y, dataW);
+
+  // ── Foto à DIREITA ────────────────────────────────────────────────────────────
+  const cx = photoX + photoD / 2;
+  const cy = photoY + photoD / 2;
+  const r  = photoD / 2;
+  drawStudentPhoto(doc, student.name, circularPhoto, cx, cy, r);
+
+  // Legenda abaixo da foto
+  doc.setFont(_docFont, 'normal');
+  doc.setFontSize(TINY_SIZE);
+  sc(doc, GRAY);
+  doc.text('Foto', cx, photoY + photoD + 3.5, { align: 'center' });
+
+  return Math.max(gridEndY, photoY + photoD + 7);
 }
 
 // ─── FIELD RENDERER ──────────────────────────────────────────────────────────
@@ -750,31 +948,58 @@ function addSignatureBlock(
   return y + 10;
 }
 
-// ─── FOOTER (all pages) ───────────────────────────────────────────────────────
+// ─── FOOTER (todas as páginas) ───────────────────────────────────────────────
+// Linha 1: tag institucional  |  marca  |  número de página
+// Linha 2: emitente + data    |  URL de validação com código
 function addFooter(doc: any): void {
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
-  const fY = H - MB - FOOTER_H + 2;
+  const W   = doc.internal.pageSize.getWidth();
+  const H   = doc.internal.pageSize.getHeight();
+  const fY  = H - MB - FOOTER_H + 2;
+  const pgN = doc.internal.getCurrentPageInfo().pageNumber;
 
-  // Gold + Petrol dual thin line
+  // Dupla linha decorativa petrol + ouro
   sf(doc, PETROL);
   doc.rect(ML, fY, W - ML - MR, 0.5, 'F');
   sf(doc, GOLD);
-  doc.rect(ML, fY + 0.5, W - ML - MR, 0.25, 'F');
+  doc.rect(ML, fY + 0.5, W - ML - MR, 0.2, 'F');
 
-  doc.setFont(_docFont,'normal');
+  // ── Linha 1 ──────────────────────────────────────────────────────────────────
+  doc.setFont(_docFont, 'normal');
   doc.setFontSize(TINY_SIZE);
   sc(doc, GRAY);
+  doc.text('Documento pedagógico oficial gerado pelo sistema IncluiAI', ML, fY + 4.5);
 
-  doc.text('DOCUMENTO PEDAGÓGICO INSTITUCIONAL — USO RESTRITO', ML, fY + 5);
-  doc.setFont(_docFont,'bold');
-  doc.text('INCLUIAI.APP.BR', W / 2, fY + 5, { align: 'center' });
-  
-  doc.setFont(_docFont,'normal');
-  doc.text(
-    `Página ${doc.internal.getCurrentPageInfo().pageNumber}`,
-    W - MR, fY + 5, { align: 'right' },
-  );
+  doc.setFont(_docFont, 'bold');
+  sc(doc, PETROL);
+  doc.text('INCLUIAI.APP.BR', W / 2, fY + 4.5, { align: 'center' });
+
+  doc.setFont(_docFont, 'normal');
+  sc(doc, GRAY);
+  doc.text(`Página ${pgN}`, W - MR, fY + 4.5, { align: 'right' });
+
+  // ── Linha 2 ──────────────────────────────────────────────────────────────────
+  doc.setFont(_docFont, 'normal');
+  doc.setFontSize(TINY_SIZE - 0.5);
+  sc(doc, GRAY);
+
+  const cleanName = _currentUserName || '';
+  if (cleanName) {
+    const emitDate = new Date().toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+    doc.text(`Emitido por: ${cleanName}  |  ${emitDate}`, ML, fY + 8.5);
+  }
+
+  if (_currentAuditCode) {
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(TINY_SIZE - 0.5);
+    sc(doc, PETROL);
+    doc.text(
+      `incluiai.app.br/validar/${_currentAuditCode}`,
+      W - MR, fY + 8.5, { align: 'right' },
+    );
+  }
 }
 
 function addFooterAllPages(doc: any): void {
@@ -801,6 +1026,11 @@ export const PDFGenerator = {
 
   async generate(params: GeneratePDFParams): Promise<Blob> {
     resetSubN();
+    // Metadados acessíveis pelo rodapé/cabeçalho via vars de módulo
+    _currentAuditCode = params.auditCode;
+    _currentUserName  = params.user.name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim();
+    _currentSchool    = params.school ?? null;
+
     const {
       docType, title, student, user, school,
       filledData, checklistSections = [], auditCode,
@@ -833,29 +1063,9 @@ export const PDFGenerator = {
       return addRunningHeader(doc, auditCode, school);
     };
 
-    // ══ SEÇÃO 1: IDENTIFICAÇÃO DO ALUNO (padrão todos os documentos) ═════════
+    // ══ SEÇÃO I: IDENTIFICAÇÃO DO ALUNO (padrão todos os documentos) ════════
     y = sectionBanner(doc, 'I. Identificação do Aluno', ML, y, maxW);
-
-    const avDataX  = ML + 22;
-    const avDataW  = maxW - 22;
-    const avStartY = y;
-    drawStudentPhoto(doc, student.name, circularPhoto, ML + 8, y + 9, 8);
-    const enderecoStr = [
-      [student.street, (student as any).streetNumber, (student as any).complement].filter(Boolean).join(', '),
-      (student as any).neighborhood,
-      [(student as any).city, (student as any).state].filter(Boolean).join(' — '),
-      (student as any).zipcode ? `CEP ${(student as any).zipcode}` : '',
-    ].filter(Boolean).join(' | ');
-    y = kvGrid(doc, [
-      ['Nome Completo:',      student.name],
-      ['Data de Nasc.:',      student.birthDate || '—'],
-      ['Série / Turma:',      student.grade || '—'],
-      ['Escola:',             sName],
-      ['Código Único:',       (student as any).unique_code || student.id?.slice(-8) || '—'],
-      ['CID / Diagnóstico:',  (student.diagnosis || []).join(', ') || '—'],
-      ...(enderecoStr ? [['Endereço:', enderecoStr] as [string, string]] : []),
-    ], avDataX, y, avDataW);
-    y = Math.max(y, avStartY + 24); // garante espaço abaixo do avatar
+    y = buildStudentBlock(doc, student, circularPhoto, ML, y, maxW);
 
     switch (docType) {
 
@@ -1111,6 +1321,10 @@ export const PDFGenerator = {
     parentSignerName?:    string;
   }): Promise<Blob> {
     resetSubN();
+    _currentAuditCode = params.auditCode;
+    _currentUserName  = params.user.name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim();
+    _currentSchool    = params.school ?? null;
+
     const {
       docType, title, student, user, school,
       sections, auditCode,
@@ -1141,24 +1355,8 @@ export const PDFGenerator = {
 
     // ══ SEÇÃO I: IDENTIFICAÇÃO DO ALUNO (padrão todos os documentos) ══════════
     y = sectionBanner(doc, 'I. Identificação do Aluno', ML, y, maxW);
-    const avStartY = y;
-    drawStudentPhoto(doc, student.name, circularPhoto, ML + 8, y + 9, 8);
-    const enderecoStrFS = [
-      [(student as any).street, (student as any).streetNumber, (student as any).complement].filter(Boolean).join(', '),
-      (student as any).neighborhood,
-      [(student as any).city, (student as any).state].filter(Boolean).join(' — '),
-      (student as any).zipcode ? `CEP ${(student as any).zipcode}` : '',
-    ].filter(Boolean).join(' | ');
-    y = kvGrid(doc, [
-      ['Nome Completo:',      student.name],
-      ['Data de Nasc.:',      student.birthDate || '—'],
-      ['Série / Turma:',      student.grade || '—'],
-      ['Escola:',             sName],
-      ['Código Único:',       (student as any).unique_code || student.id?.slice(-8) || '—'],
-      ['CID / Diagnóstico:',  (student.diagnosis || []).join(', ') || '—'],
-      ...(enderecoStrFS ? [['Endereço:', enderecoStrFS] as [string, string]] : []),
-    ], ML + 22, y, maxW - 22);
-    y = Math.max(y, avStartY + 24);
+    const halfW = (maxW - 4) / 2; // usado nas barras de escala abaixo
+    y = buildStudentBlock(doc, student, circularPhoto, ML, y, maxW);
 
     for (const sec of sections) {
       const H = doc.internal.pageSize.getHeight();
@@ -1244,6 +1442,10 @@ export const PDFGenerator = {
     auditCode:  string;
   }): Promise<Blob> {
     resetSubN();
+    _currentAuditCode = params.auditCode;
+    _currentUserName  = params.user.name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim();
+    _currentSchool    = params.school ?? null;
+
     const { fichaTitle, fields, student, user, school, auditCode } = params;
 
     const jsPDF = await loadJsPDF();
@@ -1262,22 +1464,15 @@ export const PDFGenerator = {
     let y = addCoverBlock(doc, fichaTitle, 'FICHA DE OBSERVAÇÃO PEDAGÓGICA', auditCode, qrUrl, school?.schoolName || 'Escola');
 
     // ── I. Identificação do Aluno ───────────────────────────────────────────
+    const fichaCircularPhoto = student.photoUrl
+      ? await cropToCircle(student.photoUrl).catch(() => undefined)
+      : undefined;
     y = sectionBanner(doc, 'I. Identificação do Aluno', ML, y, maxW);
-    const fichaAvStartY = y;
-    drawAvatar(doc, student.name, ML + 8, y + 9, 8);
-    y = kvGrid(doc, [
-      ['Aluno(a):',      student.name],
-      ['Data de Nasc.:', student.birthDate || '—'],
-      ['Série / Turma:', student.grade || '—'],
-      ['Profissional:',  user.name],
-    ], ML + 22, y, maxW - 22);
-    y = Math.max(y, fichaAvStartY + 24);
-
-    doc.setFont(_docFont,'normal');
-    doc.setFontSize(SMALL_SIZE);
-    sc(doc, GRAY);
-    doc.text(`Data de aplicação: ${new Date().toLocaleDateString('pt-BR')}`, ML, y);
-    y += LINE_H + 3;
+    const profName = user.name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim();
+    y = buildStudentBlock(doc, student, fichaCircularPhoto, ML, y, maxW, [
+      ['Profissional Responsável:', profName],
+      ['Data de Aplicação:',        new Date().toLocaleDateString('pt-BR')],
+    ]);
 
     // ── II. Campos de Observação ─────────────────────────────────────────────
     y = sectionBanner(doc, 'II. Campos de Observação', ML, y, maxW);
@@ -1332,6 +1527,10 @@ export const PDFGenerator = {
     user: User,
     school: SchoolConfig | null,
   ): Promise<Blob> {
+    _currentAuditCode = '';
+    _currentUserName  = user.name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim();
+    _currentSchool    = school;
+
     const jsPDF   = await loadJsPDF();
     const doc     = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     await ensureNotoSans(doc);

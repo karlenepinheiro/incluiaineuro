@@ -44,20 +44,29 @@ interface ActionButton {
   payload: Record<string, any>;
 }
 
+// Representa um placeholder de imagem embutido no Markdown gerado
+interface ImagePlaceholder {
+  id:           string;         // ex: "image-placeholder-1" — coincide com o src no Markdown
+  altText:      string;         // descrição vinda do ![texto](image-placeholder-N)
+  status:       'pending' | 'loading' | 'done' | 'error';
+  resolvedUrl?: string;         // base64 data URL quando status === 'done'
+}
+
 interface ChatMessage {
-  id:               string;
-  role:             'user' | 'assistant';
-  text:             string;
-  file?:            AttachedFile;
-  result?:          string;   // markdown gerado
-  resultImageUrl?:  string;
-  actionButtons?:   ActionButton[];
-  creditsUsed?:     number;
-  savedId?:         string;   // ID em generated_activities após salvar
-  timestamp:        Date;
-  imageGenerating?: boolean;  // imagem sendo gerada em segundo plano
-  imageError?:      boolean;  // falha de rede ao gerar imagem (ERR_INTERNET_DISCONNECTED, etc.)
-  imageRetryTopic?: string;   // tema para o botão "Tentar novamente"
+  id:                  string;
+  role:                'user' | 'assistant';
+  text:                string;
+  file?:               AttachedFile;
+  result?:             string;              // markdown gerado
+  resultImageUrl?:     string;              // imagem única legada (biblioteca)
+  imagePlaceholders?:  ImagePlaceholder[];  // imagens inline no markdown (fluxo novo)
+  actionButtons?:      ActionButton[];
+  creditsUsed?:        number;
+  savedId?:            string;   // ID em generated_activities após salvar
+  timestamp:           Date;
+  imageGenerating?:    boolean;  // legado: imagem única sendo gerada
+  imageError?:         boolean;  // legado: falha de rede
+  imageRetryTopic?:    string;   // legado: tema para retry
 }
 
 type ActivityModelId = 'texto_apenas' | 'nano_banana_pro' | 'chatgpt_imagem';
@@ -77,6 +86,22 @@ function isNetworkError(err: unknown): boolean {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 10); }
+
+// Extrai todos os placeholders de imagem do markdown gerado pelo Gemini.
+// Formato esperado: ![Descrição da imagem](image-placeholder-N)
+function extractImagePlaceholders(markdown: string): ImagePlaceholder[] {
+  const regex = /!\[([^\]]*)\]\(image-placeholder-(\d+)\)/g;
+  const results: ImagePlaceholder[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(markdown)) !== null) {
+    results.push({
+      id:      `image-placeholder-${m[2]}`,
+      altText: m[1].trim() || `Ilustração ${m[2]}`,
+      status:  'pending',
+    });
+  }
+  return results;
+}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -188,9 +213,20 @@ Retorne em Markdown formatado:
 ## Dica para o Professor`;
 }
 
-function buildActivityFromTopicPrompt(topic: string, studentCtx: string, docType: DocType = 'atividade', includePdi = true): string {
+function buildActivityFromTopicPrompt(
+  topic: string,
+  studentCtx: string,
+  docType: DocType = 'atividade',
+  includePdi = true,
+  withImages = false,
+): string {
   const sb = studentCtx
     ? `\n\n${studentCtx}\n\nIMPORTANTE: Crie especificamente para este aluno.`
+    : '';
+
+  // Instrução de placeholders de imagem — só quando o modelo gera imagens
+  const imgInstructions = withImages
+    ? `\n\nINCLUSÃO DE IMAGENS: Insira até 2 placeholders de imagem em locais naturais da atividade (ex: após o título, entre seções ou antes das instruções), usando EXATAMENTE este formato:\n![Descrição objetiva do que deve ser ilustrado](image-placeholder-1)\n![Outra descrição objetiva](image-placeholder-2)\nA descrição deve ser em português, sem texto dentro da imagem, estilo ilustração educativa infantil.`
     : '';
 
   if (docType === 'paee') {
@@ -243,12 +279,14 @@ ${pdiSection}
 
 Crie uma atividade pedagógica inclusiva sobre o tema: "${topic}"
 
+IMPORTANTE: Seja sucinto e objetivo. O corpo da atividade não deve ultrapassar 300 palavras. Use linguagem direta e passos claros.
+
 A atividade deve:
 - Ser acessível e inclusiva desde o princípio
 - Ter objetivo claro e alinhado à BNCC
 - Incluir instruções em passos curtos e claros
 - Ser adaptável a diferentes níveis de suporte
-
+${imgInstructions}
 Retorne em Markdown formatado:
 # Título da Atividade
 **Tema:** ${topic}
@@ -269,13 +307,14 @@ ${pdiSection}
 
 // ─── Componente: Bolha de Chat ─────────────────────────────────────────────────
 const ChatBubble: React.FC<{
-  msg:            ChatMessage;
-  studentName:    string;
-  onConfirm:      (payload: Record<string, any>) => void;
-  onViewResult:   (msg: ChatMessage) => void;
-  onImageRetry:   (msgId: string, topic: string) => void;
-  isLatest:       boolean;
-}> = ({ msg, studentName, onConfirm, onViewResult, onImageRetry, isLatest }) => {
+  msg:                  ChatMessage;
+  studentName:          string;
+  onConfirm:            (payload: Record<string, any>) => void;
+  onViewResult:         (msg: ChatMessage) => void;
+  onImageRetry:         (msgId: string, topic: string) => void;
+  onPlaceholderRetry:   (msgId: string, phId: string, altText: string) => void;
+  isLatest:             boolean;
+}> = ({ msg, onConfirm, onViewResult, onImageRetry, onPlaceholderRetry }) => {
   const isUser = msg.role === 'user';
 
   return (
@@ -367,23 +406,23 @@ const ChatBubble: React.FC<{
           </div>
         )}
 
-        {/* Imagem gerada — dentro do balão */}
-        {msg.resultImageUrl && !msg.imageGenerating && (
+        {/* Imagem única legada (biblioteca) */}
+        {msg.resultImageUrl && !msg.imageGenerating && !msg.imagePlaceholders?.length && (
           <div style={{ borderRadius: 12, overflow: 'hidden', border: `1px solid ${C.border}`, maxWidth: 280 }}>
             <img src={msg.resultImageUrl} alt="Ilustração pedagógica" style={{ width: '100%', display: 'block', objectFit: 'contain', background: '#fff' }} />
           </div>
         )}
 
-        {/* Spinner: imagem sendo gerada */}
-        {msg.imageGenerating && (
+        {/* Spinner legado */}
+        {msg.imageGenerating && !msg.imagePlaceholders?.length && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12, background: C.light, border: `1px solid ${C.border}`, fontSize: 12, color: C.sec }}>
             <Loader size={13} color={C.petrol} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
             <span>Gerando ilustração pedagógica com Vertex AI…</span>
           </div>
         )}
 
-        {/* Retry: erro de rede na geração de imagem */}
-        {msg.imageError && msg.imageRetryTopic && (
+        {/* Retry legado */}
+        {msg.imageError && msg.imageRetryTopic && !msg.imagePlaceholders?.length && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12, background: '#FFF7ED', border: '1px solid #FED7AA', fontSize: 12, color: '#92400E' }}>
             <span style={{ flex: 1 }}>⚠️ Sem conexão ao gerar a imagem.</span>
             <button
@@ -394,6 +433,26 @@ const ChatBubble: React.FC<{
             </button>
           </div>
         )}
+
+        {/* Resumo do progresso de placeholders inline (novo fluxo) */}
+        {(() => {
+          const phs = msg.imagePlaceholders;
+          if (!phs?.length) return null;
+          const loading = phs.filter(p => p.status === 'loading' || p.status === 'pending').length;
+          const errors  = phs.filter(p => p.status === 'error').length;
+          if (loading > 0) return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12, background: C.light, border: `1px solid ${C.border}`, fontSize: 12, color: C.sec }}>
+              <Loader size={13} color={C.petrol} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+              <span>Gerando {loading} ilustraç{loading > 1 ? 'ões' : 'ão'} com Vertex AI…</span>
+            </div>
+          );
+          if (errors > 0) return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12, background: '#FFF7ED', border: '1px solid #FED7AA', fontSize: 12, color: '#92400E' }}>
+              <span style={{ flex: 1 }}>⚠️ {errors} imagem{errors > 1 ? 'ns' : ''} com falha — veja no painel A4 para regenerar.</span>
+            </div>
+          );
+          return null;
+        })()}
 
         {/* Timestamp */}
         <span style={{ fontSize: 10, color: C.sec, paddingInline: 2 }}>
@@ -407,16 +466,84 @@ const ChatBubble: React.FC<{
 
 // ─── Componente: Painel A4 ────────────────────────────────────────────────────
 const A4Preview: React.FC<{
-  content:      string;
-  imageUrl?:    string;
-  title:        string;
-  onSave:       () => void;
-  saving:       boolean;
-  saved:        boolean;
-  onExportDoc:  () => void;
-  onPrint:      () => void;
-}> = ({ content, imageUrl, title, onSave, saving, saved, onExportDoc, onPrint }) => {
+  content:              string;
+  imageUrl?:            string;             // imagem única legada
+  imagePlaceholders?:   ImagePlaceholder[]; // imagens inline no markdown
+  title:                string;
+  onSave:               () => void;
+  saving:               boolean;
+  saved:                boolean;
+  onExportDoc:          () => void;
+  onPrint:              () => void;
+  onPlaceholderRetry?:  (phId: string, altText: string) => void;
+}> = ({ content, imageUrl, imagePlaceholders, title, onSave, saving, saved, onExportDoc, onPrint, onPlaceholderRetry }) => {
   const isAee = isPAEE(content);
+
+  // Renderer customizado para imagens — intercepta image-placeholder-N
+  const markdownComponents = React.useMemo(() => ({
+    img: ({ src, alt }: React.ImgHTMLAttributes<HTMLImageElement>) => {
+      if (src?.startsWith('image-placeholder-')) {
+        const ph = (imagePlaceholders ?? []).find(p => p.id === src);
+        const status = ph?.status ?? 'loading';
+
+        if (status === 'pending' || status === 'loading') {
+          return (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '14px 16px', borderRadius: 8, margin: '16px 0',
+              background: C.light, border: `1px solid ${C.border}`,
+            }}>
+              <Loader size={14} color={C.petrol} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: C.sec }}>
+                {alt || 'Gerando ilustração pedagógica com Vertex AI…'}
+              </span>
+            </div>
+          );
+        }
+
+        if (status === 'error') {
+          return (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '12px 16px', borderRadius: 8, margin: '16px 0',
+              background: '#FFF7ED', border: '1px solid #FED7AA',
+            }}>
+              <span style={{ fontSize: 12, color: '#92400E', flex: 1 }}>
+                ⚠️ {alt || 'Ilustração indisponível (falha de rede)'}
+              </span>
+              {ph && onPlaceholderRetry && (
+                <button
+                  onClick={() => onPlaceholderRetry(ph.id, ph.altText)}
+                  style={{
+                    padding: '5px 13px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                    background: '#EA580C', color: '#fff', border: 'none', cursor: 'pointer',
+                    whiteSpace: 'nowrap', flexShrink: 0,
+                  }}
+                >
+                  Gerar imagem novamente
+                </button>
+              )}
+            </div>
+          );
+        }
+
+        if (status === 'done' && ph?.resolvedUrl) {
+          return (
+            <img
+              src={ph.resolvedUrl}
+              alt={alt}
+              style={{ width: '100%', borderRadius: 8, margin: '16px 0', objectFit: 'contain', maxHeight: 280, display: 'block' }}
+            />
+          );
+        }
+        // fallback: ainda não há estado definido
+        return null;
+      }
+      // Imagem normal (não placeholder)
+      return <img src={src} alt={alt} style={{ width: '100%', borderRadius: 8, margin: '16px 0', objectFit: 'contain', maxHeight: 280, display: 'block' }} />;
+    },
+  }), [imagePlaceholders, onPlaceholderRetry]);
+
   return (
   <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
     {/* Toolbar */}
@@ -477,11 +604,14 @@ const A4Preview: React.FC<{
             </div>
           </div>
         )}
-        {imageUrl && (
+        {/* Imagem única legada (itens da biblioteca salvos antes do fluxo de placeholders) */}
+        {imageUrl && !imagePlaceholders?.length && (
           <img src={imageUrl} alt="ilustração" style={{ width: '100%', borderRadius: 8, marginBottom: 20, objectFit: 'contain', maxHeight: 260 }} />
         )}
         <div className="prose" style={{ maxWidth: '100%' }}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents as any}>
+            {content}
+          </ReactMarkdown>
         </div>
       </div>
     </div>
@@ -730,6 +860,19 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     setMessages(prev => prev.map(m => m.id === id ? { ...m, ...patch } : m));
   }
 
+  // Atualiza o status de um placeholder específico dentro de uma mensagem
+  function updatePlaceholder(msgId: string, phId: string, patch: Partial<ImagePlaceholder>) {
+    const applyPatch = (list: ImagePlaceholder[] = []) =>
+      list.map(p => p.id === phId ? { ...p, ...patch } : p);
+
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, imagePlaceholders: applyPatch(m.imagePlaceholders) } : m
+    ));
+    setPreviewMsg(prev =>
+      prev?.id === msgId ? { ...prev, imagePlaceholders: applyPatch(prev.imagePlaceholders) } : prev
+    );
+  }
+
   // ── Anexar arquivo ────────────────────────────────────────────────────────────
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -879,13 +1022,11 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   // ── Criar atividade a partir de tema ─────────────────────────────────────────
   async function generateActivityFromTopic(topic: string) {
     const TEXT_COST = INCLUILAB_MODEL_COSTS.TEXT ?? 3;
-    const genImage = modelGeneratesImage(modelId);
-    const IMG_COST = genImage ? (INCLUILAB_MODEL_COSTS.GPT_IMAGE ?? 50) : 0;
-    const totalCost = TEXT_COST + IMG_COST;
+    const genImage  = modelGeneratesImage(modelId);
 
     const hasCredits = creditsAvailable !== undefined
-      ? creditsAvailable >= totalCost
-      : await AIService.checkCredits(user, totalCost);
+      ? creditsAvailable >= TEXT_COST
+      : await AIService.checkCredits(user, TEXT_COST);
     if (!hasCredits) { addAssistantMsg(`⚠️ ${CREDIT_INSUFFICIENT_MSG}`); return; }
 
     setIsGenerating(true);
@@ -894,7 +1035,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     setMessages(prev => [...prev, { id: thinkingId, role: 'assistant', timestamp: new Date(), text: `⌛ Criando ${docLabel} sobre "${topic}"…` }]);
 
     try {
-      const prompt = buildActivityFromTopicPrompt(topic, studentCtx, docType, includePdi);
+      const prompt = buildActivityFromTopicPrompt(topic, studentCtx, docType, includePdi, genImage);
       const raw = await AIService.generateFromPromptWithImage(prompt, '', user);
 
       await safeDeductCredits(user, `INCLUILAB_CREATE:${modelId}`, TEXT_COST);
@@ -903,43 +1044,54 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         ? `✅ PAEE gerado${studentName ? ` para **${studentName}**` : ''}!`
         : `✅ Atividade sobre **"${topic}"** criada${studentName ? ` para **${studentName}**` : ''}!`;
 
+      // Extrai placeholders de imagem do markdown (só existem se genImage === true)
+      const placeholders = genImage ? extractImagePlaceholders(raw) : [];
+
       const resultMsg: Partial<ChatMessage> = {
         text: successLabel,
         result: raw,
         creditsUsed: TEXT_COST,
-        imageGenerating: genImage,   // imagem será gerada em segundo plano
+        imagePlaceholders: placeholders.length > 0 ? placeholders : undefined,
       };
       setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, ...resultMsg } : m));
       const fullMsg = { id: thinkingId, role: 'assistant' as const, timestamp: new Date(), text: '', ...resultMsg } as ChatMessage;
       setPreviewMsg(fullMsg);
       setRightTab('preview');
 
-      // ── Gerar imagem em segundo plano (não bloqueia o texto) ─────────────────
-      if (genImage) {
-        setIsGenerating(false); // libera o input enquanto imagem processa
-        try {
-          const student = students.find(s => s.id === studentId);
-          const imgResult = await AIService.generateActivityImage(
-            topic, student ?? { id: '', name: 'Geral', diagnosis: [], supportLevel: '' } as any, user,
-            { discipline: '', grade: '', period: '', bnccCodes: [] }
-          );
-          await safeDeductCredits(user, `INCLUILAB_IMAGE:${modelId}`, IMG_COST);
+      // ── Gerar cada imagem placeholder em paralelo, sem bloquear o input ─────
+      if (genImage && placeholders.length > 0) {
+        setIsGenerating(false); // libera o campo de input enquanto imagens processam
 
-          // Persiste no storage para durabilidade
-          const tenantId = (user as any).tenant_id ?? user.id;
-          const storedUrl = await persistImageToStorage(imgResult.imageUrl, tenantId);
-          const finalUrl = storedUrl ?? imgResult.imageUrl;
+        // Marca todos como 'loading' antes de disparar as chamadas
+        const loadingPlaceholders = placeholders.map(p => ({ ...p, status: 'loading' as const }));
+        setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, imagePlaceholders: loadingPlaceholders } : m));
+        setPreviewMsg(prev => prev?.id === thinkingId ? { ...prev, imagePlaceholders: loadingPlaceholders } : prev);
 
-          updateMessage(thinkingId, { imageGenerating: false, imageError: false, resultImageUrl: finalUrl });
-          setPreviewMsg(prev => prev?.id === thinkingId ? { ...prev, imageGenerating: false, resultImageUrl: finalUrl } : prev);
-        } catch (imgErr: unknown) {
-          const netErr = isNetworkError(imgErr);
-          updateMessage(thinkingId, { imageGenerating: false, imageError: true, imageRetryTopic: topic });
-          setPreviewMsg(prev => prev?.id === thinkingId ? { ...prev, imageGenerating: false, imageError: true, imageRetryTopic: topic } : prev);
-          if (!netErr) console.error('[IncluiLAB] Erro ao gerar imagem:', imgErr);
-        }
-        return; // já fez setIsGenerating(false) acima
+        const IMG_COST = INCLUILAB_MODEL_COSTS.GPT_IMAGE ?? 50;
+        const tenantId = (user as any).tenant_id ?? user.id;
+
+        await Promise.allSettled(
+          loadingPlaceholders.map(async (ph) => {
+            try {
+              const { ImageGenerationService } = await import('../services/imageGenerationService');
+              const result = await ImageGenerationService.generate(ph.altText, { tenantId, userId: user.id });
+
+              // Persiste no storage para durabilidade
+              const storedUrl = await persistImageToStorage(result.base64DataUrl, tenantId);
+              const finalUrl = storedUrl ?? result.base64DataUrl;
+
+              updatePlaceholder(thinkingId, ph.id, { status: 'done', resolvedUrl: finalUrl });
+              await safeDeductCredits(user, `INCLUILAB_IMAGE_PH:${ph.id}`, IMG_COST);
+            } catch (imgErr: unknown) {
+              if (!isNetworkError(imgErr)) console.error(`[IncluiLAB] Imagem ${ph.id} falhou:`, imgErr);
+              updatePlaceholder(thinkingId, ph.id, { status: 'error' });
+            }
+          })
+        );
+        return; // setIsGenerating(false) já foi chamado acima
       }
+
+      // genImage true mas nenhum placeholder encontrado no texto → sem imagens
     } catch (err: any) {
       setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, text: `❌ Erro: ${friendlyAIError(err)}` } : m));
     } finally {
@@ -947,7 +1099,26 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     }
   }
 
-  // ── Retry: gerar imagem após erro de rede ──────────────────────────────────
+  // ── Retry: gerar novamente uma imagem placeholder específica ─────────────────
+  const handlePlaceholderRetry = async (msgId: string, phId: string, altText: string) => {
+    updatePlaceholder(msgId, phId, { status: 'loading' });
+    try {
+      const tenantId = (user as any).tenant_id ?? user.id;
+      const { ImageGenerationService } = await import('../services/imageGenerationService');
+      const result = await ImageGenerationService.generate(altText, { tenantId, userId: user.id });
+
+      const storedUrl = await persistImageToStorage(result.base64DataUrl, tenantId);
+      const finalUrl  = storedUrl ?? result.base64DataUrl;
+
+      updatePlaceholder(msgId, phId, { status: 'done', resolvedUrl: finalUrl });
+      const IMG_COST = INCLUILAB_MODEL_COSTS.GPT_IMAGE ?? 50;
+      await safeDeductCredits(user, `INCLUILAB_IMAGE_RETRY:${phId}`, IMG_COST);
+    } catch {
+      updatePlaceholder(msgId, phId, { status: 'error' });
+    }
+  };
+
+  // ── Retry legado: imagem única (mensagens antigas da biblioteca) ──────────────
   const handleImageRetry = async (msgId: string, topic: string) => {
     updateMessage(msgId, { imageError: false, imageGenerating: true });
     setPreviewMsg(prev => prev?.id === msgId ? { ...prev, imageError: false, imageGenerating: true } : prev);
@@ -962,11 +1133,11 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
 
       const tenantId = (user as any).tenant_id ?? user.id;
       const storedUrl = await persistImageToStorage(imgResult.imageUrl, tenantId);
-      const finalUrl = storedUrl ?? imgResult.imageUrl;
+      const finalUrl  = storedUrl ?? imgResult.imageUrl;
 
       updateMessage(msgId, { imageGenerating: false, imageError: false, resultImageUrl: finalUrl });
       setPreviewMsg(prev => prev?.id === msgId ? { ...prev, imageGenerating: false, resultImageUrl: finalUrl } : prev);
-    } catch (imgErr: unknown) {
+    } catch {
       updateMessage(msgId, { imageGenerating: false, imageError: true });
       setPreviewMsg(prev => prev?.id === msgId ? { ...prev, imageGenerating: false, imageError: true } : prev);
     }
@@ -989,8 +1160,6 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         imageUrl:   previewMsg.resultImageUrl,
         isAdapted:  !!previewMsg.file,
         creditsUsed: previewMsg.creditsUsed ?? 0,
-        modelUsed:  modelId,
-        outputType: modelId === 'texto_apenas' ? 'text' : 'text_image',
         tags:       studentName ? [studentName] : [],
       });
       if (id) {
@@ -1155,6 +1324,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
                 onConfirm={handleConfirm}
                 onViewResult={m => { setPreviewMsg(m); setRightTab('preview'); }}
                 onImageRetry={handleImageRetry}
+                onPlaceholderRetry={(msgId, phId, altText) => handlePlaceholderRetry(msgId, phId, altText)}
                 isLatest={i === messages.length - 1}
               />
             ))}
@@ -1360,12 +1530,14 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
                 <A4Preview
                   content={previewContent}
                   imageUrl={previewSignedUrl ?? previewImageUrl}
+                  imagePlaceholders={previewMsg?.imagePlaceholders}
                   title={previewTitle}
                   onSave={handleSave}
                   saving={savingId === previewMsg?.id}
                   saved={!!previewMsg?.savedId}
                   onExportDoc={() => exportAsDoc(previewContent, `${previewTitle}.doc`)}
                   onPrint={() => printMarkdown(previewContent, previewTitle)}
+                  onPlaceholderRetry={previewMsg ? (phId, altText) => handlePlaceholderRetry(previewMsg.id, phId, altText) : undefined}
                 />
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: C.sec, padding: 32, textAlign: 'center' }}>
