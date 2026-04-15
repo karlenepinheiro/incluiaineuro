@@ -444,143 +444,718 @@ async function generateLineCanvas(
 // ─── EXPORT SERVICE ────────────────────────────────────────────────────────────
 export const ExportService = {
 
-  // ── Ficha do Aluno ───────────────────────────────────────────────────────────
-  async generateStudentProfilePDF(student: Student, emittedBy = "Sistema", school?: SchoolConfig | null) {
+  // ── Ficha do Aluno (configurável) ───────────────────────────────────────────
+  async generateStudentProfilePDF(
+    student: Student,
+    emittedBy = "Sistema",
+    school?: SchoolConfig | null,
+    config?: {
+      dadosAluno?: boolean; fotoAluno?: boolean; logoEscola?: boolean;
+      enderecoCompleto?: boolean; codigoUnico?: boolean;
+      ultimaAvaliacao?: boolean; agendamentos?: boolean;
+      controleAtendimento?: boolean; linhaDoTempo?: boolean;
+      documentosGerados?: boolean; relatoriosIA?: boolean;
+      analiseLaudo?: boolean; fichasComplementares?: boolean;
+      historicoAtividades?: boolean;
+    },
+    extraData?: {
+      evolutions?: any[]; appointments?: any[]; serviceRecords?: any[];
+      timeline?: any[]; activities?: any[]; documents?: any[];
+      medicalReports?: any[]; obsForms?: any[]; fichas?: any[]; protocols?: any[];
+    },
+  ) {
+    // config padrão: tudo habilitado quando não fornecido (retrocompatibilidade)
+    const cfg = {
+      dadosAluno: true, fotoAluno: true, logoEscola: true,
+      enderecoCompleto: false, codigoUnico: true,
+      ultimaAvaliacao: true, agendamentos: true,
+      controleAtendimento: true, linhaDoTempo: false,
+      documentosGerados: true, relatoriosIA: true,
+      analiseLaudo: true, fichasComplementares: true,
+      historicoAtividades: false,
+      ...config,
+    };
+    const extra = extraData ?? {};
+
     const jsPDF = await loadJsPDF();
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-    const W = doc.internal.pageSize.getWidth();   // 210mm
-    const H = doc.internal.pageSize.getHeight();  // 297mm
-    const maxW = W - ML - MR;                     // 160mm
+    const W = doc.internal.pageSize.getWidth();
+    const H = doc.internal.pageSize.getHeight();
+    const maxW = W - ML - MR;
     const auditCode = makeAuditCode("FICHA", student.id);
-    const halfW = (maxW - 6) / 2;                 // ~77mm por coluna
-    const col1x = ML;                             // 30mm
-    const col2x = ML + halfW + 6;                 // ~113mm
+    const halfW = (maxW - 6) / 2;
+    const col1x = ML;
+    const col2x = ML + halfW + 6;
 
-    // Callback para adicionar cabeçalho em páginas de continuação
+    const schoolForHeader = cfg.logoEscola ? school : null;
     const pageHeader = () =>
-      addDocHeader(doc, "FICHA DO ALUNO", "Documentação Educacional Inclusiva", student.name, auditCode, school);
+      addDocHeader(doc, "FICHA DO ALUNO", "Documentação Educacional Inclusiva", student.name, auditCode, schoolForHeader);
 
     const contentTop = pageHeader();
     let y = contentTop;
 
-    // ── Bloco de identidade do aluno ─────────────────────────────────────────
-    doc.setFillColor(BRAND_LIGHT.r, BRAND_LIGHT.g, BRAND_LIGHT.b);
-    doc.roundedRect(ML, y, maxW, 42, 3, 3, "F");
+    // ════════════════════════════════════════════════════════════
+    // 1. IDENTIFICAÇÃO DO ALUNO
+    // ════════════════════════════════════════════════════════════
+    if (cfg.dadosAluno) {
+      // Bloco hero do aluno
+      doc.setFillColor(BRAND_LIGHT.r, BRAND_LIGHT.g, BRAND_LIGHT.b);
+      doc.roundedRect(ML, y, maxW, 42, 3, 3, "F");
 
-    // Avatar circular com iniciais
-    doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
-    doc.circle(ML + 16, y + 21, 14, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.setTextColor(255, 255, 255);
-    const initials = student.name
-      .split(" ")
-      .map((n: string) => n[0])
-      .slice(0, 2)
-      .join("")
-      .toUpperCase();
-    doc.text(initials, ML + 16, y + 24, { align: "center" });
+      // Avatar
+      doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
+      doc.circle(ML + 16, y + 21, 14, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(255, 255, 255);
+      const initials = student.name.split(" ").map((n: string) => n[0]).slice(0, 2).join("").toUpperCase();
+      doc.text(initials, ML + 16, y + 24, { align: "center" });
 
-    // Dados principais
-    const infoX = ML + 36;
-    doc.setTextColor(DARK.r, DARK.g, DARK.b);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.text(student.name, infoX, y + 11);
+      const infoX = ML + 36;
+      doc.setTextColor(DARK.r, DARK.g, DARK.b);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(13);
+      doc.text(student.name, infoX, y + 11);
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(BODY_SIZE);
-    doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+      const age = student.birthDate
+        ? Math.floor((Date.now() - new Date(student.birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+        : "—";
+      const safeBirthDate = (() => {
+        if (!student.birthDate) return "—";
+        const d = new Date(student.birthDate + "T00:00:00");
+        return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
+      })();
+      const infoCol1W = col2x - infoX - 3;
+      const infoCol2W = W - MR - col2x - 2;
+      const col1Info = [
+        `Nascimento: ${safeBirthDate}`,
+        `${age} anos · ${student.gender === 'M' ? 'Masc.' : student.gender === 'F' ? 'Fem.' : student.gender || '—'}`,
+        `Série: ${student.grade || "—"} · ${student.shift || "—"}`,
+      ];
+      const col2Info = [
+        `Suporte: ${student.supportLevel || "—"}`,
+        `CID: ${Array.isArray(student.cid) ? student.cid.join(", ") : student.cid || "—"}`,
+        `Medicação: ${(student.medication || "—").substring(0, 30)}`,
+      ];
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(SMALL_SIZE + 1);
+      doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+      col1Info.forEach((line, i) => {
+        const safeLines = doc.splitTextToSize(line, infoCol1W);
+        doc.text(safeLines[0] || line, infoX, y + 20 + i * 7);
+      });
+      col2Info.forEach((line, i) => {
+        const safeLines = doc.splitTextToSize(line, infoCol2W);
+        doc.text(safeLines[0] || line, col2x, y + 20 + i * 7);
+      });
+      y += 48;
 
-    const age = student.birthDate
-      ? Math.floor(
-          (Date.now() - new Date(student.birthDate).getTime()) /
-            (365.25 * 24 * 60 * 60 * 1000)
-        )
-      : "—";
+      const diagText = (student.diagnosis || []).join(", ");
+      if (diagText) y = renderField(doc, "Diagnósticos", diagText, ML, y, maxW, LINE_H, pageHeader);
 
-    // Duas colunas de informações rápidas dentro do bloco
-    const safeBirthDate = (() => {
-      if (!student.birthDate) return "—";
-      const d = new Date(student.birthDate + "T00:00:00");
-      return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("pt-BR");
-    })();
-    // Largura máxima de cada coluna dentro do bloco de identidade
-    // col1 começa em infoX (66mm) e vai até col2x (113mm) → ~44mm
-    // col2 começa em col2x (113mm) e vai até W-MR (190mm) → ~74mm
-    const infoCol1W = col2x - infoX - 3;   // ~44mm — sem overlap
-    const infoCol2W = W - MR - col2x - 2;  // ~74mm
+      // Endereço completo (opcional)
+      if (cfg.enderecoCompleto && (student.street || student.city)) {
+        const addr = [
+          student.street && [student.street, student.streetNumber, student.complement].filter(Boolean).join(", "),
+          student.neighborhood,
+          student.city && [student.city, student.state].filter(Boolean).join(" — "),
+          student.zipcode && `CEP ${student.zipcode}`,
+        ].filter(Boolean).join(" · ");
+        if (addr) y = renderField(doc, "Endereço", addr, ML, y, maxW, LINE_H, pageHeader);
+      }
 
-    const col1Info = [
-      `Nascimento: ${safeBirthDate}`,
-      `${age} anos · ${student.gender === 'M' ? 'Masc.' : student.gender === 'F' ? 'Fem.' : student.gender || '—'}`,
-      `Série: ${student.grade || "—"} · ${student.shift || "—"}`,
-    ];
-    const col2Info = [
-      `Suporte: ${student.supportLevel || "—"}`,
-      `CID: ${Array.isArray(student.cid) ? student.cid.join(", ") : student.cid || "—"}`,
-      `Medicação: ${(student.medication || "—").substring(0, 30)}`,
-    ];
+      // Equipe
+      if (y > contentBottom(H) - 70) { doc.addPage(); y = pageHeader(); }
+      y = addSectionTitle(doc, "RESPONSÁVEL / EQUIPE PEDAGÓGICA", ML, y, maxW);
+      let yL = y, yR = y;
+      yL = renderField(doc, "Responsável", student.guardianName, col1x, yL, halfW, LINE_H, pageHeader);
+      yL = renderField(doc, "Telefone", student.guardianPhone, col1x, yL, halfW, LINE_H, pageHeader);
+      yL = renderField(doc, "E-mail", student.guardianEmail || "—", col1x, yL, halfW, LINE_H, pageHeader);
+      yR = renderField(doc, "Professor Regente", student.regentTeacher, col2x, yR, halfW, LINE_H, pageHeader);
+      yR = renderField(doc, "Professor AEE", student.aeeTeacher || "—", col2x, yR, halfW, LINE_H, pageHeader);
+      yR = renderField(doc, "Coordenador", student.coordinator || "—", col2x, yR, halfW, LINE_H, pageHeader);
+      yR = renderField(doc, "Profissionais Externos", (student.professionals || []).join(", "), col2x, yR, halfW, LINE_H, pageHeader);
+      y = Math.max(yL, yR) + 4;
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(SMALL_SIZE + 1);
-    doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
-
-    col1Info.forEach((line, i) => {
-      const safeLines = doc.splitTextToSize(line, infoCol1W);
-      doc.text(safeLines[0] || line, infoX, y + 20 + i * 7);
-    });
-    col2Info.forEach((line, i) => {
-      const safeLines = doc.splitTextToSize(line, infoCol2W);
-      doc.text(safeLines[0] || line, col2x, y + 20 + i * 7);
-    });
-    y += 48;
-
-    // Diagnósticos
-    const diagText = (student.diagnosis || []).join(", ");
-    if (diagText) {
-      y = renderField(doc, "Diagnósticos", diagText, ML, y, maxW, LINE_H, pageHeader);
-    }
-
-    // ── Seção: Responsável / Equipe Pedagógica ────────────────────────────────
-    if (y > contentBottom(H) - 70) { doc.addPage(); y = pageHeader(); }
-    y = addSectionTitle(doc, "RESPONSÁVEL / EQUIPE PEDAGÓGICA", ML, y, maxW);
-
-    let yL = y, yR = y;
-    yL = renderField(doc, "Responsável", student.guardianName, col1x, yL, halfW, LINE_H, pageHeader);
-    yL = renderField(doc, "Telefone", student.guardianPhone, col1x, yL, halfW, LINE_H, pageHeader);
-    yL = renderField(doc, "E-mail", student.guardianEmail || "—", col1x, yL, halfW, LINE_H, pageHeader);
-    yR = renderField(doc, "Professor Regente", student.regentTeacher, col2x, yR, halfW, LINE_H, pageHeader);
-    yR = renderField(doc, "Professor AEE", student.aeeTeacher || "—", col2x, yR, halfW, LINE_H, pageHeader);
-    yR = renderField(doc, "Coordenador", student.coordinator || "—", col2x, yR, halfW, LINE_H, pageHeader);
-    yR = renderField(doc, "Profissionais Externos", (student.professionals || []).join(", "), col2x, yR, halfW, LINE_H, pageHeader);
-    y = Math.max(yL, yR) + 4;
-
-    // ── Seção: Contexto Escolar e Familiar ────────────────────────────────────
-    if (y > contentBottom(H) - 40) { doc.addPage(); y = pageHeader(); }
-    y = addSectionTitle(doc, "CONTEXTO ESCOLAR E FAMILIAR", ML, y, maxW);
-    y = renderField(doc, "Histórico Escolar", student.schoolHistory, ML, y, maxW, LINE_H, pageHeader);
-    y = renderField(doc, "Contexto Familiar", student.familyContext || "—", ML, y, maxW, LINE_H, pageHeader);
-
-    // ── Seção: Perfil Funcional ───────────────────────────────────────────────
-    if (y > contentBottom(H) - 40) { doc.addPage(); y = pageHeader(); }
-    y = addSectionTitle(doc, "PERFIL FUNCIONAL", ML, y, maxW);
-
-    yL = y; yR = y;
-    yL = renderField(doc, "Habilidades", (student.abilities || []).map(a => `• ${a}`).join("\n"), col1x, yL, halfW, LINE_H, pageHeader);
-    yL = renderField(doc, "Estratégias Eficazes", (student.strategies || []).map(s => `• ${s}`).join("\n"), col1x, yL, halfW, LINE_H, pageHeader);
-    yR = renderField(doc, "Dificuldades", (student.difficulties || []).map(d => `• ${d}`).join("\n"), col2x, yR, halfW, LINE_H, pageHeader);
-    yR = renderField(doc, "Comunicação", (student.communication || []).join(", "), col2x, yR, halfW, LINE_H, pageHeader);
-    y = Math.max(yL, yR) + 4;
-
-    // ── Observações Gerais ────────────────────────────────────────────────────
-    if (student.observations) {
+      // Contexto + Perfil Funcional
       if (y > contentBottom(H) - 40) { doc.addPage(); y = pageHeader(); }
-      y = addSectionTitle(doc, "OBSERVAÇÕES GERAIS", ML, y, maxW);
-      y = renderField(doc, "", student.observations, ML, y, maxW, LINE_H, pageHeader);
+      y = addSectionTitle(doc, "CONTEXTO ESCOLAR E FAMILIAR", ML, y, maxW);
+      y = renderField(doc, "Histórico Escolar", student.schoolHistory, ML, y, maxW, LINE_H, pageHeader);
+      y = renderField(doc, "Contexto Familiar", student.familyContext || "—", ML, y, maxW, LINE_H, pageHeader);
+
+      if (y > contentBottom(H) - 40) { doc.addPage(); y = pageHeader(); }
+      y = addSectionTitle(doc, "PERFIL FUNCIONAL", ML, y, maxW);
+      yL = y; yR = y;
+      yL = renderField(doc, "Habilidades", (student.abilities || []).map(a => `• ${a}`).join("\n"), col1x, yL, halfW, LINE_H, pageHeader);
+      yL = renderField(doc, "Estratégias Eficazes", (student.strategies || []).map(s => `• ${s}`).join("\n"), col1x, yL, halfW, LINE_H, pageHeader);
+      yR = renderField(doc, "Dificuldades", (student.difficulties || []).map(d => `• ${d}`).join("\n"), col2x, yR, halfW, LINE_H, pageHeader);
+      yR = renderField(doc, "Comunicação", (student.communication || []).join(", "), col2x, yR, halfW, LINE_H, pageHeader);
+      y = Math.max(yL, yR) + 4;
+
+      if (student.observations) {
+        if (y > contentBottom(H) - 40) { doc.addPage(); y = pageHeader(); }
+        y = addSectionTitle(doc, "OBSERVAÇÕES GERAIS", ML, y, maxW);
+        y = renderField(doc, "", student.observations, ML, y, maxW, LINE_H, pageHeader);
+      }
     }
 
-    // ── Campos de Assinatura ──────────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════
+    // 2. ÚLTIMA AVALIAÇÃO — REDESENHADA
+    // ════════════════════════════════════════════════════════════
+    if (cfg.ultimaAvaliacao && extra.evolutions && extra.evolutions.length > 0) {
+      const ev = extra.evolutions[0]; // mais recente
+      const scores: number[] = ev.scores || [];
+      const CRITERIA_NAMES = [
+        'Comunicação Expressiva', 'Interação Social', 'Autonomia (AVD)', 'Autorregulação',
+        'Atenção Sustentada', 'Compreensão', 'Motricidade Fina', 'Motricidade Grossa',
+        'Participação', 'Linguagem/Leitura',
+      ];
+
+      if (y > contentBottom(H) - 80) { doc.addPage(); y = pageHeader(); }
+      y = addSectionTitle(doc, "AVALIAÇÃO COGNITIVA E FUNCIONAL", ML, y, maxW);
+
+      // ─── A. RESUMO DA AVALIAÇÃO ──────────────────────────────
+      const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+      const avgRound = Math.round(avg * 10) / 10;
+      const avgPct = Math.round((avg / 5) * 100);
+
+      // Card de resumo (fundo petrol-light, borda petrol)
+      const resumoH = 38;
+      doc.setFillColor(BRAND_LIGHT.r, BRAND_LIGHT.g, BRAND_LIGHT.b);
+      doc.setDrawColor(BRAND.r, BRAND.g, BRAND.b);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(ML, y, maxW, resumoH, 3, 3, "FD");
+
+      // Linha de topo petrol
+      doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
+      doc.rect(ML, y, maxW, 6, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(SMALL_SIZE);
+      doc.setTextColor(255, 255, 255);
+      doc.text("RESUMO DA AVALIAÇÃO", ML + 4, y + 4.5);
+
+      const ry = y + 10;
+
+      // Data + Profissional
+      const evDate = ev.date ? new Date(ev.date).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" }) : "—";
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(SMALL_SIZE);
+      doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+      doc.text(`Avaliação: ${evDate}  ·  Profissional: ${ev.author || "—"}`, ML + 4, ry);
+
+      // Média com barra de progresso
+      const avgColor = avgRound >= 4 ? [22, 163, 74] : avgRound >= 3 ? [31, 78, 95] : avgRound >= 2 ? [217, 119, 6] : [220, 38, 38];
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(SMALL_SIZE + 1);
+      doc.setTextColor(avgColor[0], avgColor[1], avgColor[2]);
+      doc.text(`Média geral: ${avgRound}/5  (${avgPct}%)`, ML + 4, ry + 7);
+      // Barra de progresso da média
+      doc.setFillColor(218, 224, 229);
+      doc.rect(ML + 4, ry + 9, 60, 3, "F");
+      doc.setFillColor(avgColor[0], avgColor[1], avgColor[2]);
+      doc.rect(ML + 4, ry + 9, 60 * (avg / 5), 3, "F");
+
+      // Áreas fortes (score >= 4) e prioritárias (score <= 2)
+      const strong   = CRITERIA_NAMES.filter((_, i) => (scores[i] ?? 0) >= 4).slice(0, 3);
+      const priority = CRITERIA_NAMES.filter((_, i) => (scores[i] ?? 0) <= 2).slice(0, 3);
+      const colMidX  = ML + maxW / 2 + 2;
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(SMALL_SIZE - 0.5);
+      doc.setTextColor(22, 163, 74);
+      doc.text("ÁREAS FORTES", ML + 4, ry + 17);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(DARK.r, DARK.g, DARK.b);
+      if (strong.length > 0) {
+        strong.forEach((s, i) => { doc.text(`• ${s}`, ML + 4, ry + 22 + i * 4.5); });
+      } else {
+        doc.text("— Nenhuma destacada", ML + 4, ry + 22);
+      }
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(SMALL_SIZE - 0.5);
+      doc.setTextColor(217, 119, 6);
+      doc.text("ÁREAS PRIORITÁRIAS", colMidX, ry + 17);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(DARK.r, DARK.g, DARK.b);
+      if (priority.length > 0) {
+        priority.forEach((s, i) => { doc.text(`• ${s}`, colMidX, ry + 22 + i * 4.5); });
+      } else {
+        doc.text("— Todas em nível adequado", colMidX, ry + 22);
+      }
+
+      y += resumoH + 5;
+
+      // ─── B. RADAR + PONTUAÇÕES ────────────────────────────────
+      if (y > contentBottom(H) - 90) { doc.addPage(); y = pageHeader(); }
+
+      const criteriaForChart = CRITERIA_NAMES.map(name => ({ name }));
+      try {
+        const radarB64 = await generateRadarCanvas(scores, criteriaForChart);
+        const radarSz  = 68;
+        doc.addImage(radarB64, "PNG", ML, y, radarSz, radarSz);
+
+        // Pontuações por dimensão (lado direito do radar)
+        const legendX = ML + radarSz + 6;
+        const legendW = W - MR - legendX - 2;
+        const barW    = Math.min(38, legendW * 0.45);
+
+        let ly = y + 2;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(SMALL_SIZE);
+        doc.setTextColor(DARK.r, DARK.g, DARK.b);
+        doc.text("Pontuação por Dimensão", legendX, ly);
+        ly += 6;
+
+        CRITERIA_NAMES.forEach((name, i) => {
+          const score = scores[i] ?? 0;
+          const sc    = score >= 4 ? [22, 163, 74] : score >= 3 ? [31, 78, 95] : score >= 2 ? [217, 119, 6] : [220, 38, 38];
+
+          // Nome abreviado
+          const abbrev = doc.splitTextToSize(name, legendW - barW - 14)[0] || name;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(SMALL_SIZE - 1);
+          doc.setTextColor(DARK.r, DARK.g, DARK.b);
+          doc.text(abbrev, legendX, ly);
+
+          // Mini barra
+          doc.setFillColor(218, 224, 229);
+          doc.rect(legendX, ly + 1, barW, 3, "F");
+          doc.setFillColor(sc[0], sc[1], sc[2]);
+          doc.rect(legendX, ly + 1, barW * (score / 5), 3, "F");
+
+          // Score
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(SMALL_SIZE - 1);
+          doc.setTextColor(sc[0], sc[1], sc[2]);
+          doc.text(`${score}/5`, legendX + barW + 2, ly + 3.5);
+
+          ly += 6.5;
+        });
+        y = Math.max(y + radarSz + 5, ly + 3);
+      } catch {
+        // Fallback sem gráfico
+        CRITERIA_NAMES.forEach((name, i) => {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(BODY_SIZE);
+          doc.setTextColor(DARK.r, DARK.g, DARK.b);
+          doc.text(`${name}: ${scores[i] ?? "—"}/5`, ML, y);
+          y += LINE_H;
+        });
+        y += 4;
+      }
+
+      // ─── C. PARECER DESCRITIVO ────────────────────────────────
+      if (ev.observation) {
+        if (y > contentBottom(H) - 50) { doc.addPage(); y = pageHeader(); }
+
+        // Faixa "PARECER DESCRITIVO" em petrol com acento gold
+        doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
+        doc.rect(ML, y, maxW, 8, "F");
+        doc.setFillColor(GOLD.r, GOLD.g, GOLD.b);
+        doc.rect(ML, y + 8, maxW, 1.2, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(SMALL_SIZE + 0.5);
+        doc.setTextColor(255, 255, 255);
+        doc.text("PARECER DESCRITIVO", ML + 4, y + 5.5);
+        y += 12;
+
+        // Texto analítico com boa hierarquia tipográfica
+        // Divide o parecer em parágrafos e renderiza com espaçamento
+        const paragraphs = (ev.observation as string).split(/\n{2,}|\r\n{2,}/).filter(Boolean);
+        for (const para of paragraphs) {
+          if (y > contentBottom(H) - 25) { doc.addPage(); y = pageHeader(); }
+
+          // Detecta linhas que parecem títulos/subtítulos (curtas, em maiúscula ou com ":")
+          const trimmed = para.trim();
+          const isHeading = trimmed.length < 60 && (/^[A-ZÁÉÍÓÚÀÂÊÔ].{0,58}:$/.test(trimmed) || trimmed === trimmed.toUpperCase());
+
+          if (isHeading) {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(BODY_SIZE);
+            doc.setTextColor(BRAND.r, BRAND.g, BRAND.b);
+            doc.text(trimmed, ML, y);
+            y += LINE_H + 1;
+          } else {
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(BODY_SIZE);
+            doc.setTextColor(DARK.r, DARK.g, DARK.b);
+            // Indentação no primeiro parágrafo
+            const lines = doc.splitTextToSize(trimmed, maxW - 4);
+            doc.text(lines, ML + 2, y);
+            y += lines.length * LINE_H + 3; // +3mm entre parágrafos
+          }
+        }
+        y += 4;
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // 3. AGENDAMENTOS
+    // ════════════════════════════════════════════════════════════
+    if (cfg.agendamentos && extra.appointments && extra.appointments.length > 0) {
+      if (y > contentBottom(H) - 50) { doc.addPage(); y = pageHeader(); }
+      y = addSectionTitle(doc, "AGENDAMENTOS", ML, y, maxW);
+
+      // Cabeçalho da tabela
+      const cols = { data: 24, hora: 18, titulo: 54, tipo: 28, prof: 28, status: maxW - 24 - 18 - 54 - 28 - 28 };
+      doc.setFillColor(BRAND_LIGHT.r, BRAND_LIGHT.g, BRAND_LIGHT.b);
+      doc.rect(ML, y, maxW, 7, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(SMALL_SIZE - 0.5);
+      doc.setTextColor(BRAND.r, BRAND.g, BRAND.b);
+      let cx = ML + 2;
+      ["DATA", "HORA", "TÍTULO", "TIPO", "PROFISSIONAL", "STATUS"].forEach((h, i) => {
+        const w = [cols.data, cols.hora, cols.titulo, cols.tipo, cols.prof, cols.status][i];
+        doc.text(h, cx, y + 5);
+        cx += w;
+      });
+      y += 8;
+
+      for (const a of extra.appointments) {
+        if (y > contentBottom(H) - 15) { doc.addPage(); y = pageHeader(); }
+        const dateStr = a.date ? new Date(a.date + "T00:00:00").toLocaleDateString("pt-BR") : "—";
+        const statusColors: Record<string, number[]> = {
+          realizado: [22, 163, 74], cancelado: [220, 38, 38], falta: [217, 119, 6],
+        };
+        const sc = statusColors[a.status] || [31, 78, 95];
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(SMALL_SIZE - 1);
+        doc.setTextColor(DARK.r, DARK.g, DARK.b);
+        cx = ML + 2;
+        const row = [dateStr, a.time || "—", (a.title || "").substring(0, 28), (a.type || "—").substring(0, 16), (a.professional || "—").substring(0, 16)];
+        row.forEach((val, i) => {
+          const w = [cols.data, cols.hora, cols.titulo, cols.tipo, cols.prof][i];
+          doc.text(val, cx, y + 4);
+          cx += w;
+        });
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(sc[0], sc[1], sc[2]);
+        doc.text((a.status || "agendado").toUpperCase(), cx, y + 4);
+
+        // Linha divisória
+        doc.setDrawColor(218, 224, 229);
+        doc.setLineWidth(0.2);
+        doc.line(ML, y + 6.5, ML + maxW, y + 6.5);
+        y += 7.5;
+      }
+      y += 4;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // 4. CONTROLE DE ATENDIMENTO
+    // ════════════════════════════════════════════════════════════
+    if (cfg.controleAtendimento && extra.serviceRecords && extra.serviceRecords.length > 0) {
+      if (y > contentBottom(H) - 50) { doc.addPage(); y = pageHeader(); }
+      y = addSectionTitle(doc, "CONTROLE DE ATENDIMENTO", ML, y, maxW);
+
+      const total    = extra.serviceRecords.length;
+      const presente = extra.serviceRecords.filter((r: any) => r.attendance === 'Presente').length;
+      const taxa     = total > 0 ? Math.round((presente / total) * 100) : 0;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(SMALL_SIZE);
+      doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+      doc.text(`${total} atendimento(s) · Presença: ${taxa}%`, ML, y);
+      // Barra de presença
+      doc.setFillColor(218, 224, 229);
+      doc.rect(ML, y + 3, 60, 3, "F");
+      doc.setFillColor(22, 163, 74);
+      doc.rect(ML, y + 3, 60 * (taxa / 100), 3, "F");
+      y += 10;
+
+      // Tabela compacta
+      doc.setFillColor(BRAND_LIGHT.r, BRAND_LIGHT.g, BRAND_LIGHT.b);
+      doc.rect(ML, y, maxW, 7, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(SMALL_SIZE - 0.5);
+      doc.setTextColor(BRAND.r, BRAND.g, BRAND.b);
+      const scCols = { data: 26, hora: 18, tipo: 34, prof: 38, pres: 20, obs: maxW - 26 - 18 - 34 - 38 - 20 };
+      let scx = ML + 2;
+      ["DATA", "HORA", "TIPO", "PROFISSIONAL", "PRESENÇA", "OBSERVAÇÕES"].forEach((h, i) => {
+        const w = [scCols.data, scCols.hora, scCols.tipo, scCols.prof, scCols.pres, scCols.obs][i];
+        doc.text(h, scx, y + 5);
+        scx += w;
+      });
+      y += 8;
+
+      for (const r of extra.serviceRecords.slice(0, 30)) {
+        if (y > contentBottom(H) - 15) { doc.addPage(); y = pageHeader(); }
+        const dateStr = r.date ? new Date(r.date).toLocaleDateString("pt-BR") : "—";
+        const presColor = r.attendance === 'Presente' ? [22, 163, 74] : r.attendance === 'Falta' ? [220, 38, 38] : [108, 117, 125];
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(SMALL_SIZE - 1);
+        doc.setTextColor(DARK.r, DARK.g, DARK.b);
+        scx = ML + 2;
+        [dateStr, r.time || "—", (r.type || "—").substring(0, 18), (r.professional || "—").substring(0, 20)].forEach((val, i) => {
+          const w = [scCols.data, scCols.hora, scCols.tipo, scCols.prof][i];
+          doc.text(val, scx, y + 4);
+          scx += w;
+        });
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(presColor[0], presColor[1], presColor[2]);
+        doc.text(r.attendance || "—", scx, y + 4);
+        scx += scCols.pres;
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+        const obsText = (r.observations || "").substring(0, 30);
+        doc.text(obsText, scx, y + 4);
+
+        doc.setDrawColor(218, 224, 229);
+        doc.setLineWidth(0.2);
+        doc.line(ML, y + 6.5, ML + maxW, y + 6.5);
+        y += 7.5;
+      }
+      if (extra.serviceRecords.length > 30) {
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(SMALL_SIZE - 1);
+        doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+        doc.text(`… e mais ${extra.serviceRecords.length - 30} registros`, ML, y + 3);
+        y += 6;
+      }
+      y += 4;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // 5. LINHA DO TEMPO
+    // ════════════════════════════════════════════════════════════
+    if (cfg.linhaDoTempo && extra.timeline && extra.timeline.length > 0) {
+      if (y > contentBottom(H) - 50) { doc.addPage(); y = pageHeader(); }
+      y = addSectionTitle(doc, "LINHA DO TEMPO", ML, y, maxW);
+
+      const timelineEvents = extra.timeline.slice(0, 20);
+      for (const evt of timelineEvents) {
+        if (y > contentBottom(H) - 15) { doc.addPage(); y = pageHeader(); }
+        const dateStr = evt.created_at ? new Date(evt.created_at).toLocaleDateString("pt-BR") : "—";
+
+        // Ponto na linha do tempo
+        doc.setFillColor(BRAND.r, BRAND.g, BRAND.b);
+        doc.circle(ML + 3, y + 3.5, 2.5, "F");
+        doc.setDrawColor(BRAND.r, BRAND.g, BRAND.b);
+        doc.setLineWidth(0.3);
+        doc.line(ML + 3, y + 6, ML + 3, y + 9);
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(SMALL_SIZE);
+        doc.setTextColor(DARK.r, DARK.g, DARK.b);
+        doc.text(evt.title || "Evento", ML + 9, y + 4);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(SMALL_SIZE - 1);
+        doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+        doc.text(`${dateStr}${evt.event_type ? " · " + evt.event_type : ""}`, ML + 9, y + 8.5);
+
+        if (evt.description) {
+          doc.setFontSize(SMALL_SIZE - 1.5);
+          const descLines = doc.splitTextToSize(evt.description.substring(0, 100), maxW - 12);
+          doc.text(descLines[0] || evt.description, ML + 9, y + 12.5);
+          y += 16;
+        } else {
+          y += 12;
+        }
+      }
+      if (extra.timeline.length > 20) {
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(SMALL_SIZE - 1);
+        doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+        doc.text(`… e mais ${extra.timeline.length - 20} eventos`, ML, y + 2);
+        y += 6;
+      }
+      y += 4;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // 6. DOCUMENTOS GERADOS (protocolos: PEI, PAEE, PDI, etc.)
+    // ════════════════════════════════════════════════════════════
+    if (cfg.documentosGerados && extra.protocols && extra.protocols.length > 0) {
+      if (y > contentBottom(H) - 50) { doc.addPage(); y = pageHeader(); }
+      y = addSectionTitle(doc, "DOCUMENTOS PEDAGÓGICOS GERADOS", ML, y, maxW);
+
+      for (const p of extra.protocols) {
+        if (y > contentBottom(H) - 12) { doc.addPage(); y = pageHeader(); }
+        const dateStr = p.createdAt ? new Date(p.createdAt).toLocaleDateString("pt-BR") : "—";
+        const status  = p.status === 'FINAL' ? 'Concluído' : 'Rascunho';
+        const sc      = p.status === 'FINAL' ? [22, 163, 74] : [108, 117, 125];
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(SMALL_SIZE);
+        doc.setTextColor(DARK.r, DARK.g, DARK.b);
+        doc.text(`• ${p.title || p.doc_type || "Documento"}`, ML + 2, y + 4);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+        doc.text(`${dateStr} · por ${p.generatedBy || "Sistema"}`, ML + 8, y + 9);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(sc[0], sc[1], sc[2]);
+        doc.text(status, W - MR - 20, y + 4);
+
+        doc.setDrawColor(218, 224, 229);
+        doc.setLineWidth(0.2);
+        doc.line(ML, y + 11, ML + maxW, y + 11);
+        y += 13;
+      }
+      y += 3;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // 7. RELATÓRIOS POR IA (medical_reports / análises evolutivas)
+    // ════════════════════════════════════════════════════════════
+    if (cfg.relatoriosIA && extra.medicalReports && extra.medicalReports.length > 0) {
+      if (y > contentBottom(H) - 50) { doc.addPage(); y = pageHeader(); }
+      y = addSectionTitle(doc, "RELATÓRIOS E ANÁLISES POR IA", ML, y, maxW);
+
+      for (const r of extra.medicalReports.slice(0, 5)) {
+        if (y > contentBottom(H) - 30) { doc.addPage(); y = pageHeader(); }
+        const dateStr = r.created_at ? new Date(r.created_at).toLocaleDateString("pt-BR") : "—";
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(SMALL_SIZE);
+        doc.setTextColor(BRAND.r, BRAND.g, BRAND.b);
+        doc.text(`Análise — ${dateStr}`, ML + 2, y + 4);
+        y += 7;
+
+        if (r.synthesis) {
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(SMALL_SIZE - 0.5);
+          doc.setTextColor(DARK.r, DARK.g, DARK.b);
+          const synLines = doc.splitTextToSize(`"${r.synthesis}"`, maxW - 6);
+          const trimmed  = synLines.slice(0, 3);
+          doc.text(trimmed, ML + 4, y + 2);
+          y += trimmed.length * 5 + 2;
+        }
+        if (Array.isArray(r.pedagogical_points) && r.pedagogical_points.length > 0) {
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(SMALL_SIZE - 1);
+          doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+          doc.text("Pontos pedagógicos: " + r.pedagogical_points.slice(0, 3).map((p: string) => `• ${p}`).join("  "), ML + 4, y + 2);
+          y += 5;
+        }
+        doc.setDrawColor(218, 224, 229);
+        doc.setLineWidth(0.2);
+        doc.line(ML, y + 3, ML + maxW, y + 3);
+        y += 6;
+      }
+      y += 3;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // 8. ANÁLISE DE LAUDO (student_documents com análise vinculada)
+    // ════════════════════════════════════════════════════════════
+    if (cfg.analiseLaudo && extra.documents && extra.documents.length > 0) {
+      const docsWithAnalysis = extra.documents.filter((d: any) => d.type === 'Laudo' || d.type === 'Relatorio');
+      if (docsWithAnalysis.length > 0) {
+        if (y > contentBottom(H) - 40) { doc.addPage(); y = pageHeader(); }
+        y = addSectionTitle(doc, "LAUDOS E DOCUMENTOS CLÍNICOS ANEXADOS", ML, y, maxW);
+
+        for (const d of docsWithAnalysis) {
+          if (y > contentBottom(H) - 12) { doc.addPage(); y = pageHeader(); }
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(SMALL_SIZE);
+          doc.setTextColor(DARK.r, DARK.g, DARK.b);
+          doc.text(`• ${d.name}`, ML + 2, y + 4);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(SMALL_SIZE - 1);
+          doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+          doc.text(`${d.date || "—"} · Tipo: ${d.type}`, ML + 8, y + 9);
+          doc.setDrawColor(218, 224, 229);
+          doc.setLineWidth(0.2);
+          doc.line(ML, y + 11, ML + maxW, y + 11);
+          y += 13;
+        }
+        y += 3;
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // 9. FICHAS COMPLEMENTARES
+    // ════════════════════════════════════════════════════════════
+    if (cfg.fichasComplementares && extra.obsForms && extra.obsForms.length > 0) {
+      if (y > contentBottom(H) - 50) { doc.addPage(); y = pageHeader(); }
+      y = addSectionTitle(doc, "FICHAS COMPLEMENTARES DE OBSERVAÇÃO", ML, y, maxW);
+
+      for (const f of extra.obsForms.slice(0, 10)) {
+        if (y > contentBottom(H) - 12) { doc.addPage(); y = pageHeader(); }
+        const dateStr = f.created_at ? new Date(f.created_at).toLocaleDateString("pt-BR") : "—";
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(SMALL_SIZE);
+        doc.setTextColor(DARK.r, DARK.g, DARK.b);
+        doc.text(`• ${f.title || f.ficha_type || "Ficha de Observação"}`, ML + 2, y + 4);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(SMALL_SIZE - 1);
+        doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+        doc.text(`${dateStr} · ${f.professional_name || f.created_by || "Profissional"}`, ML + 8, y + 9);
+        doc.setDrawColor(218, 224, 229);
+        doc.setLineWidth(0.2);
+        doc.line(ML, y + 11, ML + maxW, y + 11);
+        y += 13;
+      }
+      if (extra.obsForms.length > 10) {
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(SMALL_SIZE - 1);
+        doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+        doc.text(`… e mais ${extra.obsForms.length - 10} fichas`, ML, y + 2);
+        y += 6;
+      }
+      y += 3;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // 10. HISTÓRICO DE ATIVIDADES GERADAS (somente metadados)
+    // ════════════════════════════════════════════════════════════
+    if (cfg.historicoAtividades && extra.activities && extra.activities.length > 0) {
+      if (y > contentBottom(H) - 50) { doc.addPage(); y = pageHeader(); }
+      y = addSectionTitle(doc, "HISTÓRICO DE ATIVIDADES GERADAS", ML, y, maxW);
+
+      // Nota explicativa
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(SMALL_SIZE - 1);
+      doc.setTextColor(GRAY.r, GRAY.g, GRAY.b);
+      doc.text("Registro de geração — sem o conteúdo das atividades.", ML, y);
+      y += 6;
+
+      // Cabeçalho tabela
+      const actCols = { data: 24, titulo: 64, tipo: 32, status: maxW - 24 - 64 - 32 };
+      doc.setFillColor(BRAND_LIGHT.r, BRAND_LIGHT.g, BRAND_LIGHT.b);
+      doc.rect(ML, y, maxW, 7, "F");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(SMALL_SIZE - 0.5);
+      doc.setTextColor(BRAND.r, BRAND.g, BRAND.b);
+      let acx = ML + 2;
+      ["DATA", "TÍTULO", "TIPO", "STATUS"].forEach((h, i) => {
+        const w = [actCols.data, actCols.titulo, actCols.tipo, actCols.status][i];
+        doc.text(h, acx, y + 5);
+        acx += w;
+      });
+      y += 8;
+
+      for (const a of extra.activities) {
+        if (y > contentBottom(H) - 12) { doc.addPage(); y = pageHeader(); }
+        const dateStr = a.created_at ? new Date(a.created_at).toLocaleDateString("pt-BR") : "—";
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(SMALL_SIZE - 1);
+        doc.setTextColor(DARK.r, DARK.g, DARK.b);
+        acx = ML + 2;
+        [dateStr, (a.title || "Atividade").substring(0, 36), (a.discipline || a.activity_type || "—").substring(0, 18)].forEach((val, i) => {
+          const w = [actCols.data, actCols.titulo, actCols.tipo][i];
+          doc.text(val, acx, y + 4);
+          acx += w;
+        });
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(22, 163, 74);
+        doc.text(a.tags ? a.tags.slice(0, 2).join(", ") : "—", acx, y + 4);
+
+        doc.setDrawColor(218, 224, 229);
+        doc.setLineWidth(0.2);
+        doc.line(ML, y + 6.5, ML + maxW, y + 6.5);
+        y += 7.5;
+      }
+      y += 4;
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ASSINATURAS (sempre no final)
+    // ════════════════════════════════════════════════════════════
     if (y > contentBottom(H) - 45) { doc.addPage(); y = pageHeader(); }
     y += 8;
     doc.setFont("helvetica", "bold");
@@ -602,7 +1177,7 @@ export const ExportService = {
       doc.text(sig, sx + (sigW - 4) / 2, y + 19, { align: "center" });
     });
 
-    const qrDataUrl = await buildQrDataUrl(auditCode);
+    const qrDataUrl = cfg.codigoUnico ? await buildQrDataUrl(auditCode) : undefined;
     addFooterAllPages(doc, auditCode, emittedBy, qrDataUrl);
     doc.save(`Ficha_${student.name.replace(/\s+/g, "_")}.pdf`);
   },

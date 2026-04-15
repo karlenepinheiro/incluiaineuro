@@ -34,6 +34,7 @@ import { AIService } from '../../services/aiService';
 import { WorkflowService, type WorkflowSerializableState } from '../../services/persistenceService';
 import { AI_CREDIT_COSTS, CREDIT_INSUFFICIENT_MSG } from '../../config/aiCosts';
 import { User, SchoolConfig, Student } from '../../types';
+import { getSignedImageUrl } from '../../services/storageService';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -518,6 +519,24 @@ const FolhaProntaNode: React.FC<NodeProps> = ({ data, selected, id }) => {
   const d = data as NodeData;
   const school = d.schools?.find((s: SchoolConfig) => s.id === d.schoolId);
 
+  // Signed URLs para mini-preview (bucket privado)
+  const [folhaSignedUrls, setFolhaSignedUrls] = React.useState<Record<string, string>>({});
+  React.useEffect(() => {
+    const rawUrls = d.results
+      .map((img: any) => extractImageFromJson(img.imageUrl) ?? img.imageUrl)
+      .filter(Boolean) as string[];
+    if (!rawUrls.length) return;
+    let cancelled = false;
+    Promise.all(rawUrls.map((url: string) => getSignedImageUrl(url).then(signed => ({ raw: url, signed: signed ?? url }))))
+      .then(pairs => {
+        if (cancelled) return;
+        const map: Record<string, string> = {};
+        pairs.forEach(({ raw, signed }) => { map[raw] = signed; });
+        setFolhaSignedUrls(map);
+      });
+    return () => { cancelled = true; };
+  }, [d.results]);
+
   return (
     <NodeShell title="FolhaPronta" icon={FileText} status={d.nodeStatus} selected={selected} accent={C.dark} width={340} onDelete={() => d.onDeleteNode(id)}>
       <Handle type="target" position={Position.Left}  style={{ background: C.petrol, border: `2px solid ${C.surface}`, width: 10, height: 10 }} />
@@ -555,8 +574,9 @@ const FolhaProntaNode: React.FC<NodeProps> = ({ data, selected, id }) => {
               </div>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-              {d.results.slice(0, 4).map((img, i) => {
-                const url = img.imageUrl ? (extractImageFromJson(img.imageUrl) ?? img.imageUrl) : '';
+              {d.results.slice(0, 4).map((img: any, i: number) => {
+                const rawUrl = img.imageUrl ? (extractImageFromJson(img.imageUrl) ?? img.imageUrl) : '';
+                const url = rawUrl ? (folhaSignedUrls[rawUrl] ?? rawUrl) : '';
                 return url
                   ? <img key={i} src={url} alt="" style={{ borderRadius: 5, aspectRatio: '1', objectFit: 'cover', width: '100%' }} />
                   : <div key={i} style={{ borderRadius: 5, aspectRatio: '1', background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -710,6 +730,24 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
   const isDone = d.nodeStatus === 'done';
   const [showA4, setShowA4] = React.useState(false);
 
+  // Signed URLs para imagens do bucket privado
+  const [signedUrls, setSignedUrls] = React.useState<Record<string, string>>({});
+  React.useEffect(() => {
+    const rawUrls = d.results
+      .map(img => extractImageFromJson(img.imageUrl) ?? img.imageUrl)
+      .filter(Boolean) as string[];
+    if (!rawUrls.length) return;
+    let cancelled = false;
+    Promise.all(rawUrls.map(url => getSignedImageUrl(url).then(signed => ({ raw: url, signed: signed ?? url }))))
+      .then(pairs => {
+        if (cancelled) return;
+        const map: Record<string, string> = {};
+        pairs.forEach(({ raw, signed }) => { map[raw] = signed; });
+        setSignedUrls(map);
+      });
+    return () => { cancelled = true; };
+  }, [d.results]);
+
   // FIX: download via blob para contornar bloqueio CORS do atributo download em URLs cross-origin
   const downloadImageBlob = async (url: string, filename: string) => {
     try {
@@ -773,7 +811,7 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
           {inlineImageUrl ? (
             <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
               <img
-                src={inlineImageUrl}
+                src={signedUrls[inlineImageUrl] ?? inlineImageUrl}
                 alt="Imagem gerada pela IA"
                 style={{ width: '100%', maxHeight: 280, objectFit: 'contain', display: 'block', background: '#fff' }}
               />
@@ -818,10 +856,11 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
               const resolvedUrl = img.imageUrl
                 ? (extractImageFromJson(img.imageUrl) ?? img.imageUrl)
                 : '';
+              const displayUrl = resolvedUrl ? (signedUrls[resolvedUrl] ?? resolvedUrl) : '';
               return (
               <div key={img.id} style={{ background: C.bg, borderRadius: 8, overflow: 'hidden', border: `1px solid ${C.border}` }}>
-                {resolvedUrl
-                  ? <img src={resolvedUrl} alt={`img ${i + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block' }} />
+                {displayUrl
+                  ? <img src={displayUrl} alt={`img ${i + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', display: 'block' }} />
                   : <div style={{ width: '100%', aspectRatio: '1', background: `linear-gradient(135deg, ${C.goldLight} 0%, ${C.bg} 100%)`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 6 }}>
                       <ImageIcon size={14} color={C.borderMid} />
                       <span style={{ fontSize: 8, color: C.textSec, textAlign: 'center', marginTop: 2, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' } as any}>{img.description.slice(0, 50)}</span>
@@ -830,7 +869,7 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
                 <div style={{ padding: '3px 6px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 9, color: C.textSec, fontWeight: 700 }}>#{i + 1}</span>
                   {resolvedUrl && (
-                    <button onClick={() => downloadImageBlob(resolvedUrl, `ativaIA_img_${i + 1}.png`)}
+                    <button onClick={() => downloadImageBlob(displayUrl || resolvedUrl, `ativaIA_img_${i + 1}.png`)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
                       <Download size={10} color={C.textSec} />
                     </button>
@@ -874,11 +913,13 @@ const ResultadoNode: React.FC<NodeProps> = ({ data, selected, id }) => {
         const resolvedImageUrl = firstImage?.imageUrl
           ? (extractImageFromJson(firstImage.imageUrl) ?? firstImage.imageUrl)
           : '';
+        // Usa signed URL se disponível (bucket privado)
+        const a4ImageUrl = resolvedImageUrl ? (signedUrls[resolvedImageUrl] ?? resolvedImageUrl) : '';
         const selStudent = (d.students || []).find((s: Student) => s.id === d.selectedStudentId);
         return (
           <A4PrintModal
             text={d.adaptedText}
-            imageUrl={resolvedImageUrl}
+            imageUrl={a4ImageUrl}
             studentName={selStudent?.name}
             onClose={() => setShowA4(false)}
           />
@@ -1972,7 +2013,7 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
   }, [nodes, runBncc, user]);
 
   // ── PDF export ─────────────────────────────────────────────────────────────
-  const generatePdf = useCallback(() => {
+  const generatePdf = useCallback(async () => {
     const cur = wfRef.current;
     const school = schools.find(s => s.id === cur.schoolId);
     const isTextOnly = cur.results.length === 0;
@@ -1981,6 +2022,16 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
     const dateStr = now.toLocaleDateString('pt-BR');
     const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const adaptLabel = ADAPTATION_OPTIONS.find(o => o.id === cur.adaptationType)?.label ?? '';
+
+    // Resolve signed URLs para imagens do bucket privado antes de gerar o HTML
+    const resolvedImageUrls = new Map<string, string>();
+    await Promise.all(
+      cur.results.map(async (img: any) => {
+        if (!img.imageUrl) return;
+        const signed = await getSignedImageUrl(img.imageUrl);
+        if (signed) resolvedImageUrls.set(img.imageUrl, signed);
+      })
+    );
 
     const escHtml = (t: string) => t
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -2141,14 +2192,16 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
     ${cur.prompt ? `<div class="doc-subtitle">${escHtml(cur.prompt.slice(0, 200))}${cur.prompt.length > 200 ? '…' : ''}</div>` : ''}
     <div class="section-divider">Materiais Pedagógicos</div>
     <div class="img-grid">
-      ${cur.results.map(img => `
+      ${cur.results.map((img: any) => {
+        const displayUrl = img.imageUrl ? (resolvedImageUrls.get(img.imageUrl) ?? img.imageUrl) : '';
+        return `
         <div class="img-box">
-          ${img.imageUrl
-            ? `<img src="${img.imageUrl}" alt="Ilustração pedagógica" />`
+          ${displayUrl
+            ? `<img src="${displayUrl}" alt="Ilustração pedagógica" />`
             : `<div class="img-placeholder">${escHtml(img.description.slice(0, 80))}${img.description.length > 80 ? '…' : ''}</div>`
           }
         </div>
-      `).join('')}
+      `}).join('')}
     </div>
     <div class="answer-section">
       <div class="answer-label">Espaço para Resposta do Aluno</div>

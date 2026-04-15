@@ -15,6 +15,7 @@ import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from 
 import { StudentContextService } from '../services/studentContextService';
 import { GeneratedActivityService } from '../services/persistenceService';
 import { WorkflowCanvas as AtivaIACanvas } from '../components/ativaIA/WorkflowCanvas';
+import { getSignedImageUrl } from '../services/storageService';
 
 // ─── Paleta ───────────────────────────────────────────────────────────────────
 const C = {
@@ -44,19 +45,35 @@ interface ActionButton {
 }
 
 interface ChatMessage {
-  id:              string;
-  role:            'user' | 'assistant';
-  text:            string;
-  file?:           AttachedFile;
-  result?:         string;   // markdown gerado
-  resultImageUrl?: string;
-  actionButtons?:  ActionButton[];
-  creditsUsed?:    number;
-  savedId?:        string;   // ID em generated_activities após salvar
-  timestamp:       Date;
+  id:               string;
+  role:             'user' | 'assistant';
+  text:             string;
+  file?:            AttachedFile;
+  result?:          string;   // markdown gerado
+  resultImageUrl?:  string;
+  actionButtons?:   ActionButton[];
+  creditsUsed?:     number;
+  savedId?:         string;   // ID em generated_activities após salvar
+  timestamp:        Date;
+  imageGenerating?: boolean;  // imagem sendo gerada em segundo plano
+  imageError?:      boolean;  // falha de rede ao gerar imagem (ERR_INTERNET_DISCONNECTED, etc.)
+  imageRetryTopic?: string;   // tema para o botão "Tentar novamente"
 }
 
 type ActivityModelId = 'texto_apenas' | 'nano_banana_pro' | 'chatgpt_imagem';
+type DocType = 'atividade' | 'paee' | 'adaptacao';
+
+// ─── Helper: detecta PAEE no conteúdo gerado ──────────────────────────────────
+function isPAEE(text: string, docType?: DocType): boolean {
+  if (docType === 'paee') return true;
+  return /PAEE|Plano de Atendimento Educacional Especializado|Atendimento Educacional Especializado/i.test(text ?? '');
+}
+
+// ─── Helper: detecta erro de rede ─────────────────────────────────────────────
+function isNetworkError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('err_internet_disconnected') || (err as any)?.name === 'TypeError';
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -171,10 +188,57 @@ Retorne em Markdown formatado:
 ## Dica para o Professor`;
 }
 
-function buildActivityFromTopicPrompt(topic: string, studentCtx: string): string {
+function buildActivityFromTopicPrompt(topic: string, studentCtx: string, docType: DocType = 'atividade', includePdi = true): string {
   const sb = studentCtx
     ? `\n\n${studentCtx}\n\nIMPORTANTE: Crie especificamente para este aluno.`
     : '';
+
+  if (docType === 'paee') {
+    const pdiSection = includePdi ? `
+## PDI — Plano de Desenvolvimento Individual (Opcional)
+- Metas de curto prazo:
+- Metas de médio prazo:
+- Responsável:
+` : '';
+    return `Você é especialista em AEE (Atendimento Educacional Especializado) e elaboração de PAEE.${sb}
+
+Crie um PAEE completo sobre o tema/objetivo: "${topic}"
+
+O PAEE deve conter:
+- Nome do plano, data, vigência
+- Dados do aluno (diagnóstico, nível de suporte)
+- Objetivos do AEE
+- Estratégias e recursos
+- Cronograma de atendimento
+- Articulação com o professor de sala
+${pdiSection}
+Retorne em Markdown formatado:
+# PAEE — Plano de Atendimento Educacional Especializado
+> **Exclusivo do AEE**
+
+**Vigência:** [período]
+
+## Dados do Aluno
+
+## Diagnóstico e Necessidades
+
+## Objetivos do AEE
+
+## Estratégias e Recursos de Acessibilidade
+
+## Cronograma de Atendimento
+
+## Articulação com a Sala Regular
+${pdiSection}
+## Avaliação e Acompanhamento`;
+  }
+
+  const pdiSection = includePdi ? `
+## PDI — Plano de Desenvolvimento Individual (Opcional)
+- Metas individuais:
+- Estratégias personalizadas:
+` : '';
+
   return `Você é especialista em educação inclusiva e criação de atividades pedagógicas.${sb}
 
 Crie uma atividade pedagógica inclusiva sobre o tema: "${topic}"
@@ -199,18 +263,19 @@ Retorne em Markdown formatado:
 ## Adaptações Inclusivas
 
 ## Avaliação / Registro
-
+${pdiSection}
 ## Dica para o Professor`;
 }
 
 // ─── Componente: Bolha de Chat ─────────────────────────────────────────────────
 const ChatBubble: React.FC<{
-  msg:         ChatMessage;
-  studentName: string;
-  onConfirm:   (payload: Record<string, any>) => void;
-  onViewResult:(msg: ChatMessage) => void;
-  isLatest:    boolean;
-}> = ({ msg, studentName, onConfirm, onViewResult, isLatest }) => {
+  msg:            ChatMessage;
+  studentName:    string;
+  onConfirm:      (payload: Record<string, any>) => void;
+  onViewResult:   (msg: ChatMessage) => void;
+  onImageRetry:   (msgId: string, topic: string) => void;
+  isLatest:       boolean;
+}> = ({ msg, studentName, onConfirm, onViewResult, onImageRetry, isLatest }) => {
   const isUser = msg.role === 'user';
 
   return (
@@ -290,13 +355,43 @@ const ChatBubble: React.FC<{
             display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
           }} onClick={() => onViewResult(msg)}>
             <CheckCircle size={14} color="#16A34A" />
-            <span style={{ fontWeight: 600 }}>Atividade gerada</span>
+            <span style={{ fontWeight: 600 }}>
+              {isPAEE(msg.result) ? 'PAEE — Exclusivo do AEE' : 'Atividade gerada'}
+            </span>
             {msg.creditsUsed !== undefined && (
               <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 3, color: C.gold, fontWeight: 700 }}>
                 <Coins size={10} /> {msg.creditsUsed} cr
               </span>
             )}
             <ChevronRight size={13} color="#16A34A" style={{ marginLeft: 'auto' }} />
+          </div>
+        )}
+
+        {/* Imagem gerada — dentro do balão */}
+        {msg.resultImageUrl && !msg.imageGenerating && (
+          <div style={{ borderRadius: 12, overflow: 'hidden', border: `1px solid ${C.border}`, maxWidth: 280 }}>
+            <img src={msg.resultImageUrl} alt="Ilustração pedagógica" style={{ width: '100%', display: 'block', objectFit: 'contain', background: '#fff' }} />
+          </div>
+        )}
+
+        {/* Spinner: imagem sendo gerada */}
+        {msg.imageGenerating && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12, background: C.light, border: `1px solid ${C.border}`, fontSize: 12, color: C.sec }}>
+            <Loader size={13} color={C.petrol} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+            <span>Gerando ilustração pedagógica com Vertex AI…</span>
+          </div>
+        )}
+
+        {/* Retry: erro de rede na geração de imagem */}
+        {msg.imageError && msg.imageRetryTopic && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12, background: '#FFF7ED', border: '1px solid #FED7AA', fontSize: 12, color: '#92400E' }}>
+            <span style={{ flex: 1 }}>⚠️ Sem conexão ao gerar a imagem.</span>
+            <button
+              onClick={() => onImageRetry(msg.id, msg.imageRetryTopic!)}
+              style={{ padding: '4px 12px', borderRadius: 8, background: '#EA580C', color: '#fff', border: 'none', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              Tentar gerar imagem novamente
+            </button>
           </div>
         )}
 
@@ -320,7 +415,9 @@ const A4Preview: React.FC<{
   saved:        boolean;
   onExportDoc:  () => void;
   onPrint:      () => void;
-}> = ({ content, imageUrl, title, onSave, saving, saved, onExportDoc, onPrint }) => (
+}> = ({ content, imageUrl, title, onSave, saving, saved, onExportDoc, onPrint }) => {
+  const isAee = isPAEE(content);
+  return (
   <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
     {/* Toolbar */}
     <div style={{
@@ -331,6 +428,15 @@ const A4Preview: React.FC<{
       <span style={{ fontSize: 12, fontWeight: 700, color: C.dark, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {title || 'Atividade Gerada'}
       </span>
+      {isAee && (
+        <span style={{
+          fontSize: 10, fontWeight: 800, color: '#fff',
+          background: C.petrol, borderRadius: 6, padding: '2px 8px',
+          letterSpacing: '0.03em', flexShrink: 0,
+        }}>
+          Exclusivo do AEE
+        </span>
+      )}
       <button onClick={onExportDoc} title="Baixar .doc" style={{ ...btnStyle, padding: '5px 8px' }}>
         <Download size={13} />
       </button>
@@ -351,12 +457,26 @@ const A4Preview: React.FC<{
 
     {/* A4 content */}
     <div style={{ flex: 1, overflowY: 'auto', padding: '20px 16px', background: C.bg }}>
-      <div style={{
+      <div className="folha-a4" style={{
         background: '#fff', borderRadius: 8, padding: '32px 28px',
         boxShadow: '0 2px 12px rgba(0,0,0,0.08)', minHeight: 640,
         maxWidth: 640, margin: '0 auto',
         fontFamily: 'Georgia, serif', fontSize: 13, lineHeight: 1.7, color: '#1a1a1a',
       }}>
+        {/* Badge Exclusivo do AEE — topo da folha A4 */}
+        {isAee && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20,
+            padding: '10px 16px', borderRadius: 8,
+            background: C.petrol, color: '#fff',
+          }}>
+            <BookOpen size={16} color="#fff" />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.04em' }}>EXCLUSIVO DO AEE</div>
+              <div style={{ fontSize: 10, opacity: 0.85 }}>Atendimento Educacional Especializado — uso interno do profissional de AEE</div>
+            </div>
+          </div>
+        )}
         {imageUrl && (
           <img src={imageUrl} alt="ilustração" style={{ width: '100%', borderRadius: 8, marginBottom: 20, objectFit: 'contain', maxHeight: 260 }} />
         )}
@@ -368,7 +488,8 @@ const A4Preview: React.FC<{
 
     <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
   </div>
-);
+  );
+};
 
 const btnStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -552,6 +673,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
 
   // Modelo de geração
   const [modelId, setModelId] = useState<ActivityModelId>('texto_apenas');
+  // Tipo de documento (afeta o prompt e o badge)
+  const [docType, setDocType] = useState<DocType>('atividade');
+  // Toggle: incluir PDI junto ao documento
+  const [includePdi, setIncludePdi] = useState(false);
 
   const chatEndRef   = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -754,36 +879,98 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   // ── Criar atividade a partir de tema ─────────────────────────────────────────
   async function generateActivityFromTopic(topic: string) {
     const TEXT_COST = INCLUILAB_MODEL_COSTS.TEXT ?? 3;
+    const genImage = modelGeneratesImage(modelId);
+    const IMG_COST = genImage ? (INCLUILAB_MODEL_COSTS.GPT_IMAGE ?? 50) : 0;
+    const totalCost = TEXT_COST + IMG_COST;
 
     const hasCredits = creditsAvailable !== undefined
-      ? creditsAvailable >= TEXT_COST
-      : await AIService.checkCredits(user, TEXT_COST);
+      ? creditsAvailable >= totalCost
+      : await AIService.checkCredits(user, totalCost);
     if (!hasCredits) { addAssistantMsg(`⚠️ ${CREDIT_INSUFFICIENT_MSG}`); return; }
 
     setIsGenerating(true);
     const thinkingId = uid();
-    setMessages(prev => [...prev, { id: thinkingId, role: 'assistant', timestamp: new Date(), text: `⌛ Criando atividade inclusiva sobre "${topic}"...` }]);
+    const docLabel = docType === 'paee' ? 'PAEE' : docType === 'adaptacao' ? 'adaptação' : 'atividade';
+    setMessages(prev => [...prev, { id: thinkingId, role: 'assistant', timestamp: new Date(), text: `⌛ Criando ${docLabel} sobre "${topic}"…` }]);
 
     try {
-      const prompt = buildActivityFromTopicPrompt(topic, studentCtx);
+      const prompt = buildActivityFromTopicPrompt(topic, studentCtx, docType, includePdi);
       const raw = await AIService.generateFromPromptWithImage(prompt, '', user);
 
       await safeDeductCredits(user, `INCLUILAB_CREATE:${modelId}`, TEXT_COST);
 
+      const successLabel = docType === 'paee'
+        ? `✅ PAEE gerado${studentName ? ` para **${studentName}**` : ''}!`
+        : `✅ Atividade sobre **"${topic}"** criada${studentName ? ` para **${studentName}**` : ''}!`;
+
       const resultMsg: Partial<ChatMessage> = {
-        text: `✅ Atividade sobre **"${topic}"** criada${studentName ? ` para **${studentName}**` : ''}!`,
-        result: raw, creditsUsed: TEXT_COST,
+        text: successLabel,
+        result: raw,
+        creditsUsed: TEXT_COST,
+        imageGenerating: genImage,   // imagem será gerada em segundo plano
       };
       setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, ...resultMsg } : m));
       const fullMsg = { id: thinkingId, role: 'assistant' as const, timestamp: new Date(), text: '', ...resultMsg } as ChatMessage;
       setPreviewMsg(fullMsg);
       setRightTab('preview');
+
+      // ── Gerar imagem em segundo plano (não bloqueia o texto) ─────────────────
+      if (genImage) {
+        setIsGenerating(false); // libera o input enquanto imagem processa
+        try {
+          const student = students.find(s => s.id === studentId);
+          const imgResult = await AIService.generateActivityImage(
+            topic, student ?? { id: '', name: 'Geral', diagnosis: [], supportLevel: '' } as any, user,
+            { discipline: '', grade: '', period: '', bnccCodes: [] }
+          );
+          await safeDeductCredits(user, `INCLUILAB_IMAGE:${modelId}`, IMG_COST);
+
+          // Persiste no storage para durabilidade
+          const tenantId = (user as any).tenant_id ?? user.id;
+          const storedUrl = await persistImageToStorage(imgResult.imageUrl, tenantId);
+          const finalUrl = storedUrl ?? imgResult.imageUrl;
+
+          updateMessage(thinkingId, { imageGenerating: false, imageError: false, resultImageUrl: finalUrl });
+          setPreviewMsg(prev => prev?.id === thinkingId ? { ...prev, imageGenerating: false, resultImageUrl: finalUrl } : prev);
+        } catch (imgErr: unknown) {
+          const netErr = isNetworkError(imgErr);
+          updateMessage(thinkingId, { imageGenerating: false, imageError: true, imageRetryTopic: topic });
+          setPreviewMsg(prev => prev?.id === thinkingId ? { ...prev, imageGenerating: false, imageError: true, imageRetryTopic: topic } : prev);
+          if (!netErr) console.error('[IncluiLAB] Erro ao gerar imagem:', imgErr);
+        }
+        return; // já fez setIsGenerating(false) acima
+      }
     } catch (err: any) {
       setMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, text: `❌ Erro: ${friendlyAIError(err)}` } : m));
     } finally {
       setIsGenerating(false);
     }
   }
+
+  // ── Retry: gerar imagem após erro de rede ──────────────────────────────────
+  const handleImageRetry = async (msgId: string, topic: string) => {
+    updateMessage(msgId, { imageError: false, imageGenerating: true });
+    setPreviewMsg(prev => prev?.id === msgId ? { ...prev, imageError: false, imageGenerating: true } : prev);
+    try {
+      const student = students.find(s => s.id === studentId);
+      const imgResult = await AIService.generateActivityImage(
+        topic, student ?? { id: '', name: 'Geral', diagnosis: [], supportLevel: '' } as any, user,
+        { discipline: '', grade: '', period: '', bnccCodes: [] }
+      );
+      const IMG_COST = INCLUILAB_MODEL_COSTS.GPT_IMAGE ?? 50;
+      await safeDeductCredits(user, `INCLUILAB_IMAGE_RETRY:${modelId}`, IMG_COST);
+
+      const tenantId = (user as any).tenant_id ?? user.id;
+      const storedUrl = await persistImageToStorage(imgResult.imageUrl, tenantId);
+      const finalUrl = storedUrl ?? imgResult.imageUrl;
+
+      updateMessage(msgId, { imageGenerating: false, imageError: false, resultImageUrl: finalUrl });
+      setPreviewMsg(prev => prev?.id === msgId ? { ...prev, imageGenerating: false, resultImageUrl: finalUrl } : prev);
+    } catch (imgErr: unknown) {
+      updateMessage(msgId, { imageGenerating: false, imageError: true });
+      setPreviewMsg(prev => prev?.id === msgId ? { ...prev, imageGenerating: false, imageError: true } : prev);
+    }
+  };
 
   // ── Salvar atividade na biblioteca ────────────────────────────────────────────
   const handleSave = async () => {
@@ -895,6 +1082,18 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   // ─────────────────────────────────────────────────────────────────────────────
   const previewContent  = previewMsg?.result ?? '';
   const previewImageUrl = previewMsg?.resultImageUrl;
+
+  // Signed URL para o preview (bucket privado)
+  const [previewSignedUrl, setPreviewSignedUrl] = React.useState<string | null | undefined>(undefined);
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!previewImageUrl) { setPreviewSignedUrl(null); return; }
+    getSignedImageUrl(previewImageUrl).then(url => {
+      if (!cancelled) setPreviewSignedUrl(url);
+    });
+    return () => { cancelled = true; };
+  }, [previewImageUrl]);
+
   const previewTitle    = (() => {
     if (!previewContent) return '';
     const line = previewContent.split('\n').find(l => l.startsWith('#'));
@@ -955,6 +1154,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
                 studentName={studentName}
                 onConfirm={handleConfirm}
                 onViewResult={m => { setPreviewMsg(m); setRightTab('preview'); }}
+                onImageRetry={handleImageRetry}
                 isLatest={i === messages.length - 1}
               />
             ))}
@@ -996,10 +1196,70 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
             </div>
           )}
 
+          {/* Barra de opções: modelo + tipo de doc + PDI toggle */}
+          <div style={{
+            padding: '8px 16px 0', background: C.surface,
+            borderTop: `1px solid ${C.border}`, display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
+          }}>
+            {/* Seletor de modelo */}
+            <select
+              value={modelId}
+              onChange={e => setModelId(e.target.value as ActivityModelId)}
+              style={{
+                padding: '4px 28px 4px 8px', borderRadius: 16, fontSize: 11, fontWeight: 600,
+                border: `1.5px solid ${modelGeneratesImage(modelId) ? C.petrol : C.border}`,
+                background: modelGeneratesImage(modelId) ? C.light : C.surface,
+                color: modelGeneratesImage(modelId) ? C.petrol : C.dark,
+                cursor: 'pointer', outline: 'none', appearance: 'none',
+                backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\' viewBox=\'0 0 10 6\'%3E%3Cpath d=\'M1 1l4 4 4-4\' stroke=\'%231F4E5F\' stroke-width=\'1.5\' fill=\'none\'/%3E%3C/svg%3E")',
+                backgroundRepeat: 'no-repeat', backgroundPosition: 'right 7px center',
+              }}
+            >
+              {getModelsForContext('incluilab').map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+
+            {/* Tipo de documento */}
+            <select
+              value={docType}
+              onChange={e => setDocType(e.target.value as DocType)}
+              style={{
+                padding: '4px 28px 4px 8px', borderRadius: 16, fontSize: 11, fontWeight: 600,
+                border: `1.5px solid ${docType === 'paee' ? C.gold : C.border}`,
+                background: docType === 'paee' ? '#FFF7ED' : C.surface,
+                color: docType === 'paee' ? '#92400E' : C.dark,
+                cursor: 'pointer', outline: 'none', appearance: 'none',
+                backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'6\' viewBox=\'0 0 10 6\'%3E%3Cpath d=\'M1 1l4 4 4-4\' stroke=\'%231F4E5F\' stroke-width=\'1.5\' fill=\'none\'/%3E%3C/svg%3E")',
+                backgroundRepeat: 'no-repeat', backgroundPosition: 'right 7px center',
+              }}
+            >
+              <option value="atividade">Atividade Geral</option>
+              <option value="paee">PAEE — Exclusivo do AEE</option>
+              <option value="adaptacao">Adaptação de Material</option>
+            </select>
+
+            {/* Toggle PDI opcional */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 11, fontWeight: 600, color: includePdi ? C.petrol : C.sec, userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={includePdi}
+                onChange={e => setIncludePdi(e.target.checked)}
+                style={{ accentColor: C.petrol, width: 13, height: 13 }}
+              />
+              PDI <span style={{ fontWeight: 400, color: C.sec }}>(opcional)</span>
+            </label>
+
+            {/* Custo estimado */}
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: C.sec, display: 'flex', alignItems: 'center', gap: 3 }}>
+              <Coins size={10} color={C.gold} />
+              {INCLUILAB_MODEL_COSTS.TEXT + (modelGeneratesImage(modelId) ? INCLUILAB_MODEL_COSTS.GPT_IMAGE : 0)} créditos
+            </span>
+          </div>
+
           {/* Input bar */}
           <div style={{
-            padding: '10px 16px 14px', background: C.surface,
-            borderTop: `1px solid ${C.border}`, flexShrink: 0,
+            padding: '8px 16px 14px', background: C.surface, flexShrink: 0,
           }}>
             <div style={{
               display: 'flex', alignItems: 'flex-end', gap: 8,
@@ -1099,7 +1359,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
               previewContent ? (
                 <A4Preview
                   content={previewContent}
-                  imageUrl={previewImageUrl}
+                  imageUrl={previewSignedUrl ?? previewImageUrl}
                   title={previewTitle}
                   onSave={handleSave}
                   saving={savingId === previewMsg?.id}

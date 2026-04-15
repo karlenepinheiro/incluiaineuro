@@ -22,6 +22,7 @@ import {
 } from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
 import { QuickDocModal, QuickDocType } from './QuickDocModal';
+import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
 
 // ── Critérios do perfil evolutivo (10 dimensões) ─────────────────────────────
 const CRITERIA = [
@@ -166,6 +167,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [activeTab, setActiveTab] = useState<Tab>('ficha');
   const [fichas, setFichas] = useState<FichaComplementar[]>(student.fichasComplementares || []);
   const [quickDocType, setQuickDocType] = useState<QuickDocType | null>(null);
+  const [showFichaConfig, setShowFichaConfig] = useState(false);
 
   // ── Documentos: carregados do banco (student_documents), não do student.documents legado ──
   const [dbDocs, setDbDocs] = useState<any[]>([]);
@@ -288,10 +290,35 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     return Math.abs(new Date(diff).getUTCFullYear() - 1970);
   };
 
-  const handleDownloadFiche = () => {
+  // Abre o modal de configuração antes de gerar o PDF
+  const handleDownloadFiche = () => setShowFichaConfig(true);
+
+  const handleGenerateFichaWithConfig = (config: FichaConfig) => {
     const school = user?.schoolConfigs?.[0] ?? null;
-    // Sempre usa a ficha atual do aluno (dados mais recentes)
-    ExportService.generateStudentProfilePDF(student, user?.name || 'Sistema', school);
+    const studentAppointments = appointments.filter(a => a.studentId === student.id);
+    const studentServiceRecords = serviceRecords.filter(r =>
+      !r.studentId || r.studentId === student.id
+    );
+
+    ExportService.generateStudentProfilePDF(
+      student,
+      user?.name || 'Sistema',
+      school,
+      config,
+      {
+        evolutions:      effectiveEvolutions as any[],
+        appointments:    studentAppointments,
+        serviceRecords:  studentServiceRecords,
+        timeline:        dbTimeline,
+        activities:      dbActivities,
+        documents:       dbDocs,
+        medicalReports:  dbMedicalReports,
+        obsForms:        dbObsForms,
+        fichas:          fichas as any[],
+        protocols:       studentProtocols,
+      },
+    );
+    setShowFichaConfig(false);
   };
 
   // ── Geração em Lote ────────────────────────────────────────────────────────
@@ -586,6 +613,14 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto pb-20 space-y-5">
+      {/* ── Modal de configuração da ficha PDF ── */}
+      {showFichaConfig && (
+        <FichaConfigModal
+          studentName={student.name}
+          onConfirm={handleGenerateFichaWithConfig}
+          onClose={() => setShowFichaConfig(false)}
+        />
+      )}
       {/* ── Toast: geração em lote ── */}
       {batchToast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] bg-green-700 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-xl max-w-md text-center flex items-start gap-3">

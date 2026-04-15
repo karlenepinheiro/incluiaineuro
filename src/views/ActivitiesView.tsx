@@ -6,6 +6,7 @@ import { Student, User, PlanTier, getPlanLimits, Activity } from '../types';
 import { generateActivityAI, AIService } from '../services/geminiService';
 import { GeneratedActivityService, TimelineService } from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
+import { getSignedImageUrl } from '../services/storageService';
 
 interface ActivitiesViewProps {
   students: Student[];
@@ -29,6 +30,9 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
   const [feedback, setFeedback] = useState<{type:'success'|'error', msg:string} | null>(null);
   const [library, setLibrary] = useState<Activity[]>([]);
   const [search, setSearch] = useState('');
+  // Signed URLs para imagens do bucket privado
+  const [previewSignedUrl, setPreviewSignedUrl] = useState<string | null>(null);
+  const [librarySignedUrls, setLibrarySignedUrls] = useState<Record<string, string | null>>({});
 
   // Carregar atividades salvas do banco ao montar
   useEffect(() => {
@@ -49,6 +53,31 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
       setLibrary(mapped);
     }).catch(console.error);
   }, [user?.id]);
+
+  // Resolve signed URL sempre que generatedImage muda
+  useEffect(() => {
+    let cancelled = false;
+    getSignedImageUrl(generatedImage).then(url => {
+      if (!cancelled) setPreviewSignedUrl(url);
+    });
+    return () => { cancelled = true; };
+  }, [generatedImage]);
+
+  // Resolve signed URLs para todos os itens da biblioteca
+  useEffect(() => {
+    let cancelled = false;
+    const urls = library.filter(a => !!a.imageUrl);
+    if (!urls.length) return;
+    Promise.all(
+      urls.map(a => getSignedImageUrl(a.imageUrl!).then(url => ({ id: a.id, url })))
+    ).then(results => {
+      if (cancelled) return;
+      const map: Record<string, string | null> = {};
+      results.forEach(({ id, url }) => { map[id] = url; });
+      setLibrarySignedUrls(prev => ({ ...prev, ...map }));
+    });
+    return () => { cancelled = true; };
+  }, [library]);
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -336,9 +365,9 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
                       </div>
                   ) : (
                       <div className="space-y-4">
-                          {generatedImage && (
+                          {previewSignedUrl && (
                               <div className="border rounded-lg overflow-hidden">
-                                  <img src={generatedImage} className="w-full h-56 object-contain bg-gray-50" />
+                                  <img src={previewSignedUrl} className="w-full h-56 object-contain bg-gray-50" />
                               </div>
                           )}
 
@@ -387,7 +416,7 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
                           </div>
                           <div className="flex gap-2">
                               {act.imageUrl && (
-                                  <a href={act.imageUrl} target="_blank" rel="noreferrer" className="p-2 rounded bg-purple-50 hover:bg-purple-100 text-purple-800">
+                                  <a href={librarySignedUrls[act.id] ?? act.imageUrl} target="_blank" rel="noreferrer" className="p-2 rounded bg-purple-50 hover:bg-purple-100 text-purple-800">
                                       <ImageIcon size={16}/>
                                   </a>
                               )}
