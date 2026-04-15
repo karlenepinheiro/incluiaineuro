@@ -114,14 +114,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     icon: Icon,
     label,
     badge,
+    title,
   }: {
     viewId: string;
     icon: any;
     label: string;
     badge?: string;
+    title?: string;
   }) => (
     <button
       onClick={() => setView(viewId)}
+      title={title}
       className={cn(
         'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
         currentView === viewId
@@ -222,9 +225,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Documentação
             </div>
             <NavItem viewId="estudo_caso" icon={FileSearch}    label="Estudo de Caso" />
-            <NavItem viewId="paee"        icon={ClipboardList} label="PAEE" />
+            <NavItem viewId="paee"        icon={ClipboardList} label="PAEE (uso exclusivo do AEE)"  title="Documento exclusivo para professores do Atendimento Educacional Especializado (AEE)" />
             <NavItem viewId="protocols"   icon={FileText}      label="PEI" />
-            <NavItem viewId="pdi"         icon={GraduationCap} label="PDI" />
+            <NavItem viewId="pdi"         icon={GraduationCap} label="PDI (opcional)"               title="Documento opcional para planejamento individual complementar" />
             {isPaid
               ? <NavItem viewId="school_templates" icon={LayoutTemplate} label="Meus Modelos" />
               : <LockedNavItemPro icon={LayoutTemplate} label="Meus Modelos" />

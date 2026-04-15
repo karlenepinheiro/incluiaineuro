@@ -6,7 +6,7 @@ import { Student, User, PlanTier, getPlanLimits, Activity } from '../types';
 import { generateActivityAI, AIService } from '../services/geminiService';
 import { GeneratedActivityService, TimelineService } from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
-import { getSignedImageUrl } from '../services/storageService';
+import { getSignedImageUrl, persistImageToStorage } from '../services/storageService';
 
 interface ActivitiesViewProps {
   students: Student[];
@@ -146,12 +146,25 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
           ...(period ? [`PERIOD:${period}`] : []),
           ...bnccCodes.map(c => `BNCC:${c}`)
       ];
+
+      // Persistir imagem no Storage antes de salvar no banco — evita base64 bruto e URLs expiradas
+      let finalImageUrl: string | undefined = generatedImage || undefined;
+      if (finalImageUrl && !DEMO_MODE && user?.tenant_id) {
+        const storedUrl = await persistImageToStorage(finalImageUrl, user.tenant_id);
+        if (storedUrl) {
+          finalImageUrl = storedUrl;
+        } else {
+          console.warn('[ActivitiesView] upload da imagem falhou — imageUrl não será salva no banco');
+          finalImageUrl = undefined;
+        }
+      }
+
       const newActivity: Activity = {
           id: crypto.randomUUID(),
           title: topic || 'Nova Atividade',
           studentId: selectedStudentId,
           content: generatedContent,
-          imageUrl: generatedImage || undefined,
+          imageUrl: finalImageUrl,
           guidance: guidance || undefined,
           attachments: uploadedImage ? [uploadedImage] : [],
           isAdapted: true,
@@ -169,7 +182,7 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
             studentId:   selectedStudentId || undefined,
             title:       newActivity.title,
             content:     generatedContent,
-            imageUrl:    generatedImage || undefined,
+            imageUrl:    finalImageUrl,
             bnccCodes:   bnccCodes,
             discipline:  discipline || undefined,
             guidance:    guidance || undefined,

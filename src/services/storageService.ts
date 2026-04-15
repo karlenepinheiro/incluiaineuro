@@ -87,6 +87,45 @@ export const StorageService = {
 };
 
 /**
+ * Faz upload de uma imagem (base64 data URI ou URL HTTP) para o bucket
+ * `imagens_atividades` e devolve a public URL final.
+ * Retorna null se o upload falhar — o chamador decide o fallback.
+ */
+export async function persistImageToStorage(
+  urlOrBase64: string,
+  tenantId: string
+): Promise<string | null> {
+  if (!urlOrBase64) return null;
+  try {
+    let blob: Blob;
+    if (urlOrBase64.startsWith('data:')) {
+      const [header, data] = urlOrBase64.split(',');
+      const mime = header.match(/data:([^;]+)/)?.[1] ?? 'image/png';
+      const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+      blob = new Blob([bytes], { type: mime });
+    } else {
+      const resp = await fetch(urlOrBase64);
+      if (!resp.ok) return null;
+      blob = await resp.blob();
+    }
+    const ext = blob.type.includes('png') ? 'png' : 'jpg';
+    const path = `${tenantId}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage
+      .from('imagens_atividades')
+      .upload(path, blob, { cacheControl: '31536000', upsert: false });
+    if (error) {
+      console.error('[persistImageToStorage] upload error:', error.message);
+      return null;
+    }
+    const { data } = supabase.storage.from('imagens_atividades').getPublicUrl(path);
+    return data?.publicUrl ?? null;
+  } catch (err) {
+    console.error('[persistImageToStorage] unexpected error:', err);
+    return null;
+  }
+}
+
+/**
  * Utilitário global: recebe uma file_url armazenada no banco
  * (que pode ser uma URL pública antiga ou qualquer string)
  * e retorna uma signed URL válida se o arquivo estiver em
