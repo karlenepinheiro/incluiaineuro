@@ -1,5 +1,6 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
+import { SchoolSetupBanner } from './components/SchoolSetupBanner';
 import { LoginScreen } from './components/LoginScreen';
 import { DashboardView } from './views/DashboardView';
 import { LandingPage } from './views/LandingPage';
@@ -432,10 +433,8 @@ const App: React.FC = () => {
   const _loadAfterAuth = async (profile: User) => {
     const lgpdAlreadyAccepted = localStorage.getItem('incluiai_lgpd_accepted') === 'true';
     const needsLGPD = !lgpdAlreadyAccepted && !profile.lgpdConsent?.accepted;
-    const needsSchoolSetup =
-      !profile.schoolConfigs ||
-      profile.schoolConfigs.length === 0 ||
-      !(profile.schoolConfigs[0] as any)?.schoolName?.trim();
+    // Escola não é mais pré-requisito: o banner SchoolSetupBanner guia o usuário
+    // a completar os dados sem bloquear o acesso ao dashboard.
 
     if (needsLGPD) setShowLGPD(true);
 
@@ -456,7 +455,7 @@ const App: React.FC = () => {
       } catch { /* fallback — continua fluxo normal */ }
     }
 
-    setView(isCeo ? 'admin' : needsLGPD || needsSchoolSetup ? 'settings' : 'dashboard');
+    setView(isCeo ? 'admin' : needsLGPD ? 'settings' : 'dashboard');
 
     // ── Verifica compra aprovada pelo e-mail (pós-pagamento sem tenant_id) ─
     // Cobre: login normal, login com Google, retorno após confirmação de e-mail.
@@ -1198,7 +1197,16 @@ const App: React.FC = () => {
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto p-4 lg:p-8">
+          <main className="flex-1 overflow-y-auto">
+            {/* Banner de configuração da escola — aparece enquanto os dados estiverem incompletos */}
+            {!user.isAdmin && (
+              <SchoolSetupBanner
+                school={user.schoolConfigs?.[0]}
+                onGoToSettings={() => handleSetView('settings')}
+              />
+            )}
+
+            <div className="p-4 lg:p-8">
             {view === 'dashboard' && (
               <DashboardView
                 userName={user.name}
@@ -1312,11 +1320,19 @@ const App: React.FC = () => {
                   students={students}
                   planMaxStudents={planMaxStudents}
                   userPlan={user.plan}
+                  user={user}
                   onSelect={handleSelectStudent}
                   onEdit={s => setEditingStudent(s)}
                   onDelete={deleteStudent}
                   onCreateTriagem={() => { const s = {} as any; s.tipo_aluno = 'em_triagem'; setEditingStudent(s); }}
                   onCreateComLaudo={() => { const s = {} as any; s.tipo_aluno = 'com_laudo'; setEditingStudent(s); }}
+                  onStudentImported={(_studentId, protocolCode) => {
+                    if (protocolCode) {
+                      alert(`Aluno importado com sucesso!\nProtocolo: ${protocolCode}`);
+                    }
+                    // Recarrega lista de alunos para exibir o recém-importado
+                    databaseService.getStudents(user.id).then(s => setStudents(s)).catch(() => {});
+                  }}
                 />
               ) : (
                 <StudentForm
@@ -1453,6 +1469,7 @@ const App: React.FC = () => {
                 creditsAvailable={creditsAvailable}
               />
             )}
+            </div>{/* /p-4 lg:p-8 */}
           </main>
         </div>
       </div>

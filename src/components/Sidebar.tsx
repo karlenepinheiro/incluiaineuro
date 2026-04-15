@@ -17,6 +17,7 @@ import {
   Calendar,
   FlaskConical,
 } from 'lucide-react';
+import { NotificationsPanel } from './NotificationsPanel';
 
 import { User, getPlanLimits, PlanTier } from '../types';
 import { cn } from '@/src/lib/utils';
@@ -285,11 +286,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
               (user.name || 'U').substring(0, 2).toUpperCase()
             )}
           </div>
-          <div className="overflow-hidden">
+          <div className="overflow-hidden flex-1">
             <p className="text-sm font-bold text-gray-900 truncate">{user.name || 'Usuário'}</p>
             <p className="text-xs text-gray-500 truncate">
               {user.isAdmin ? 'Super Admin' : planLabel}
             </p>
+          </div>
+          {/* Sino de notificações */}
+          <div
+            className="shrink-0 flex items-center justify-center w-8 h-8 rounded-xl"
+            style={{ background: 'linear-gradient(135deg, #1F4E5F, #2E3A59)' }}
+          >
+            <NotificationsPanel />
           </div>
         </div>
         <button

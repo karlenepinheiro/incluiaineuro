@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { Edit, Trash2, ArrowRight, Plus, Search, Users, UserPlus, Filter } from 'lucide-react';
-import { Student, PlanTier, getPlanLimits } from '../types';
+import { Edit, Trash2, ArrowRight, Plus, Search, Users, UserPlus, Filter, Globe } from 'lucide-react';
+import { Student, PlanTier, getPlanLimits, type User } from '../types';
+import { StudentCodeSearchModal } from '../components/StudentCodeSearchModal';
 
 const C = {
   bg: '#F6F4EF',
@@ -19,11 +20,13 @@ interface StudentsListViewProps {
   students: Student[];
   planMaxStudents?: number;
   userPlan: PlanTier;
+  user?: User;
   onSelect: (s: Student) => void;
   onEdit: (s: Student) => void;
   onDelete: (id: string) => void;
   onCreateTriagem: () => void;
   onCreateComLaudo: () => void;
+  onStudentImported?: (studentId: string, protocolCode: string | null) => void;
 }
 
 type FilterType = 'all' | 'em_triagem' | 'com_laudo' | 'externo';
@@ -32,14 +35,17 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
   students,
   planMaxStudents,
   userPlan,
+  user,
   onSelect,
   onEdit,
   onDelete,
   onCreateTriagem,
   onCreateComLaudo,
+  onStudentImported,
 }) => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
+  const [showCodeSearch, setShowCodeSearch] = useState(false);
 
   const maxStudents = planMaxStudents && planMaxStudents > 0
     ? planMaxStudents
@@ -84,7 +90,21 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
               {students.length} de {maxStudents} vagas utilizadas
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            {user && (
+              <button
+                onClick={() => setShowCodeSearch(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
+                style={{
+                  background: '#EFF6FF',
+                  color: '#1D4ED8',
+                  border: '1.5px solid #BFDBFE',
+                }}
+                title="Buscar aluno de outra escola pelo código único"
+              >
+                <Globe size={15} /> Buscar por Código
+              </button>
+            )}
             <button
               onClick={onCreateTriagem}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
@@ -214,6 +234,18 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Modal de busca por código entre escolas */}
+      {showCodeSearch && user && (
+        <StudentCodeSearchModal
+          user={user}
+          onImported={(studentId, protocolCode) => {
+            setShowCodeSearch(false);
+            onStudentImported?.(studentId, protocolCode);
+          }}
+          onClose={() => setShowCodeSearch(false)}
+        />
+      )}
     </div>
   );
 };

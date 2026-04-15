@@ -557,7 +557,7 @@ function renderField(
   onNewPage: () => number,
 ): number {
   const H = doc.internal.pageSize.getHeight();
-  if (y > cBot(H) - 15) { doc.addPage(); y = onNewPage(); }
+  if (y > cBot(H) - 15) { y = onNewPage(); }
 
   if (label) {
     doc.setFont(_docFont,'bold');
@@ -574,7 +574,7 @@ function renderField(
   const lineSpacing = LINE_H + 0.5;
   const lines = doc.splitTextToSize(value || '—', maxW);
   for (const ln of lines) {
-    if (y > cBot(H) - 6) { doc.addPage(); y = onNewPage(); }
+    if (y > cBot(H) - 6) { y = onNewPage(); }
     doc.text(ln, x, y);
     y += lineSpacing;
   }
@@ -593,7 +593,7 @@ function renderTable(
   const H    = doc.internal.pageSize.getHeight();
   const totW = colWidths.reduce((a, b) => a + b, 0);
 
-  if (y > cBot(H) - 14) { doc.addPage(); y = onNewPage(); }
+  if (y > cBot(H) - 14) { y = onNewPage(); }
 
   // Header row — faixa petrol, TABLE_SIZE bold
   sf(doc, PETROL);
@@ -614,7 +614,7 @@ function renderTable(
       const ls = doc.splitTextToSize(cell || '—', (colWidths[ci] ?? 40) - 6);
       maxH = Math.max(maxH, ls.length * 5 + 3);
     });
-    if (y + maxH > cBot(H)) { doc.addPage(); y = onNewPage(); }
+    if (y + maxH > cBot(H)) { y = onNewPage(); }
     if (ri % 2 === 0) { sf(doc, GBKG); doc.rect(x, y, totW, maxH, 'F'); }
     sd(doc, BORDER); doc.setLineWidth(0.2);
     doc.rect(x, y, totW, maxH, 'D');
@@ -641,7 +641,7 @@ function renderBullets(
 ): number {
   const H = doc.internal.pageSize.getHeight();
   for (const item of items) {
-    if (y > cBot(H) - 10) { doc.addPage(); y = onNewPage(); }
+    if (y > cBot(H) - 10) { y = onNewPage(); }
     const bm = item.match(/^\*\*(.+?):\*\*\s*(.*)/s);
     doc.setFontSize(BODY_SIZE);
     sc(doc, DARK);
@@ -657,7 +657,7 @@ function renderBullets(
       doc.text(rest[0] ?? '', x + dw + bw, y);
       for (let i = 1; i < rest.length; i++) {
         y += LINE_H_LIST;
-        if (y > cBot(H) - 6) { doc.addPage(); y = onNewPage(); }
+        if (y > cBot(H) - 6) { y = onNewPage(); }
         doc.text(rest[i], x + dw, y);
       }
     } else {
@@ -683,7 +683,7 @@ function renderChecklist(
   const colW = (maxW - 10) / 2; // Increase gutter
 
   for (const sec of sections) {
-    if (y > cBot(H) - 20) { doc.addPage(); y = onNewPage(); }
+    if (y > cBot(H) - 20) { y = onNewPage(); }
     y = sectionBanner(doc, sec.title, x, y, maxW);
 
     const half = Math.ceil(sec.items.length / 2);
@@ -695,7 +695,7 @@ function renderChecklist(
       let cy       = isLeft ? lY : rY;
 
       if (cy > cBot(H) - 10) {
-        doc.addPage(); cy = onNewPage();
+        cy = onNewPage();
         if (isLeft) { lY = cy; rY = cy; } else { rY = cy; }
       }
 
@@ -738,7 +738,7 @@ function renderHighlight(
   const labelH = label ? 6 : 0;
   const boxH   = lines.length * LINE_H + labelH + 6;
 
-  if (y > cBot(H) - boxH - 4) { doc.addPage(); y = onNewPage(); }
+  if (y > cBot(H) - boxH - 4) { y = onNewPage(); }
 
   sf(doc, AMBER_BG); sd(doc, GOLD); doc.setLineWidth(0.5);
   doc.roundedRect(x, y, maxW, boxH, 2, 2, 'FD');
@@ -770,7 +770,7 @@ function renderInfoBox(
   const labelH = label ? 6 : 0;
   const boxH   = lines.length * LINE_H + labelH + 6;
 
-  if (y > cBot(H) - boxH - 4) { doc.addPage(); y = onNewPage(); }
+  if (y > cBot(H) - boxH - 4) { y = onNewPage(); }
 
   sf(doc, INFO_BG); sd(doc, PETROL); doc.setLineWidth(0.5);
   doc.roundedRect(x, y, maxW, boxH, 2, 2, 'FD');
@@ -836,7 +836,7 @@ function addSignatureBlock(
 ): number {
   const H    = doc.internal.pageSize.getHeight();
   const need = 85; 
-  if (y > cBot(H) - need) { doc.addPage(); y = onNewPage(); }
+  if (y > cBot(H) - need) { y = onNewPage(); }
 
   y += 4; 
 
@@ -1088,7 +1088,7 @@ export const PDFGenerator = {
         // IV. Análise e Observações
         if (filledData.observacoes) {
           const H = doc.internal.pageSize.getHeight();
-          if (y > cBot(H) - 15) { doc.addPage(); y = newPage(); }
+          if (y > cBot(H) - 15) { y = newPage(); }
           y = sectionBanner(doc, 'IV. Análise e Observações Complementares', ML, y, maxW);
           y = renderInfoBox(doc, 'Análise Pedagógica', filledData.observacoes, ML, y, maxW, newPage);
         }
@@ -1126,7 +1126,7 @@ export const PDFGenerator = {
         const intro = `A ${sName} encaminha o(a) aluno(a) ${student.name} para atendimento especializado na rede de apoio indicada, conforme necessidade pedagógica e de saúde observada pela equipe escolar. Solicitamos atenção às orientações técnicas acima registradas.`;
         doc.setFont(_docFont,'italic'); doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
         const iLs = doc.splitTextToSize(intro, maxW);
-        if (y > cBot(doc.internal.pageSize.getHeight()) - iLs.length * LINE_H - 10) { doc.addPage(); y = newPage(); }
+        if (y > cBot(doc.internal.pageSize.getHeight()) - iLs.length * LINE_H - 10) { y = newPage(); }
         doc.text(iLs, ML, y);
         y += iLs.length * LINE_H + 4;
 
@@ -1154,7 +1154,7 @@ export const PDFGenerator = {
         if (school?.contact) {
           doc.setFont(_docFont,'italic'); doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
           const H = doc.internal.pageSize.getHeight();
-          if (y > cBot(H) - 10) { doc.addPage(); y = newPage(); }
+          if (y > cBot(H) - 10) { y = newPage(); }
           doc.text(`Em caso de impossibilidade, entre em contato: ${school.contact}`, ML, y);
           y += LINE_H + 4;
         }
@@ -1211,7 +1211,7 @@ export const PDFGenerator = {
 
         doc.setFont(_docFont,'italic'); doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
         const H = doc.internal.pageSize.getHeight();
-        if (y > cBot(H) - 8) { doc.addPage(); y = newPage(); }
+        if (y > cBot(H) - 8) { y = newPage(); }
         doc.text('Esta declaração é fornecida a pedido do(a) interessado(a) para os fins que se fizerem necessários.', ML, y);
         y += LINE_H + 4;
 
@@ -1272,7 +1272,7 @@ export const PDFGenerator = {
         doc.setFont(_docFont,'normal'); doc.setFontSize(BODY_SIZE); sc(doc, DARK);
         const b2Ls = doc.splitTextToSize(body2, maxW);
         const H2 = doc.internal.pageSize.getHeight();
-        if (y > cBot(H2) - b2Ls.length * LINE_H - 10) { doc.addPage(); y = newPage(); }
+        if (y > cBot(H2) - b2Ls.length * LINE_H - 10) { y = newPage(); }
         doc.text(b2Ls, ML, y);
         y += b2Ls.length * LINE_H + 5;
 
@@ -1360,7 +1360,7 @@ export const PDFGenerator = {
 
     for (const sec of sections) {
       const H = doc.internal.pageSize.getHeight();
-      if (y > cBot(H) - 20) { doc.addPage(); y = newPage(); }
+      if (y > cBot(H) - 20) { y = newPage(); }
 
       y = sectionBanner(doc, sec.title, ML, y, maxW);
 
@@ -1378,7 +1378,7 @@ export const PDFGenerator = {
           const maxScale = field.maxScale || 5;
 
           const H2 = doc.internal.pageSize.getHeight();
-          if (y > cBot(H2) - 22) { doc.addPage(); y = newPage(); }
+          if (y > cBot(H2) - 22) { y = newPage(); }
 
           doc.setFont(_docFont,'bold'); doc.setFontSize(LABEL_SIZE); sc(doc, PETROL);
           doc.text(field.label.toUpperCase(), ML, y);
@@ -1478,7 +1478,7 @@ export const PDFGenerator = {
     y = sectionBanner(doc, 'II. Campos de Observação', ML, y, maxW);
 
     for (const field of fields) {
-      if (y > cBot(doc.internal.pageSize.getHeight()) - 22) { doc.addPage(); y = newPage(); }
+      if (y > cBot(doc.internal.pageSize.getHeight()) - 22) { y = newPage(); }
 
       if (field.isScale) {
         const n = parseInt(field.value) || 0;
