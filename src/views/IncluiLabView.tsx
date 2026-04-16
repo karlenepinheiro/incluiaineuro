@@ -1089,11 +1089,12 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
               const { ImageGenerationService } = await import('../services/imageGenerationService');
               const result = await ImageGenerationService.generate(ph.altText, { tenantId, userId: user.id });
 
-              // Persiste no storage para durabilidade
-              const storedUrl = await persistImageToStorage(result.base64DataUrl, tenantId);
-              const finalUrl = storedUrl ?? result.base64DataUrl;
+              // Exibe imediatamente com base64 (sempre funciona, sem depender do Storage)
+              updatePlaceholder(thinkingId, ph.id, { status: 'done', resolvedUrl: result.base64DataUrl });
 
-              updatePlaceholder(thinkingId, ph.id, { status: 'done', resolvedUrl: finalUrl });
+              // Persiste no Storage em background (best effort, não bloqueia exibição)
+              persistImageToStorage(result.base64DataUrl, tenantId).catch(() => {});
+
               await safeDeductCredits(user, `INCLUILAB_IMAGE_PH:${ph.id}`, IMG_COST);
             } catch (imgErr: unknown) {
               if (!isNetworkError(imgErr)) console.error(`[IncluiLAB] Imagem ${ph.id} falhou:`, imgErr);
@@ -1120,10 +1121,9 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       const { ImageGenerationService } = await import('../services/imageGenerationService');
       const result = await ImageGenerationService.generate(altText, { tenantId, userId: user.id });
 
-      const storedUrl = await persistImageToStorage(result.base64DataUrl, tenantId);
-      const finalUrl  = storedUrl ?? result.base64DataUrl;
+      updatePlaceholder(msgId, phId, { status: 'done', resolvedUrl: result.base64DataUrl });
+      persistImageToStorage(result.base64DataUrl, tenantId).catch(() => {});
 
-      updatePlaceholder(msgId, phId, { status: 'done', resolvedUrl: finalUrl });
       const IMG_COST = INCLUILAB_MODEL_COSTS.GPT_IMAGE ?? 50;
       await safeDeductCredits(user, `INCLUILAB_IMAGE_RETRY:${phId}`, IMG_COST);
     } catch {
