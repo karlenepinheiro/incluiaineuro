@@ -330,6 +330,9 @@ export const databaseService = {
       // unique student code + address fields:
       'unique_code', 'zipcode', 'street', 'street_number', 'complement',
       'neighborhood', 'city', 'state',
+      // import tracking fields (schema_v24_import_fields.sql):
+      'import_source', 'import_batch_id', 'registration_status',
+      'missing_required_fields', 'is_pre_registered',
     ]);
 
     // 2. dbPayload: mapeamento camelCase/legado → nomes reais das colunas
@@ -424,6 +427,19 @@ export const databaseService = {
     if (student?.city)         dbPayload.city           = student.city          ?? null;
     if (student?.state)        dbPayload.state          = student.state         ?? null;
 
+    // Campos de rastreamento de importação CSV (schema_v24_import_fields.sql)
+    if (student?.import_source !== undefined)
+      dbPayload.import_source = student.import_source;
+    if (student?.import_batch_id !== undefined)
+      dbPayload.import_batch_id = student.import_batch_id ?? null;
+    if (student?.registration_status !== undefined)
+      dbPayload.registration_status = student.registration_status;
+    if (student?.missing_required_fields !== undefined)
+      dbPayload.missing_required_fields = Array.isArray(student.missing_required_fields)
+        ? student.missing_required_fields : [];
+    if (student?.is_pre_registered !== undefined)
+      dbPayload.is_pre_registered = !!student.is_pre_registered;
+
     if (student?.id) dbPayload.id = student.id;
     // created_by é NOT NULL — usa o ID do usuário autenticado como fallback
     dbPayload.created_by = student?.created_by ?? uid;
@@ -448,6 +464,9 @@ export const databaseService = {
         'support_level','shift','aee_teacher','coordinator',
         'family_context','school_history','observations','photo_url',
         'professionals','communication',
+        // import tracking (schema_v24):
+        'import_source','import_batch_id','registration_status',
+        'missing_required_fields','is_pre_registered',
       ]);
       const corePayload = Object.fromEntries(
         Object.entries(dbPayload).filter(([k]) => !EXTRA_COLUMNS.has(k))

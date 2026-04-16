@@ -433,6 +433,15 @@ export interface Student {
   photoUrl?: string;
   registrationDate?: string;
 
+  // ── Importação CSV (schema_v24_import_fields.sql) ──────────────────────────
+  importSource?: 'manual' | 'csv' | 'ai_converter';
+  importBatchId?: string;
+  /** Status do cadastro: 'complete' | 'incomplete' | 'pre_registered' */
+  registrationStatus?: 'complete' | 'incomplete' | 'pre_registered';
+  /** Campos essenciais que ainda estão ausentes (ex: ["Responsável","Telefone"]) */
+  missingRequiredFields?: string[];
+  isPreRegistered?: boolean;
+
   documents?: { name: string; date: string; type: 'Laudo' | 'Relatorio' | 'Outro'; url?: string; path?: string }[];
   documentAnalyses?: DocumentAnalysis[];
   collaborators?: CollaboratorInvite[];

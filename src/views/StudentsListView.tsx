@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Edit, Trash2, ArrowRight, Plus, Search, Users, UserPlus, Filter, Globe } from 'lucide-react';
+import { Edit, Trash2, ArrowRight, Plus, Search, Users, UserPlus, Filter, Globe, Upload, AlertCircle } from 'lucide-react';
 import { Student, PlanTier, getPlanLimits, type User } from '../types';
 import { StudentCodeSearchModal } from '../components/StudentCodeSearchModal';
+import { StudentImportModal } from '../components/StudentImportModal';
 
 const C = {
   bg: '#F6F4EF',
@@ -14,6 +15,10 @@ const C = {
   goldLight: '#FDF6E3',
   border: '#E7E2D8',
   borderMid: '#C9C3B5',
+  red: '#DC2626',
+  redLight: '#FEF2F2',
+  amber: '#D97706',
+  amberLight: '#FFFBEB',
 };
 
 interface StudentsListViewProps {
@@ -27,9 +32,10 @@ interface StudentsListViewProps {
   onCreateTriagem: () => void;
   onCreateComLaudo: () => void;
   onStudentImported?: (studentId: string, protocolCode: string | null) => void;
+  onImportStudents?: (importedCount: number) => void;
 }
 
-type FilterType = 'all' | 'em_triagem' | 'com_laudo' | 'externo';
+type FilterType = 'all' | 'em_triagem' | 'com_laudo' | 'externo' | 'incompleto';
 
 export const StudentsListView: React.FC<StudentsListViewProps> = ({
   students,
@@ -42,10 +48,12 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
   onCreateTriagem,
   onCreateComLaudo,
   onStudentImported,
+  onImportStudents,
 }) => {
-  const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<FilterType>('all');
+  const [search, setSearch]             = useState('');
+  const [filter, setFilter]             = useState<FilterType>('all');
   const [showCodeSearch, setShowCodeSearch] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const maxStudents = planMaxStudents && planMaxStudents > 0
     ? planMaxStudents
@@ -56,27 +64,30 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
       const matchSearch = (s.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
         (s.diagnosis || []).join(' ').toLowerCase().includes(search.toLowerCase());
       if (!matchSearch) return false;
-      if (filter === 'em_triagem') return s.tipo_aluno === 'em_triagem';
-      if (filter === 'com_laudo') return s.tipo_aluno === 'com_laudo';
-      if (filter === 'externo') return s.isExternalStudent === true;
+      if (filter === 'em_triagem')  return s.tipo_aluno === 'em_triagem';
+      if (filter === 'com_laudo')   return s.tipo_aluno === 'com_laudo';
+      if (filter === 'externo')     return s.isExternalStudent === true;
+      if (filter === 'incompleto')  return s.registrationStatus === 'incomplete' || s.registrationStatus === 'pre_registered' || s.isPreRegistered === true;
       return true;
     });
   }, [students, search, filter]);
 
   const counts = useMemo(() => ({
-    total: students.length,
-    triagem: students.filter(s => s.tipo_aluno === 'em_triagem').length,
-    laudo: students.filter(s => s.tipo_aluno === 'com_laudo').length,
-    externo: students.filter(s => s.isExternalStudent).length,
+    total:      students.length,
+    triagem:    students.filter(s => s.tipo_aluno === 'em_triagem').length,
+    laudo:      students.filter(s => s.tipo_aluno === 'com_laudo').length,
+    externo:    students.filter(s => s.isExternalStudent).length,
+    incompleto: students.filter(s => s.registrationStatus === 'incomplete' || s.registrationStatus === 'pre_registered' || s.isPreRegistered).length,
   }), [students]);
 
   const usagePct = maxStudents > 0 ? Math.min(100, (students.length / maxStudents) * 100) : 0;
 
-  const filterTabs: { id: FilterType; label: string; count: number }[] = [
-    { id: 'all', label: 'Todos', count: counts.total },
-    { id: 'com_laudo', label: 'Com Laudo', count: counts.laudo },
+  const filterTabs: { id: FilterType; label: string; count: number; alert?: boolean }[] = [
+    { id: 'all',        label: 'Todos',      count: counts.total },
+    { id: 'com_laudo',  label: 'Com Laudo',  count: counts.laudo },
     { id: 'em_triagem', label: 'Em Triagem', count: counts.triagem },
-    { id: 'externo', label: 'Externos', count: counts.externo },
+    { id: 'externo',    label: 'Externos',   count: counts.externo },
+    { id: 'incompleto', label: 'Incompletos', count: counts.incompleto, alert: true },
   ];
 
   return (
@@ -105,6 +116,18 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
                 <Globe size={15} /> Buscar por Código
               </button>
             )}
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
+              style={{
+                background: '#F0F9FF',
+                color: '#0369A1',
+                border: '1.5px solid #BAE6FD',
+              }}
+              title="Importar lista de alunos por arquivo CSV"
+            >
+              <Upload size={15} /> Importar CSV
+            </button>
             <button
               onClick={onCreateTriagem}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
@@ -178,16 +201,21 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
             style={{ border: `1.5px solid ${C.border}`, background: C.surface }}
           >
             {filterTabs.map(tab => (
+              // Oculta o tab "Incompletos" se não houver nenhum
+              (tab.id === 'incompleto' && tab.count === 0) ? null : (
               <button
                 key={tab.id}
                 onClick={() => setFilter(tab.id)}
                 className="px-3 py-2 text-xs font-bold transition flex items-center gap-1"
                 style={
                   filter === tab.id
-                    ? { background: C.petrol, color: '#fff' }
-                    : { color: C.textSec }
+                    ? { background: tab.alert ? C.red : C.petrol, color: '#fff' }
+                    : { color: tab.alert && tab.count > 0 ? C.red : C.textSec }
                 }
               >
+                {tab.alert && tab.count > 0 && filter !== tab.id && (
+                  <AlertCircle size={11} />
+                )}
                 {tab.label}
                 {tab.count > 0 && (
                   <span
@@ -195,13 +223,16 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
                     style={
                       filter === tab.id
                         ? { background: 'rgba(255,255,255,0.2)', color: '#fff' }
-                        : { background: C.border, color: C.textSec }
+                        : tab.alert
+                          ? { background: C.redLight, color: C.red }
+                          : { background: C.border, color: C.textSec }
                     }
                   >
                     {tab.count}
                   </span>
                 )}
               </button>
+              )
             ))}
           </div>
         </div>
@@ -246,6 +277,19 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
           onClose={() => setShowCodeSearch(false)}
         />
       )}
+
+      {/* Modal de importação CSV */}
+      {showImportModal && user && (
+        <StudentImportModal
+          tenantId={user.tenant_id}
+          userId={user.id}
+          onClose={() => setShowImportModal(false)}
+          onImportComplete={(importedCount) => {
+            setShowImportModal(false);
+            onImportStudents?.(importedCount);
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -261,8 +305,11 @@ function StudentCard({
   onEdit: (s: Student) => void;
   onDelete: (id: string) => void;
 }) {
-  const isTriagem = s.tipo_aluno === 'em_triagem';
-  const isExternal = s.isExternalStudent;
+  const isTriagem     = s.tipo_aluno === 'em_triagem';
+  const isExternal    = s.isExternalStudent;
+  const isIncomplete  = s.registrationStatus === 'incomplete'
+                        || s.registrationStatus === 'pre_registered'
+                        || s.isPreRegistered === true;
 
   return (
     <div
@@ -270,15 +317,15 @@ function StudentCard({
       className="rounded-2xl cursor-pointer group transition"
       style={{
         background: C.surface,
-        border: `1.5px solid ${C.border}`,
+        border: `1.5px solid ${isIncomplete ? C.red + '60' : C.border}`,
         boxShadow: '0 2px 8px rgba(31,78,95,0.05)',
       }}
       onMouseEnter={e => {
-        (e.currentTarget as HTMLDivElement).style.borderColor = C.petrol;
+        (e.currentTarget as HTMLDivElement).style.borderColor = isIncomplete ? C.red : C.petrol;
         (e.currentTarget as HTMLDivElement).style.boxShadow = `0 6px 24px rgba(31,78,95,0.12)`;
       }}
       onMouseLeave={e => {
-        (e.currentTarget as HTMLDivElement).style.borderColor = C.border;
+        (e.currentTarget as HTMLDivElement).style.borderColor = isIncomplete ? C.red + '60' : C.border;
         (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(31,78,95,0.05)';
       }}
     >
@@ -286,9 +333,11 @@ function StudentCard({
       <div
         className="h-1.5 rounded-t-2xl"
         style={{
-          background: isTriagem
-            ? 'linear-gradient(90deg,#F59E0B,#FCD34D)'
-            : `linear-gradient(90deg,${C.petrol},${C.dark})`,
+          background: isIncomplete
+            ? `linear-gradient(90deg,${C.red},#F87171)`
+            : isTriagem
+              ? 'linear-gradient(90deg,#F59E0B,#FCD34D)'
+              : `linear-gradient(90deg,${C.petrol},${C.dark})`,
         }}
       />
 
@@ -334,6 +383,14 @@ function StudentCard({
                   Externo
                 </span>
               )}
+              {isIncomplete && (
+                <span
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5"
+                  style={{ background: C.redLight, color: C.red, border: `1px solid ${C.red}40` }}
+                >
+                  <AlertCircle size={9} /> Cadastro incompleto
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -352,6 +409,19 @@ function StudentCard({
             <span style={{ color: C.borderMid }}>Dados incompletos</span>
           )}
         </div>
+
+        {/* Banner de cadastro incompleto */}
+        {isIncomplete && (
+          <div
+            className="mb-3 px-3 py-2 rounded-xl text-xs flex items-start gap-2"
+            style={{ background: C.redLight, border: `1px solid ${C.red}30` }}
+          >
+            <AlertCircle size={12} style={{ color: C.red, flexShrink: 0, marginTop: 1 }} />
+            <span style={{ color: C.red }}>
+              Complete o cadastro para liberar a ficha completa e os documentos institucionais.
+            </span>
+          </div>
+        )}
 
         <div
           className="flex items-center justify-between pt-3"

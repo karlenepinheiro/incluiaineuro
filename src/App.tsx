@@ -1334,6 +1334,14 @@ const App: React.FC = () => {
                     // Recarrega lista de alunos para exibir o recém-importado
                     databaseService.getStudents(user.id).then(s => setStudents(s)).catch(() => {});
                   }}
+                  onImportStudents={(importedCount) => {
+                    // Recarrega lista completa após importação CSV
+                    databaseService.getStudents(user.id).then(s => setStudents(s)).catch(() => {});
+                    // Atualiza resumo do tenant (contagem de alunos no plano)
+                    if (!DEMO_MODE) {
+                      databaseService.getTenantSummary(user.id).then(s => setTenantSummary(s)).catch(() => {});
+                    }
+                  }}
                 />
               ) : (
                 <StudentForm
