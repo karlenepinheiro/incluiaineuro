@@ -451,129 +451,223 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
 
         {/* Dados Escolares & Vínculos */}
         <section>
-          <h3 className="section-title"><BookOpen size={20} className="text-brand-600"/> Dados Escolares & Equipe</h3>
+          <h3 className="section-title">
+            <BookOpen size={20} className="text-brand-600"/>
+            Dados Escolares & Equipe
+            {formData.isExternalStudent && (
+              <span style={{
+                marginLeft: 'auto',
+                background: '#D97706',
+                color: 'white',
+                fontSize: '0.6rem',
+                fontWeight: 800,
+                padding: '2px 10px',
+                borderRadius: 999,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+              }}>
+                Aluno Externo
+              </span>
+            )}
+          </h3>
 
-          {/* External student toggle */}
-          <div className="mb-5 flex items-center justify-between bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+          {/* Toggle externo */}
+          <div className={`mb-5 flex items-center justify-between rounded-xl px-4 py-3 border ${formData.isExternalStudent ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200'}`}>
             <div>
-              <p className="text-sm font-bold text-amber-900">Aluno externo (atendido fora da escola)</p>
-              <p className="text-xs text-amber-700 mt-0.5">Ative para registrar alunos de outras instituições ou em acompanhamento clínico externo.</p>
+              <p className={`text-sm font-bold ${formData.isExternalStudent ? 'text-amber-900' : 'text-gray-700'}`}>
+                Aluno externo (atendido fora da escola)
+              </p>
+              <p className={`text-xs mt-0.5 ${formData.isExternalStudent ? 'text-amber-700' : 'text-gray-500'}`}>
+                Ative para registrar alunos de outras instituições ou em acompanhamento clínico externo.
+              </p>
             </div>
             <button
               type="button"
               onClick={() => setFormData(prev => ({ ...prev, isExternalStudent: !prev.isExternalStudent }))}
-              className={`relative w-12 h-6 rounded-full transition-colors ${formData.isExternalStudent ? 'bg-amber-500' : 'bg-gray-200'}`}
+              className={`relative w-12 h-6 rounded-full transition-colors flex-shrink-0 ${formData.isExternalStudent ? 'bg-amber-500' : 'bg-gray-200'}`}
             >
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${formData.isExternalStudent ? 'translate-x-6' : ''}`} />
             </button>
           </div>
 
+          {/* Bloco de origem — visível somente quando externo */}
           {formData.isExternalStudent && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 p-4 bg-amber-50 border border-amber-100 rounded-xl">
-              <div>
-                <label className="label">Escola/Instituição de origem</label>
-                <input
-                  value={formData.externalSchoolName || ''}
-                  onChange={e => setFormData(prev => ({ ...prev, externalSchoolName: e.target.value }))}
-                  className="input-field"
-                  placeholder="Ex: Escola Estadual Jardim das Flores"
-                />
+            <div style={{ border: '2px solid #F59E0B', borderRadius: 12, padding: '1rem 1.25rem', marginBottom: '1.25rem', background: '#FFFBEB' }}>
+              {/* Texto orientador */}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: '#FEF3C7', borderRadius: 8, padding: '10px 14px', marginBottom: '1rem' }}>
+                <AlertCircle size={15} style={{ color: '#92400E', flexShrink: 0, marginTop: 1 }} />
+                <p style={{ fontSize: 13, color: '#78350F', margin: 0, lineHeight: 1.55 }}>
+                  Este aluno pertence a outra instituição. Os dados abaixo referem-se à escola de
+                  origem. O atendimento será registrado na <strong>sua escola</strong>.
+                </p>
               </div>
-              <div>
-                <label className="label">Cidade</label>
-                <input
-                  value={formData.externalSchoolCity || ''}
-                  onChange={e => setFormData(prev => ({ ...prev, externalSchoolCity: e.target.value }))}
-                  className="input-field"
-                  placeholder="Ex: Palmas - TO"
-                />
-              </div>
-              <div>
-                <label className="label">Profissional responsável pelo encaminhamento</label>
-                <input
-                  value={formData.externalProfessional || ''}
-                  onChange={e => setFormData(prev => ({ ...prev, externalProfessional: e.target.value }))}
-                  className="input-field"
-                  placeholder="Ex: Profa. Ana Silva"
-                />
-              </div>
-              <div>
-                <label className="label">Origem do encaminhamento</label>
-                <select
-                  value={formData.externalReferralSource || ''}
-                  onChange={e => setFormData(prev => ({ ...prev, externalReferralSource: e.target.value }))}
-                  className="input-field"
-                >
-                  <option value="">Selecione</option>
-                  <option value="Escola">Escola</option>
-                  <option value="Clínica">Clínica / Consultório</option>
-                  <option value="UBS">UBS / CAPS</option>
-                  <option value="Família">Família</option>
-                  <option value="Prefeitura">Prefeitura / SEMED</option>
-                  <option value="Outro">Outro</option>
-                </select>
+
+              <p style={{ fontSize: '0.8rem', fontWeight: 700, color: '#92400E', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                Origem do Aluno
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Escola / Instituição de origem</label>
+                  <input
+                    value={formData.externalSchoolName || ''}
+                    onChange={e => setFormData(prev => ({ ...prev, externalSchoolName: e.target.value }))}
+                    className="input-field"
+                    placeholder="Ex: Escola Estadual Jardim das Flores"
+                  />
+                </div>
+                <div>
+                  <label className="label">Cidade de origem</label>
+                  <input
+                    value={formData.externalSchoolCity || ''}
+                    onChange={e => setFormData(prev => ({ ...prev, externalSchoolCity: e.target.value }))}
+                    className="input-field"
+                    placeholder="Ex: Palmas - TO"
+                  />
+                </div>
+                <div>
+                  <label className="label">Profissional responsável pelo encaminhamento</label>
+                  <input
+                    value={formData.externalProfessional || ''}
+                    onChange={e => setFormData(prev => ({ ...prev, externalProfessional: e.target.value }))}
+                    className="input-field"
+                    placeholder="Ex: Profa. Ana Silva"
+                  />
+                </div>
+                <div>
+                  <label className="label">Origem do encaminhamento</label>
+                  <select
+                    value={formData.externalReferralSource || ''}
+                    onChange={e => setFormData(prev => ({ ...prev, externalReferralSource: e.target.value }))}
+                    className="input-field"
+                  >
+                    <option value="">Selecione</option>
+                    <option value="Escola">Escola</option>
+                    <option value="Clínica">Clínica / Consultório</option>
+                    <option value="UBS">UBS / CAPS</option>
+                    <option value="Família">Família</option>
+                    <option value="Prefeitura">Prefeitura / SEMED</option>
+                    <option value="Outro">Outro</option>
+                  </select>
+                </div>
               </div>
             </div>
           )}
 
+          {/* Grid principal — escola de atendimento + equipe */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            {/* Escola de atendimento */}
             <div>
-              <label className="label">Escola *</label>
-              <select name="schoolId" value={formData.schoolId} onChange={(e) => setFormData(prev => ({...prev, schoolId: e.target.value}))} className="input-field">
+              <label className="label">
+                {formData.isExternalStudent ? 'Escola de Atendimento' : 'Escola *'}
+                {formData.isExternalStudent && (
+                  <span style={{ fontSize: '0.68rem', color: '#9CA3AF', fontWeight: 400, marginLeft: 4 }}>
+                    (preenchida pelo sistema)
+                  </span>
+                )}
+              </label>
+              {formData.isExternalStudent ? (
+                <div style={{ position: 'relative' }}>
+                  <input
+                    readOnly
+                    value={availableSchools.find(s => s.id === formData.schoolId)?.schoolName || 'Escola não configurada'}
+                    className="input-field"
+                    style={{ background: '#F9FAFB', color: '#6B7280', cursor: 'not-allowed', paddingRight: '2rem' }}
+                  />
+                  <Lock size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: '#D1D5DB' }} />
+                </div>
+              ) : (
+                <select name="schoolId" value={formData.schoolId} onChange={(e) => setFormData(prev => ({...prev, schoolId: e.target.value}))} className="input-field">
                   {availableSchools.length === 0 && <option value="">Nenhuma escola cadastrada</option>}
                   {availableSchools.map(s => <option key={s.id} value={s.id}>{s.schoolName}</option>)}
+                </select>
+              )}
+              {formData.isExternalStudent && (
+                <p style={{ fontSize: '0.65rem', color: '#9CA3AF', marginTop: 3 }}>
+                  O atendimento deste aluno é registrado nesta escola.
+                </p>
+              )}
+            </div>
+
+            {/* Série/Ano */}
+            <div>
+              <label className="label">
+                Série / Ano
+                {formData.isExternalStudent && (
+                  <span style={{ fontSize: '0.68rem', color: '#9CA3AF', fontWeight: 400, marginLeft: 4 }}>(opcional)</span>
+                )}
+              </label>
+              <input name="grade" value={formData.grade} onChange={handleChange} className="input-field" placeholder="Ex: 3º ano EF" />
+            </div>
+
+            {/* Turno */}
+            <div>
+              <label className="label">
+                Turno
+                {formData.isExternalStudent && (
+                  <span style={{ fontSize: '0.68rem', color: '#9CA3AF', fontWeight: 400, marginLeft: 4 }}>(opcional)</span>
+                )}
+              </label>
+              <select name="shift" value={formData.shift} onChange={handleChange} className="input-field">
+                <option value="">Selecione</option>
+                <option value="Matutino">Matutino</option>
+                <option value="Vespertino">Vespertino</option>
+                <option value="Integral">Integral</option>
               </select>
             </div>
-            
-            <div><label className="label">Série/Ano</label><input name="grade" value={formData.grade} onChange={handleChange} className="input-field" /></div>
-            <div><label className="label">Turno</label><select name="shift" value={formData.shift} onChange={handleChange} className="input-field"><option value="">Selecione</option><option value="Matutino">Matutino</option><option value="Vespertino">Vespertino</option><option value="Integral">Integral</option></select></div>
-            
-            {/* Professor Regente Vínculo */}
+
+            {/* Professor Regente */}
             <div>
-                <label className="label">Professor Regente</label>
-                <input 
-                    list="regents" 
-                    name="regentTeacher" 
-                    value={formData.regentTeacher} 
-                    onChange={handleChange} 
-                    className="input-field" 
-                    placeholder="Selecione ou digite..."
-                />
-                <datalist id="regents">
-                    {regents.map(r => <option key={r.id} value={r.name}/>)}
-                </datalist>
+              <label className="label">
+                Professor Regente
+                {formData.isExternalStudent && (
+                  <span style={{ fontSize: '0.68rem', color: '#9CA3AF', fontWeight: 400, marginLeft: 4 }}>(opcional)</span>
+                )}
+              </label>
+              <input
+                list="regents"
+                name="regentTeacher"
+                value={formData.regentTeacher}
+                onChange={handleChange}
+                className="input-field"
+                placeholder="Selecione ou digite..."
+              />
+              <datalist id="regents">
+                {regents.map(r => <option key={r.id} value={r.name}/>)}
+              </datalist>
             </div>
 
-            {/* AEE Vínculo */}
+            {/* Prof. AEE */}
             <div>
-                <label className="label">Prof. AEE / Especialista</label>
-                <input 
-                    list="aees" 
-                    name="aeeTeacher" 
-                    value={formData.aeeTeacher} 
-                    onChange={handleChange} 
-                    className="input-field" 
-                    placeholder="Selecione ou digite..."
-                />
-                <datalist id="aees">
-                    {aees.map(r => <option key={r.id} value={r.name}/>)}
-                </datalist>
+              <label className="label">Prof. AEE / Especialista</label>
+              <input
+                list="aees"
+                name="aeeTeacher"
+                value={formData.aeeTeacher}
+                onChange={handleChange}
+                className="input-field"
+                placeholder="Selecione ou digite..."
+              />
+              <datalist id="aees">
+                {aees.map(r => <option key={r.id} value={r.name}/>)}
+              </datalist>
             </div>
 
-            {/* Coordenação Vínculo */}
+            {/* Coordenação */}
             <div>
-                <label className="label">Coordenação / Gestão</label>
-                <input 
-                    list="coords" 
-                    name="coordinator" 
-                    value={formData.coordinator} 
-                    onChange={handleChange} 
-                    className="input-field" 
-                    placeholder="Selecione ou digite..."
-                />
-                <datalist id="coords">
-                    {coords.map(r => <option key={r.id} value={r.name}/>)}
-                </datalist>
+              <label className="label">Coordenação / Gestão</label>
+              <input
+                list="coords"
+                name="coordinator"
+                value={formData.coordinator}
+                onChange={handleChange}
+                className="input-field"
+                placeholder="Selecione ou digite..."
+              />
+              <datalist id="coords">
+                {coords.map(r => <option key={r.id} value={r.name}/>)}
+              </datalist>
             </div>
 
           </div>
