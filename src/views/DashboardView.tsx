@@ -52,6 +52,7 @@ interface DashboardViewProps {
   subscriptionExpiry?: string | null;
   onNavigate?: (view: string) => void;
   userId?: string;
+  schoolName?: string;
 }
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
@@ -370,6 +371,7 @@ export function DashboardView({
   subscriptionExpiry,
   onNavigate,
   userId,
+  schoolName,
 }: DashboardViewProps) {
 
   const [showDocPicker, setShowDocPicker] = useState(false);
@@ -477,6 +479,31 @@ export function DashboardView({
 
   return (
     <div className="min-h-screen p-5 md:p-7 space-y-6" style={{ background: C.bg }}>
+
+      {/* ── Aviso de escola incompleta ────────────────────────────────────── */}
+      {!schoolName?.trim() && (
+        <div
+          className="flex items-start gap-3 rounded-2xl px-5 py-4 cursor-pointer"
+          style={{ background: '#FFFBEB', border: '1.5px solid #FDE68A' }}
+          onClick={() => onNavigate?.('settings')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => e.key === 'Enter' && onNavigate?.('settings')}
+        >
+          <AlertTriangle size={18} style={{ color: '#D97706', flexShrink: 0, marginTop: 1 }} />
+          <div className="flex-1">
+            <p className="text-sm font-bold" style={{ color: '#92400E', margin: 0 }}>
+              Finalize as informações da escola
+            </p>
+            <p className="text-xs" style={{ color: '#B45309', margin: '3px 0 0 0' }}>
+              Complete o nome da escola, equipe e dados institucionais em{' '}
+              <span className="font-bold underline">Configurações</span> para que o cabeçalho
+              dos documentos e PDFs gerados fique completo.
+            </p>
+          </div>
+          <ArrowRight size={16} style={{ color: '#D97706', flexShrink: 0, marginTop: 2 }} />
+        </div>
+      )}
 
       {/* ── Welcome Hero ──────────────────────────────────────────────────── */}
       <motion.div

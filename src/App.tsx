@@ -1224,6 +1224,7 @@ const App: React.FC = () => {
                 subscriptionExpiry={activeSubscription?.currentPeriodEnd ?? tenantSummary?.renewalDatePlan ?? null}
                 userId={user.id}
                 onNavigate={handleSetView}
+                schoolName={user.schoolConfigs?.[0]?.schoolName}
               />
             )}
 

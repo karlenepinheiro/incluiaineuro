@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { X, FileText, Printer } from 'lucide-react';
 
 // ── Tipo de configuração da ficha ──────────────────────────────────────────────
+// Nota: relatoriosIA, historicoAtividades e linhaDoTempo foram removidos da Ficha
+// (dados técnicos que não são pedagógicos — vide regras de negócio v3).
 export interface FichaConfig {
   // IDENTIFICAÇÃO
   dadosAluno: boolean;
@@ -14,16 +16,11 @@ export interface FichaConfig {
   ultimaAvaliacao: boolean;
   agendamentos: boolean;
   controleAtendimento: boolean;
-  linhaDoTempo: boolean;
 
-  // DOCUMENTOS E RELATÓRIOS
+  // DOCUMENTOS
   documentosGerados: boolean;
-  relatoriosIA: boolean;
   analiseLaudo: boolean;
   fichasComplementares: boolean;
-
-  // HISTÓRICO
-  historicoAtividades: boolean;
 }
 
 const DEFAULT_CONFIG: FichaConfig = {
@@ -35,52 +32,41 @@ const DEFAULT_CONFIG: FichaConfig = {
   ultimaAvaliacao: true,
   agendamentos: true,
   controleAtendimento: true,
-  linhaDoTempo: false,
   documentosGerados: true,
-  relatoriosIA: true,
   analiseLaudo: true,
   fichasComplementares: true,
-  historicoAtividades: false,
 };
 
-const STORAGE_KEY = 'incluiai_ficha_config_v2';
+const STORAGE_KEY = 'incluiai_ficha_config_v3';
 
 type SectionItem = { key: keyof FichaConfig; label: string; desc: string };
 type ConfigSection = { title: string; items: SectionItem[] };
 
 const SECTIONS: ConfigSection[] = [
   {
-    title: 'IDENTIFICAÇÃO',
+    title: 'IDENTIFICAÇÃO E CAPA',
     items: [
-      { key: 'dadosAluno',       label: 'Dados do aluno',          desc: 'Nome, nascimento, série, escola e equipe pedagógica' },
-      { key: 'fotoAluno',        label: 'Foto do aluno',           desc: 'Avatar ou foto vinculada ao cadastro' },
-      { key: 'logoEscola',       label: 'Logo da escola',          desc: 'Logotipo institucional no cabeçalho' },
-      { key: 'enderecoCompleto', label: 'Endereço completo',       desc: 'Rua, bairro, cidade e CEP' },
-      { key: 'codigoUnico',      label: 'Código único de validação', desc: 'QR code e código auditável no rodapé' },
+      { key: 'dadosAluno',       label: 'Dados do aluno',          desc: 'Nome, nascimento, série, escola, equipe e diagnóstico' },
+      { key: 'fotoAluno',        label: 'Foto do aluno',           desc: 'Exibida na capa — avatar com iniciais se não houver foto' },
+      { key: 'logoEscola',       label: 'Logo e nome da escola',   desc: 'Logotipo institucional no cabeçalho e capa' },
+      { key: 'enderecoCompleto', label: 'Endereço completo',       desc: 'Rua, bairro, cidade e CEP do aluno' },
+      { key: 'codigoUnico',      label: 'Código interno do documento', desc: 'Código de identificação interno — não é link público de validação' },
     ],
   },
   {
     title: 'AVALIAÇÃO E ACOMPANHAMENTO',
     items: [
-      { key: 'ultimaAvaliacao',     label: 'Última avaliação gerada',  desc: 'Resumo, radar, barras e parecer descritivo' },
-      { key: 'agendamentos',        label: 'Agendamentos',             desc: 'Lista de atendimentos agendados para o aluno' },
-      { key: 'controleAtendimento', label: 'Controle de atendimento',  desc: 'Registros de presença e observações de sessão' },
-      { key: 'linhaDoTempo',        label: 'Linha do tempo',           desc: 'Histórico cronológico de eventos do aluno' },
+      { key: 'ultimaAvaliacao',     label: 'Última avaliação cognitiva', desc: 'Resumo, radar de 10 dimensões e parecer descritivo' },
+      { key: 'agendamentos',        label: 'Agendamentos',               desc: 'Lista de atendimentos agendados para o aluno' },
+      { key: 'controleAtendimento', label: 'Controle de atendimento',    desc: 'Registros de presença e observações de sessão' },
     ],
   },
   {
-    title: 'DOCUMENTOS E RELATÓRIOS',
+    title: 'DOCUMENTOS E REGISTROS',
     items: [
-      { key: 'documentosGerados',    label: 'Documentos gerados',        desc: 'PEI, PAEE, PDI, Estudo de Caso (nome e status)' },
-      { key: 'relatoriosIA',         label: 'Relatórios por IA',         desc: 'Relatórios evolutivos gerados automaticamente' },
-      { key: 'analiseLaudo',         label: 'Análise de laudo',          desc: 'Síntese e pontos pedagógicos extraídos dos laudos' },
-      { key: 'fichasComplementares', label: 'Fichas complementares',     desc: 'Fichas de observação e registros de profissionais' },
-    ],
-  },
-  {
-    title: 'HISTÓRICO',
-    items: [
-      { key: 'historicoAtividades', label: 'Histórico de atividades geradas', desc: 'Data, título, tipo e status — não inclui o conteúdo das atividades' },
+      { key: 'documentosGerados',    label: 'Documentos pedagógicos gerados', desc: 'PEI, PAEE, PDI, Estudo de Caso (título, data e status)' },
+      { key: 'analiseLaudo',         label: 'Laudos clínicos anexados',       desc: 'Nome, data e tipo dos documentos clínicos vinculados' },
+      { key: 'fichasComplementares', label: 'Fichas de observação',           desc: 'Fichas complementares e registros de profissionais' },
     ],
   },
 ];
@@ -104,7 +90,6 @@ const StyledCheckbox: React.FC<{ checked: boolean; onChange: () => void; label: 
     onMouseEnter={e => { if (!checked) (e.currentTarget as HTMLElement).style.background = '#F9FAFB'; }}
     onMouseLeave={e => { if (!checked) (e.currentTarget as HTMLElement).style.background = '#FFFFFF'; }}
   >
-    {/* Custom checkbox */}
     <div
       style={{
         marginTop: 1, width: 17, height: 17, borderRadius: 4, flexShrink: 0,
@@ -133,6 +118,7 @@ export const FichaConfigModal: React.FC<FichaConfigModalProps> = ({ studentName,
   const [config, setConfig] = useState<FichaConfig>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
+      // Merge com defaults para garantir novos campos
       return saved ? { ...DEFAULT_CONFIG, ...JSON.parse(saved) } : DEFAULT_CONFIG;
     } catch {
       return DEFAULT_CONFIG;
@@ -140,7 +126,7 @@ export const FichaConfigModal: React.FC<FichaConfigModalProps> = ({ studentName,
   });
   const [generating, setGenerating] = useState(false);
 
-  const toggle   = (key: keyof FichaConfig) => setConfig(prev => ({ ...prev, [key]: !prev[key] }));
+  const toggle    = (key: keyof FichaConfig) => setConfig(prev => ({ ...prev, [key]: !prev[key] }));
   const selectAll = () => setConfig(Object.fromEntries(Object.keys(DEFAULT_CONFIG).map(k => [k, true])) as unknown as FichaConfig);
   const clearAll  = () => setConfig(Object.fromEntries(Object.keys(DEFAULT_CONFIG).map(k => [k, false])) as unknown as FichaConfig);
   const anySelected = Object.values(config).some(Boolean);
@@ -166,7 +152,9 @@ export const FichaConfigModal: React.FC<FichaConfigModalProps> = ({ studentName,
             </div>
             <div>
               <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: '#111827' }}>Personalizar Ficha do Aluno</h2>
-              <p style={{ margin: '2px 0 0 0', fontSize: 11, color: '#9CA3AF' }}>Escolha quais informações devem aparecer no PDF final.</p>
+              <p style={{ margin: '2px 0 0 0', fontSize: 11, color: '#9CA3AF' }}>
+                Documento pedagógico interno — estrutura em 4 seções fixas + registros opcionais.
+              </p>
             </div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 4, borderRadius: 6 }}>
@@ -176,7 +164,13 @@ export const FichaConfigModal: React.FC<FichaConfigModalProps> = ({ studentName,
 
         {/* ── Aluno ── */}
         <div style={{ padding: '10px 20px', background: '#F9FAFB', borderBottom: '1px solid #F1F5F9' }}>
-          <p style={{ margin: 0, fontSize: 11, color: '#6B7280' }}>Gerando ficha para: <strong style={{ color: '#111827' }}>{studentName}</strong></p>
+          <p style={{ margin: 0, fontSize: 11, color: '#6B7280' }}>
+            Gerando ficha para: <strong style={{ color: '#111827' }}>{studentName}</strong>
+          </p>
+          <p style={{ margin: '4px 0 0 0', fontSize: 10, color: '#9CA3AF' }}>
+            A ficha inclui automaticamente: Identificação · Perfil Pedagógico · Resumo Pedagógico · Assinaturas.
+            As seções abaixo são adicionais e opcionais.
+          </p>
         </div>
 
         {/* ── Ações rápidas ── */}
@@ -215,11 +209,20 @@ export const FichaConfigModal: React.FC<FichaConfigModalProps> = ({ studentName,
               </div>
             </div>
           ))}
+
+          {/* Nota informativa */}
+          <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 10, padding: '10px 14px', marginTop: 4 }}>
+            <p style={{ margin: 0, fontSize: 10, color: '#166534', fontWeight: 600 }}>Documento para uso interno</p>
+            <p style={{ margin: '3px 0 0 0', fontSize: 10, color: '#166534' }}>
+              A Ficha do Aluno não contém link público de validação nem QR code. Apenas documentos oficiais
+              (PEI, PAEE, PDI, Estudo de Caso) possuem código de validação público.
+            </p>
+          </div>
         </div>
 
         {/* ── Rodapé ── */}
         <div style={{ padding: '14px 20px', borderTop: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#FAFAFA' }}>
-          <p style={{ margin: 0, fontSize: 10, color: '#9CA3AF' }}>Sua seleção é salva como padrão automaticamente.</p>
+          <p style={{ margin: 0, fontSize: 10, color: '#9CA3AF' }}>Sua seleção é salva automaticamente.</p>
           <div style={{ display: 'flex', gap: 10 }}>
             <button
               onClick={onClose}
