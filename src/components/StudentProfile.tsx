@@ -130,6 +130,70 @@ const InfoRow: React.FC<{ label: string; value?: string | null }> = ({ label, va
   );
 };
 
+// ── UniqueCodeBadge ───────────────────────────────────────────────────────────
+const UniqueCodeBadge: React.FC<{ code?: string | null }> = ({ code }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div
+      className="flex items-center justify-between gap-3 py-2 px-3 rounded-xl mb-2"
+      style={{ background: '#EFF9FF', border: '1px solid #C7E8F5' }}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <span
+          className="text-[10px] font-bold uppercase tracking-widest shrink-0"
+          style={{ color: '#1F4E5F' }}
+        >
+          Código do aluno
+        </span>
+        {code ? (
+          <span
+            className="font-mono font-bold text-xs tracking-widest truncate"
+            style={{ color: '#1F4E5F' }}
+          >
+            {code}
+          </span>
+        ) : (
+          <span className="text-xs text-gray-400 italic">Não gerado</span>
+        )}
+      </div>
+      {code && (
+        <button
+          type="button"
+          onClick={handleCopy}
+          title="Copiar código"
+          className="flex items-center gap-1 text-[10px] font-semibold rounded-lg px-2 py-1 shrink-0 transition-all"
+          style={{
+            color: copied ? '#15803d' : '#1F4E5F',
+            background: copied ? '#dcfce7' : '#D6EEF8',
+            border: `1px solid ${copied ? '#86efac' : '#A8D8EC'}`,
+          }}
+        >
+          {copied ? (
+            <>
+              <CheckCircle size={11} />
+              Copiado!
+            </>
+          ) : (
+            <>
+              <Copy size={11} />
+              Copiar
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+};
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface StudentProfileProps {
   student: Student;
@@ -741,6 +805,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 subtitle="Dados pessoais e escolares"
               />
               <div className="space-y-0.5">
+                <UniqueCodeBadge code={student.unique_code} />
                 <InfoRow label="Nome completo"   value={student.name} />
                 <InfoRow label="Data de nascimento" value={new Date(student.birthDate + 'T12:00:00').toLocaleDateString('pt-BR')} />
                 <InfoRow label="Idade"            value={`${calculateAge(student.birthDate)} anos`} />
