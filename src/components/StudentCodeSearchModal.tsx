@@ -1,13 +1,13 @@
 /**
  * StudentCodeSearchModal.tsx
- * Modal de busca de aluno por código único entre escolas.
- * Permite visualizar preview e importar como aluno externo.
+ * Busca aluno por código único entre escolas e cria vínculo (sem duplicar linha).
+ * Depende de: schema_v25_student_tenant_access.sql
  */
 import React, { useState, useRef } from 'react';
 import {
-  Search, X, UserPlus, AlertCircle, CheckCircle2,
+  Search, X, Link2, AlertCircle, CheckCircle2,
   Building2, GraduationCap, Hash, ArrowRight, Loader2,
-  ShieldCheck, Info,
+  ShieldCheck, Info, UserCheck,
 } from 'lucide-react';
 import {
   StudentSearchService,
@@ -28,20 +28,23 @@ const C = {
 
 interface Props {
   user: User;
+  /** Chamado quando o vínculo é criado com sucesso. studentId = ID do aluno original (não duplicado). */
   onImported: (studentId: string, protocolCode: string | null) => void;
   onClose: () => void;
 }
 
-type Step = 'search' | 'preview' | 'importing' | 'done' | 'error';
+type Step = 'search' | 'preview' | 'linking' | 'done' | 'error';
 
 export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onClose }) => {
   const [code, setCode]           = useState('');
   const [step, setStep]           = useState<Step>('search');
   const [searching, setSearching] = useState(false);
   const [result, setResult]       = useState<StudentSearchResult | null>(null);
-  const [imported, setImported]   = useState<ImportResult | null>(null);
+  const [linked, setLinked]       = useState<ImportResult | null>(null);
   const [errorMsg, setErrorMsg]   = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const isSameTenant = result?.tenant_id === user.tenant_id;
 
   // ── Busca ──────────────────────────────────────────────────────────────────
   const handleSearch = async () => {
@@ -67,17 +70,17 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
     }
   };
 
-  // ── Import ─────────────────────────────────────────────────────────────────
-  const handleImport = async () => {
+  // ── Vínculo (substitui "importar" que duplicava linha) ──────────────────────
+  const handleLink = async () => {
     if (!result) return;
-    setStep('importing');
+    setStep('linking');
     try {
       const res = await StudentSearchService.importStudent(result.student_id, user);
-      setImported(res);
+      setLinked(res);
       setStep('done');
       onImported(res.student_id, res.protocol_code);
     } catch (err: any) {
-      setErrorMsg(err?.message ?? 'Erro ao importar aluno.');
+      setErrorMsg(err?.message ?? 'Erro ao vincular aluno. Tente novamente.');
       setStep('error');
     }
   };
@@ -108,7 +111,7 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
             </div>
             <div>
               <p className="font-bold text-white text-base">Buscar Aluno por Código</p>
-              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>Pesquisa entre escolas via código único</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.7)' }}>Localiza e vincula alunos de outras escolas</p>
             </div>
           </div>
           <button onClick={onClose} className="text-white opacity-70 hover:opacity-100 transition-opacity">
@@ -131,7 +134,7 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
             </span>
           </div>
 
-          {/* Passo: busca */}
+          {/* Campo de busca — permanece visível no passo preview */}
           {(step === 'search' || step === 'preview') && (
             <div>
               <label className="block text-xs font-semibold mb-1.5" style={{ color: C.petrol }}>
@@ -144,7 +147,7 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
                   onChange={e => {
                     setCode(e.target.value.toUpperCase());
                     setErrorMsg('');
-                    if (step === 'preview') setStep('search');
+                    if (step === 'preview') { setStep('search'); setResult(null); }
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder="Ex.: INC-AB12-CD34"
@@ -176,7 +179,7 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
             </div>
           )}
 
-          {/* Passo: preview */}
+          {/* Preview do aluno encontrado */}
           {step === 'preview' && result && (
             <div
               className="rounded-xl p-4 flex flex-col gap-3"
@@ -184,7 +187,7 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
             >
               <p className="text-xs font-bold uppercase" style={{ color: C.petrol }}>Aluno Encontrado</p>
 
-              {/* Nome */}
+              {/* Avatar + nome */}
               <div className="flex items-center gap-3">
                 <div
                   className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-white text-sm shrink-0"
@@ -197,7 +200,7 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
                 </div>
               </div>
 
-              {/* Detalhes */}
+              {/* Detalhes não-sensíveis */}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="flex items-center gap-1.5" style={{ color: C.gray }}>
                   <Building2 size={13} />
@@ -209,78 +212,89 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
                     <span>{result.grade}</span>
                   </div>
                 )}
-                <div className="flex items-center gap-1.5 font-mono" style={{ color: C.petrol }}>
+                <div className="flex items-center gap-1.5 font-mono col-span-2" style={{ color: C.petrol }}>
                   <Hash size={13} />
                   <span className="font-bold">{result.unique_code}</span>
                 </div>
               </div>
 
-              {/* Aviso: escola diferente */}
-              {result.tenant_id === user.tenant_id ? (
+              {/* Aviso contextual por cenário */}
+              {isSameTenant ? (
                 <div
-                  className="flex items-center gap-2 p-2 rounded-lg text-xs"
+                  className="flex items-start gap-2 p-3 rounded-lg text-xs"
                   style={{ background: '#FEF9C3', color: '#92400E' }}
                 >
-                  <AlertCircle size={13} />
-                  Este aluno já pertence à sua escola.
+                  <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Este aluno já pertence à sua escola.</strong>{' '}
+                    Você pode localizá-lo diretamente na lista de alunos.
+                  </span>
                 </div>
               ) : (
-                <div
-                  className="flex items-center gap-2 p-2 rounded-lg text-xs"
-                  style={{ background: '#ECFDF5', color: '#065F46' }}
-                >
-                  <ShieldCheck size={13} />
-                  Aluno de outra escola. Ao importar, um protocolo de acesso será gerado e a escola de origem será notificada.
-                </div>
-              )}
+                <>
+                  <div
+                    className="flex items-start gap-2 p-3 rounded-lg text-xs"
+                    style={{ background: '#ECFDF5', color: '#065F46' }}
+                  >
+                    <ShieldCheck size={14} className="shrink-0 mt-0.5" />
+                    <span>
+                      <strong>Aluno de outra escola.</strong>{' '}
+                      Ao adicionar, um protocolo de acesso será gerado e a escola de origem será notificada.
+                      Dados clínicos permanecem protegidos.
+                    </span>
+                  </div>
 
-              {/* Botão importar */}
-              {result.tenant_id !== user.tenant_id && (
-                <button
-                  onClick={handleImport}
-                  className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-bold text-white transition-opacity"
-                  style={{ background: C.petrol }}
-                >
-                  <UserPlus size={16} />
-                  Importar Aluno para Minha Base
-                  <ArrowRight size={16} />
-                </button>
+                  {/* Botão de ação principal */}
+                  <button
+                    onClick={handleLink}
+                    className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-bold text-white transition-opacity hover:opacity-90"
+                    style={{ background: C.petrol }}
+                  >
+                    <Link2 size={16} />
+                    Adicionar à minha escola
+                    <ArrowRight size={16} />
+                  </button>
+                </>
               )}
             </div>
           )}
 
-          {/* Passo: importando */}
-          {step === 'importing' && (
+          {/* Vinculando */}
+          {step === 'linking' && (
             <div className="flex flex-col items-center gap-4 py-6 text-center">
               <Loader2 size={40} className="animate-spin" style={{ color: C.petrol }} />
               <div>
-                <p className="font-bold text-base" style={{ color: C.dark }}>Importando aluno...</p>
-                <p className="text-xs mt-1" style={{ color: C.gray }}>Gerando protocolo e enviando notificações.</p>
+                <p className="font-bold text-base" style={{ color: C.dark }}>Criando vínculo...</p>
+                <p className="text-xs mt-1" style={{ color: C.gray }}>
+                  Gerando protocolo de acesso e notificando a escola de origem.
+                </p>
               </div>
             </div>
           )}
 
-          {/* Passo: concluído */}
-          {step === 'done' && imported && (
-            <div className="flex flex-col items-center gap-4 py-6 text-center">
+          {/* Sucesso */}
+          {step === 'done' && linked && (
+            <div className="flex flex-col items-center gap-4 py-4 text-center">
               <div
                 className="w-16 h-16 rounded-full flex items-center justify-center"
                 style={{ background: '#ECFDF5' }}
               >
-                <CheckCircle2 size={36} color="#059669" />
+                {linked.already_exists
+                  ? <UserCheck size={36} color="#059669" />
+                  : <CheckCircle2 size={36} color="#059669" />}
               </div>
               <div>
                 <p className="font-bold text-lg" style={{ color: C.dark }}>
-                  {imported.already_exists ? 'Aluno já importado' : 'Aluno importado!'}
+                  {linked.already_exists ? 'Aluno já vinculado' : 'Vínculo criado!'}
                 </p>
                 <p className="text-sm mt-1" style={{ color: C.gray }}>
-                  {imported.already_exists
-                    ? 'Este aluno já estava na sua base.'
-                    : `${imported.student_name} foi adicionado como Aluno Externo.`}
+                  {linked.already_exists
+                    ? `${linked.student_name} já estava vinculado à sua escola.`
+                    : `${linked.student_name} foi adicionado à sua escola como Aluno Externo.`}
                 </p>
               </div>
 
-              {imported.protocol_code && (
+              {linked.protocol_code && (
                 <div
                   className="w-full rounded-xl p-4 text-center"
                   style={{ background: C.bg, border: `1px solid ${C.border}` }}
@@ -289,13 +303,13 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
                     Protocolo de Acesso
                   </p>
                   <p className="font-mono font-bold text-xl tracking-widest" style={{ color: C.petrol }}>
-                    {imported.protocol_code}
+                    {linked.protocol_code}
                   </p>
                   <p className="text-xs mt-1" style={{ color: C.gray }}>
                     Guarde este código. A escola de origem foi notificada.
                   </p>
                   <button
-                    onClick={() => navigator.clipboard.writeText(imported.protocol_code!)}
+                    onClick={() => navigator.clipboard.writeText(linked.protocol_code!)}
                     className="mt-2 text-xs px-3 py-1 rounded-lg border transition-colors hover:bg-gray-100"
                     style={{ color: C.petrol, borderColor: C.border }}
                   >
@@ -314,7 +328,7 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
             </div>
           )}
 
-          {/* Passo: erro */}
+          {/* Erro */}
           {step === 'error' && (
             <div className="flex flex-col items-center gap-4 py-4 text-center">
               <div
@@ -324,7 +338,7 @@ export const StudentCodeSearchModal: React.FC<Props> = ({ user, onImported, onCl
                 <AlertCircle size={32} color="#DC2626" />
               </div>
               <div>
-                <p className="font-bold text-base" style={{ color: '#DC2626' }}>Erro ao importar</p>
+                <p className="font-bold text-base" style={{ color: '#DC2626' }}>Não foi possível criar o vínculo</p>
                 <p className="text-xs mt-1" style={{ color: C.gray }}>{errorMsg}</p>
               </div>
               <button

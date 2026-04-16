@@ -914,9 +914,9 @@ Entregue em Markdown com:
 4) **Checklist de evidências para avaliação**`;
       const guidance = await aiProvider.generateText(guidancePrompt);
 
-      const imagePrompt = `Ilustração educativa infantil para impressão (A4), traço limpo, alto contraste, poucos elementos, sem texto.
-Tema: ${description}
-Estilo: material pedagógico, amigável, inclusivo, cores suaves, fundo branco, foco no conteúdo principal.`;
+      const imagePrompt = `Pedagogical illustration, pure white background, flat design, minimalist, 2D vector style, clean lines. No text inside the image. No photographic elements.
+Subject: ${description}
+Style: flat vector illustration, soft color palette, well-defined strokes, friendly and inclusive visual.`;
       const imageUrl = await aiProvider.generateImage(imagePrompt);
 
       await this.deductCredits(user, 'ATIVIDADE_IMAGEM', cost);

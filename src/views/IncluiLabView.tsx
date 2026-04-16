@@ -446,11 +446,24 @@ const ChatBubble: React.FC<{
               <span>Gerando {loading} ilustraç{loading > 1 ? 'ões' : 'ão'} com Vertex AI…</span>
             </div>
           );
-          if (errors > 0) return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 12, background: '#FFF7ED', border: '1px solid #FED7AA', fontSize: 12, color: '#92400E' }}>
-              <span style={{ flex: 1 }}>⚠️ {errors} imagem{errors > 1 ? 'ns' : ''} com falha — veja no painel A4 para regenerar.</span>
-            </div>
-          );
+          if (errors > 0) {
+            const errored = phs.filter(p => p.status === 'error');
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 12px', borderRadius: 12, background: '#FFF7ED', border: '1px solid #FED7AA', fontSize: 12, color: '#92400E' }}>
+                {errored.map(ph => (
+                  <div key={ph.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ flex: 1 }}>⚠️ Falha ao gerar: {ph.altText || 'Ilustração pedagógica'}</span>
+                    <button
+                      onClick={() => onPlaceholderRetry(msg.id, ph.id, ph.altText)}
+                      style={{ padding: '4px 12px', borderRadius: 8, background: '#EA580C', color: '#fff', border: 'none', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+                    >
+                      Gerar imagem novamente
+                    </button>
+                  </div>
+                ))}
+              </div>
+            );
+          }
           return null;
         })()}
 
@@ -532,7 +545,7 @@ const A4Preview: React.FC<{
             <img
               src={ph.resolvedUrl}
               alt={alt}
-              style={{ width: '100%', borderRadius: 8, margin: '16px 0', objectFit: 'contain', maxHeight: 280, display: 'block' }}
+              style={{ width: '100%', height: 'auto', borderRadius: 8, margin: '16px 0', display: 'block' }}
             />
           );
         }
@@ -540,7 +553,7 @@ const A4Preview: React.FC<{
         return null;
       }
       // Imagem normal (não placeholder)
-      return <img src={src} alt={alt} style={{ width: '100%', borderRadius: 8, margin: '16px 0', objectFit: 'contain', maxHeight: 280, display: 'block' }} />;
+      return <img src={src} alt={alt} style={{ width: '100%', height: 'auto', borderRadius: 8, margin: '16px 0', display: 'block' }} />;
     },
   }), [imagePlaceholders, onPlaceholderRetry]);
 
@@ -606,7 +619,7 @@ const A4Preview: React.FC<{
         )}
         {/* Imagem única legada (itens da biblioteca salvos antes do fluxo de placeholders) */}
         {imageUrl && !imagePlaceholders?.length && (
-          <img src={imageUrl} alt="ilustração" style={{ width: '100%', borderRadius: 8, marginBottom: 20, objectFit: 'contain', maxHeight: 260 }} />
+          <img src={imageUrl} alt="ilustração" style={{ width: '100%', height: 'auto', borderRadius: 8, marginBottom: 20, display: 'block' }} />
         )}
         <div className="prose" style={{ maxWidth: '100%' }}>
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents as any}>

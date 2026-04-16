@@ -29,7 +29,7 @@ import {
   formatPlanDisplayName,
   formatStudentLimit,
 } from './types';
-import { ShieldCheck, Menu } from 'lucide-react';
+import { ShieldCheck, Menu, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import { DocumentBuilder } from './components/DocumentBuilder';
 import { AdminDashboard } from './views/AdminDashboard';
 import { StudentsListView } from './views/StudentsListView';
@@ -52,7 +52,7 @@ import { getSubscriptionCheckoutUrl } from './services/kiwifyService';
 import { checkPurchaseByEmail, activatePurchaseForUser } from './services/purchaseActivationService';
 import { ActivationView } from './components/ActivationView';
 import { supabase, DEMO_MODE } from './services/supabase';
-import { databaseService } from './services/databaseService';
+import { databaseService, DuplicateStudentError } from './services/databaseService';
 import { ServiceRecordService, AppointmentService } from './services/persistenceService';
 
 // --- Helper ---
@@ -226,6 +226,14 @@ const App: React.FC = () => {
   const [auditResult, setAuditResult] = useState<{ found: boolean; type?: string; studentName?: string; issuedAt?: string; code?: string } | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [showLGPD, setShowLGPD] = useState(false); // inicializado false — verificação real ocorre no _loadAfterAuth
+  // Toast inline — substitui alert() para eventos de vínculo de aluno
+  const [toastMsg, setToastMsg]   = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const _toastTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToastMsg({ text, type });
+    if (_toastTimer.current) clearTimeout(_toastTimer.current);
+    _toastTimer.current = setTimeout(() => setToastMsg(null), 5000);
+  };
   // E-mail pré-preenchido vindo do redirect pós-pagamento da Kiwify (?activate=1&email=...)
   const [activationEmail, setActivationEmail] = useState('');
 
@@ -696,8 +704,19 @@ const App: React.FC = () => {
       setEditingStudent(null);
       setView('students');
     } catch (e: any) {
+      if (e instanceof DuplicateStudentError) {
+        // Código duplicado — mostra mensagem amigável em vez do erro SQL bruto.
+        // O fluxo completo de vínculo é iniciado no StudentCodeSearchModal;
+        // aqui apenas orientamos o professor.
+        showToast(
+          `O código ${e.existingCode} já pertence a outro aluno cadastrado. ` +
+          'Use "Buscar por código" para localizar e vincular o aluno à sua escola.',
+          'error',
+        );
+        return;
+      }
       console.error(e);
-      alert(e?.message || 'Erro ao salvar aluno.');
+      showToast(e?.message || 'Erro ao salvar aluno.', 'error');
     }
   };
 
@@ -1329,9 +1348,11 @@ const App: React.FC = () => {
                   onCreateComLaudo={() => { const s = {} as any; s.tipo_aluno = 'com_laudo'; setEditingStudent(s); }}
                   onStudentImported={(_studentId, protocolCode) => {
                     if (protocolCode) {
-                      alert(`Aluno importado com sucesso!\nProtocolo: ${protocolCode}`);
+                      showToast(`Aluno adicionado à sua escola. Protocolo: ${protocolCode}`);
+                    } else {
+                      showToast('Aluno já vinculado à sua escola.');
                     }
-                    // Recarrega lista de alunos para exibir o recém-importado
+                    // Recarrega lista para incluir o aluno recém-vinculado
                     databaseService.getStudents(user.id).then(s => setStudents(s)).catch(() => {});
                   }}
                   onImportStudents={(importedCount) => {
@@ -1491,6 +1512,31 @@ const App: React.FC = () => {
           onSave={saveStudentFromWizard}
           onClose={() => setShowEnrollmentWizard(false)}
         />
+      )}
+
+      {/* Toast inline — substitui alert() para eventos de vínculo e erros de aluno */}
+      {toastMsg && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] flex items-center gap-3
+                     px-5 py-3 rounded-2xl shadow-xl text-sm font-semibold text-white
+                     animate-fade-in-up max-w-md w-[calc(100%-2rem)]"
+          style={{
+            background: toastMsg.type === 'success' ? '#1F4E5F' : '#DC2626',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          }}
+        >
+          {toastMsg.type === 'success'
+            ? <CheckCircle2 size={18} className="shrink-0" />
+            : <AlertCircle  size={18} className="shrink-0" />}
+          <span className="flex-1">{toastMsg.text}</span>
+          <button
+            onClick={() => setToastMsg(null)}
+            className="opacity-70 hover:opacity-100 transition-opacity ml-2"
+            aria-label="Fechar"
+          >
+            <X size={16} />
+          </button>
+        </div>
       )}
     </ErrorBoundary>
   );

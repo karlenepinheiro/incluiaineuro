@@ -33,10 +33,10 @@ const IMAGEN_MODEL_FAST    = 'imagen-4.0-fast-generate-001';
 
 function buildSafePrompt(userPrompt: string): string {
   return [
-    'Ilustração educativa infantil para impressão pedagógica (A4).',
-    'Traço limpo, alto contraste, poucos elementos visuais, SEM texto na imagem.',
-    'Estilo: livro didático inclusivo, cores suaves, fundo branco, amigável.',
-    `Tema: ${userPrompt}`,
+    'Pedagogical illustration, pure white background, flat design, minimalist, 2D vector style, clean lines.',
+    'No text inside the image. No photographic elements. No realistic shadows. No textured backgrounds.',
+    'Style: flat vector illustration, soft color palette, well-defined strokes, friendly and inclusive visual.',
+    `Subject: ${userPrompt}`,
   ].join(' ');
 }
 

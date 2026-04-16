@@ -15,6 +15,27 @@ import {
 type UUID = string;
 
 // ---------------------------------------------------------------------------
+// Erros estruturados — permitem tratamento inteligente no frontend
+// ---------------------------------------------------------------------------
+
+/**
+ * Lançado quando o banco rejeita um unique_code duplicado (código Postgres 23505).
+ * Em vez de exibir o erro técnico, o frontend deve abrir o fluxo de vínculo.
+ */
+export class DuplicateStudentError extends Error {
+  readonly existingCode: string;
+  constructor(existingCode: string, originalError?: unknown) {
+    super('DUPLICATE_STUDENT_CODE');
+    this.name = 'DuplicateStudentError';
+    this.existingCode = existingCode;
+    // Preserva o stack original para debug
+    if (originalError instanceof Error && originalError.stack) {
+      this.stack = originalError.stack;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -455,6 +476,15 @@ export const databaseService = {
       (String(error.message ?? '').includes('does not exist') ||
        String(error.message ?? '').includes('unknown'));
 
+    // Código único duplicado → lança erro estruturado (não o erro SQL bruto)
+    if ((error as any)?.code === '23505' &&
+        String(error.message).includes('unique_code')) {
+      throw new DuplicateStudentError(
+        String(dbPayload.unique_code ?? student?.unique_code ?? ''),
+        error,
+      );
+    }
+
     if (isMissingColumn) {
       console.warn('[saveStudent] Colunas extras não encontradas — migration pendente. Salvando com schema base.', error.message);
       const EXTRA_COLUMNS = new Set([
@@ -473,7 +503,17 @@ export const databaseService = {
       );
       const { data: data2, error: error2 } = await supabase
         .from('students').upsert(corePayload).select().single();
-      if (error2) throw error2;
+      if (error2) {
+        // Também trata 23505 no fallback
+        if ((error2 as any)?.code === '23505' &&
+            String(error2.message).includes('unique_code')) {
+          throw new DuplicateStudentError(
+            String(corePayload.unique_code ?? student?.unique_code ?? ''),
+            error2,
+          );
+        }
+        throw error2;
+      }
       return data2;
     }
 
@@ -604,16 +644,37 @@ export const databaseService = {
 
   async getStudents(userId?: UUID): Promise<Student[]> {
     const tenantId = await getTenantIdForUser(userId);
-    const { data, error } = await supabase
+
+    // ── 1. Alunos próprios do tenant ────────────────────────────────────────
+    const { data: ownedData, error } = await supabase
       .from('students')
       .select('*')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    // Normaliza colunas DB → campos esperados pelos componentes (legado)
-    return (data ?? []).map((r: any) => ({
+
+    // ── 2. Alunos de outras escolas vinculados via student_tenant_access ────
+    // Usa join implícito do PostgREST (FK: student_tenant_access.student_id → students.id)
+    const { data: linkedData } = await supabase
+      .from('student_tenant_access')
+      .select('access_type, granted_at, students(*)')
+      .eq('tenant_id', tenantId)
+      .order('granted_at', { ascending: false });
+
+    // Achata os alunos vinculados e marca acesso como externo
+    const linkedRows: any[] = (linkedData ?? [])
+      .filter((row: any) => row.students)
+      .map((row: any) => ({
+        ...row.students,
+        // Sobrescreve flag para a UI saber que é vínculo, não aluno próprio
+        is_external: true,
+        _linked_access_type: row.access_type,
+        _linked_at: row.granted_at,
+      }));
+
+    // ── 3. Normaliza ambas as listas com o mesmo mapeamento legado ──────────
+    const normalize = (r: any): any => ({
       ...r,
-      // Campos de identidade
       name:             r.full_name        ?? r.name         ?? '',
       birthDate:        r.birth_date       ?? r.birthDate    ?? '',
       grade:            r.school_year      ?? r.grade        ?? '',
@@ -623,25 +684,20 @@ export const databaseService = {
       guardianName:     r.guardian_name    ?? r.guardianName ?? '',
       guardianPhone:    r.guardian_phone   ?? r.guardianPhone?? '',
       guardianEmail:    r.guardian_email   ?? r.guardianEmail?? '',
-      // tipo_aluno mapeado de student_type (nova coluna) ou legado
       tipo_aluno:       r.student_type     ?? r.tipo_aluno   ?? 'com_laudo',
-      // Diagnóstico: re-junta primary + secondary em array legado
       diagnosis:        r.primary_diagnosis
         ? [r.primary_diagnosis, ...(r.secondary_diagnoses ?? [])]
         : (Array.isArray(r.secondary_diagnoses) ? r.secondary_diagnoses : []),
-      // Habilidades / dificuldades — colunas novas ou legacy
-      abilities:        Array.isArray(r.skills)                ? r.skills                : (Array.isArray(r.abilities)    ? r.abilities    : []),
-      difficulties:     Array.isArray(r.student_difficulties)  ? r.student_difficulties  : (Array.isArray(r.difficulties) ? r.difficulties : []),
-      strategies:       Array.isArray(r.student_strategies)    ? r.student_strategies    : (Array.isArray(r.strategies)   ? r.strategies  : []),
-      documents:        Array.isArray(r.documents)             ? r.documents             : [],
-      cid:              Array.isArray(r.cid_codes)             ? r.cid_codes             : (Array.isArray(r.cid) ? r.cid : (r.cid ? [r.cid] : [])),
-      // Aluno externo
+      abilities:        Array.isArray(r.skills)               ? r.skills               : (Array.isArray(r.abilities)    ? r.abilities    : []),
+      difficulties:     Array.isArray(r.student_difficulties) ? r.student_difficulties : (Array.isArray(r.difficulties) ? r.difficulties : []),
+      strategies:       Array.isArray(r.student_strategies)   ? r.student_strategies   : (Array.isArray(r.strategies)   ? r.strategies   : []),
+      documents:        Array.isArray(r.documents)            ? r.documents            : [],
+      cid:              Array.isArray(r.cid_codes)            ? r.cid_codes            : (Array.isArray(r.cid) ? r.cid : (r.cid ? [r.cid] : [])),
       isExternalStudent:    r.is_external              ?? r.isExternalStudent    ?? false,
       externalSchoolName:   r.external_school_name     ?? r.externalSchoolName   ?? '',
       externalSchoolCity:   r.external_school_city     ?? r.externalSchoolCity   ?? '',
       externalProfessional: r.external_professional    ?? r.externalProfessional ?? '',
       externalReferralSource: r.external_referral_source ?? r.externalReferralSource ?? '',
-      // Campos clínicos / pedagógicos adicionais
       supportLevel:     r.support_level   ?? r.supportLevel  ?? 'Nível 1',
       medication:       r.medical_notes   ?? r.medication    ?? '',
       professionals:    Array.isArray(r.professionals)  ? r.professionals  : [],
@@ -652,7 +708,6 @@ export const databaseService = {
       photoUrl:         r.photo_url       ?? r.photoUrl      ?? '',
       shift:            r.shift           ?? '',
       coordinator:      r.coordinator     ?? '',
-      // Código único + endereço
       unique_code:      r.unique_code     ?? '',
       zipcode:          r.zipcode         ?? '',
       street:           r.street          ?? '',
@@ -661,7 +716,9 @@ export const databaseService = {
       neighborhood:     r.neighborhood    ?? '',
       city:             r.city            ?? '',
       state:            r.state           ?? '',
-    })) as any;
+    });
+
+    return [...(ownedData ?? []), ...linkedRows].map(normalize) as any;
   },
 
   async deleteStudent(studentId: string) {
