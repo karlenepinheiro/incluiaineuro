@@ -4,7 +4,7 @@ import {
   ChevronLeft, ChevronRight,
   MapPin, User, BookOpen, Sparkles, FlaskConical,
   BarChart3, AlertTriangle, TrendingUp, Star, ShieldCheck, Activity,
-  Bell, X as XIcon,
+  Bell, X as XIcon, UserCheck, UserPlus, UserX, PieChart,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Student, Protocol, Appointment } from '../types';
@@ -355,6 +355,111 @@ function AlertCard({ icon: Icon, title, body, color, action, onAction }: {
   );
 }
 
+// ─── Donut Chart (gênero) ─────────────────────────────────────────────────────
+
+function DonutChart({ masc, fem, outro }: { masc: number; fem: number; outro: number }) {
+  const total = masc + fem + outro || 1;
+  const data = [
+    { label: 'Masc.', value: masc,  color: '#0369A1' },
+    { label: 'Fem.',  value: fem,   color: '#7C3AED' },
+    { label: 'Outro', value: outro, color: '#C69214' },
+  ];
+  const r = 38; const cx = 54; const cy = 54; const stroke = 14;
+  let cumAngle = -90;
+  const arcs = data.map(d => {
+    const angle = (d.value / total) * 360;
+    const startAngle = cumAngle;
+    cumAngle += angle;
+    return { ...d, startAngle, sweepAngle: angle };
+  });
+  function polarToCartesian(angle: number) {
+    const rad = (angle * Math.PI) / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  }
+  function describeArc(start: number, sweep: number) {
+    if (sweep >= 360) sweep = 359.99;
+    const s = polarToCartesian(start);
+    const e = polarToCartesian(start + sweep);
+    const large = sweep > 180 ? 1 : 0;
+    return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`;
+  }
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+      <svg width={108} height={108} viewBox="0 0 108 108">
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#F1F5F9" strokeWidth={stroke} />
+        {arcs.map((arc, i) => arc.sweepAngle > 0.5 && (
+          <path key={i} d={describeArc(arc.startAngle, arc.sweepAngle)}
+            fill="none" stroke={arc.color} strokeWidth={stroke} strokeLinecap="round" />
+        ))}
+        <text x={cx} y={cy - 6} textAnchor="middle" fontSize={18} fontWeight={800} fill={C.dark}>{total}</text>
+        <text x={cx} y={cy + 10} textAnchor="middle" fontSize={9} fill={C.textSec}>total</text>
+      </svg>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {data.map(d => (
+          <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: C.textSec }}>{d.label}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: C.dark, marginLeft: 2 }}>{d.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Bar Chart (documentos por tipo) ─────────────────────────────────────────
+
+function DocBarChart({ data }: { data: { label: string; value: number; color: string }[] }) {
+  const max = Math.max(...data.map(d => d.value), 1);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+      {data.map(d => (
+        <div key={d.label}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+            <span style={{ fontSize: 11, color: C.textSec }}>{d.label}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: C.dark }}>{d.value}</span>
+          </div>
+          <div style={{ width: '100%', height: 6, borderRadius: 99, background: d.color + '22', overflow: 'hidden' }}>
+            <div style={{
+              width: `${(d.value / max) * 100}%`, height: '100%',
+              borderRadius: 99, background: d.color,
+              transition: 'width 0.7s ease-out',
+            }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Sparkline (produção mensal) ──────────────────────────────────────────────
+
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  const W = 200; const H = 48;
+  const max = Math.max(...values, 1);
+  const pts = values.map((v, i) => ({
+    x: (i / (values.length - 1)) * W,
+    y: H - (v / max) * (H - 8),
+  }));
+  const polyline = pts.map(p => `${p.x},${p.y}`).join(' ');
+  const area = `M${pts[0].x},${H} ` + pts.map(p => `L${p.x},${p.y}`).join(' ') + ` L${pts[pts.length-1].x},${H} Z`;
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ overflow: 'visible' }}>
+      <defs>
+        <linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.20" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={area} fill="url(#spark-fill)" />
+      <polyline points={polyline} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+      {pts[pts.length - 1] && (
+        <circle cx={pts[pts.length-1].x} cy={pts[pts.length-1].y} r={3.5} fill={color} />
+      )}
+    </svg>
+  );
+}
+
 // ─── Main Export ──────────────────────────────────────────────────────────────
 
 export function DashboardView({
@@ -439,6 +544,65 @@ export function DashboardView({
     const finals = protocols.filter(p => p.status === 'FINAL').length;
     const drafts = protocols.filter(p => p.status === 'DRAFT').length;
     return { total: protocols.length, finals, drafts };
+  }, [protocols]);
+
+  // ── KPIs de alunos ──────────────────────────────────────────────────────────
+  const studentKpis = useMemo(() => {
+    const now = new Date();
+    const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+    const active   = students.filter(s => (s as any).status !== 'inativo' && (s as any).status !== 'externo').length;
+    const newMonth = students.filter(s => (s as any).createdAt >= firstOfMonth || (s as any).created_at >= firstOfMonth).length;
+    const incomplete = students.filter(s => !s.diagnosis && !(s as any).laudo).length;
+    const triagem  = students.filter(s => (s as any).status === 'triagem' || (s as any).inTriagem).length;
+    const external = students.filter(s => (s as any).status === 'externo').length;
+    const withReport = students.filter(s => !!(s as any).laudo || !!(s as any).report).length;
+
+    const masc  = students.filter(s => (s as any).gender === 'M' || (s as any).genero === 'masculino').length;
+    const fem   = students.filter(s => (s as any).gender === 'F' || (s as any).genero === 'feminino').length;
+    const outro = students.length - masc - fem;
+
+    // faixas etárias
+    const ageGroups = { 'até 6': 0, '7–10': 0, '11–14': 0, '15–17': 0, '18+': 0 };
+    students.forEach(s => {
+      const age = (s as any).age ?? (s as any).idade;
+      if (!age) return;
+      const n = Number(age);
+      if (n <= 6) ageGroups['até 6']++;
+      else if (n <= 10) ageGroups['7–10']++;
+      else if (n <= 14) ageGroups['11–14']++;
+      else if (n <= 17) ageGroups['15–17']++;
+      else ageGroups['18+']++;
+    });
+
+    return { active, newMonth, incomplete, triagem, external, withReport, masc, fem, outro, ageGroups };
+  }, [students]);
+
+  // ── KPIs de documentos por tipo ─────────────────────────────────────────────
+  const docKpis = useMemo(() => {
+    const byType = (t: string) => protocols.filter(p => p.type?.toUpperCase().includes(t)).length;
+    return {
+      pei:        byType('PEI'),
+      paee:       byType('PAEE'),
+      pdi:        byType('PDI'),
+      estudo:     byType('ESTUDO'),
+      relatorios: byType('RELAT'),
+    };
+  }, [protocols]);
+
+  // ── Produção mensal (últimos 6 meses) ────────────────────────────────────────
+  const monthlyProduction = useMemo(() => {
+    const now = new Date();
+    const months: number[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const m = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const next = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+      months.push(protocols.filter(p => {
+        const d = new Date(p.createdAt);
+        return d >= m && d < next;
+      }).length);
+    }
+    return months;
   }, [protocols]);
 
   const recent = useMemo(
@@ -660,6 +824,74 @@ export function DashboardView({
           color={C.violet}
           onClick={() => onNavigate?.('protocols')}
         />
+      </div>
+
+      {/* ── KPIs de Alunos ───────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-sm font-bold mb-3" style={{ color: C.dark }}>Painel de Alunos</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
+          <StatCard icon={UserCheck}  label="Alunos ativos"       value={studentKpis.active}     color={C.emerald} onClick={() => onNavigate?.('students')} />
+          <StatCard icon={UserPlus}   label="Novos este mês"      value={studentKpis.newMonth}   color={C.blue} />
+          <StatCard icon={UserX}      label="Cadastro incompleto" value={studentKpis.incomplete} color={C.amber}
+            sub="Sem diagnóstico ou laudo" onClick={() => onNavigate?.('students')} />
+          <StatCard icon={Activity}   label="Em triagem"          value={studentKpis.triagem}    color={C.violet} onClick={() => onNavigate?.('triagem')} />
+          <StatCard icon={ShieldCheck} label="Com laudo"          value={studentKpis.withReport} color={C.petrol} />
+        </div>
+      </div>
+
+      {/* ── KPIs de Documentos ───────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-sm font-bold mb-3" style={{ color: C.dark }}>Documentos Gerados</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
+          <StatCard icon={FileText} label="PEIs gerados"       value={docKpis.pei}        color={C.violet}  onClick={() => onNavigate?.('protocols')} />
+          <StatCard icon={FileText} label="PAEEs gerados"      value={docKpis.paee}       color={C.blue}    onClick={() => onNavigate?.('paee')} />
+          <StatCard icon={FileText} label="PDIs gerados"       value={docKpis.pdi}        color={C.emerald} onClick={() => onNavigate?.('protocols')} />
+          <StatCard icon={FileText} label="Estudos de Caso"    value={docKpis.estudo}     color={C.gold}    onClick={() => onNavigate?.('estudo_caso')} />
+          <StatCard icon={BarChart3} label="Relatórios"        value={docKpis.relatorios} color={C.petrol}  onClick={() => onNavigate?.('reports')} />
+        </div>
+      </div>
+
+      {/* ── Gráficos analíticos ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        {/* Gênero */}
+        <div className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+          <div className="flex items-center gap-2 mb-4">
+            <PieChart size={14} style={{ color: C.petrol }} />
+            <h3 className="text-sm font-bold" style={{ color: C.dark }}>Distribuição por Gênero</h3>
+          </div>
+          <DonutChart masc={studentKpis.masc} fem={studentKpis.fem} outro={Math.max(0, studentKpis.outro)} />
+        </div>
+
+        {/* Documentos por tipo */}
+        <div className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 size={14} style={{ color: C.violet }} />
+            <h3 className="text-sm font-bold" style={{ color: C.dark }}>Documentos por Tipo</h3>
+          </div>
+          <DocBarChart data={[
+            { label: 'PEI',          value: docKpis.pei,        color: C.violet  },
+            { label: 'PAEE',         value: docKpis.paee,       color: C.blue    },
+            { label: 'PDI',          value: docKpis.pdi,        color: C.emerald },
+            { label: 'Estudo Caso',  value: docKpis.estudo,     color: C.gold    },
+            { label: 'Relatórios',   value: docKpis.relatorios, color: C.petrol  },
+          ]} />
+        </div>
+
+        {/* Produção mensal */}
+        <div className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp size={14} style={{ color: C.emerald }} />
+            <h3 className="text-sm font-bold" style={{ color: C.dark }}>Produção Mensal</h3>
+          </div>
+          <p className="text-[11px] mb-3" style={{ color: C.textSec }}>Documentos gerados — últimos 6 meses</p>
+          <Sparkline values={monthlyProduction} color={C.emerald} />
+          <div className="flex justify-between mt-1">
+            {['5m atrás','4m','3m','2m','1m','Atual'].map(l => (
+              <span key={l} style={{ fontSize: 9, color: C.textSec }}>{l}</span>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* ── Quick Actions ──────────────────────────────────────────────────── */}

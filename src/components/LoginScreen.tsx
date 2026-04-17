@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Brain, ShieldCheck, Users, Zap, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { BrandLogo } from './BrandLogo';
 
 // ── Google icon SVG inline (sem dependência extra) ────────────────────────────
 const GoogleIcon: React.FC<{ size?: number }> = ({ size = 18 }) => (
@@ -120,12 +121,9 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
             initial={{ opacity: 0, y: -16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="flex items-center gap-3 mb-14"
+            className="mb-14"
           >
-            <div className="bg-white/10 p-2.5 rounded-xl border border-white/10">
-              <Brain className="text-white h-7 w-7" />
-            </div>
-            <span className="text-2xl font-bold text-white tracking-tight">IncluiAI</span>
+            <BrandLogo fontSize={22} iconSize={22} theme="dark" />
           </motion.div>
 
           <motion.div
@@ -174,11 +172,8 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
           className="w-full max-w-md"
         >
           {/* Mobile logo */}
-          <div className="flex items-center gap-2 mb-8 md:hidden">
-            <div className="p-2 rounded-lg" style={{ background: '#1F4E5F' }}>
-              <Brain className="text-white h-5 w-5" />
-            </div>
-            <span className="text-xl font-bold" style={{ color: '#1F4E5F' }}>IncluiAI</span>
+          <div className="mb-8 md:hidden">
+            <BrandLogo fontSize={20} iconSize={18} theme="light" />
           </div>
 
           {/* Aviso de upgrade pendente */}

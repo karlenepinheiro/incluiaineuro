@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  Brain, ShieldCheck, FileText, ArrowRight,
+  ShieldCheck, FileText, ArrowRight,
   CheckCircle, Lock, Phone,
   Zap, Sparkles, X, AlertTriangle, FolderX,
-  BarChart3, Layers,
-  BookOpen, MessageSquare, TrendingUp,
+  Layers,
+  TrendingUp,
   Target, Clock, Trash2,
-  Database, PieChart, Cpu, Users, Star, Award,
+  Database, PieChart, Users, Star, Award,
   ChevronDown, ChevronUp
 } from 'lucide-react';
 import { SiteConfig } from '../types';
@@ -14,6 +14,7 @@ import { AdminService } from '../services/adminService';
 import { LandingService } from '../services/landingService';
 import { PricingSection } from '../components/PricingSection';
 import Hero from '../components/Hero';
+import { BrandLogo } from '../components/BrandLogo';
 
 interface Props {
   onLogin: () => void;
@@ -368,12 +369,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
         backdropFilter: 'blur(16px)',
       }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 28px', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-            <div style={{ background: P.blue, padding: 7, borderRadius: 9 }}>
-              <Brain size={17} color="white" />
-            </div>
-            <span style={{ fontSize: 17, fontWeight: 800, color: P.ink, letterSpacing: '-0.025em' }}>IncluiAI</span>
-          </div>
+          <BrandLogo fontSize={17} iconSize={17} theme="light" />
           <nav className="lp-nav" style={{ display: 'flex', gap: 28, alignItems: 'center' }}>
             <a href="#problema"     onClick={e => scrollTo(e, 'problema')}     className="nav-link">O Problema</a>
             <a href="#solucao"      onClick={e => scrollTo(e, 'solucao')}      className="nav-link">Solução</a>
@@ -516,7 +512,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
                 <p style={{ fontSize: 18, fontWeight: 800, color: P.slate, marginBottom: 4 }}>
                   Isso não é problema de organização pessoal.
                 </p>
-                <p style={{ fontSize: 14, color: P.muted }}>É falta de um sistema que trabalhe por você. O IncluiAI foi feito exatamente para isso.</p>
+                <p style={{ fontSize: 14, color: P.muted }}>É falta de um sistema que trabalhe por você. <strong>Pare de preencher. Comece a transformar.</strong></p>
               </div>
               <button onClick={onLogin} className="btn-blue" style={{
                 fontSize: 15, padding: '13px 26px', borderRadius: 10,
@@ -633,12 +629,12 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
                 color: P.ink, letterSpacing: '-0.03em', lineHeight: 1.12,
                 marginBottom: 18,
               }}>
-                Base de dados, KPIs e documentos<br />
-                <span style={{ color: P.greenDark }}>que trabalham por você.</span>
+                Pense. Crie. Inclua.<br />
+                <span style={{ color: P.greenDark }}>IA que entende o professor.</span>
               </h2>
               <p style={{ fontSize: 16, color: P.muted, lineHeight: 1.72 }}>
-                Tudo centralizado. Tudo padronizado. Tudo acessível em segundos.
-                Decisões precisas baseadas em dados reais — não em impressões.
+                IA que entende o professor e transforma o ensino inclusivo.<br />
+                Menos papel. Mais impacto na vida do aluno.
               </p>
             </div>
 
@@ -1005,13 +1001,17 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
                 </span>
               </div>
 
-              <h2 style={{ fontSize: 'clamp(30px, 5vw, 58px)', fontWeight: 900, color: 'white', letterSpacing: '-0.04em', lineHeight: 1.08, marginBottom: 22 }}>
+              <h2 style={{ fontSize: 'clamp(30px, 5vw, 58px)', fontWeight: 900, color: 'white', letterSpacing: '-0.04em', lineHeight: 1.08, marginBottom: 16 }}>
                 Cada hora gasta com burocracia<br />
                 <span style={{ color: P.gold }}>é uma hora longe do seu aluno.</span>
               </h2>
 
+              <p style={{ fontSize: 22, fontWeight: 800, color: P.gold, letterSpacing: '-0.02em', marginBottom: 20 }}>
+                Inclua com Inteligência.
+              </p>
+
               <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.72)', lineHeight: 1.72, maxWidth: 500, margin: '0 auto 52px' }}>
-                Mais de 1.800 professores já pararam de perder tempo com papeis e kits que não funcionam. Agora é a sua vez.
+                Mais de 1.800 professores já pararam de perder tempo com papelório. Agora é a sua vez.
               </p>
 
               <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 28 }}>
@@ -1105,12 +1105,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
       <footer style={{ background: P.slate, borderTop: `1px solid rgba(255,255,255,0.06)`, padding: '44px 0' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 28px' }}>
           <div className="footer-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 20, marginBottom: 28 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ background: P.blue, padding: 6, borderRadius: 8 }}>
-                <Brain size={16} color="white" />
-              </div>
-              <span style={{ fontWeight: 800, fontSize: 16, color: '#F1F5F9', letterSpacing: '-0.02em' }}>IncluiAI</span>
-            </div>
+            <BrandLogo fontSize={16} iconSize={16} theme="dark" />
             <div style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
               <button onClick={onAudit} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#94A3B8', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', transition: 'color 0.15s' }}
                 onMouseEnter={e => (e.currentTarget.style.color = '#CBD5E1')}
