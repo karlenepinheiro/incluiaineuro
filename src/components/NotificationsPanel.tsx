@@ -3,7 +3,7 @@
  * Painel de notificações flutuante (sino no header/sidebar).
  * Mostra notificações do sistema: importação de alunos, acessos ao prontuário, etc.
  */
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Bell, X, CheckCheck, ShieldAlert, UserPlus, ChevronRight, Loader2 } from 'lucide-react';
 import { StudentSearchService, type AppNotification } from '../services/studentSearchService';
 
@@ -48,6 +48,8 @@ export const NotificationsPanel: React.FC<Props> = ({ refreshTrigger }) => {
   const [unread, setUnread]         = useState(0);
   const [loading, setLoading]       = useState(false);
   const [marking, setMarking]       = useState(false);
+  const [panelPos, setPanelPos]     = useState({ top: 0, right: 0 });
+  const buttonRef                   = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,9 +78,23 @@ export const NotificationsPanel: React.FC<Props> = ({ refreshTrigger }) => {
     return () => clearInterval(id);
   }, []);
 
+  // Fecha ao trocar de página (escuta popstate e também qualquer clique em nav-item)
+  useEffect(() => {
+    const close = () => setOpen(false);
+    window.addEventListener('popstate', close);
+    return () => window.removeEventListener('popstate', close);
+  }, []);
+
   const handleOpen = () => {
+    if (!open && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setPanelPos({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      });
+      load();
+    }
     setOpen(o => !o);
-    if (!open) load();
   };
 
   const handleMarkAllRead = async () => {
@@ -100,6 +116,7 @@ export const NotificationsPanel: React.FC<Props> = ({ refreshTrigger }) => {
     <div className="relative">
       {/* Botão sino */}
       <button
+        ref={buttonRef}
         onClick={handleOpen}
         className="relative flex items-center justify-center w-9 h-9 rounded-xl transition-colors hover:bg-white/10"
         title="Notificações"
@@ -125,8 +142,14 @@ export const NotificationsPanel: React.FC<Props> = ({ refreshTrigger }) => {
           />
 
           <div
-            className="absolute right-0 top-11 z-50 w-80 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-            style={{ background: C.surface, border: `1px solid ${C.border}` }}
+            className="fixed z-50 w-80 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+            style={{
+              background: C.surface,
+              border: `1px solid ${C.border}`,
+              top: panelPos.top,
+              right: panelPos.right,
+              maxWidth: 320,
+            }}
           >
             {/* Header do painel */}
             <div
