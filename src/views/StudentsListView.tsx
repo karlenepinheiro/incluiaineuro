@@ -348,7 +348,9 @@ function StudentCard({
             style={{
               background: s.photoUrl
                 ? undefined
-                : `linear-gradient(135deg,${isTriagem ? '#F59E0B' : C.petrol},${isTriagem ? '#FCD34D' : C.dark})`,
+                : isIncomplete
+                  ? `linear-gradient(135deg,${C.red},#F87171)`
+                  : `linear-gradient(135deg,${isTriagem ? '#F59E0B' : C.petrol},${isTriagem ? '#FCD34D' : C.dark})`,
             }}
           >
             {s.photoUrl ? (

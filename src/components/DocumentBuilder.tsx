@@ -115,6 +115,18 @@ const QRCodeRenderer: React.FC<{ code: string }> = ({ code }) => {
   return <canvas ref={canvasRef} width={80} height={80} className="border border-gray-100 rounded" title={url} />;
 };
 
+// ─── Grupos semânticos para agrupamento de campos de modelo salvo ─────────────
+const TAG_SECTION_GROUPS: Array<{ id: string; title: string; tags: string[] }> = [
+  { id: 'tmpl_hist',  title: 'Histórico e Contexto',          tags: ['{{historico_escolar}}', '{{contexto_familiar}}', '{{medicacao}}', '{{responsavel}}', '{{telefone_responsavel}}'] },
+  { id: 'tmpl_diag',  title: 'Diagnóstico e Condição',        tags: ['{{diagnostico}}', '{{cid}}', '{{nivel_suporte}}'] },
+  { id: 'tmpl_hab',   title: 'Habilidades e Potencialidades', tags: ['{{habilidades}}', '{{comunicacao}}'] },
+  { id: 'tmpl_dif',   title: 'Dificuldades e Desafios',       tags: ['{{dificuldades}}'] },
+  { id: 'tmpl_metas', title: 'Metas e Objetivos',             tags: ['{{metas}}'] },
+  { id: 'tmpl_strat', title: 'Estratégias e Recursos',        tags: ['{{estrategias}}', '{{recursos}}'] },
+  { id: 'tmpl_aval',  title: 'Avaliação e Resultados',        tags: ['{{avaliacao}}'] },
+  { id: 'tmpl_obs',   title: 'Observações',                   tags: ['{{observacoes}}'] },
+];
+
 // ─── Aviso PEI Orientador ─────────────────────────────────────────────────────
 const PEIGuidanceBanner: React.FC = () => (
   <div className="w-full bg-amber-50 border-b border-amber-200 p-3 print:hidden">
@@ -149,6 +161,10 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
   const [isEditing, setIsEditing] = useState(initialProtocol ? initialProtocol.status !== 'FINAL' : true); 
   const [isUploading, setIsUploading] = useState(false);
   const [showStoredTemplateSelector, setShowStoredTemplateSelector] = useState(false);
+  const [pendingTemplate, setPendingTemplate] = useState<SchoolTemplate | null>(null);
+  const [showTemplateModeModal, setShowTemplateModeModal] = useState(false);
+  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
+  const [studentQuery, setStudentQuery] = useState('');
 
   // ── Verificação de plano Premium ─────────────────────────────────────────────
   const isPremiumUser = ['MASTER', 'PREMIUM', 'INSTITUTIONAL'].includes(user.plan as string);
@@ -306,8 +322,8 @@ const planLimits = getPlanLimits(user.plan);
 
   const [isReducedMode, setIsReducedMode] = useState(true); // Padrão: versão reduzida
 
-  const loadTemplate = (docType: DocumentType, reduced = true) => {
-    if (!selectedStudent) return;
+  const buildStandardSections = (docType: DocumentType, reduced = true): DocSection[] => {
+    if (!selectedStudent) return [];
     const school = user.schoolConfigs.find(s => s.id === selectedStudent.schoolId);
     
     const commonHeader: DocSection = {
@@ -381,11 +397,7 @@ const planLimits = getPlanLimits(user.plan);
           ]},
         );
       }
-      setSections(template);
-      setIsReducedMode(true);
-      setStep('editor');
-      setIsEditing(true);
-      return;
+      return template;
     }
 
     // ── VERSÃO COMPLETA ───────────────────────────────────────────────────────
@@ -551,8 +563,14 @@ const planLimits = getPlanLimits(user.plan);
         template.push({ id: 'gen', title: 'Conteúdo', fields: [{ id: '1', label: 'Descrição', type: 'textarea', value: '', allowAudio: 'optional' }] });
     }
 
-    setSections(template);
-    setIsReducedMode(false);
+    return template;
+  };
+
+  const loadTemplate = (docType: DocumentType, reduced = true) => {
+    if (!selectedStudent) return;
+    const built = buildStandardSections(docType, reduced);
+    setSections(built);
+    setIsReducedMode(reduced);
     setStep('editor');
     setIsEditing(true);
   };
@@ -875,93 +893,151 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
       }
   };
 
-  /**
-   * Aplica um modelo da biblioteca Premium como base do documento.
-   * Usa os metadados já processados (tagsInjected) para montar as seções
-   * sem necessidade de nova análise IA — zero consumo adicional de créditos.
-   */
+  // Abre o modal de seleção de modo (substituir vs mesclar)
   const handleUseStoredTemplate = (template: SchoolTemplate) => {
     if (!selectedStudent) return;
     setShowStoredTemplateSelector(false);
+    setPendingTemplate(template);
+    setShowTemplateModeModal(true);
+  };
+
+  // Aplica o modelo conforme o modo escolhido pelo usuário
+  const handleApplyTemplateMode = (mode: 'replace' | 'merge') => {
+    if (!pendingTemplate || !selectedStudent) return;
+    setShowTemplateModeModal(false);
 
     const school = user.schoolConfigs?.find(s => s.id === selectedStudent.schoolId);
 
-    // Mapa de valores reais do aluno para as tags padrão
     const tagValues: Record<string, string> = {
-      '{{nome_estudante}}':         selectedStudent.name,
-      '{{data_nascimento}}':        new Date(selectedStudent.birthDate).toLocaleDateString(),
-      '{{idade}}':                  String(new Date().getFullYear() - new Date(selectedStudent.birthDate).getFullYear()),
-      '{{escola}}':                 school?.schoolName || '',
-      '{{turma}}':                  selectedStudent.grade || '',
-      '{{turno}}':                  selectedStudent.shift || '',
-      '{{professor_regente}}':      selectedStudent.regentTeacher || '',
-      '{{professor_aee}}':          selectedStudent.aeeTeacher || '',
-      '{{coordenador}}':            selectedStudent.coordinator || '',
-      '{{diagnostico}}':            (selectedStudent.diagnosis || []).join(', '),
-      '{{habilidades}}':            (selectedStudent.abilities || []).join('\n'),
-      '{{dificuldades}}':           (selectedStudent.difficulties || []).join('\n'),
-      '{{historico_escolar}}':      selectedStudent.schoolHistory || '',
-      '{{contexto_familiar}}':      selectedStudent.familyContext  || '',
-      '{{medicacao}}':              selectedStudent.medication     || '',
-      '{{data_elaboracao}}':        new Date().toLocaleDateString(),
+      '{{nome_estudante}}':           selectedStudent.name,
+      '{{data_nascimento}}':          new Date(selectedStudent.birthDate).toLocaleDateString(),
+      '{{idade}}':                    String(new Date().getFullYear() - new Date(selectedStudent.birthDate).getFullYear()),
+      '{{escola}}':                   school?.schoolName || '',
+      '{{turma}}':                    selectedStudent.grade || '',
+      '{{turno}}':                    selectedStudent.shift || '',
+      '{{professor_regente}}':        selectedStudent.regentTeacher || '',
+      '{{professor_aee}}':            selectedStudent.aeeTeacher || '',
+      '{{coordenador}}':              selectedStudent.coordinator || '',
+      '{{diagnostico}}':              (selectedStudent.diagnosis || []).join(', '),
+      '{{habilidades}}':              (selectedStudent.abilities || []).join('\n'),
+      '{{dificuldades}}':             (selectedStudent.difficulties || []).join('\n'),
+      '{{historico_escolar}}':        selectedStudent.schoolHistory || '',
+      '{{contexto_familiar}}':        selectedStudent.familyContext  || '',
+      '{{medicacao}}':                selectedStudent.medication     || '',
+      '{{data_elaboracao}}':          new Date().toLocaleDateString(),
       '{{profissional_responsavel}}': user.name || '',
     };
 
-    // Seção de identificação — sempre presente
     const headerSection: DocSection = {
       id: 'header',
       title: 'Identificação',
       fields: [
-        { id: 'name',   label: 'Nome do Aluno',    type: 'text', value: selectedStudent.name,                                      allowAudio: 'none' },
-        { id: 'age',    label: 'Data de Nascimento',type: 'text', value: new Date(selectedStudent.birthDate).toLocaleDateString(), allowAudio: 'none' },
-        { id: 'school', label: 'Unidade Escolar',  type: 'text', value: school?.schoolName || '',                                  allowAudio: 'none' },
-        { id: 'grade',  label: 'Ano/Série',         type: 'text', value: `${selectedStudent.grade} - ${selectedStudent.shift}`,    allowAudio: 'none' },
-        { id: 'regent', label: 'Professor Regente', type: 'text', value: selectedStudent.regentTeacher || '',                      allowAudio: 'none' },
-        { id: 'aee',    label: 'Prof. AEE',          type: 'text', value: selectedStudent.aeeTeacher || '',                        allowAudio: 'none' },
+        { id: 'name',   label: 'Nome do Aluno',      type: 'text', value: selectedStudent.name,                                      allowAudio: 'none' },
+        { id: 'age',    label: 'Data de Nascimento',  type: 'text', value: new Date(selectedStudent.birthDate).toLocaleDateString(), allowAudio: 'none' },
+        { id: 'school', label: 'Unidade Escolar',    type: 'text', value: school?.schoolName || '',                                  allowAudio: 'none' },
+        { id: 'grade',  label: 'Ano/Série',           type: 'text', value: `${selectedStudent.grade} - ${selectedStudent.shift}`,    allowAudio: 'none' },
+        { id: 'regent', label: 'Professor Regente',   type: 'text', value: selectedStudent.regentTeacher || '',                      allowAudio: 'none' },
+        { id: 'aee',    label: 'Prof. AEE',            type: 'text', value: selectedStudent.aeeTeacher || '',                        allowAudio: 'none' },
       ],
     };
 
-    // Campos derivados das tags encontradas no modelo
-    const contentTags = (template.tagsInjected || []).filter(t => t.found);
     const identTagSet = new Set([
       '{{nome_estudante}}', '{{data_nascimento}}', '{{idade}}',
       '{{escola}}', '{{turma}}', '{{turno}}', '{{professor_regente}}',
       '{{professor_aee}}', '{{coordenador}}', '{{data_elaboracao}}',
       '{{profissional_responsavel}}',
     ]);
-    const contentFields = contentTags
-      .filter(t => !identTagSet.has(t.tag))
-      .map((t, i) => ({
-        id:       `tmpl_${i}`,
-        label:    t.label,
-        type:     'textarea' as const,
-        value:    tagValues[t.tag] || '',
-        allowAudio: 'optional' as const,
-        placeholder: `Preencha: ${t.label}`,
-      }));
+    const contentTags = (pendingTemplate.tagsInjected || []).filter(t => t.found && !identTagSet.has(t.tag));
 
-    // Se o modelo tiver campos de conteúdo, usamos. Caso contrário usamos
-    // o template padrão do tipo de documento (fallback didático).
-    if (contentFields.length > 0) {
-      const templateSection: DocSection = {
-        id:     'template_fields',
-        title:  `Campos do Modelo — ${template.name}`,
-        fields: contentFields,
-      };
-      const built = [headerSection, templateSection];
-      setSections(built);
-      setStep('editor');
-      setIsEditing(true);
-      onSave(
-        { sections: built, templateId: template.id } as any,
-        selectedStudent,
-        `Modelo da biblioteca: ${template.name}`,
-        'DRAFT',
-      );
-    } else {
-      // Fallback: estrutura padrão do tipo de documento
+    if (contentTags.length === 0) {
+      // Nenhum campo de conteúdo → fallback para estrutura padrão
       loadTemplate(type, isReducedMode);
+      setPendingTemplate(null);
+      return;
     }
+
+    let built: DocSection[];
+
+    if (mode === 'replace') {
+      // Agrupa os campos do modelo em seções semânticas
+      const allGroupedTags = new Set(TAG_SECTION_GROUPS.flatMap(g => g.tags));
+      const semanticSections: DocSection[] = [];
+
+      for (const group of TAG_SECTION_GROUPS) {
+        const groupTags = contentTags.filter(t => group.tags.includes(t.tag));
+        if (groupTags.length === 0) continue;
+        semanticSections.push({
+          id: group.id,
+          title: group.title,
+          fields: groupTags.map((t, i) => ({
+            id:          `${group.id}_${i}`,
+            label:       t.label,
+            type:        'textarea' as const,
+            value:       tagValues[t.tag] || '',
+            allowAudio:  'optional' as const,
+            placeholder: `Preencha: ${t.label}`,
+          })),
+        });
+      }
+
+      // Tags fora dos grupos semânticos → "Informações Complementares"
+      const unclassified = contentTags.filter(t => !allGroupedTags.has(t.tag));
+      if (unclassified.length > 0) {
+        semanticSections.push({
+          id: 'tmpl_extra',
+          title: 'Informações Complementares',
+          fields: unclassified.map((t, i) => ({
+            id:          `tmpl_extra_${i}`,
+            label:       t.label,
+            type:        'textarea' as const,
+            value:       tagValues[t.tag] || '',
+            allowAudio:  'optional' as const,
+            placeholder: `Preencha: ${t.label}`,
+          })),
+        });
+      }
+
+      // Fallback se nenhum grupo semântico correspondeu
+      const contentSections = semanticSections.length > 0
+        ? semanticSections
+        : [{
+            id: 'template_fields',
+            title: `Campos do Modelo — ${pendingTemplate.name}`,
+            fields: contentTags.map((t, i) => ({
+              id: `tmpl_${i}`, label: t.label, type: 'textarea' as const,
+              value: tagValues[t.tag] || '', allowAudio: 'optional' as const,
+              placeholder: `Preencha: ${t.label}`,
+            })),
+          }];
+
+      built = [headerSection, ...contentSections];
+
+    } else {
+      // Mesclar: estrutura padrão + campos do modelo ao final
+      const stdSections = buildStandardSections(type, isReducedMode);
+      const templateSection: DocSection = {
+        id: 'template_fields',
+        title: `Campos do Modelo — ${pendingTemplate.name}`,
+        fields: contentTags.map((t, i) => ({
+          id: `tmpl_${i}`, label: t.label, type: 'textarea' as const,
+          value: tagValues[t.tag] || '', allowAudio: 'optional' as const,
+          placeholder: `Preencha: ${t.label}`,
+        })),
+      };
+      built = [...stdSections, templateSection];
+      setIsReducedMode(isReducedMode);
+    }
+
+    setSections(built);
+    setStep('editor');
+    setIsEditing(true);
+    onSave(
+      { sections: built, templateId: pendingTemplate.id } as any,
+      selectedStudent,
+      `Modelo (${mode === 'replace' ? 'substituir' : 'mesclar'}): ${pendingTemplate.name}`,
+      'DRAFT',
+    );
+    setPendingTemplate(null);
   };
 
   const handlePrint = () => window.print();
@@ -996,6 +1072,92 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
           console.error(e);
           alert('Erro ao gerar PDF.');
       }
+  };
+
+  // ── Troca de aluno com autocomplete ─────────────────────────────────────────
+
+  const handleSwitchStudent = (student: Student) => {
+    setSelectedStudent(student);
+    setShowStudentDropdown(false);
+    setStudentQuery('');
+    if (step === 'editor') {
+      setSections([]);
+      setCurrentAuditCode('');
+      setStep('select_mode');
+    }
+  };
+
+  const StudentSwitcher: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+    const filtered = allStudents
+      .filter(s => s.name.toLowerCase().includes(studentQuery.toLowerCase()))
+      .slice(0, 8);
+
+    return (
+      <div className="relative">
+        <button
+          onClick={() => { setShowStudentDropdown(v => !v); setStudentQuery(''); }}
+          className={compact
+            ? 'flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-gray-100 transition group'
+            : 'flex items-center gap-3 px-3 py-2.5 bg-white border border-gray-200 rounded-xl hover:border-brand-400 hover:shadow-sm transition w-full max-w-xs'}
+        >
+          <div className={`rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold shrink-0 ${compact ? 'w-8 h-8 text-sm' : 'w-9 h-9 text-base'}`}>
+            {selectedStudent?.name.charAt(0)}
+          </div>
+          <div className="text-left min-w-0">
+            <p className={`font-bold text-gray-800 truncate leading-tight ${compact ? 'text-sm' : 'text-sm'}`}>{selectedStudent?.name}</p>
+            {!compact && selectedStudent?.grade && (
+              <p className="text-xs text-gray-400 truncate">{selectedStudent.grade}</p>
+            )}
+          </div>
+          <svg className={`shrink-0 text-gray-400 transition-transform ${showStudentDropdown ? 'rotate-180' : ''} ${compact ? 'ml-0.5' : 'ml-auto'}`} width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M3 5l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+
+        {showStudentDropdown && (
+          <>
+            {/* Backdrop transparente para fechar ao clicar fora */}
+            <div className="fixed inset-0 z-40" onClick={() => setShowStudentDropdown(false)} />
+            <div className="absolute top-full left-0 mt-1.5 w-72 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
+              <div className="p-2 border-b border-gray-100">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                  <input
+                    autoFocus
+                    className="w-full pl-8 pr-3 py-2 text-sm rounded-lg border border-gray-200 focus:ring-2 focus:ring-brand-400 outline-none bg-gray-50"
+                    placeholder="Digitar nome do aluno…"
+                    value={studentQuery}
+                    onChange={e => setStudentQuery(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="max-h-60 overflow-y-auto">
+                {filtered.length === 0 ? (
+                  <p className="text-sm text-gray-400 p-4 text-center">Nenhum aluno encontrado</p>
+                ) : filtered.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => handleSwitchStudent(s)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 hover:bg-brand-50 transition text-left ${s.id === selectedStudent?.id ? 'bg-brand-50' : ''}`}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-700 font-bold text-sm shrink-0">
+                      {s.name.charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">{s.name}</p>
+                      {s.grade && <p className="text-xs text-gray-400 truncate">{s.grade}</p>}
+                    </div>
+                    {s.id === selectedStudent?.id && (
+                      <CheckCircle size={14} className="text-brand-500 ml-auto shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
   };
 
   // --- RENDER STEPS ---
@@ -1095,8 +1257,12 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
     return (
         <div className="max-w-4xl mx-auto py-12 px-4 text-center">
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">Novo {type}</h2>
-            <p className="text-gray-500 mb-2">Aluno: <strong>{selectedStudent.name}</strong></p>
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Novo {type}</h2>
+
+            {/* Seletor de aluno com autocomplete */}
+            <div className="flex justify-center mb-4">
+              <StudentSwitcher />
+            </div>
 
             {showPeiWarning && (
               <div className="mt-4 mb-6 mx-auto max-w-2xl text-left bg-amber-50 border border-amber-200 rounded-2xl p-4">
@@ -1302,8 +1468,6 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
                 </div>
 
-                <button onClick={() => setStep('select_student')} className="mt-8 text-sm text-gray-400 hover:text-gray-600">Trocar Aluno</button>
-
                 {/* Modal seletor de modelo salvo */}
                 {showStoredTemplateSelector && (
                   <StoredTemplateSelector
@@ -1311,6 +1475,56 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                     onSelect={handleUseStoredTemplate}
                     onClose={() => setShowStoredTemplateSelector(false)}
                   />
+                )}
+
+                {/* Modal: como aplicar o modelo selecionado */}
+                {showTemplateModeModal && pendingTemplate && (
+                  <div
+                    style={{ position: 'fixed', inset: 0, zIndex: 10000, background: 'rgba(30,46,80,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+                    onClick={() => { setShowTemplateModeModal(false); setPendingTemplate(null); }}
+                  >
+                    <div
+                      style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 500, padding: '28px 28px 24px', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <h3 style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 800, color: '#2E3A59' }}>
+                        Como deseja aplicar este modelo?
+                      </h3>
+                      <p style={{ margin: '0 0 20px', fontSize: 13, color: '#6B7280' }}>
+                        Modelo selecionado: <strong style={{ color: '#1F4E5F' }}>{pendingTemplate.name}</strong>
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <button
+                          onClick={() => handleApplyTemplateMode('replace')}
+                          style={{ padding: '16px 20px', borderRadius: 12, border: '2px solid #1F4E5F', background: '#1F4E5F0A', textAlign: 'left', cursor: 'pointer', transition: 'all 0.15s' }}
+                        >
+                          <div style={{ fontWeight: 700, fontSize: 15, color: '#1F4E5F', marginBottom: 4 }}>
+                            Substituir estrutura atual
+                          </div>
+                          <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>
+                            O modelo salvo passa a ser a base principal do documento, com suas seções e campos organizados por área. Recomendado para usar seu modelo de Estudo de Caso.
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => handleApplyTemplateMode('merge')}
+                          style={{ padding: '16px 20px', borderRadius: 12, border: '2px solid #E7E2D8', background: '#F6F4EF', textAlign: 'left', cursor: 'pointer', transition: 'all 0.15s' }}
+                        >
+                          <div style={{ fontWeight: 700, fontSize: 15, color: '#2E3A59', marginBottom: 4 }}>
+                            Mesclar com estrutura padrão
+                          </div>
+                          <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>
+                            Mantém a estrutura padrão do IncluiAI e adiciona os campos do modelo como seção extra ao final.
+                          </div>
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => { setShowTemplateModeModal(false); setPendingTemplate(null); }}
+                        style={{ marginTop: 16, width: '100%', padding: '10px', borderRadius: 8, border: '1.5px solid #E7E2D8', background: 'white', color: '#6B7280', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
                 )}
               </>
             )}
@@ -1349,13 +1563,10 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
         {/* Top Bar with Buttons */}
         <div className="w-full bg-white border-b p-4 flex flex-col md:flex-row justify-between items-center sticky top-0 z-50 print:hidden gap-4 shadow-sm">
-            <div className="flex items-center gap-4 w-full md:w-auto">
-                <div className="bg-brand-100 text-brand-700 font-bold rounded-full w-10 h-10 flex items-center justify-center shrink-0">
-                    {selectedStudent?.name.charAt(0)}
-                </div>
+            <div className="flex items-center gap-3 w-full md:w-auto">
                 <div>
-                    <h2 className="font-bold text-gray-800 text-lg leading-tight">{type}</h2>
-                    <p className="text-sm text-gray-500">{selectedStudent?.name}</p>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">{type}</p>
+                    <StudentSwitcher compact />
                 </div>
             </div>
             

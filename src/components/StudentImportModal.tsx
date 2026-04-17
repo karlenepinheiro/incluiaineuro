@@ -516,6 +516,11 @@ export const StudentImportModal: React.FC<Props> = ({
                                 Falta: {row.missingRequiredFields.join(', ')}
                               </span>
                             )}
+                            {row.genderWarning && (
+                              <span className="text-xs" style={{ color: C.amber }}>
+                                ⚠ {row.genderWarning}
+                              </span>
+                            )}
                           </div>
                         </td>
                       </tr>

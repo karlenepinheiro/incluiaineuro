@@ -54,6 +54,17 @@ interface Props {
 export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, regentName, availableSchools = [], userPlan }) => {
   const defaultSchoolId = availableSchools && availableSchools.length > 0 ? availableSchools[0].id : '';
 
+  // Texto livre da escola — inicializa do dado existente ou do primeiro da lista
+  const resolveInitialSchoolName = () => {
+    if (initialData?.schoolName) return initialData.schoolName;
+    if (initialData?.schoolId) {
+      const found = availableSchools.find(s => s.id === initialData.schoolId);
+      if (found) return found.schoolName;
+    }
+    return availableSchools[0]?.schoolName ?? '';
+  };
+  const [schoolNameInput, setSchoolNameInput] = useState(resolveInitialSchoolName);
+
   const generateUniqueCode = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let code = '';
@@ -300,13 +311,16 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         alert("Preencha o campo obrigatório: Nome do aluno.");
         return;
     }
-    // Resolve school name (text) from schoolId (UUID) for DB persistence.
-    // The DB column is school_name (text), not schoolId (UUID foreign key that doesn't exist).
-    const selectedSchool = availableSchools.find(s => s.id === formData.schoolId);
-    const resolvedSchoolName = selectedSchool?.schoolName
-      || formData.externalSchoolName
-      || (formData.isExternalStudent ? '' : '');
-    onSave({ ...formData, schoolName: resolvedSchoolName });
+    // Usa o texto livre digitado. Se bater com uma escola cadastrada, mantém o schoolId.
+    // school_name (text) é a coluna real do DB — schoolId (UUID) não existe como FK.
+    const matchedSchool = availableSchools.find(
+      s => s.schoolName.trim().toLowerCase() === schoolNameInput.trim().toLowerCase()
+    );
+    const resolvedSchoolName = formData.isExternalStudent
+      ? (formData.externalSchoolName || '')
+      : (schoolNameInput.trim() || matchedSchool?.schoolName || '');
+    const resolvedSchoolId = matchedSchool?.id || formData.schoolId || '';
+    onSave({ ...formData, schoolId: resolvedSchoolId, schoolName: resolvedSchoolName });
   };
 
   const Tooltip = ({text}: {text: string}) => (
@@ -387,7 +401,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
                     <p className="text-[10px] text-gray-400 mt-1">Clique aqui e insira o nome conforme certidão.</p>
                 </div>
                 <div><label className="label">Data de Nascimento *</label><input required type="date" name="birthDate" value={formData.birthDate} onChange={handleChange} className="input-field" /></div>
-                <div><label className="label">Gênero</label><select name="gender" value={formData.gender} onChange={handleChange} className="input-field"><option value="">Selecione</option><option value="M">Masculino</option><option value="F">Feminino</option></select></div>
+                <div><label className="label">Gênero</label><select name="gender" value={formData.gender} onChange={handleChange} className="input-field"><option value="">Selecione</option><option value="M">Masculino</option><option value="F">Feminino</option><option value="OTHER">Outro</option></select></div>
                 <div><label className="label">Responsável Legal</label><input name="guardianName" value={formData.guardianName} onChange={handleChange} className="input-field" /></div>
                 <div><label className="label">Telefone/WhatsApp</label><input name="guardianPhone" value={formData.guardianPhone} onChange={handleChange} className="input-field" /></div>
                 {formData.unique_code && (
@@ -571,17 +585,34 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
                 <div style={{ position: 'relative' }}>
                   <input
                     readOnly
-                    value={availableSchools.find(s => s.id === formData.schoolId)?.schoolName || 'Escola não configurada'}
+                    value={schoolNameInput || 'Escola não configurada'}
                     className="input-field"
                     style={{ background: '#F9FAFB', color: '#6B7280', cursor: 'not-allowed', paddingRight: '2rem' }}
                   />
                   <Lock size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: '#D1D5DB' }} />
                 </div>
               ) : (
-                <select name="schoolId" value={formData.schoolId} onChange={(e) => setFormData(prev => ({...prev, schoolId: e.target.value}))} className="input-field">
-                  {availableSchools.length === 0 && <option value="">Nenhuma escola cadastrada</option>}
-                  {availableSchools.map(s => <option key={s.id} value={s.id}>{s.schoolName}</option>)}
-                </select>
+                <>
+                  <input
+                    list="escola-suggestions"
+                    value={schoolNameInput}
+                    onChange={e => setSchoolNameInput(e.target.value)}
+                    className="input-field"
+                    placeholder="Digite ou selecione a escola…"
+                    autoComplete="off"
+                  />
+                  <datalist id="escola-suggestions">
+                    {availableSchools.map(s => (
+                      <option key={s.id} value={s.schoolName} />
+                    ))}
+                  </datalist>
+                  {schoolNameInput.trim() &&
+                    !availableSchools.some(s => s.schoolName.trim().toLowerCase() === schoolNameInput.trim().toLowerCase()) && (
+                    <p style={{ fontSize: '0.65rem', color: '#D97706', marginTop: 3 }}>
+                      Escola nova — será registrada ao salvar. Complete os dados em Configurações depois.
+                    </p>
+                  )}
+                </>
               )}
               {formData.isExternalStudent && (
                 <p style={{ fontSize: '0.65rem', color: '#9CA3AF', marginTop: 3 }}>

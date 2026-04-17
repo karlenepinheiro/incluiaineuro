@@ -45,6 +45,8 @@ export interface ImportStudentRow {
   // Flag de erro (linha sem nome = não importável)
   hasError: boolean;
   errorMessage?: string;
+  // Aviso não-fatal: gênero não reconhecido (campo salvo como null)
+  genderWarning?: string;
 }
 
 export interface ParsedCSVResult {
@@ -90,6 +92,7 @@ export const TEMPLATE_HEADERS = [
   'observacoes',
 ] as const;
 
+// Valores aceitos na coluna gênero: M, F, Masculino, Feminino, male, female, Outro, Other
 export const TEMPLATE_EXAMPLE_ROWS = [
   [
     'Maria Clara dos Santos',
@@ -130,7 +133,7 @@ export const TEMPLATE_EXAMPLE_ROWS = [
   [
     'Sofia Ramos',
     '',
-    'Feminino',
+    'F',
     '1º ano EF',
     'Manhã',
     'Carla Ramos',
@@ -181,6 +184,7 @@ const HEADER_ALIASES: Record<string, RecognizedField> = {
   'genero': 'gender',
   'gênero': 'gender',
   'sexo': 'gender',
+  'gender': 'gender',
   // série/ano
   'serie_ano': 'grade',
   'serie/ano': 'grade',
@@ -310,12 +314,24 @@ const IMPORTANT_FIELDS: RecognizedField[] = [
 // NORMALIZAÇÃO DE VALORES
 // ─────────────────────────────────────────────────────────────────────────────
 
-function normalizeGender(v: string): string {
+// Valores aceitos pelo DB: CHECK (gender = ANY (ARRAY['M','F','OTHER']))
+// Converte entradas comuns para o padrão do banco.
+// Valores não reconhecidos retornam '' (salvo como null) + mensagem amigável.
+function normalizeGender(v: string): { value: 'M' | 'F' | 'OTHER' | ''; warning?: string } {
   const s = v.toLowerCase().trim();
-  if (['f', 'fem', 'feminino', 'menina', 'female'].includes(s)) return 'Feminino';
-  if (['m', 'mas', 'masc', 'masculino', 'menino', 'male'].includes(s)) return 'Masculino';
-  if (s) return 'Outro';
-  return '';
+  if (['f', 'fem', 'feminino', 'menina', 'female', 'mulher', 'garota'].includes(s))
+    return { value: 'F' };
+  if (['m', 'mas', 'masc', 'masculino', 'menino', 'male', 'homem', 'garoto'].includes(s))
+    return { value: 'M' };
+  if (['outro', 'other', 'outros', 'others', 'nao_binario', 'nao binario',
+       'não binário', 'nao informado', 'não informado', 'nb'].includes(s))
+    return { value: 'OTHER' };
+  if (s)
+    return {
+      value: '',
+      warning: `Gênero "${v.trim()}" não reconhecido — salvo como não informado. Valores aceitos: Masculino (M), Feminino (F) ou Outro.`,
+    };
+  return { value: '' };
 }
 
 function normalizeShift(v: string): string {
@@ -475,7 +491,12 @@ export function parseCSV(rawContent: string): ParsedCSVResult {
       if (!raw) return;
 
       switch (field) {
-        case 'gender':    (partial as any)[field] = normalizeGender(raw); break;
+        case 'gender': {
+          const { value, warning } = normalizeGender(raw);
+          if (value) (partial as any).gender = value;
+          if (warning) (partial as any).genderWarning = warning;
+          break;
+        }
         case 'shift':     (partial as any)[field] = normalizeShift(raw); break;
         case 'birthDate': (partial as any)[field] = normalizeDate(raw); break;
         case 'cid':       (partial as any)[field] = normalizeCID(raw); break;
@@ -651,7 +672,18 @@ export async function importStudentsBatch(
       else                                               preRegRows++;
 
     } catch (e: any) {
-      errors.push({ rowIndex: row.rowIndex, name: row.name, error: e?.message ?? String(e) });
+      // Traduz erros técnicos do banco para mensagens amigáveis
+      let friendlyError: string = e?.message ?? String(e);
+      const msg = String(e?.message ?? '').toLowerCase();
+      if (msg.includes('gender') && msg.includes('check')) {
+        friendlyError = `O campo gênero do aluno "${row.name}" está em formato inválido. Use: M, F ou OTHER.`;
+      } else if (msg.includes('check constraint')) {
+        const constraint = String(e?.message ?? '').match(/"([^"]+)"/)?.[1] ?? 'desconhecida';
+        friendlyError = `Valor inválido em "${row.name}". Restrição: ${constraint}.`;
+      } else if (msg.includes('violates') || msg.includes('constraint')) {
+        friendlyError = `Valor inválido em "${row.name}". Verifique os campos e tente novamente.`;
+      }
+      errors.push({ rowIndex: row.rowIndex, name: row.name, error: friendlyError });
     }
   }
 

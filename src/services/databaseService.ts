@@ -654,16 +654,26 @@ export const databaseService = {
     if (error) throw error;
 
     // ── 2. Alunos de outras escolas vinculados via student_tenant_access ────
-    // Usa join implícito do PostgREST (FK: student_tenant_access.student_id → students.id)
-    const { data: linkedData } = await supabase
+    // Requer policy "students_linked_select" (schema_v26_students_linked_rls.sql).
+    // Sem ela, o join retorna row.students = null por RLS e os alunos são silenciados.
+    const { data: linkedData, error: linkedError } = await supabase
       .from('student_tenant_access')
-      .select('access_type, granted_at, students(*)')
+      .select('student_id, access_type, granted_at, students(*)')
       .eq('tenant_id', tenantId)
       .order('granted_at', { ascending: false });
 
+    if (linkedError) {
+      console.warn('[getStudents] Erro ao buscar vínculos student_tenant_access:', linkedError.message);
+    }
+
+    // IDs dos alunos já carregados como próprios (evita duplicatas)
+    const ownedIds = new Set((ownedData ?? []).map((r: any) => r.id));
+
     // Achata os alunos vinculados e marca acesso como externo
+    // row.students será null se a policy students_linked_select não existir no banco —
+    // nesse caso o array ficará vazio (sem erro, mas sem dados).
     const linkedRows: any[] = (linkedData ?? [])
-      .filter((row: any) => row.students)
+      .filter((row: any) => row.students && !ownedIds.has((row.students as any).id))
       .map((row: any) => ({
         ...row.students,
         // Sobrescreve flag para a UI saber que é vínculo, não aluno próprio
@@ -671,6 +681,14 @@ export const databaseService = {
         _linked_access_type: row.access_type,
         _linked_at: row.granted_at,
       }));
+
+    if ((linkedData ?? []).length > 0 && linkedRows.length === 0) {
+      console.warn(
+        `[getStudents] ${linkedData!.length} vínculo(s) encontrado(s) em student_tenant_access, ` +
+        'mas students(*) retornou null para todos. ' +
+        'Execute schema_v26_students_linked_rls.sql no Supabase para corrigir.',
+      );
+    }
 
     // ── 3. Normaliza ambas as listas com o mesmo mapeamento legado ──────────
     const normalize = (r: any): any => ({

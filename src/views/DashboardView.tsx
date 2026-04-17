@@ -4,6 +4,7 @@ import {
   ChevronLeft, ChevronRight,
   MapPin, User, BookOpen, Sparkles, FlaskConical,
   BarChart3, AlertTriangle, TrendingUp, Star, ShieldCheck, Activity,
+  Bell, X as XIcon,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Student, Protocol, Appointment } from '../types';
@@ -11,6 +12,7 @@ import { AI_CREDIT_COSTS, SUBSCRIPTION_PLANS } from '../config/aiCosts';
 import { PaymentService } from '../services/paymentService';
 import { PlanTier } from '../types';
 import { NumberTicker } from '@/src/components/magicui/number-ticker';
+import { supabase } from '../services/supabase';
 
 // ─── Design tokens ──────────────────────────────────────────────────────────
 
@@ -375,6 +377,50 @@ export function DashboardView({
 }: DashboardViewProps) {
 
   const [showDocPicker, setShowDocPicker] = useState(false);
+
+  // ── Notificações: aluno acessado por outra escola ───────────────────────────
+  type AccessNotification = {
+    id: string;
+    title: string;
+    body: string;
+    data: any;
+    created_at: string;
+  };
+  const [accessNotifs, setAccessNotifs] = useState<AccessNotification[]>([]);
+
+  useEffect(() => {
+    if (!userId) return;
+    supabase
+      .from('notifications')
+      .select('id, title, body, data, created_at')
+      .eq('user_id', userId)
+      .eq('type', 'student_accessed')
+      .is('read_at', null)
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(({ data }) => {
+        if (data && data.length > 0) setAccessNotifs(data as AccessNotification[]);
+      });
+  }, [userId]);
+
+  const dismissNotif = async (id: string) => {
+    setAccessNotifs(prev => prev.filter(n => n.id !== id));
+    await supabase
+      .from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('id', id);
+  };
+
+  const dismissAllNotifs = async () => {
+    const ids = accessNotifs.map(n => n.id);
+    setAccessNotifs([]);
+    if (ids.length > 0) {
+      await supabase
+        .from('notifications')
+        .update({ read_at: new Date().toISOString() })
+        .in('id', ids);
+    }
+  };
 
   // ── Derived values ──────────────────────────────────────────────────────────
   const maxStudents    = Number.isFinite(planMaxStudents as number) ? (planMaxStudents as number) : 0;
@@ -771,6 +817,152 @@ export function DashboardView({
           </div>
         </div>
       </div>
+
+      {/* ── Alertas: aluno acessado por outra escola ─────────────────────── */}
+      {accessNotifs.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Bell size={15} style={{ color: C.amber }} />
+              <h2 className="text-sm font-bold" style={{ color: C.dark }}>
+                Alertas de acesso
+              </h2>
+              <span
+                className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                style={{ background: C.amber + '22', color: C.amber }}
+              >
+                {accessNotifs.length}
+              </span>
+            </div>
+            <button
+              onClick={dismissAllNotifs}
+              className="text-[11px] font-semibold transition hover:opacity-70"
+              style={{ color: C.textSec }}
+            >
+              Marcar todos como lidos
+            </button>
+          </div>
+          <div className="flex flex-col gap-3">
+            {accessNotifs.map(n => {
+              const studentName = n.data?.student_name as string | undefined;
+              const protocol    = n.data?.protocol_code as string | undefined;
+              const school      = n.data?.requesting_school as string | undefined;
+              const dateStr     = new Date(n.created_at).toLocaleDateString('pt-BR', {
+                day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+              });
+
+              return (
+                <motion.div
+                  key={n.id}
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                  className="rounded-2xl overflow-hidden"
+                  style={{
+                    background: '#FFFBEB',
+                    border: '1.5px solid #FDE68A',
+                    boxShadow: '0 4px 16px rgba(217,119,6,0.10)',
+                    borderLeft: '4px solid #D97706',
+                  }}
+                >
+                  {/* Header do card */}
+                  <div
+                    className="flex items-center justify-between px-5 pt-4 pb-2"
+                    style={{ borderBottom: '1px solid #FDE68A' }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ background: '#FEF3C7' }}
+                      >
+                        <ShieldCheck size={15} style={{ color: '#D97706' }} />
+                      </div>
+                      <p className="text-sm font-bold" style={{ color: '#92400E' }}>
+                        {n.title}
+                      </p>
+                    </div>
+                    <span className="text-[10px]" style={{ color: '#B45309', opacity: 0.6 }}>
+                      {dateStr}
+                    </span>
+                  </div>
+
+                  {/* Corpo do card */}
+                  <div className="px-5 py-4 flex flex-col gap-2">
+                    {/* Nome do aluno em destaque */}
+                    {studentName && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#B45309' }}>
+                          Aluno
+                        </span>
+                        <span className="text-sm font-bold" style={{ color: '#92400E' }}>
+                          {studentName}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Escola solicitante */}
+                    {school && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#B45309' }}>
+                          Escola
+                        </span>
+                        <span className="text-xs" style={{ color: '#92400E' }}>
+                          {school}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Mensagem */}
+                    {!studentName && (
+                      <p className="text-xs leading-relaxed" style={{ color: '#B45309' }}>
+                        {n.body}
+                      </p>
+                    )}
+
+                    {/* Protocolo */}
+                    {protocol && (
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#B45309' }}>
+                          Protocolo
+                        </span>
+                        <span
+                          className="font-mono font-bold text-xs px-2 py-0.5 rounded-lg"
+                          style={{ background: '#FEF3C7', color: '#D97706', border: '1px solid #FDE68A' }}
+                        >
+                          {protocol}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Ações */}
+                  <div
+                    className="flex items-center gap-2 px-5 pb-4"
+                    style={{ borderTop: '1px solid #FDE68A', paddingTop: '12px' }}
+                  >
+                    <button
+                      onClick={() => onNavigate?.('students')}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition hover:opacity-80"
+                      style={{ background: '#D97706', color: '#fff' }}
+                    >
+                      <ArrowRight size={13} />
+                      Ver detalhes
+                    </button>
+                    <button
+                      onClick={() => dismissNotif(n.id)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-semibold transition hover:opacity-80"
+                      style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}
+                    >
+                      <CheckCircle2 size={13} />
+                      OK, ciente
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Smart Suggestions ─────────────────────────────────────────────── */}
       {suggestions.length > 0 && (
