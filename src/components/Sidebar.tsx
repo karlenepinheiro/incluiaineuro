@@ -18,6 +18,7 @@ import {
   FlaskConical,
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
+import { BrandLogo } from './BrandLogo';
 
 import { User, getPlanLimits, PlanTier } from '../types';
 import { cn } from '@/src/lib/utils';
@@ -159,15 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     >
       {/* Logo */}
       <div className="h-16 flex items-center px-5 border-b border-border shrink-0">
-        <div
-          className="p-1.5 rounded-lg mr-3 shrink-0"
-          style={{ background: 'linear-gradient(135deg, #1F4E5F, #2E3A59)' }}
-        >
-          <Brain className="text-white h-5 w-5" />
-        </div>
-        <span className="text-xl font-bold tracking-tight whitespace-nowrap" style={{ color: '#1F4E5F' }}>
-          IncluiAI
-        </span>
+        <BrandLogo fontSize={18} iconSize={16} />
       </div>
 
       {/* Plano / alunos */}

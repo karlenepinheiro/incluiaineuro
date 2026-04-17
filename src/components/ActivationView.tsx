@@ -19,6 +19,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { BrandLogo } from './BrandLogo';
 import {
   CheckCircle2,
   Clock,
@@ -258,11 +259,8 @@ export const ActivationView: React.FC<Props> = ({
       <div style={{ width: '100%', maxWidth: 460 }}>
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: C.petrol, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ color: '#fff', fontWeight: 800, fontSize: 18 }}>I</span>
-            </div>
-            <span style={{ fontWeight: 800, fontSize: 22, color: C.petrol }}>IncluiAI</span>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <BrandLogo fontSize={22} iconSize={20} />
           </div>
           <p style={{ marginTop: 8, color: '#64748b', fontSize: 14 }}>Ativação de acesso</p>
         </div>

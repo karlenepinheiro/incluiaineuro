@@ -587,7 +587,7 @@ export const PedagogicalCopilot: React.FC<PedagogicalCopilotProps> = ({
             style={{ borderColor: C.border, background: C.bg }}
           >
             <span className="text-[9px] font-medium" style={{ color: C.textSec }}>
-              IncluiAI · Copilot v1
+              <span style={{ color: '#1F4E5F', fontWeight: 700 }}>Inclui</span><span style={{ color: '#E07B2A', fontWeight: 700 }}>AI</span> · Copilot v1
             </span>
             <div className="flex items-center gap-1">
               <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />

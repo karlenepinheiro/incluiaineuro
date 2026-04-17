@@ -2902,7 +2902,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
               <Shield style={{ color: '#fff', width: 16, height: 16 }} />
             </div>
             <div>
-              <span className="block text-sm font-bold text-gray-900 leading-none">IncluiAI</span>
+              <span className="block text-sm font-bold leading-none">
+                <span style={{ color: '#1F4E5F' }}>Inclui</span><span style={{ color: '#E07B2A' }}>AI</span>
+              </span>
               <span style={{ fontSize: 10, fontWeight: 700, color: '#C69214', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 Painel CEO
               </span>

@@ -51,6 +51,7 @@ import { shouldShowExpiredBanner, getActiveSubscription, type ActiveSubscription
 import { getSubscriptionCheckoutUrl } from './services/kiwifyService';
 import { checkPurchaseByEmail, activatePurchaseForUser } from './services/purchaseActivationService';
 import { ActivationView } from './components/ActivationView';
+import { BrandLogo } from './components/BrandLogo';
 import { supabase, DEMO_MODE } from './services/supabase';
 import { databaseService, DuplicateStudentError } from './services/databaseService';
 import { ServiceRecordService, AppointmentService } from './services/persistenceService';
@@ -1212,7 +1213,7 @@ const App: React.FC = () => {
               >
                 <Menu size={24} />
               </button>
-              <span className="font-bold text-gray-700 lg:hidden">IncluiAI</span>
+              <BrandLogo fontSize={16} iconSize={14} className="lg:hidden" />
             </div>
           </header>
 

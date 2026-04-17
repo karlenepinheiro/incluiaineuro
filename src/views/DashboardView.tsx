@@ -738,9 +738,10 @@ export function DashboardView({
           {/* Left: greeting */}
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[11px] font-bold px-3 py-1 rounded-full"
+              <span className="text-[11px] font-bold px-3 py-1 rounded-full inline-flex items-center gap-1"
                 style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)' }}>
-                IncluiAI — Plataforma de Educação Inclusiva
+                <span style={{ color: 'rgba(255,255,255,0.9)' }}>Inclui</span><span style={{ color: '#F5A843' }}>AI</span>
+                &nbsp;— Plataforma de Educação Inclusiva
               </span>
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold text-white mb-2 leading-tight">
