@@ -33,10 +33,16 @@ const IMAGEN_MODEL_FAST    = 'imagen-4.0-fast-generate-001';
 
 function buildSafePrompt(userPrompt: string): string {
   return [
-    'Pedagogical illustration, pure white background, flat design, minimalist, 2D vector style, clean lines.',
-    'No text inside the image. No photographic elements. No realistic shadows. No textured backgrounds.',
-    'Style: flat vector illustration, soft color palette, well-defined strokes, friendly and inclusive visual.',
-    `Subject: ${userPrompt}`,
+    // Idioma obrigatório: qualquer palavra/label visível na imagem deve estar em Português do Brasil
+    'IMPORTANTE: Se houver qualquer texto visível dentro da imagem, ele deve estar ESTRITAMENTE em Português do Brasil.',
+    'Use terminologia pedagógica brasileira: "Anos Iniciais" (não "Early Years"), "Ensino Fundamental" (não "Elementary School"),',
+    '"Educação Infantil" (não "Preschool"), "Sala de Recursos Multifuncionais" (não "Resource Room"),',
+    '"Inclusão Escolar" (não "Inclusive Education"), "Deficiência Intelectual" (não "Intellectual Disability").',
+    // Estilo visual
+    'Ilustração pedagógica, fundo branco puro, design flat, minimalista, estilo vetorial 2D, linhas limpas.',
+    'Sem elementos fotográficos. Sem sombras realistas. Sem texturas de fundo.',
+    'Estilo: ilustração vetorial flat, paleta de cores suave, traços bem definidos, visual amigável e inclusivo.',
+    `Tema: ${userPrompt}`,
   ].join(' ');
 }
 

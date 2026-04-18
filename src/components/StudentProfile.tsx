@@ -227,7 +227,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   onNavigateTo,
   onRefreshProtocols,
 }) => {
-  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades';
+  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades' | 'relatorio';
   const [activeTab, setActiveTab] = useState<Tab>('ficha');
   const [fichas, setFichas] = useState<FichaComplementar[]>(student.fichasComplementares || []);
   const [quickDocType, setQuickDocType] = useState<QuickDocType | null>(null);
@@ -666,6 +666,69 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   // Mantém índice válido quando lista muda
   const safeEvoIndex = Math.min(selectedEvoIndex, Math.max(0, sortedEvolutions.length - 1));
 
+  // ── Estado da aba Relatório ───────────────────────────────────────────────────
+  const [reportType, setReportType]       = useState<'simple' | 'full' | null>(null);
+  const [reportContent, setReportContent] = useState<string>('');
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError]     = useState<string>('');
+
+  const handleGenerateReport = async (type: 'simple' | 'full') => {
+    setReportType(type);
+    setReportContent('');
+    setReportError('');
+    setReportLoading(true);
+    try {
+      const text = await AIService.generateStudentReport(student, user as any, type, {
+        evolutions:    effectiveEvolutions as any[],
+        protocols:     studentProtocols,
+        obsForms:      dbObsForms,
+        medicalReports: dbMedicalReports,
+        fichas:        fichas as any[],
+        timeline:      dbTimeline,
+      });
+      setReportContent(text);
+    } catch (e: any) {
+      setReportError(e?.message || 'Erro ao gerar relatório.');
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const handleDownloadReport = () => {
+    if (!reportContent) return;
+    const title = reportType === 'full' ? 'Relatorio_Completo' : 'Relatorio_Simples';
+    const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `${title}_${student.name.replace(/\s+/g, '_')}_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePrintReport = () => {
+    if (!reportContent) return;
+    const win = window.open('', '_blank');
+    if (!win) return;
+    const title = reportType === 'full' ? 'Relatório Completo' : 'Relatório Simples';
+    win.document.write(`
+      <!DOCTYPE html><html lang="pt-BR"><head>
+      <meta charset="UTF-8"/>
+      <title>${title} — ${student.name}</title>
+      <style>
+        body { font-family: 'Georgia', serif; font-size: 12pt; line-height: 1.7; margin: 2cm 2.5cm; color: #111; }
+        h1 { font-size: 16pt; color: #1F4E5F; border-bottom: 2px solid #1F4E5F; padding-bottom: 8px; }
+        pre { white-space: pre-wrap; font-family: inherit; }
+        @media print { @page { margin: 2cm 2.5cm; size: A4; } }
+      </style></head><body>
+      <h1>${title} — ${student.name}</h1>
+      <pre>${reportContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+      </body></html>
+    `);
+    win.document.close();
+    win.print();
+  };
+
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'ficha',      label: 'Ficha do Aluno',      icon: <User size={13}/> },
     { id: 'evolucao',   label: 'Evolução',             icon: <TrendingUp size={13}/> },
@@ -673,6 +736,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     { id: 'documentos', label: 'Documentos',           icon: <FileText size={13}/> },
     { id: 'atividades', label: 'Atividades Geradas',   icon: <Zap size={13}/> },
     { id: 'timeline',   label: 'Linha do Tempo',       icon: <Activity size={13}/> },
+    { id: 'relatorio',  label: 'Relatório',            icon: <BarChart2 size={13}/> },
   ];
 
   return (
@@ -1821,6 +1885,168 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           docs={dbDocs}
           dbEvents={dbTimeline}
         />
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          TAB 7 — RELATÓRIO DO ALUNO
+          Simples (resumido, institucional) e Completo (técnico, com gráficos)
+         ══════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'relatorio' && (
+        <div className="space-y-5">
+          {/* Cabeçalho */}
+          <div className="bg-white rounded-2xl border border-gray-200 p-6">
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#EFF9FF' }}>
+                <BarChart2 size={18} style={{ color: '#1F4E5F' }}/>
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-800">Relatório do Aluno</h3>
+                <p className="text-xs text-gray-500">
+                  Gerado com IA a partir dos dados reais da ficha, evoluções, documentos e histórico.
+                  Adequado para apresentação institucional (INSS, saúde, assistência social).
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Botões de geração */}
+          {!reportLoading && !reportContent && (
+            <div className="grid md:grid-cols-2 gap-4">
+              {/* Relatório Simples */}
+              <button
+                onClick={() => handleGenerateReport('simple')}
+                className="flex flex-col gap-3 rounded-2xl p-6 text-left transition hover:shadow-md"
+                style={{ background: '#F0FDF4', border: '1.5px solid #86EFAC' }}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#16A34A20' }}>
+                    <FileText size={16} style={{ color: '#16A34A' }}/>
+                  </div>
+                  <span className="font-bold text-green-800 text-sm">Relatório Simples</span>
+                  <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#16A34A20', color: '#16A34A' }}>
+                    5 créditos
+                  </span>
+                </div>
+                <ul className="text-xs text-green-700 space-y-1 list-none">
+                  <li>✓ Texto claro e objetivo</li>
+                  <li>✓ Identificação, situação pedagógica, dificuldades</li>
+                  <li>✓ Conclusão e observações</li>
+                  <li>✓ 1–2 páginas A4</li>
+                  <li>✓ Pronto para INSS, saúde e assistência social</li>
+                </ul>
+              </button>
+
+              {/* Relatório Completo */}
+              <button
+                onClick={() => handleGenerateReport('full')}
+                className="flex flex-col gap-3 rounded-2xl p-6 text-left transition hover:shadow-md"
+                style={{ background: '#EFF6FF', border: '1.5px solid #93C5FD' }}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#0369A120' }}>
+                    <BarChart2 size={16} style={{ color: '#0369A1' }}/>
+                  </div>
+                  <span className="font-bold text-blue-800 text-sm">Relatório Completo</span>
+                  <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#0369A120', color: '#0369A1' }}>
+                    10 créditos
+                  </span>
+                </div>
+                <ul className="text-xs text-blue-700 space-y-1 list-none">
+                  <li>✓ Perfil cognitivo com análise das 10 dimensões</li>
+                  <li>✓ Checklist de dificuldades e limitações</li>
+                  <li>✓ Histórico, evolução e recomendações multidisciplinares</li>
+                  <li>✓ Estrutura técnica completa, 3–5 páginas A4</li>
+                  <li>✓ Pronto para impressão e arquivo institucional</li>
+                </ul>
+              </button>
+            </div>
+          )}
+
+          {/* Loading */}
+          {reportLoading && (
+            <div className="bg-white rounded-2xl border border-gray-200 p-12 flex flex-col items-center gap-4">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center animate-pulse" style={{ background: '#EFF9FF' }}>
+                <Sparkles size={24} style={{ color: '#1F4E5F' }}/>
+              </div>
+              <p className="font-semibold text-gray-700">Gerando relatório com IA…</p>
+              <p className="text-xs text-gray-400 text-center max-w-xs">
+                A IA está analisando todos os dados do aluno para produzir um documento profissional.
+                Isso pode levar alguns segundos.
+              </p>
+            </div>
+          )}
+
+          {/* Erro */}
+          {reportError && !reportLoading && (
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-5 flex items-start gap-3">
+              <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5"/>
+              <div className="flex-1">
+                <p className="font-bold text-red-700 text-sm">Erro ao gerar relatório</p>
+                <p className="text-xs text-red-600 mt-1">{reportError}</p>
+              </div>
+              <button
+                onClick={() => { setReportError(''); setReportType(null); }}
+                className="text-xs font-bold text-red-500 hover:text-red-700"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          )}
+
+          {/* Resultado gerado */}
+          {reportContent && !reportLoading && (
+            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              {/* Barra de ações */}
+              <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-gray-700">
+                    {reportType === 'full' ? '📋 Relatório Completo' : '📄 Relatório Simples'} — {student.name}
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-bold">Gerado com IA</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setReportContent(''); setReportType(null); setReportError(''); }}
+                    className="text-xs font-semibold text-gray-500 hover:text-gray-700 flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200"
+                  >
+                    <RefreshCw size={12}/> Gerar novo
+                  </button>
+                  <button
+                    onClick={handleDownloadReport}
+                    className="text-xs font-bold flex items-center gap-1 px-3 py-1.5 rounded-lg"
+                    style={{ background: '#1F4E5F', color: '#fff' }}
+                  >
+                    <Download size={12}/> Baixar .txt
+                  </button>
+                  <button
+                    onClick={handlePrintReport}
+                    className="text-xs font-bold flex items-center gap-1 px-3 py-1.5 rounded-lg"
+                    style={{ background: '#C69214', color: '#fff' }}
+                  >
+                    <Printer size={12}/> Imprimir A4
+                  </button>
+                </div>
+              </div>
+
+              {/* Conteúdo do relatório — preview estilo documento */}
+              <div
+                className="p-8 font-serif text-sm leading-relaxed text-gray-800 whitespace-pre-wrap"
+                style={{
+                  minHeight: 400,
+                  background: '#FAFAF8',
+                  fontFamily: "'Georgia', 'Times New Roman', serif",
+                  fontSize: '13px',
+                  lineHeight: '1.8',
+                  maxWidth: '72ch',
+                  margin: '0 auto',
+                  padding: '2rem 2.5rem',
+                }}
+              >
+                {reportContent}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── Modal: Documento Complementar (Sprint 5B) ── */}

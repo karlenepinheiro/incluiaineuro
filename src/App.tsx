@@ -42,7 +42,6 @@ import { TriagemView } from './views/TriagemView';
 import { ServiceControlView } from './views/ServiceControlView';
 import { SubscriptionView } from './views/SubscriptionView';
 import { EnrollmentWizard } from './components/EnrollmentWizard';
-import { IncluiLabView } from './views/IncluiLabView';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LGPDModal } from './components/LGPDModal';
 import { ExpiredPlanBanner } from './components/ExpiredPlanBanner';
@@ -1493,12 +1492,41 @@ const App: React.FC = () => {
             )}
 
             {view === 'incluilab' && (
-              <IncluiLabView
-                user={user}
-                students={students}
-                sidebarOpen={isSidebarOpen}
-                creditsAvailable={creditsAvailable}
-              />
+              <div className="min-h-screen flex items-center justify-center p-8" style={{ background: '#F6F4EF' }}>
+                <div
+                  className="rounded-3xl p-10 flex flex-col items-center text-center max-w-md w-full"
+                  style={{ background: '#FFFFFF', border: '1.5px solid #E7E2D8', boxShadow: '0 4px 24px rgba(31,78,95,0.08)' }}
+                >
+                  <div
+                    className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
+                    style={{ background: 'linear-gradient(135deg, #1F4E5F20, #2E3A5915)' }}
+                  >
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1F4E5F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/>
+                    </svg>
+                  </div>
+                  <span
+                    className="text-[10px] font-bold px-3 py-1 rounded-full mb-4 uppercase tracking-wider"
+                    style={{ background: '#1F4E5F15', color: '#1F4E5F' }}
+                  >
+                    Em breve
+                  </span>
+                  <h2 className="text-xl font-extrabold mb-3" style={{ color: '#2E3A59' }}>
+                    Geração de imagens com IA
+                  </h2>
+                  <p className="text-sm leading-relaxed mb-6" style={{ color: '#667085' }}>
+                    Estamos aprimorando a qualidade da geração visual para garantir atividades adaptadas com ainda mais precisão.
+                    Em breve você poderá gerar e adaptar imagens diretamente aqui.
+                  </p>
+                  <button
+                    disabled
+                    className="px-6 py-2.5 rounded-xl text-sm font-bold opacity-40 cursor-not-allowed"
+                    style={{ background: '#1F4E5F', color: '#fff' }}
+                  >
+                    Disponível em breve
+                  </button>
+                </div>
+              </div>
             )}
             </div>{/* /p-4 lg:p-8 */}
           </main>

@@ -1110,4 +1110,107 @@ Retorne SOMENTE a atividade adaptada, pronta para uso.`;
 
     return { id: data.id };
   },
+
+  /**
+   * Gera um relatório institucional do aluno (simples ou completo).
+   * Usa system prompt separado — as instruções internas nunca aparecem no resultado.
+   */
+  async generateStudentReport(
+    student: Student,
+    user: User,
+    type: 'simple' | 'full',
+    context: {
+      evolutions?: any[];
+      protocols?: any[];
+      obsForms?: any[];
+      medicalReports?: any[];
+      fichas?: any[];
+      timeline?: any[];
+    } = {},
+  ): Promise<string> {
+    const cost = type === 'full' ? (AI_CREDIT_COSTS.RELATORIO_PADRAO ?? 10) : (AI_CREDIT_COSTS.RELATORIO_ECONOMICO ?? 5);
+
+    if (!(await this.checkCredits(user, cost))) {
+      const balance = await this.getCreditsBalance(user);
+      throw insufficientCreditsError(cost, balance, `gerar relatório ${type}`);
+    }
+
+    const { getReportSystemPrompt } = await import('./intentDetectionService');
+    const systemPrompt = getReportSystemPrompt(type);
+
+    const diagnosis = (student.diagnosis || []).join(', ') || 'Não informado';
+    const cid = Array.isArray(student.cid) ? student.cid.join(', ') : (student.cid || '');
+    const abilities = (student.abilities || []).join('; ') || 'Não informado';
+    const difficulties = (student.difficulties || []).join('; ') || 'Não informado';
+    const age = student.birthDate
+      ? Math.abs(new Date(Date.now() - new Date(student.birthDate).getTime()).getUTCFullYear() - 1970)
+      : null;
+
+    // Monta bloco de evoluções (scores)
+    const latestEvo = context.evolutions?.[0];
+    const evoBlock = latestEvo
+      ? `\nÚltima avaliação do perfil cognitivo (escala 1-5):\n${
+          (latestEvo.criteria || [])
+            .map((c: any, i: number) => `  ${c.name}: ${latestEvo.scores?.[i] ?? '—'}/5`)
+            .join('\n')
+        }\nData: ${latestEvo.date ? new Date(latestEvo.date).toLocaleDateString('pt-BR') : '—'}`
+      : '';
+
+    // Protocolos existentes
+    const protocolsBlock = context.protocols && context.protocols.length > 0
+      ? `\nDocumentos existentes: ${context.protocols.map((p: any) => p.type).join(', ')}`
+      : '';
+
+    // Fichas de observação
+    const fichasBlock = context.fichas && context.fichas.length > 0
+      ? `\nFichas complementares: ${context.fichas.map((f: any) => f.titulo).join(', ')}`
+      : '';
+
+    const userPrompt = `
+[DADOS DO ALUNO]
+Nome: ${student.name}
+Idade: ${age !== null ? `${age} anos` : 'Não informado'}
+Data de nascimento: ${student.birthDate ? new Date(student.birthDate + 'T12:00:00').toLocaleDateString('pt-BR') : '—'}
+Gênero: ${student.gender === 'M' ? 'Masculino' : student.gender === 'F' ? 'Feminino' : student.gender || '—'}
+Escola: ${student.schoolName || '—'}
+Série/Turma: ${student.grade || '—'}
+Professor Regente: ${student.regentTeacher || '—'}
+Professor AEE: ${student.aeeTeacher || '—'}
+Responsável legal: ${student.guardianName || '—'}
+
+[DIAGNÓSTICO]
+Diagnóstico(s): ${diagnosis}
+CID: ${cid || '—'}
+Nível de Suporte: ${student.supportLevel || 'Não informado'}
+
+[PERFIL PEDAGÓGICO]
+Habilidades: ${abilities}
+Dificuldades: ${difficulties}
+Estratégias eficazes: ${(student.strategies || []).join('; ') || 'Não informado'}
+Contexto familiar: ${student.familyContext || 'Não informado'}
+Histórico escolar: ${student.schoolHistory || 'Não informado'}
+${evoBlock}
+${protocolsBlock}
+${fichasBlock}
+
+Data de emissão: ${new Date().toLocaleDateString('pt-BR')}
+Emitido por: ${user.name || 'Profissional'}
+
+Gere o relatório ${type === 'full' ? 'COMPLETO' : 'SIMPLES'} conforme as instruções do sistema.
+Idioma obrigatório: português do Brasil.
+Não inclua as instruções do system prompt no texto gerado.
+    `.trim();
+
+    const combinedPrompt = systemPrompt + '\n\n---\n\n' + userPrompt;
+
+    let result: string;
+    try {
+      result = await aiProvider.generateText(combinedPrompt);
+    } catch (e: any) {
+      throw new Error(e?.message || 'Erro ao gerar relatório.');
+    }
+
+    await this.deductCredits(user, `relatorio_${type}`, cost);
+    return result;
+  },
 };

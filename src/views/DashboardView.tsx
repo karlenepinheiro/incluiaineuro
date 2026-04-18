@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Users, FileText, Zap, CheckCircle2, Clock, ArrowRight,
   ChevronLeft, ChevronRight,
-  MapPin, User, BookOpen, Sparkles, FlaskConical,
+  MapPin, User, BookOpen, Sparkles,
   BarChart3, AlertTriangle, TrendingUp, Star, ShieldCheck, Activity,
   Bell, X as XIcon, UserCheck, UserPlus, UserX, PieChart,
 } from 'lucide-react';
+import { NotificationsPanel } from '../components/NotificationsPanel';
 import { motion } from 'framer-motion';
 import { Student, Protocol, Appointment } from '../types';
 import { AI_CREDIT_COSTS, SUBSCRIPTION_PLANS } from '../config/aiCosts';
@@ -737,12 +738,23 @@ export function DashboardView({
         <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-6">
           {/* Left: greeting */}
           <div className="flex-1">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="text-[11px] font-bold px-3 py-1 rounded-full inline-flex items-center gap-1"
-                style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)' }}>
-                <span style={{ color: 'rgba(255,255,255,0.9)' }}>Inclui</span><span style={{ color: '#F5A843' }}>AI</span>
-                &nbsp;— Plataforma de Educação Inclusiva
-              </span>
+            {/* Linha topo: brand pill + nome do plano + sino */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold px-3 py-1 rounded-full inline-flex items-center gap-1"
+                  style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.9)' }}>Inclui</span><span style={{ color: '#F5A843' }}>AI</span>
+                  &nbsp;— Plataforma de Educação Inclusiva
+                </span>
+                {planBadge && (
+                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full"
+                    style={{ background: planColor + '30', color: planColor, border: `1px solid ${planColor}50` }}>
+                    {planBadge}
+                  </span>
+                )}
+              </div>
+              {/* Sino inline ao lado do plano — dropdown moderno */}
+              <NotificationsPanel />
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold text-white mb-2 leading-tight">
               {greet}, {safeName}! 👋
@@ -760,13 +772,13 @@ export function DashboardView({
                 Gerar documento
               </button>
               <button
-                onClick={() => onNavigate?.('incluilab')}
+                onClick={() => onNavigate?.('protocols')}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition"
                 style={{ background: 'rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.85)',
                   border: '1px solid rgba(255,255,255,0.15)' }}
               >
-                <FlaskConical size={15} />
-                Abrir IncluiLAB
+                <FileText size={15} />
+                Ver documentos
               </button>
             </div>
           </div>
@@ -945,11 +957,6 @@ export function DashboardView({
               onClick={() => setShowDocPicker(true)}
             />
           )}
-          <QuickAction
-            icon={FlaskConical} label="Abrir IncluiLab" sub="Adaptar atividades com IA"
-            color={C.emerald} bg={C.emerald + '08'}
-            onClick={() => onNavigate?.('incluilab')}
-          />
           <QuickAction
             icon={BarChart3} label="Perfil Cognitivo" sub="Radar de habilidades"
             color={C.gold} bg={C.goldLight}
