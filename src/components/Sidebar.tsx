@@ -230,18 +230,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
               Ferramentas IA
             </div>
-            {/* Laboratório temporariamente desativado */}
-            <button
-              disabled
-              title="Em manutenção — em breve com qualidade aprimorada"
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium opacity-40 cursor-not-allowed"
-            >
-              <FlaskConical size={18} className="shrink-0 text-gray-400" />
-              <span className="whitespace-nowrap flex-1 text-left text-gray-400">Laboratório de Adaptações</span>
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                EM BREVE
-              </span>
-            </button>
+            {isPaid
+              ? <NavItem viewId="incluilab" icon={FlaskConical} label="Laboratório de Adaptações" />
+              : <LockedNavItemPro icon={FlaskConical} label="Laboratório de Adaptações" />
+            }
 
             {/* Avaliação & Histórico */}
             <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
