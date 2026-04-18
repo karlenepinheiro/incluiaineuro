@@ -16,6 +16,7 @@ import {
   CreditCard,
   Calendar,
   FlaskConical,
+  MessageSquare,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 
@@ -36,6 +37,7 @@ interface SidebarProps {
   hasFinalCaseStudy?: boolean;
   planMaxStudents?: number;
   triagemCount?: number;
+  unreadMessages?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -47,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   studentCount,
   planMaxStudents,
   triagemCount = 0,
+  unreadMessages = 0,
 }) => {
   const limits = getPlanLimits(user.plan);
   const isPremium = user.plan === PlanTier.PREMIUM;
@@ -255,8 +258,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Rodapé */}
             <div className="pt-4 mt-2">
               <Separator className="mb-3" />
-              <NavItem viewId="subscription" icon={CreditCard} label="Assinatura & Créditos" />
-              <NavItem viewId="settings"     icon={Settings}   label="Configurações" />
+              <NavItem viewId="subscription" icon={CreditCard}     label="Assinatura & Créditos" />
+              <NavItem viewId="settings"     icon={Settings}       label="Configurações" />
+              <NavItem
+                viewId="messages"
+                icon={MessageSquare}
+                label="Mensagens"
+                badge={unreadMessages > 0 ? String(unreadMessages > 9 ? '9+' : unreadMessages) : undefined}
+              />
               {user.isAdmin && (
                 <NavItem viewId="admin" icon={PieChart} label="Painel CEO" />
               )}

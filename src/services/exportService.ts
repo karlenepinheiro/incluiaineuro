@@ -1773,4 +1773,365 @@ export const ExportService = {
       style.remove();
     }, 500);
   },
+
+  // ── Relatório Técnico do Aluno — nova geração com JSON estruturado ───────────
+  async exportRelatorioAlunoPDF(params: {
+    student: Student;
+    resultado: import('../services/reportService').RelatorioResultado;
+    scores: number[];
+    school?: SchoolConfig | null;
+    createdBy?: string;
+  }) {
+    const { student, resultado, scores, school, createdBy = 'Sistema' } = params;
+    const { data, codigoDoc, geradoEm } = resultado;
+
+    const jsPDF  = await loadJsPDF();
+    const doc    = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const W      = doc.internal.pageSize.getWidth();
+    const H      = doc.internal.pageSize.getHeight();
+    const maxW   = W - ML - MR;
+    const BOT    = H - BOTTOM_MARGIN - FOOTER_H;
+
+    // QR code
+    const qrData = await buildQrDataUrl(codigoDoc);
+
+    // ── cabeçalho corrente (páginas 2+) ────────────────────────────────────
+    const addRunHdr = () => {
+      const schoolLabel = school?.schoolName?.trim() || student.schoolName || '';
+      if (school?.logoUrl) {
+        try {
+          const fmt = school.logoUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+          doc.addImage(school.logoUrl, fmt, ML, 1.5, 6, 6);
+        } catch {}
+      }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); sc(doc, DARK);
+      doc.text(schoolLabel.toUpperCase() || 'RELATÓRIO TÉCNICO', ML + (school?.logoUrl ? 8 : 0), 6);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); sc(doc, GRAY);
+      doc.text(`RELATÓRIO — ${student.name.toUpperCase()}`, W / 2, 6, { align: 'center' });
+      doc.setFont('courier', 'normal'); doc.setFontSize(6.5); sc(doc, GRAY);
+      doc.text(codigoDoc, W - MR, 6, { align: 'right' });
+      sdd(doc, BORDER); doc.setLineWidth(0.3);
+      doc.line(ML, 10, W - MR, 10);
+      return 14;
+    };
+
+    // ── rodapé com QR ──────────────────────────────────────────────────────
+    const addFooter = () => {
+      const fY  = H - BOTTOM_MARGIN - FOOTER_H + 2;
+      const pgN = doc.internal.getCurrentPageInfo().pageNumber;
+      const tot = doc.internal.getNumberOfPages();
+      sf(doc, BRAND); doc.rect(ML, fY, maxW, 0.6, 'F');
+      sf(doc, GOLD);  doc.rect(ML, fY + 0.6, maxW, 0.25, 'F');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); sc(doc, GRAY);
+      const dtStr = new Date(geradoEm).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      doc.text(`Emitido por: ${createdBy}  ·  ${dtStr}`, ML, fY + 5.5);
+      doc.setFont('helvetica', 'bold'); sc(doc, BRAND);
+      doc.text('INCLUIAI', W / 2, fY + 5.5, { align: 'center' });
+      doc.setFont('helvetica', 'normal'); sc(doc, GRAY);
+      doc.text(`Página ${pgN} de ${tot}`, W - MR, fY + 5.5, { align: 'right' });
+      doc.setFont('courier', 'normal'); doc.setFontSize(6); sc(doc, BRAND);
+      doc.text(codigoDoc, ML, fY + 9.5);
+      if (qrData) {
+        try { doc.addImage(qrData, 'PNG', W - MR - 11, fY + 1, 11, 11); } catch {}
+      }
+    };
+
+    // ── helpers internos ───────────────────────────────────────────────────
+    const LINE = 5.0;
+    const LSMALL = 4.4;
+
+    let y = 0;
+    let page = 1;
+
+    const ensureSpace = (needed: number) => {
+      if (y + needed > BOT) {
+        addFooter();
+        doc.addPage();
+        page++;
+        y = addRunHdr();
+      }
+    };
+
+    const addParagraph = (text: string, size = BODY_SIZE, color = DARK) => {
+      if (!text?.trim()) return;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(size);
+      sc(doc, color);
+      const lines: string[] = doc.splitTextToSize(text.trim(), maxW);
+      for (const line of lines) {
+        ensureSpace(LINE + 1);
+        doc.text(line, ML, y);
+        y += LINE;
+      }
+      y += 2;
+    };
+
+    const addSection = (title: string) => {
+      ensureSpace(14);
+      y += 3;
+      sf(doc, BRAND);
+      doc.roundedRect(ML, y, maxW, 7.5, 1, 1, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(F_SECTION_SIZE);
+      sc(doc, WHITE);
+      doc.text(title.toUpperCase(), ML + 4, y + 5);
+      y += 10;
+    };
+
+    const addBulletList = (items: string[], color = DARK) => {
+      if (!items?.length) return;
+      for (const item of items.filter(Boolean)) {
+        const lines: string[] = doc.splitTextToSize(`• ${item}`, maxW - 4);
+        ensureSpace(lines.length * LSMALL + 2);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(BODY_SIZE - 0.5);
+        sc(doc, color);
+        doc.text(lines, ML + 3, y);
+        y += lines.length * LSMALL + 1.5;
+      }
+      y += 2;
+    };
+
+    const addKeyValue = (label: string, value: string) => {
+      if (!value?.trim()) return;
+      ensureSpace(LINE + 2);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(BODY_SIZE - 0.5); sc(doc, BRAND);
+      doc.text(`${label}:`, ML, y);
+      const lw = doc.getTextWidth(`${label}: `);
+      doc.setFont('helvetica', 'normal'); sc(doc, DARK);
+      const valLines: string[] = doc.splitTextToSize(value, maxW - lw - 2);
+      doc.text(valLines[0] || '', ML + lw, y);
+      y += LINE;
+      if (valLines.length > 1) {
+        for (let i = 1; i < valLines.length; i++) {
+          ensureSpace(LINE);
+          doc.text(valLines[i], ML + lw, y);
+          y += LSMALL;
+        }
+      }
+    };
+
+    // ══ PÁGINA 1 — CAPA ═══════════════════════════════════════════════════════
+
+    const bannerH = 46;
+    sf(doc, BRAND); doc.rect(0, 0, W, bannerH, 'F');
+    sf(doc, GOLD);  doc.rect(0, bannerH, W, 1.5, 'F');
+
+    // Logo escola
+    let nameX = ML;
+    if (school?.logoUrl) {
+      try {
+        const fmt = school.logoUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+        doc.addImage(school.logoUrl, fmt, ML, 3, 9, 9);
+        nameX = ML + 11;
+      } catch {}
+    }
+    const schoolName = school?.schoolName?.trim() || student.schoolName || 'Escola não informada';
+    const cityLine   = [school?.city, school?.state].filter(Boolean).join(' – ');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); sc(doc, WHITE);
+    const snLines: string[] = doc.splitTextToSize(schoolName.toUpperCase(), W - nameX - MR - 4);
+    doc.text(snLines, nameX, 8);
+    if (cityLine) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, [175, 210, 228] as [number,number,number]);
+      doc.text(cityLine, nameX, 8 + snLines.length * 4.2);
+    }
+    sf(doc, GOLD); doc.rect(ML, 17, maxW, 0.3, 'F');
+
+    // Título do documento
+    const docTitle = data.tipo === 'completo'
+      ? 'RELATÓRIO TÉCNICO PEDAGÓGICO COMPLETO'
+      : 'RELATÓRIO TÉCNICO PEDAGÓGICO';
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); sc(doc, WHITE);
+    doc.text(docTitle, ML, 25);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, [175, 215, 232] as [number,number,number]);
+    doc.text('Educação Inclusiva — Atendimento Educacional Especializado', ML, 33);
+
+    // Código e data (direita)
+    doc.setFont('courier', 'normal'); doc.setFontSize(7); sc(doc, GOLD);
+    doc.text(codigoDoc, W - MR, 33, { align: 'right' });
+    if (qrData) {
+      try { doc.addImage(qrData, 'PNG', W - MR - 14, 2, 12, 12); } catch {}
+    }
+
+    // Metadados abaixo do banner
+    y = bannerH + 7;
+    const dtFull = new Date(geradoEm).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, GRAY);
+    doc.text(`Emissão: ${dtFull}  |  Profissional: ${createdBy}`, ML, y);
+    sdd(doc, BORDER); doc.setLineWidth(0.3);
+    doc.line(ML, y + 4, W - MR, y + 4);
+    y += 10;
+
+    // Bloco do aluno
+    sf(doc, BRAND_LIGHT);
+    doc.roundedRect(ML, y, maxW, 28, 2, 2, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12); sc(doc, BRAND);
+    doc.text(student.name.toUpperCase(), ML + 4, y + 8);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, DARK);
+    const diagnoseStr = (student.diagnosis || []).join(', ') || 'A confirmar';
+    doc.text(`Diagnóstico: ${diagnoseStr}`, ML + 4, y + 14);
+    const gradeShift = [student.grade, student.shift].filter(Boolean).join(' — ');
+    if (gradeShift) doc.text(gradeShift, ML + 4, y + 19);
+    const supportStr = `Nível de Suporte: ${student.supportLevel || 'A definir'}`;
+    doc.text(supportStr, ML + 4, y + 24);
+    y += 36;
+
+    // ══ SEÇÕES DO RELATÓRIO ════════════════════════════════════════════════════
+
+    if (data.identificacao) {
+      addSection('Identificação do Aluno');
+      addParagraph(data.identificacao);
+    }
+
+    if (data.tipo === 'completo' && data.historicoRelevante) {
+      addSection('Histórico Relevante');
+      addParagraph(data.historicoRelevante);
+    }
+
+    const sitPed = data.tipo === 'completo'
+      ? (data as any).situacaoPedagogica
+      : (data as any).situacaoPedagogicaAtual;
+    if (sitPed) {
+      addSection('Situação Pedagógica' + (data.tipo === 'simples' ? ' Atual' : ''));
+      addParagraph(sitPed);
+    }
+
+    if (data.situacaoFuncional) {
+      addSection('Situação Funcional');
+      addParagraph(data.situacaoFuncional);
+    }
+
+    if (data.tipo === 'completo' && data.perfilCognitivo) {
+      addSection('Perfil Cognitivo e Funcional');
+      addParagraph(data.perfilCognitivo);
+    }
+
+    if (data.dificuldades?.length) {
+      addSection('Dificuldades Observadas');
+      addBulletList(data.dificuldades, DARK);
+    }
+
+    if (data.tipo === 'completo' && data.potencialidades?.length) {
+      addSection('Potencialidades e Habilidades');
+      addBulletList(data.potencialidades, DARK);
+    }
+
+    if (data.tipo === 'completo' && data.estrategiasEficazes?.length) {
+      addSection('Estratégias com Resultados Positivos');
+      addBulletList(data.estrategiasEficazes, DARK);
+    }
+
+    // Checklist textual (completo)
+    if (data.tipo === 'completo' && data.checklist?.length) {
+      addSection('Checklist de Áreas de Desenvolvimento');
+      const grauLabel: Record<string, string> = {
+        leve: 'Leve', moderado: 'Moderado', intenso: 'Intenso',
+      };
+      for (const item of data.checklist) {
+        const grau = item.grau ? ` [${grauLabel[item.grau] ?? item.grau}]` : '';
+        const status = item.presente ? `⚠ ${item.area}${grau}` : `✓ ${item.area} — Preservado`;
+        const obs = item.obs ? `  ${item.obs}` : '';
+        ensureSpace(LSMALL + 2);
+        doc.setFont('helvetica', item.presente ? 'bold' : 'normal');
+        doc.setFontSize(BODY_SIZE - 0.5);
+        sc(doc, item.presente ? DARK : GRAY);
+        doc.text(status + obs, ML + 3, y);
+        y += LSMALL + 1.5;
+      }
+      y += 2;
+    }
+
+    if (data.tipo === 'completo' && data.evolucaoObservada) {
+      addSection('Evolução Observada');
+      addParagraph(data.evolucaoObservada);
+    }
+
+    if (data.observacoesRelevantes) {
+      addSection('Observações Relevantes');
+      addParagraph(data.observacoesRelevantes);
+    }
+
+    // Scores (quando disponíveis)
+    if (scores.length) {
+      addSection('Avaliação Multidimensional (Escala 1–5)');
+      const criteriaNames = [
+        'Comunicação Expressiva', 'Interação Social', 'Autonomia (AVD)',
+        'Autorregulação', 'Atenção Sustentada', 'Compreensão',
+        'Motricidade Fina', 'Motricidade Grossa', 'Participação', 'Linguagem/Leitura',
+      ];
+      const barW = 40;
+      const startX = ML + 55;
+      for (let i = 0; i < criteriaNames.length; i++) {
+        const s = scores[i] ?? 1;
+        const pct = (s / 5) * 100;
+        const scoreColors: [number,number,number] =
+          s >= 4 ? [22, 163, 74] : s >= 3 ? [124, 58, 237] : s >= 2 ? [217, 119, 6] : [220, 38, 38];
+        ensureSpace(LSMALL + 2);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, DARK);
+        doc.text(criteriaNames[i], ML, y + 0.5);
+        sf(doc, [229, 231, 235] as [number,number,number]);
+        doc.roundedRect(startX, y - 3, barW, 4, 0.5, 0.5, 'F');
+        sf(doc, scoreColors);
+        doc.roundedRect(startX, y - 3, barW * (pct / 100), 4, 0.5, 0.5, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); sc(doc, scoreColors);
+        doc.text(`${s}/5`, startX + barW + 2, y + 0.5);
+        y += LSMALL + 1.5;
+      }
+      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      ensureSpace(LINE + 4);
+      y += 2;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(BODY_SIZE); sc(doc, BRAND);
+      doc.text(`Média geral: ${avg.toFixed(1)}/5`, ML, y);
+      y += LINE + 2;
+    }
+
+    // Conclusão
+    if (data.conclusao) {
+      addSection('Conclusão e Parecer Técnico');
+      ensureSpace(8);
+      sf(doc, BRAND_LIGHT);
+      const conclusaoLines: string[] = doc.splitTextToSize(data.conclusao.trim(), maxW - 8);
+      const boxH = conclusaoLines.length * LINE + 8;
+      doc.roundedRect(ML, y, maxW, boxH, 2, 2, 'F');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(BODY_SIZE); sc(doc, DARK);
+      doc.text(conclusaoLines, ML + 4, y + 5);
+      y += boxH + 4;
+    }
+
+    // Recomendações
+    if (data.tipo === 'completo') {
+      const recs = [
+        { title: 'Recomendações Pedagógicas',    items: (data as any).recomendacoesPedagogicas },
+        { title: 'Recomendações Clínicas',        items: (data as any).recomendacoesClinicas },
+        { title: 'Recomendações Familiares',      items: (data as any).recomendacoesFamiliares },
+        { title: 'Recomendações Institucionais',  items: (data as any).recomendacoesInstitucionais },
+      ].filter(r => r.items?.length);
+      if (recs.length) {
+        addSection('Recomendações Multidisciplinares');
+        for (const r of recs) {
+          ensureSpace(LINE + 2);
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(BODY_SIZE - 0.5); sc(doc, BRAND);
+          doc.text(`${r.title}:`, ML, y);
+          y += LINE;
+          addBulletList(r.items);
+        }
+      }
+    } else {
+      if ((data as any).recomendacoes?.length) {
+        addSection('Recomendações');
+        addBulletList((data as any).recomendacoes);
+      }
+    }
+
+    // Rodapé de todas as páginas
+    const total = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= total; i++) {
+      doc.setPage(i);
+      addFooter();
+    }
+
+    const safeName = student.name.replace(/\s+/g, '_');
+    const tipo = data.tipo === 'completo' ? 'Completo' : 'Simples';
+    doc.save(`Relatorio_${tipo}_${safeName}.pdf`);
+  },
 };

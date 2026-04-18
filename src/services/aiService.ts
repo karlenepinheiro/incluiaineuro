@@ -2,7 +2,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { GoogleGenAI, Modality } from "@google/genai";
 import { supabase } from "./supabase";
-import { User, DocumentType, Student, DocumentAnalysis, AIModelConfig, AIModelContext, AIOutputType } from "../types";
+import { User, DocumentType, Student, DocumentAnalysis, AIModelConfig, AIModelContext, AIOutputType, AtividadeJSON, validateAtividadeJSON } from "../types";
 import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from "../config/aiCosts";
 import { AiAuditService } from "./persistenceService";
 import type { StudentContext } from "./studentContextService";
@@ -881,6 +881,98 @@ Regras:
       await this.deductCredits(user, `ATIVIDADE:${modelCfg.id}`, cost);
       if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: modelCfg.output_type, content: textResult.slice(0, 500) });
       return textResult;
+  },
+
+  async generateActivityStructured(
+    topic: string,
+    student: Student,
+    user: User,
+    options?: ActivityGenOptions,
+  ): Promise<AtividadeJSON> {
+    const modelCfg = getModelConfig('texto_apenas');
+    const cost = modelCfg.credit_cost;
+    if (!(await this.checkCredits(user, cost))) {
+      const balance = await this.getCreditsBalance(user);
+      throw insufficientCreditsError(cost, balance, 'gerar atividade estruturada');
+    }
+
+    const diagnosis = (student.diagnosis || []).join(', ') || 'Não informado';
+    const grade = options?.grade?.trim() || 'Não informado';
+    const discipline = options?.discipline?.trim() || 'Não informado';
+    const period = options?.period?.trim() || '';
+    const bncc = (options?.bnccCodes || []).filter(Boolean).join(', ') || '';
+
+    const prompt = `Você é uma pedagoga especialista em AEE e educação inclusiva brasileira.
+
+Crie uma atividade pedagógica adaptada para o aluno descrito abaixo.
+
+DADOS DO ALUNO:
+- Nome: ${student.name}
+- Diagnóstico(s): ${diagnosis}
+- Nível de suporte: ${student.supportLevel || 'Não informado'}
+- Ano/Série: ${grade}
+- Disciplina: ${discipline}
+${period ? `- Período/Unidade: ${period}` : ''}
+${bncc ? `- BNCC: ${bncc}` : ''}
+
+TEMA DA ATIVIDADE: ${topic}
+
+REGRAS ABSOLUTAS:
+1. Idioma: SOMENTE português do Brasil. Proibido qualquer palavra em inglês, espanhol ou outro idioma.
+2. Proibido inventar palavras ou usar termos inexistentes.
+3. Linguagem simples, clara e pedagógica.
+4. Questões práticas e adequadas ao nível do aluno.
+5. Mínimo 4 questões, máximo 8 questões.
+
+RETORNE SOMENTE o JSON abaixo, sem markdown, sem explicações:
+{
+  "titulo": "Título claro da atividade em português",
+  "subtitulo": "Descrição breve do tipo/área da atividade, ex: Atividade adaptada de matemática",
+  "instrucao": "Instrução curta e direta para o aluno em português",
+  "objetivo": "Objetivo de aprendizagem em 1-2 frases, focado na habilidade desenvolvida",
+  "questoes": [
+    "Enunciado completo da questão 1 em português",
+    "Enunciado completo da questão 2 em português"
+  ],
+  "observacao_professor": "Orientação prática para o professor: como mediar, apoiar e avaliar esta atividade",
+  "nivel_dificuldade": "Fácil | Médio | Difícil"
+}`;
+
+    const t0 = Date.now();
+    const auditId = await AiAuditService.logRequest({
+      tenantId: (user as any).tenant_id ?? '',
+      userId: user.id,
+      requestType: 'activity_structured',
+      model: modelCfg.id,
+      creditsConsumed: cost,
+      inputData: { studentId: student.id, topic },
+    });
+
+    let raw: string;
+    try {
+      raw = await aiProvider.generateJSON(prompt);
+    } catch (e: any) {
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0 });
+      throw e;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0 });
+      throw new Error('A IA retornou um formato inválido. Tente novamente.');
+    }
+
+    if (!validateAtividadeJSON(parsed)) {
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0 });
+      throw new Error('O conteúdo gerado não atende ao formato pedagógico esperado. Tente novamente.');
+    }
+
+    await this.deductCredits(user, 'ATIVIDADE_ESTRUTURADA', cost);
+    if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'text', content: raw.slice(0, 500) });
+
+    return parsed;
   },
 
   async generateActivityImage(description: string, student: Student, user: User, options?: ActivityImageOptions): Promise<{imageUrl: string, guidance: string}> {

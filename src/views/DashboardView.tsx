@@ -6,7 +6,6 @@ import {
   BarChart3, AlertTriangle, TrendingUp, Star, ShieldCheck, Activity,
   Bell, X as XIcon, UserCheck, UserPlus, UserX, PieChart,
 } from 'lucide-react';
-import { NotificationsPanel } from '../components/NotificationsPanel';
 import { motion } from 'framer-motion';
 import { Student, Protocol, Appointment } from '../types';
 import { AI_CREDIT_COSTS, SUBSCRIPTION_PLANS } from '../config/aiCosts';
@@ -753,8 +752,7 @@ export function DashboardView({
                   </span>
                 )}
               </div>
-              {/* Sino inline ao lado do plano — dropdown moderno */}
-              <NotificationsPanel />
+              {/* Sino move para o header global do App — removido daqui */}
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold text-white mb-2 leading-tight">
               {greet}, {safeName}! 👋

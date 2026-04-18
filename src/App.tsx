@@ -55,6 +55,9 @@ import { BrandLogo } from './components/BrandLogo';
 import { supabase, DEMO_MODE } from './services/supabase';
 import { databaseService, DuplicateStudentError } from './services/databaseService';
 import { ServiceRecordService, AppointmentService } from './services/persistenceService';
+import { NotificationsPanel } from './components/NotificationsPanel';
+import { MessagesView } from './views/MessagesView';
+import { StudentSearchService } from './services/studentSearchService';
 
 // --- Helper ---
 const generateAuditCode = (userName: string) => {
@@ -207,6 +210,7 @@ const App: React.FC = () => {
   const [view, setView] = useState(detectInitialView);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [loginInitialTab, setLoginInitialTab] = useState<'login' | 'register'>(detectInitialTab);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   const [user, setUser] = useState<User>(MOCK_USER);
   const [students, setStudents] = useState<Student[]>([]);
@@ -356,6 +360,16 @@ const App: React.FC = () => {
     window.addEventListener('incluiai:credits-changed', handleCreditsChanged);
     return () => window.removeEventListener('incluiai:credits-changed', handleCreditsChanged);
   }, [user?.id]);
+
+  // --- Contagem de mensagens não lidas (polling leve) ---
+  useEffect(() => {
+    if (!isAuthenticated || DEMO_MODE) return;
+    const refresh = () =>
+      StudentSearchService.getUnreadCount().then(setUnreadMessages).catch(() => {});
+    refresh();
+    const id = setInterval(refresh, 60_000);
+    return () => clearInterval(id);
+  }, [isAuthenticated]);
 
     // --- Restore session (inclui retorno de OAuth Google e confirmacao de e-mail) ---
   useEffect(() => {
@@ -1185,6 +1199,7 @@ const App: React.FC = () => {
           protocolCount={protocols.length}
           planMaxStudents={planMaxStudents}
           triagemCount={students.filter(s => s.tipo_aluno === 'em_triagem').length}
+          unreadMessages={unreadMessages}
         />
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -1205,16 +1220,25 @@ const App: React.FC = () => {
             ) : null;
           })()}
 
-          <header className="bg-white border-b border-gray-200 h-16 flex items-center px-4 justify-between shrink-0 print:hidden">
+          <header
+            className="border-b border-gray-200 h-16 flex items-center px-4 justify-between shrink-0 print:hidden"
+            style={{ background: '#1F4E5F' }}
+          >
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg transition"
+                className="p-2 text-white/70 hover:bg-white/10 rounded-lg transition"
               >
-                <Menu size={24} />
+                <Menu size={24} color="white" />
               </button>
               <BrandLogo fontSize={16} iconSize={14} className="lg:hidden" />
             </div>
+            {isAuthenticated && (
+              <NotificationsPanel
+                onNavigate={handleSetView}
+                refreshTrigger={unreadMessages}
+              />
+            )}
           </header>
 
           <main className="flex-1 overflow-y-auto">
@@ -1498,6 +1522,10 @@ const App: React.FC = () => {
                 students={students}
                 creditsAvailable={creditsAvailable}
               />
+            )}
+
+            {view === 'messages' && (
+              <MessagesView onNavigate={handleSetView} />
             )}
             </div>{/* /p-4 lg:p-8 */}
           </main>

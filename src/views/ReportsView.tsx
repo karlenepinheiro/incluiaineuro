@@ -3,7 +3,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   BarChart3, Save, Printer, Plus, Calendar, User as UserIcon, History,
   Lock, TrendingUp, Download, Trash2, CheckCircle, ShieldCheck,
-  Mic, X, Edit2, ChevronDown, ChevronUp, Sparkles, Type, Coins, Loader, Zap
+  Mic, X, Edit2, ChevronDown, ChevronUp, Sparkles, Type, Coins, Loader, Zap,
+  FileText, Brain, ClipboardCheck, ChevronRight as ChevronR,
 } from 'lucide-react';
 import { Student, StudentEvolution, PlanTier, getPlanLimits, DocField } from '../types';
 import { ExportService } from '../services/exportService';
@@ -13,6 +14,7 @@ import { StudentProfileService, TimelineService } from '../services/persistenceS
 import { DEMO_MODE } from '../services/supabase';
 import { AIService, getModelsForContext } from '../services/aiService';
 import { CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
+import { generateRelatorioAluno, type RelatorioResultado, type ReportMode } from '../services/reportService';
 
 const CRITERIA = [
   { name: "Comunicação Expressiva", desc: "Expressão verbal, gestual ou alternativa." },
@@ -237,6 +239,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
   const [reportModelId, setReportModelId] = useState('padrao');
   const [generatingParecer, setGeneratingParecer] = useState(false);
 
+  // ── Novo sistema de relatório técnico ────────────────────────────────────────
+  const [reportMode, setReportMode] = useState<ReportMode>('completo');
+  const [relatorioResultado, setRelatorioResultado] = useState<RelatorioResultado | null>(null);
+  const [generatingRelatorio, setGeneratingRelatorio] = useState(false);
+  const [relatorioError, setRelatorioError] = useState<string | null>(null);
+  const [showRelatorio, setShowRelatorio] = useState(false);
+
   const selectedStudent = students.find(s => s.id === selectedStudentId);
   const planLimits = getPlanLimits(currentPlan);
   const isReadOnly = !!selectedHistoryId;
@@ -369,6 +378,46 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
     try {
       const school = currentUser?.schoolConfigs?.[0] ?? null;
       await ExportService.exportEvolutionReportPDF({ student: selectedStudent, scores, observation, criteria: CRITERIA, customFields, auditCode, createdBy: currentUser?.name || 'Usuário', createdAt: new Date().toISOString(), allEvolutions: selectedStudent.evolutions || [], school });
+    } catch { alert('Erro ao exportar PDF.'); }
+  };
+
+  const handleGerarRelatorio = async () => {
+    if (!selectedStudent || !currentUser) return;
+    setRelatorioError(null);
+    setGeneratingRelatorio(true);
+    setShowRelatorio(false);
+    try {
+      const school = currentUser?.schoolConfigs?.[0] ?? null;
+      const resultado = await generateRelatorioAluno({
+        student: selectedStudent,
+        scores,
+        observation,
+        customFields,
+        mode: reportMode,
+        user: currentUser,
+        modelId: reportModelId,
+        school,
+      });
+      setRelatorioResultado(resultado);
+      setShowRelatorio(true);
+    } catch (e: any) {
+      setRelatorioError(e?.message || 'Erro ao gerar relatório. Verifique sua conexão e créditos.');
+    } finally {
+      setGeneratingRelatorio(false);
+    }
+  };
+
+  const handleExportRelatorioPDF = async () => {
+    if (!selectedStudent || !relatorioResultado) return;
+    try {
+      const school = currentUser?.schoolConfigs?.[0] ?? null;
+      await ExportService.exportRelatorioAlunoPDF({
+        student: selectedStudent,
+        resultado: relatorioResultado,
+        scores,
+        school,
+        createdBy: currentUser?.name || 'Profissional',
+      });
     } catch { alert('Erro ao exportar PDF.'); }
   };
 
@@ -592,6 +641,190 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
               <button onClick={handleSave} className="w-full bg-gray-900 hover:bg-black text-white font-bold py-3 rounded-2xl flex items-center justify-center gap-2 transition shadow-lg">
                 <Save size={18}/> Salvar Relatório
               </button>
+            )}
+
+            {/* ── PAINEL: GERAR RELATÓRIO TÉCNICO ────────────────────────── */}
+            {selectedStudent && (
+              <div
+                className="rounded-2xl overflow-hidden"
+                style={{ border: '2px solid #1F4E5F' }}
+              >
+                {/* Header do painel */}
+                <div
+                  className="px-5 py-4 flex items-center justify-between"
+                  style={{ background: 'linear-gradient(135deg, #1F4E5F 0%, #2E3A59 100%)' }}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.12)' }}>
+                      <Brain size={18} color="#C69214" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-white text-sm">Relatório Técnico com IA</h3>
+                      <p className="text-[10px] text-white/60 mt-0.5">Documento profissional pronto para INSS, saúde e órgãos públicos</p>
+                    </div>
+                  </div>
+                  {showRelatorio && (
+                    <button
+                      onClick={() => setShowRelatorio(false)}
+                      className="text-white/60 hover:text-white transition"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Seletor de modo */}
+                {!showRelatorio && (
+                  <div className="p-5 bg-white">
+                    {/* Toggle simples/completo */}
+                    <div className="mb-4">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-2">
+                        Tipo de Relatório
+                      </label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          {
+                            id: 'simples' as ReportMode,
+                            icon: <FileText size={16} />,
+                            title: 'Relatório Simples',
+                            desc: '1–2 páginas · INSS, saúde, órgãos públicos · Linguagem objetiva',
+                          },
+                          {
+                            id: 'completo' as ReportMode,
+                            icon: <ClipboardCheck size={16} />,
+                            title: 'Relatório Completo',
+                            desc: '3–5 páginas · Multidisciplinar · Gráficos + checklist visual',
+                          },
+                        ].map(opt => {
+                          const isSel = reportMode === opt.id;
+                          return (
+                            <button
+                              key={opt.id}
+                              onClick={() => setReportMode(opt.id)}
+                              className="flex flex-col items-start gap-2 p-4 rounded-xl text-left transition"
+                              style={{
+                                border: `2px solid ${isSel ? '#1F4E5F' : '#E7E2D8'}`,
+                                background: isSel ? '#1F4E5F' : '#FAFAFA',
+                              }}
+                            >
+                              <div style={{ color: isSel ? '#C69214' : '#1F4E5F' }}>{opt.icon}</div>
+                              <span className="text-xs font-bold" style={{ color: isSel ? '#fff' : '#1C2033' }}>
+                                {opt.title}
+                              </span>
+                              <span className="text-[10px] leading-relaxed" style={{ color: isSel ? 'rgba(255,255,255,0.65)' : '#6B7280' }}>
+                                {opt.desc}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Seletor de modelo */}
+                    <div className="mb-4">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-2">
+                        Qualidade da IA
+                      </label>
+                      <ReportModelSelector selectedId={reportModelId} onChange={setReportModelId} />
+                    </div>
+
+                    {/* Erro */}
+                    {relatorioError && (
+                      <div className="mb-3 px-4 py-3 rounded-xl text-xs text-red-700 bg-red-50 border border-red-200">
+                        {relatorioError}
+                      </div>
+                    )}
+
+                    {/* Botão gerar */}
+                    <button
+                      onClick={handleGerarRelatorio}
+                      disabled={generatingRelatorio || !selectedStudent}
+                      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition disabled:opacity-60 text-white"
+                      style={{ background: '#C69214' }}
+                    >
+                      {generatingRelatorio
+                        ? <><Loader size={16} className="animate-spin" /> Gerando relatório técnico…</>
+                        : <><Sparkles size={16} /> Gerar Relatório Técnico</>}
+                    </button>
+                  </div>
+                )}
+
+                {/* Card de resultado */}
+                {showRelatorio && relatorioResultado && (
+                  <div className="p-5 bg-white">
+                    {/* Status badge */}
+                    <div className="flex items-center gap-2 mb-4">
+                      <CheckCircle size={16} className="text-green-500 shrink-0" />
+                      <span className="text-sm font-bold text-green-700">Relatório gerado com sucesso</span>
+                    </div>
+
+                    {/* Card do documento */}
+                    <div className="rounded-xl border border-gray-200 overflow-hidden">
+                      {/* Cabeçalho do card */}
+                      <div className="px-4 py-3 flex items-center gap-3" style={{ background: 'linear-gradient(135deg, #1F4E5F 0%, #2E3A59 100%)' }}>
+                        <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(198,146,20,0.2)' }}>
+                          <FileText size={17} color="#C69214" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-white truncate">Relatório Técnico Pedagógico</p>
+                          <p className="text-[10px] text-white/60 truncate">{selectedStudent.name}</p>
+                        </div>
+                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0"
+                          style={{ background: 'rgba(198,146,20,0.25)', color: '#C69214', border: '1px solid rgba(198,146,20,0.4)' }}>
+                          {relatorioResultado.data.tipo === 'simples' ? 'SIMPLES' : 'COMPLETO'}
+                        </span>
+                      </div>
+
+                      {/* Metadados */}
+                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-2 gap-x-4 gap-y-1.5">
+                        <div>
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Gerado em</p>
+                          <p className="text-xs font-semibold text-gray-800">
+                            {new Date(relatorioResultado.geradoEm).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                            {' '}às{' '}
+                            {new Date(relatorioResultado.geradoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Tipo</p>
+                          <p className="text-xs font-semibold text-gray-800 capitalize">
+                            {relatorioResultado.data.tipo === 'simples' ? 'Relatório Simples' : 'Relatório Completo'}
+                          </p>
+                        </div>
+                        <div className="col-span-2">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Código do documento</p>
+                          <p className="text-xs font-mono font-semibold" style={{ color: '#1F4E5F' }}>{relatorioResultado.codigoDoc}</p>
+                        </div>
+                      </div>
+
+                      {/* Ações */}
+                      <div className="px-4 py-3 bg-white flex items-center gap-2">
+                        <button
+                          onClick={handleExportRelatorioPDF}
+                          className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold text-white transition"
+                          style={{ background: '#1F4E5F' }}
+                        >
+                          <Download size={13} /> Baixar PDF
+                        </button>
+                        <button
+                          onClick={() => setShowRelatorio(false)}
+                          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-gray-200 text-gray-600 hover:bg-gray-50 transition"
+                          title="Editar configurações e regenerar"
+                        >
+                          <Edit2 size={13} /> Editar
+                        </button>
+                        <button
+                          onClick={() => { setShowRelatorio(false); setRelatorioResultado(null); }}
+                          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-red-100 text-red-500 hover:bg-red-50 transition"
+                          title="Excluir este resultado"
+                        >
+                          <Trash2 size={13} /> Excluir
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

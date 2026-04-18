@@ -637,6 +637,29 @@ export interface Activity {
   tags: string[];
 }
 
+export interface AtividadeJSON {
+  titulo: string;
+  subtitulo: string;
+  instrucao: string;
+  objetivo: string;
+  questoes: string[];
+  observacao_professor: string;
+  nivel_dificuldade?: string;
+}
+
+export function validateAtividadeJSON(obj: unknown): obj is AtividadeJSON {
+  if (!obj || typeof obj !== 'object') return false;
+  const a = obj as Record<string, unknown>;
+  if (typeof a.titulo !== 'string' || !a.titulo.trim()) return false;
+  if (typeof a.subtitulo !== 'string') return false;
+  if (typeof a.instrucao !== 'string' || !a.instrucao.trim()) return false;
+  if (typeof a.objetivo !== 'string' || !a.objetivo.trim()) return false;
+  if (!Array.isArray(a.questoes) || a.questoes.length === 0) return false;
+  if (a.questoes.some((q: unknown) => typeof q !== 'string' || !(q as string).trim())) return false;
+  if (typeof a.observacao_professor !== 'string') return false;
+  return true;
+}
+
 export interface Subscriber {
   id: string;
   tenant_id: string;
