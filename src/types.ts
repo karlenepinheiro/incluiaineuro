@@ -739,9 +739,9 @@ export interface Subscription {
 /** Entrada no razão de créditos */
 export type CreditLedgerType =
   // Novos tipos (spec v5)
-  | 'monthly_grant' | 'usage_ai' | 'bonus_manual' | 'purchase_extra' | 'courtesy'
+  | 'monthly_grant' | 'usage_ai' | 'manual_grant' | 'refund'
   // Aliases legados (schema v4 — mantidos para compatibilidade)
-  | 'renewal' | 'purchase' | 'bonus' | 'consumption' | 'refund' | 'adjustment';
+  | 'bonus_manual' | 'purchase_extra' | 'courtesy' | 'renewal' | 'purchase' | 'bonus' | 'consumption' | 'adjustment';
 
 export interface CreditLedgerEntry {
   id: string;
