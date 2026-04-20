@@ -3,17 +3,27 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 // ─── Conteúdo por fase ────────────────────────────────────────────────────────
 const CONTENT = {
   dor: {
-    headline: 'Você não foi formada para preencher papel.',
-    highlight: 'Mas é isso que está consumindo seu dia.',
-    sub: 'Relatórios, PEI, PAEE e estudo de caso em minutos — não mais horas.',
-    accentColor: '#EF4444',
+    headline: 'Pare de perder horas fazendo atividades adaptadas.',
+    highlight: 'Com o IncluiAI você gera tudo pronto, em PDF, em segundos.',
+    sub: 'Atividades personalizadas para cada aluno — com padrão profissional.',
+    bullets: [
+      'Pronto para imprimir',
+      'Adaptado para cada aluno',
+      'Com padrão profissional (inclusive para relatórios INSS)',
+    ],
+    accentColor: '#2563EB',
     image: '/images/hero-dor.jpg',
   },
   leveza: {
-    headline: 'Agora você tem tempo para o que realmente importa.',
-    highlight: 'O resto, o IncluiAI resolve para você.',
-    sub: 'Relatórios, PEI, PAEE e estudo de caso em minutos — não mais horas.',
-    accentColor: '#2563EB',
+    headline: 'Chega de trabalhar no fim de semana.',
+    highlight: 'Agora você tem tempo para o que realmente importa.',
+    sub: 'Mais de 1.800 professoras já economizam horas toda semana.',
+    bullets: [
+      'Atividade pronta em segundos',
+      'Tudo organizado e centralizado',
+      'Fim de semana livre para você',
+    ],
+    accentColor: '#16A34A',
     image: '/images/hero-leveza.jpg',
   },
 };
@@ -606,7 +616,7 @@ const Hero = ({ onRegister }) => {
       className={btnClass}
       onClick={handleRegister}
     >
-      Começar grátis <ArrowIcon />
+      Gerar minha atividade agora <ArrowIcon />
     </a>
   ) : (
     <a
@@ -615,7 +625,7 @@ const Hero = ({ onRegister }) => {
       target="_blank"
       rel="noopener noreferrer"
     >
-      Quero acesso completo <ArrowIcon />
+      Gerar minha atividade agora <ArrowIcon />
     </a>
   );
 
@@ -686,10 +696,20 @@ const Hero = ({ onRegister }) => {
 
             <p className="hr-sub">{textContent.sub}</p>
 
+            {/* Bullets */}
+            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {(textContent.bullets || []).map(b => (
+                <li key={b} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 15, fontWeight: 600, color: '#1E293B' }}>
+                  <span style={{ flexShrink: 0, color: '#16A34A' }}><CheckIcon /></span>
+                  {b}
+                </li>
+              ))}
+            </ul>
+
             {/* Prova social */}
             <div className="hr-social-proof">
               <CheckIcon />
-              Mais de 1.200 professoras já estão usando o IncluiAI
+              Mais de 1.800 professoras já estão usando o IncluiAI
             </div>
           </div>
 
@@ -721,8 +741,9 @@ const Hero = ({ onRegister }) => {
           <div className="hr-ctas">
             {primaryBtn}
             <a
-              href="#features"
+              href="#como-funciona"
               className="hr-btn-secondary"
+              onClick={e => { e.preventDefault(); document.getElementById('como-funciona')?.scrollIntoView({ behavior: 'smooth' }); }}
             >
               Ver como funciona
             </a>

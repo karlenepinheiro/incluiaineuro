@@ -228,7 +228,7 @@ export const AdminGrantService = {
 
     const isRefund = params.amount < 0;
     const absAmount = Math.abs(params.amount);
-    const type: CreditLedgerType = isRefund ? 'refund' : 'bonus';
+    const type: CreditLedgerType = isRefund ? 'adjustment' : 'bonus_manual';
     const description = isRefund
       ? `Estorno de ${absAmount} créditos — ${params.reason}`
       : `Bônus de ${absAmount} créditos — ${params.reason}`;

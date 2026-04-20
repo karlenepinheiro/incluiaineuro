@@ -600,22 +600,65 @@ export const AdminService = {
     }
 
     try {
-      let query = supabase
-        .from('user_activity_logs')
-        .select('*')
+      const since = params?.days
+        ? new Date(Date.now() - params.days * 86400000).toISOString()
+        : undefined;
+
+      // ai_requests → ações de IA
+      let aiQuery = supabase
+        .from('ai_requests')
+        .select('id, tenant_id, user_id, request_type, model, credits_consumed, status, created_at')
         .order('created_at', { ascending: false })
         .limit(limit);
+      if (since) aiQuery = aiQuery.gte('created_at', since);
+      if (params?.tenantId) aiQuery = aiQuery.eq('tenant_id', params.tenantId);
 
-      if (params?.days) {
-        const since = new Date(Date.now() - params.days * 86400000).toISOString();
-        query = query.gte('created_at', since);
-      }
-      if (params?.tenantId) query = query.eq('tenant_id', params.tenantId);
-      if (params?.action)   query = query.eq('action', params.action);
+      // credits_ledger → operações manuais de crédito (não-IA)
+      let ledgerQuery = supabase
+        .from('credits_ledger')
+        .select('id, tenant_id, user_id, type, amount, description, created_at')
+        .neq('type', 'usage_ai')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (since) ledgerQuery = ledgerQuery.gte('created_at', since);
+      if (params?.tenantId) ledgerQuery = ledgerQuery.eq('tenant_id', params.tenantId);
 
-      const { data, error } = await query;
-      if (error) throw error;
-      return (data ?? []) as UserActivityLog[];
+      const [aiRes, ledgerRes] = await Promise.all([aiQuery, ledgerQuery]);
+
+      const LEDGER_ACTION: Record<string, string> = {
+        bonus_manual: 'CREDIT_GRANTED',   bonus: 'CREDIT_GRANTED',
+        courtesy:     'CREDIT_GRANTED',   purchase_extra: 'CREDIT_PURCHASED',
+        purchase:     'CREDIT_PURCHASED', monthly_grant: 'CREDIT_MONTHLY',
+        renewal:      'CREDIT_MONTHLY',   adjustment: 'CREDIT_ADJUSTED',
+        refund:       'CREDIT_ADJUSTED',
+      };
+
+      const aiLogs: UserActivityLog[] = (aiRes.data ?? []).map((r: any) => ({
+        id:            r.id,
+        tenant_id:     r.tenant_id,
+        user_id:       r.user_id,
+        action:        'AI_REQUEST',
+        resource_type: r.request_type ?? r.model ?? 'ai',
+        details:       { request_type: r.request_type, model: r.model, credits: r.credits_consumed, status: r.status },
+        created_at:    r.created_at,
+      }));
+
+      const ledgerLogs: UserActivityLog[] = (ledgerRes.data ?? []).map((r: any) => ({
+        id:            r.id,
+        tenant_id:     r.tenant_id,
+        user_id:       r.user_id,
+        action:        LEDGER_ACTION[r.type] ?? r.type.toUpperCase(),
+        resource_type: 'credits',
+        details:       { type: r.type, amount: r.amount, description: r.description },
+        created_at:    r.created_at,
+      }));
+
+      const combined = [...aiLogs, ...ledgerLogs]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, limit);
+
+      if (params?.action) return combined.filter(l => l.action === params.action);
+      return combined;
     } catch {
       return [];
     }
