@@ -18,9 +18,10 @@ Retorne APENAS um objeto JSON válido, sem markdown, sem blocos de código, sem 
 
 ```
 {
+  "resumoExecutivo": "Síntese objetiva do perfil do aluno em 3–4 linhas: diagnóstico principal, nível de suporte, contexto escolar e principal demanda — destinado a leitores externos (INSS, saúde, judiciário)",
   "identificacao": "Parágrafo descritivo completo do aluno (nome, idade, série, escola, diagnóstico, nível de suporte, responsável)",
   "historicoRelevante": "Trajetória escolar, histórico clínico resumido e contexto familiar — 2 a 4 parágrafos",
-  "situacaoPedagogica": "Desempenho acadêmico atual por área, estratégias eficazes, lacunas pedagógicas — 2 a 3 parágrafos",
+  "analisePedagogica": "Desempenho acadêmico atual por área, estratégias eficazes, lacunas pedagógicas — 2 a 3 parágrafos",
   "situacaoFuncional": "Autonomia (AVD), comunicação, interação social, mobilidade — 2 parágrafos",
   "perfilCognitivo": "Análise das dimensões avaliadas com base nos scores fornecidos — 2 a 3 parágrafos técnicos",
   "dificuldades": ["lista de dificuldades observadas, cada item começando com verbo no infinitivo"],

@@ -637,7 +637,16 @@ export interface Activity {
   tags: string[];
 }
 
+export type DisciplinaKey =
+  | 'matematica'
+  | 'portugues'
+  | 'ciencias'
+  | 'ingles'
+  | 'geografia'
+  | 'geral';
+
 export interface AtividadeJSON {
+  disciplina?: DisciplinaKey | string;
   titulo: string;
   subtitulo: string;
   instrucao: string;

@@ -1978,21 +1978,38 @@ export const ExportService = {
 
     // ══ SEÇÕES DO RELATÓRIO ════════════════════════════════════════════════════
 
+    if (data.tipo === 'completo' && (data as any).resumoExecutivo) {
+      // Resumo executivo: caixa highlight antes das seções
+      const resumo: string = (data as any).resumoExecutivo;
+      ensureSpace(20);
+      const resumoLines: string[] = doc.splitTextToSize(resumo.trim(), maxW - 8);
+      const boxH = resumoLines.length * LINE + 8;
+      sf(doc, [230, 245, 248] as [number, number, number]);
+      doc.roundedRect(ML, y, maxW, boxH, 2, 2, 'F');
+      sdd(doc, BRAND); doc.setLineWidth(0.5);
+      doc.roundedRect(ML, y, maxW, boxH, 2, 2, 'S');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); sc(doc, BRAND);
+      doc.text('RESUMO EXECUTIVO', ML + 4, y + 4.5);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(BODY_SIZE - 0.5); sc(doc, DARK);
+      doc.text(resumoLines, ML + 4, y + 9);
+      y += boxH + 6;
+    }
+
     if (data.identificacao) {
       addSection('Identificação do Aluno');
       addParagraph(data.identificacao);
     }
 
-    if (data.tipo === 'completo' && data.historicoRelevante) {
+    if (data.tipo === 'completo' && (data as any).historicoRelevante) {
       addSection('Histórico Relevante');
-      addParagraph(data.historicoRelevante);
+      addParagraph((data as any).historicoRelevante);
     }
 
     const sitPed = data.tipo === 'completo'
-      ? (data as any).situacaoPedagogica
+      ? ((data as any).analisePedagogica || (data as any).situacaoPedagogica)
       : (data as any).situacaoPedagogicaAtual;
     if (sitPed) {
-      addSection('Situação Pedagógica' + (data.tipo === 'simples' ? ' Atual' : ''));
+      addSection(data.tipo === 'completo' ? 'Análise Pedagógica' : 'Situação Pedagógica Atual');
       addParagraph(sitPed);
     }
 
@@ -2083,6 +2100,35 @@ export const ExportService = {
       doc.setFont('helvetica', 'bold'); doc.setFontSize(BODY_SIZE); sc(doc, BRAND);
       doc.text(`Média geral: ${avg.toFixed(1)}/5`, ML, y);
       y += LINE + 2;
+    }
+
+    // Gráfico de dificuldades (completo, quando disponível no JSON)
+    const graficoDific: Array<{label: string; valor: number; max: number}> =
+      data.tipo === 'completo' ? ((data as any).graficoDificuldades ?? []) : [];
+    if (graficoDific.length) {
+      addSection('Grau das Dificuldades Identificadas');
+      const grauLabel = ['', 'Leve', 'Moderado', 'Intenso'];
+      const grauColors: [number,number,number][] = [
+        [0,0,0], [217, 119, 6], [220, 130, 38], [220, 38, 38],
+      ];
+      const barW2 = 40;
+      const startX2 = ML + 60;
+      for (const pt of graficoDific) {
+        const v = Math.min(Math.max(pt.valor, 1), pt.max);
+        const pct2 = v / pt.max;
+        const col: [number,number,number] = grauColors[v] ?? [220, 38, 38];
+        ensureSpace(LSMALL + 2);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, DARK);
+        doc.text(pt.label, ML, y + 0.5);
+        sf(doc, [229, 231, 235] as [number,number,number]);
+        doc.roundedRect(startX2, y - 3, barW2, 4, 0.5, 0.5, 'F');
+        sf(doc, col);
+        doc.roundedRect(startX2, y - 3, barW2 * pct2, 4, 0.5, 0.5, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); sc(doc, col);
+        doc.text(grauLabel[v] || '', startX2 + barW2 + 2, y + 0.5);
+        y += LSMALL + 1.5;
+      }
+      y += 2;
     }
 
     // Conclusão

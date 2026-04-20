@@ -678,15 +678,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     setReportError('');
     setReportLoading(true);
     try {
-      const text = await AIService.generateStudentReport(student, user as any, type, {
-        evolutions:    effectiveEvolutions as any[],
-        protocols:     studentProtocols,
-        obsForms:      dbObsForms,
-        medicalReports: dbMedicalReports,
-        fichas:        fichas as any[],
-        timeline:      dbTimeline,
-      });
-      setReportContent(text);
+      const resultado = await AIService.generateStudentReport(student, user as any, type);
+      setReportContent(resultado.rawText);
     } catch (e: any) {
       setReportError(e?.message || 'Erro ao gerar relatório.');
     } finally {

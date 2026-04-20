@@ -28,12 +28,20 @@ export interface RelatorioSimples {
   recomendacoes: string[];
 }
 
+/** Dado de ponto para gráficos embutidos no relatório */
+export interface GraficoPonto {
+  label: string;
+  valor: number;
+  max: number;
+}
+
 /** Estrutura retornada pelo modo COMPLETO */
 export interface RelatorioCompleto {
   tipo: 'completo';
+  resumoExecutivo: string;
   identificacao: string;
   historicoRelevante: string;
-  situacaoPedagogica: string;
+  analisePedagogica: string;
   situacaoFuncional: string;
   perfilCognitivo: string;
   dificuldades: string[];
@@ -47,6 +55,8 @@ export interface RelatorioCompleto {
   recomendacoesClinicas: string[];
   recomendacoesFamiliares: string[];
   recomendacoesInstitucionais: string[];
+  graficoDesempenho: GraficoPonto[];
+  graficoDificuldades: GraficoPonto[];
 }
 
 export type RelatorioGerado = RelatorioSimples | RelatorioCompleto;
@@ -106,14 +116,8 @@ function buildStudentContext(
     ? student.medication
     : 'Não reportado pela família no momento da avaliação';
 
-  const criteriaNames = [
-    'Comunicação Expressiva', 'Interação Social', 'Autonomia (AVD)',
-    'Autorregulação', 'Atenção Sustentada', 'Compreensão',
-    'Motricidade Fina', 'Motricidade Grossa', 'Participação', 'Linguagem/Leitura',
-  ];
-
   const scoresBlock = scores.length
-    ? criteriaNames.map((n, i) => `  • ${n}: ${scores[i] ?? 1}/5`).join('\n')
+    ? CRITERIA_NAMES.map((n, i) => `  • ${n}: ${scores[i] ?? 1}/5`).join('\n')
     : '  (scores não disponíveis nesta avaliação)';
 
   const avg = scores.length
@@ -197,9 +201,10 @@ function parseRelatorioJSON(raw: string, mode: ReportMode): RelatorioGerado {
     }
     return {
       tipo: 'completo',
+      resumoExecutivo: '',
       identificacao: '',
       historicoRelevante: '',
-      situacaoPedagogica: raw,
+      analisePedagogica: raw,
       situacaoFuncional: '',
       perfilCognitivo: '',
       dificuldades: [],
@@ -213,6 +218,8 @@ function parseRelatorioJSON(raw: string, mode: ReportMode): RelatorioGerado {
       recomendacoesClinicas: [],
       recomendacoesFamiliares: [],
       recomendacoesInstitucionais: [],
+      graficoDesempenho: [],
+      graficoDificuldades: [],
     };
   }
 }
@@ -228,6 +235,34 @@ export interface GenerateRelatorioParams {
   user: User;
   modelId?: string;
   school?: SchoolConfig | null;
+}
+
+const CRITERIA_NAMES = [
+  'Comunicação Expressiva', 'Interação Social', 'Autonomia (AVD)',
+  'Autorregulação', 'Atenção Sustentada', 'Compreensão',
+  'Motricidade Fina', 'Motricidade Grossa', 'Participação', 'Linguagem/Leitura',
+];
+
+function enrichCharts(data: RelatorioGerado, scores: number[]): void {
+  if (data.tipo !== 'completo') return;
+  const c = data as RelatorioCompleto;
+  if (scores.length) {
+    c.graficoDesempenho = CRITERIA_NAMES.map((label, i) => ({
+      label,
+      valor: scores[i] ?? 1,
+      max: 5,
+    }));
+  }
+  if (c.checklist?.length) {
+    const grauNum = { leve: 1, moderado: 2, intenso: 3 } as const;
+    c.graficoDificuldades = c.checklist
+      .filter(item => item.presente && item.grau)
+      .map(item => ({
+        label: item.area,
+        valor: grauNum[item.grau as keyof typeof grauNum] ?? 1,
+        max: 3,
+      }));
+  }
 }
 
 /**
@@ -257,6 +292,8 @@ Gere o relatório agora no formato JSON conforme instruído. Retorne APENAS o JS
   const rawText = await AIService.generateReport('', fullPrompt, user, modelId ?? 'padrao');
 
   const data = parseRelatorioJSON(rawText, mode);
+  enrichCharts(data, scores);
+
   const codigoDoc = makeReportCode(student.id);
   const geradoEm = new Date().toISOString();
 
@@ -267,4 +304,42 @@ Gere o relatório agora no formato JSON conforme instruído. Retorne APENAS o JS
     geradoPor: user.name || 'Profissional',
     rawText,
   };
+}
+
+// ─── API pública simplificada ─────────────────────────────────────────────────
+
+export interface StudentReportInput {
+  student: Student;
+  user: User;
+  mode: ReportMode;
+  scores?: number[];
+  observation?: string;
+  customFields?: DocField[];
+  modelId?: string;
+  school?: SchoolConfig | null;
+}
+
+/**
+ * generateStudentReport
+ *
+ * Função principal de geração de relatório do aluno.
+ * Entrada: dados do aluno (JSON estruturado via StudentReportInput).
+ * Saída: RelatorioResultado com JSON tipado — nunca texto puro.
+ * - Idioma: pt-BR (padrão automático)
+ * - Modo simples: identificação, situação pedagógica, funcional, dificuldades, conclusão
+ * - Modo completo: resumo executivo, análise pedagógica, checklist visual, gráficos, recomendações multidisciplinares
+ */
+export async function generateStudentReport(
+  input: StudentReportInput,
+): Promise<RelatorioResultado> {
+  return generateRelatorioAluno({
+    student: input.student,
+    scores: input.scores ?? [],
+    observation: input.observation ?? '',
+    customFields: input.customFields ?? [],
+    mode: input.mode,
+    user: input.user,
+    modelId: input.modelId,
+    school: input.school ?? null,
+  });
 }

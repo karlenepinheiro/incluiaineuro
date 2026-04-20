@@ -510,12 +510,12 @@ const CoverPage: React.FC<{
 
 // ─── Resumo executivo ─────────────────────────────────────────────────────────
 
-const ExecSummary: React.FC<{ identificacao: string; conclusao: string; avg: number }> = ({
-  identificacao, conclusao, avg,
+const ExecSummary: React.FC<{ resumoExecutivo?: string; identificacao: string; conclusao: string; avg: number }> = ({
+  resumoExecutivo, identificacao, conclusao, avg,
 }) => {
-  const excerpt = identificacao.length > 260
+  const text = resumoExecutivo || (identificacao.length > 260
     ? identificacao.substring(0, 257) + '...'
-    : identificacao;
+    : identificacao);
 
   return (
     <div style={{
@@ -539,7 +539,7 @@ const ExecSummary: React.FC<{ identificacao: string; conclusao: string; avg: num
         </div>
       </div>
       <div style={{ padding:'16px 20px', background:'white' }}>
-        <p style={{ fontSize:13, color:C.dark, lineHeight:1.75, marginBottom:12 }}>{excerpt}</p>
+        <p style={{ fontSize:13, color:C.dark, lineHeight:1.75, marginBottom:12 }}>{text}</p>
         {conclusao && (
           <div style={{
             borderLeft:`3px solid ${C.gold}`, paddingLeft:12,
@@ -704,6 +704,7 @@ export const RelatorioViewer: React.FC<Props> = ({
         {/* Resumo Executivo */}
         {data.identificacao && (
           <ExecSummary
+            resumoExecutivo={(data as any).resumoExecutivo}
             identificacao={data.identificacao}
             conclusao={data.conclusao || ''}
             avg={avg}
@@ -812,12 +813,12 @@ export const RelatorioViewer: React.FC<Props> = ({
           </SectionCard>
         )}
 
-        {/* Situação pedagógica */}
-        {(completo?.situacaoPedagogica || simples?.situacaoPedagogicaAtual) && (
+        {/* Análise / Situação pedagógica */}
+        {((completo as any)?.analisePedagogica || (completo as any)?.situacaoPedagogica || simples?.situacaoPedagogicaAtual) && (
           <SectionCard icon={<ClipboardList size={14} color="white"/>}
-            title={isComplete ? 'Situação Pedagógica' : 'Situação Pedagógica Atual'}>
+            title={isComplete ? 'Análise Pedagógica' : 'Situação Pedagógica Atual'}>
             <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color:C.dark, lineHeight:1.8 }}>
-              {completo?.situacaoPedagogica || simples?.situacaoPedagogicaAtual}
+              {(completo as any)?.analisePedagogica || (completo as any)?.situacaoPedagogica || simples?.situacaoPedagogicaAtual}
             </p>
           </SectionCard>
         )}
