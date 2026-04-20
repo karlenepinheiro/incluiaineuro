@@ -16,6 +16,8 @@ import { StudentContextService } from '../services/studentContextService';
 import { AI_CREDIT_COSTS } from '../config/aiCosts';
 import { StoredTemplateSelector } from './StoredTemplateSelector';
 import { SchoolTemplate } from '../services/templateService';
+import { DocumentPrintPreview } from './docs/DocumentPrintPreview';
+import type { DocType } from './docs/DocComponents';
 
 // Seções esperadas por tipo de documento — contexto para análise via upload
 const STANDARD_DOC_FIELDS: Record<string, string> = {
@@ -126,6 +128,17 @@ const TAG_SECTION_GROUPS: Array<{ id: string; title: string; tags: string[] }> =
   { id: 'tmpl_aval',  title: 'Avaliação e Resultados',        tags: ['{{avaliacao}}'] },
   { id: 'tmpl_obs',   title: 'Observações',                   tags: ['{{observacoes}}'] },
 ];
+
+// ─── Mapeamento DocumentType → DocType (tokens visuais) ──────────────────────
+function toDocType(dt: DocumentType): DocType {
+  switch (dt) {
+    case DocumentType.PEI:         return 'pei';
+    case DocumentType.PAEE:        return 'paee';
+    case DocumentType.PDI:         return 'pdi';
+    case DocumentType.ESTUDO_CASO: return 'estudoCaso';
+    default:                       return 'protocolo';
+  }
+}
 
 // ─── Aviso PEI Orientador ─────────────────────────────────────────────────────
 const PEIGuidanceBanner: React.FC = () => (
@@ -1747,8 +1760,32 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
             </div>
         )}
 
+        {/* Preview premium (modo visualização / impressão) */}
+        {!isEditing && selectedStudent && (
+          <div className="w-full max-w-[210mm] mt-8 shadow-xl print:shadow-none print:w-full print:m-0" id="document-content">
+            <DocumentPrintPreview
+              docType={toDocType(type)}
+              title={String(type)}
+              student={selectedStudent}
+              user={user}
+              school={(user as any).schoolConfig ?? null}
+              sections={sections.map(sec => ({
+                title: sec.title,
+                fields: sec.fields.map(f => ({
+                  label:    f.label,
+                  value:    f.value,
+                  type:     f.type as any,
+                  maxScale: (f as any).maxScale,
+                })),
+              }))}
+              auditCode={currentAuditCode}
+            />
+          </div>
+        )}
+
         {/* Editor / Viewer */}
-        <div id="document-content" className="w-full max-w-[210mm] bg-white shadow-xl mt-8 p-[20mm] print:shadow-none print:w-full print:m-0 print:p-0">
+        {isEditing && (
+        <div id="document-content-edit" className="w-full max-w-[210mm] bg-white shadow-xl mt-8 p-[20mm] print:shadow-none print:w-full print:m-0 print:p-0">
             <div className="border-b-2 border-black pb-4 mb-6">
                 <h1 className="text-2xl font-bold uppercase text-gray-900">{type}</h1>
                 <p className="text-gray-600">Aluno: {selectedStudent?.name}</p>
@@ -1943,7 +1980,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 </div>
             ))}
 
-            {/* Audit Code + QR — aparece sempre no preview e no PDF */}
+            {/* Audit Code + QR — modo edição */}
             {currentAuditCode && (
                 <div className="mt-8 pt-4 border-t border-gray-200 flex flex-col items-center gap-2 print:mt-4">
                     <canvas id={`qr-canvas-${currentAuditCode}`} className="w-20 h-20"/>
@@ -1955,6 +1992,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 </div>
             )}
         </div>
+        )}
     </div>
   );
 };

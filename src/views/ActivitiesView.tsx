@@ -1,12 +1,12 @@
 // ActivitiesView.tsx
 import React, { useState, useEffect } from 'react';
-import { Upload, Zap, Save, Image as ImageIcon, Trash2, Search, Eye, RefreshCw, CheckCircle, AlertTriangle, Printer } from 'lucide-react';
+import { Upload, Zap, Save, Trash2, Search, Eye, RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
 import { AudioEnhancedTextarea } from '../components/AudioEnhancedTextarea';
 import { Student, User, Activity, AtividadeJSON } from '../types';
-import { AIService } from '../services/geminiService';
 import { GeneratedActivityService, TimelineService } from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
-import { ActivityA4Sheet } from '../components/ActivityA4Sheet';
+import { generateActivityDocument } from '../services/activityDocumentService';
+import { FolhaSimples } from '../components/docs/FolhaSimples';
 
 interface ActivitiesViewProps {
   students: Student[];
@@ -66,12 +66,11 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
     try {
       const student = students.find(s => s.id === selectedStudentId);
       if (!student) throw new Error('Aluno não encontrado.');
-      const result = await AIService.generateActivityStructured(topic, student, user, {
+      const result = await generateActivityDocument(topic, student, user, {
         discipline,
         grade,
         period,
         bnccCodes,
-        imageBase64: uploadedImage || undefined,
       });
       setAtividade(result);
       setFeedback({ type: 'success', msg: 'Atividade gerada com sucesso!' });
@@ -157,8 +156,6 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
   };
 
   const removeBnccCode = (code: string) => setBnccCodes(bnccCodes.filter(c => c !== code));
-
-  const handlePrint = () => window.print();
 
   const parseLibraryAtividade = (act: Activity): AtividadeJSON | null => {
     try {
@@ -300,13 +297,12 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
               </div>
             ) : (
               <div style={{ transform: 'scale(0.55)', transformOrigin: 'top left', width: '181%' }}>
-                <ActivityA4Sheet
+                <FolhaSimples
                   atividade={atividade}
                   studentName={selectedStudent?.name}
                   teacherName={user.name}
-                  discipline={discipline}
+                  schoolName={(user as any).schoolName || (user as any).school_name || undefined}
                   grade={grade}
-                  onPrint={handlePrint}
                 />
               </div>
             )}
@@ -321,16 +317,11 @@ export const ActivitiesView: React.FC<ActivitiesViewProps> = ({ students, user }
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-gray-800">{libraryPreview.activity.title}</h3>
                 <div className="flex gap-2">
-                  {libraryPreview.atividade && (
-                    <button onClick={handlePrint} className="flex items-center gap-2 px-3 py-2 bg-gray-900 text-white text-sm font-bold rounded-lg">
-                      <Printer size={14} /> Imprimir
-                    </button>
-                  )}
                   <button onClick={() => setLibraryPreview(null)} className="px-3 py-2 text-sm font-bold rounded-lg border">← Voltar</button>
                 </div>
               </div>
               {libraryPreview.atividade ? (
-                <ActivityA4Sheet
+                <FolhaSimples
                   atividade={libraryPreview.atividade}
                   studentName={students.find(s => s.id === libraryPreview.activity.studentId)?.name}
                   teacherName={user.name}

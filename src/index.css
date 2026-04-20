@@ -58,11 +58,14 @@ body { margin: 0; }
   nav, aside, header.app-header, .sidebar,
   button:not(.doc-action), [role="dialog"] { display: none !important; }
 
-  /* Container A4 */
-  .print-page {
-    width: 180mm;   /* 210 - 15*2 */
-    min-height: 262mm; /* 297 - 15 - 20 */
+  /* Container A4 — DocumentPage e .print-page usam mesma base */
+  .print-page,
+  [id="document-print-preview"],
+  [id="relatorio-cover"] {
+    width: 210mm;
+    min-height: 297mm;
     margin: 0 auto;
+    box-shadow: none !important;
   }
 
   /* Quebras de página controladas */
@@ -71,17 +74,20 @@ body { margin: 0; }
   .page-break   { break-before: page; page-break-before: always; }
   .section-block { break-inside: avoid; page-break-inside: avoid; }
 
+  /* Cards de seção não devem ser cortados no meio */
+  [style*="pageBreakInside"] { break-inside: avoid; }
+
   /* Cabeçalho de seção não deve ficar orphão */
   .section-header + * { break-before: avoid; page-break-before: avoid; }
 
-  /* Remove sombras excessivas */
+  /* Remove sombras e bordas decorativas */
   * { box-shadow: none !important; text-shadow: none !important; }
 
-  /* Contraste alto para impressora preto-e-branco */
+  /* Contraste para impressora */
   .folha-a4 { border: none; background: white !important; }
   .folha-a4 strong { color: #000 !important; }
 
-  /* Garante que links não imprimam URL */
+  /* Links sem URL impressa */
   a::after { content: ''; }
 }
 

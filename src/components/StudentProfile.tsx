@@ -23,6 +23,8 @@ import {
 import { DEMO_MODE } from '../services/supabase';
 import { QuickDocModal, QuickDocType } from './QuickDocModal';
 import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
+import { RelatorioViewer } from './RelatorioViewer';
+import type { RelatorioResultado } from '../services/reportService';
 
 // ── Critérios do perfil evolutivo (10 dimensões) ─────────────────────────────
 const CRITERIA = [
@@ -667,19 +669,26 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const safeEvoIndex = Math.min(selectedEvoIndex, Math.max(0, sortedEvolutions.length - 1));
 
   // ── Estado da aba Relatório ───────────────────────────────────────────────────
-  const [reportType, setReportType]       = useState<'simple' | 'full' | null>(null);
-  const [reportContent, setReportContent] = useState<string>('');
-  const [reportLoading, setReportLoading] = useState(false);
-  const [reportError, setReportError]     = useState<string>('');
+  const [reportType, setReportType]           = useState<'simple' | 'full' | null>(null);
+  const [reportResultado, setReportResultado] = useState<RelatorioResultado | null>(null);
+  const [reportLoading, setReportLoading]     = useState(false);
+  const [reportError, setReportError]         = useState<string>('');
+  const [showRelatorioViewer, setShowRelatorioViewer] = useState(false);
+
+  const reportScores: number[] = sortedEvolutions[0]?.scores ?? [];
+  const reportSchool = (user as any)?.schoolConfigs?.[0] ?? null;
 
   const handleGenerateReport = async (type: 'simple' | 'full') => {
     setReportType(type);
-    setReportContent('');
+    setReportResultado(null);
     setReportError('');
     setReportLoading(true);
     try {
-      const resultado = await AIService.generateStudentReport(student, user as any, type);
-      setReportContent(resultado.rawText);
+      const resultado = await AIService.generateStudentReport(student, user as any, type, {
+        scores: reportScores,
+        school: reportSchool,
+      });
+      setReportResultado(resultado);
     } catch (e: any) {
       setReportError(e?.message || 'Erro ao gerar relatório.');
     } finally {
@@ -687,39 +696,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
   };
 
-  const handleDownloadReport = () => {
-    if (!reportContent) return;
-    const title = reportType === 'full' ? 'Relatorio_Completo' : 'Relatorio_Simples';
-    const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `${title}_${student.name.replace(/\s+/g, '_')}_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handlePrintReport = () => {
-    if (!reportContent) return;
-    const win = window.open('', '_blank');
-    if (!win) return;
-    const title = reportType === 'full' ? 'Relatório Completo' : 'Relatório Simples';
-    win.document.write(`
-      <!DOCTYPE html><html lang="pt-BR"><head>
-      <meta charset="UTF-8"/>
-      <title>${title} — ${student.name}</title>
-      <style>
-        body { font-family: 'Georgia', serif; font-size: 12pt; line-height: 1.7; margin: 2cm 2.5cm; color: #111; }
-        h1 { font-size: 16pt; color: #1F4E5F; border-bottom: 2px solid #1F4E5F; padding-bottom: 8px; }
-        pre { white-space: pre-wrap; font-family: inherit; }
-        @media print { @page { margin: 2cm 2.5cm; size: A4; } }
-      </style></head><body>
-      <h1>${title} — ${student.name}</h1>
-      <pre>${reportContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
-      </body></html>
-    `);
-    win.document.close();
-    win.print();
+  const handleDownloadReportPDF = async () => {
+    if (!reportResultado) return;
+    try {
+      await ExportService.exportRelatorioAlunoPDF({
+        student,
+        resultado: reportResultado,
+        scores: reportScores,
+        school: reportSchool,
+        createdBy: (user as any)?.name ?? 'Profissional',
+      });
+    } catch (e: any) {
+      alert('Erro ao exportar PDF: ' + (e?.message ?? 'Tente novamente.'));
+    }
   };
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -1903,7 +1892,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
 
           {/* Botões de geração */}
-          {!reportLoading && !reportContent && (
+          {!reportLoading && !reportResultado && (
             <div className="grid md:grid-cols-2 gap-4">
               {/* Relatório Simples */}
               <button
@@ -1986,56 +1975,129 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             </div>
           )}
 
-          {/* Resultado gerado */}
-          {reportContent && !reportLoading && (
-            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-              {/* Barra de ações */}
-              <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-gray-700">
-                    {reportType === 'full' ? '📋 Relatório Completo' : '📄 Relatório Simples'} — {student.name}
-                  </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-bold">Gerado com IA</span>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { setReportContent(''); setReportType(null); setReportError(''); }}
-                    className="text-xs font-semibold text-gray-500 hover:text-gray-700 flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200"
-                  >
-                    <RefreshCw size={12}/> Gerar novo
-                  </button>
-                  <button
-                    onClick={handleDownloadReport}
-                    className="text-xs font-bold flex items-center gap-1 px-3 py-1.5 rounded-lg"
+          {/* Card do relatório gerado */}
+          {reportResultado && !reportLoading && (
+            <div
+              className="bg-white rounded-2xl border overflow-hidden"
+              style={{ borderColor: '#1F4E5F30' }}
+            >
+              {/* Cabeçalho do card */}
+              <div
+                className="flex items-center justify-between px-5 py-4"
+                style={{ background: 'linear-gradient(135deg, #1F4E5F08, #1F4E5F18)', borderBottom: '1px solid #1F4E5F20' }}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
                     style={{ background: '#1F4E5F', color: '#fff' }}
                   >
-                    <Download size={12}/> Baixar .txt
+                    {reportType === 'full' ? <BarChart2 size={18}/> : <FileText size={18}/>}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-gray-800">
+                        {reportType === 'full' ? 'Relatório Completo' : 'Relatório Simples'}
+                      </span>
+                      <span
+                        className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                        style={{ background: '#1F4E5F15', color: '#1F4E5F' }}
+                      >
+                        Gerado com IA
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      {student.name} · {new Date(reportResultado.geradoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                    <p className="text-[10px] font-mono text-gray-400 mt-0.5">{reportResultado.codigoDoc}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowRelatorioViewer(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border"
+                    style={{ borderColor: '#1F4E5F40', color: '#1F4E5F', background: '#fff' }}
+                  >
+                    <Eye size={13}/> Visualizar
                   </button>
                   <button
-                    onClick={handlePrintReport}
-                    className="text-xs font-bold flex items-center gap-1 px-3 py-1.5 rounded-lg"
-                    style={{ background: '#C69214', color: '#fff' }}
+                    onClick={handleDownloadReportPDF}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                    style={{ background: '#1F4E5F' }}
                   >
-                    <Printer size={12}/> Imprimir A4
+                    <Download size={13}/> Baixar PDF
+                  </button>
+                  <button
+                    onClick={() => { setReportResultado(null); setReportType(null); setReportError(''); }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-500 hover:text-gray-700"
+                  >
+                    <RefreshCw size={13}/> Gerar novo
                   </button>
                 </div>
               </div>
 
-              {/* Conteúdo do relatório — preview estilo documento */}
-              <div
-                className="p-8 font-serif text-sm leading-relaxed text-gray-800 whitespace-pre-wrap"
-                style={{
-                  minHeight: 400,
-                  background: '#FAFAF8',
-                  fontFamily: "'Georgia', 'Times New Roman', serif",
-                  fontSize: '13px',
-                  lineHeight: '1.8',
-                  maxWidth: '72ch',
-                  margin: '0 auto',
-                  padding: '2rem 2.5rem',
-                }}
-              >
-                {reportContent}
+              {/* Resumo rápido do conteúdo */}
+              <div className="px-5 py-4 grid grid-cols-3 gap-3">
+                {reportResultado.data.tipo === 'completo' && (reportResultado.data as any).resumoExecutivo && (
+                  <div className="col-span-3 rounded-xl p-3" style={{ background: '#F0F7FA', border: '1px solid #1F4E5F20' }}>
+                    <p className="text-[10px] font-bold uppercase tracking-wide mb-1" style={{ color: '#1F4E5F' }}>Resumo Executivo</p>
+                    <p className="text-xs text-gray-700 leading-relaxed line-clamp-3">{(reportResultado.data as any).resumoExecutivo}</p>
+                  </div>
+                )}
+                {(reportResultado.data as any).dificuldades?.length > 0 && (
+                  <div className="rounded-xl p-3" style={{ background: '#FEF2F2', border: '1px solid #FCA5A520' }}>
+                    <p className="text-[10px] font-bold uppercase tracking-wide mb-1 text-red-600">Dificuldades</p>
+                    <p className="text-xs font-bold text-red-700">{(reportResultado.data as any).dificuldades.length} identificadas</p>
+                  </div>
+                )}
+                {(reportResultado.data as any).potencialidades?.length > 0 && (
+                  <div className="rounded-xl p-3" style={{ background: '#F0FDF4', border: '1px solid #86EFAC20' }}>
+                    <p className="text-[10px] font-bold uppercase tracking-wide mb-1 text-green-700">Potencialidades</p>
+                    <p className="text-xs font-bold text-green-700">{(reportResultado.data as any).potencialidades.length} mapeadas</p>
+                  </div>
+                )}
+                {(reportResultado.data as any).recomendacoesPedagogicas?.length > 0 && (
+                  <div className="rounded-xl p-3" style={{ background: '#F5F3FF', border: '1px solid #C4B5FD20' }}>
+                    <p className="text-[10px] font-bold uppercase tracking-wide mb-1 text-purple-700">Recomendações</p>
+                    <p className="text-xs font-bold text-purple-700">{(reportResultado.data as any).recomendacoesPedagogicas.length} pedagógicas</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Modal: visualizador premium do relatório */}
+          {showRelatorioViewer && reportResultado && (
+            <div
+              className="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto"
+              style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+            >
+              <div className="w-full max-w-5xl my-6 mx-4">
+                <div className="flex items-center justify-between mb-3">
+                  <button
+                    onClick={() => setShowRelatorioViewer(false)}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white"
+                    style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)' }}
+                  >
+                    <X size={15}/> Fechar
+                  </button>
+                  <button
+                    onClick={handleDownloadReportPDF}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white"
+                    style={{ background: '#C69214' }}
+                  >
+                    <Download size={15}/> Exportar PDF
+                  </button>
+                </div>
+                <div className="bg-white rounded-2xl overflow-hidden shadow-2xl">
+                  <RelatorioViewer
+                    student={student}
+                    scores={reportScores}
+                    resultado={reportResultado}
+                    school={reportSchool}
+                    onExportPDF={handleDownloadReportPDF}
+                    onPrint={() => window.print()}
+                  />
+                </div>
               </div>
             </div>
           )}
