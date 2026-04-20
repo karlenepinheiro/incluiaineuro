@@ -225,6 +225,7 @@ export const AdminService = {
       });
     }
     AdminService.logAction(adminUser, 'GRANT_CREDITS', tenantId, `${amount > 0 ? 'Liberou' : 'Estornou'} ${Math.abs(amount)} créditos. Motivo: ${reason}`);
+    window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { tenantId } }));
   },
 
   // ── PLANOS ────────────────────────────────────────────────────────────────

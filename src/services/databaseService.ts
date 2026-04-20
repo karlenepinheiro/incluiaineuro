@@ -956,20 +956,31 @@ export const databaseService = {
     let creditsConsumedCycle = 0;
     let creditsPurchased = 0;
     try {
-      const { data: ledgerRows } = await supabase
+      // Consumo: apenas do ciclo atual
+      const { data: usageRows } = await supabase
         .from('credits_ledger')
-        .select('type, amount')
+        .select('amount')
         .eq('tenant_id', tenantId)
+        .eq('type', 'usage_ai')
         .gte('created_at', cycleStart);
 
-      for (const row of ledgerRows ?? []) {
+      for (const row of usageRows ?? []) {
         const amt = Number((row as any).amount ?? 0);
-        const type = String((row as any).type ?? '');
-        if (type === 'usage_ai' && amt < 0) {
-          creditsConsumedCycle += Math.abs(amt);
-        } else if (['purchase_extra', 'bonus_manual', 'courtesy'].includes(type) && amt > 0) {
-          creditsPurchased += amt;
-        }
+        if (amt < 0) creditsConsumedCycle += Math.abs(amt);
+      }
+
+      // Créditos extras (manual_grant, compras, cortesia): ALL-TIME — não limitado ao ciclo
+      // Exclui monthly_grant/renewal — esses representam o crédito do plano e já estão em planCreditsMonthly
+      const ADDITIVE_TYPES = ['manual_grant', 'purchase_extra', 'bonus_manual', 'courtesy', 'refund', 'bonus', 'purchase'];
+      const { data: extraRows } = await supabase
+        .from('credits_ledger')
+        .select('amount')
+        .eq('tenant_id', tenantId)
+        .in('type', ADDITIVE_TYPES);
+
+      for (const row of extraRows ?? []) {
+        const amt = Number((row as any).amount ?? 0);
+        if (amt > 0) creditsPurchased += amt;
       }
     } catch {
       // ledger opcional — não bloqueia
