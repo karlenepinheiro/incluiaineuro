@@ -5,7 +5,9 @@ import {
   Clock, History, FileType, File, CheckCircle, FileOutput, Lock, AlertTriangle, FileInput, Info, Upload, Eye, Download,
   X, AlertCircle, ArrowUp, ArrowDown, GripVertical, Settings, Mic, Library, Star
 } from 'lucide-react';
-import { DocumentType, DocumentData, DocSection, Student, User as UserType, Protocol, PlanTier, getPlanLimits, ProtocolStatus, DocField } from '../types';
+import { DocumentType, DocumentData, DocSection, Student, User as UserType, Protocol, PlanTier, getPlanLimits, ProtocolStatus, DocField, UserDocumentTemplate, UserDocTemplateType } from '../types';
+import { UserTemplateService } from '../services/userTemplateService';
+import { DocumentTemplateEditor } from './DocumentTemplateEditor';
 import { AudioEnhancedTextarea } from './AudioEnhancedTextarea';
 import { AudioRecorder } from './AudioRecorder';
 import { ExportService } from '../services/exportService';
@@ -175,6 +177,7 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
   const [showStoredTemplateSelector, setShowStoredTemplateSelector] = useState(false);
   const [pendingTemplate, setPendingTemplate] = useState<SchoolTemplate | null>(null);
   const [showTemplateModeModal, setShowTemplateModeModal] = useState(false);
+  const [showTemplateEditor, setShowTemplateEditor] = useState(false);
   const [showStudentDropdown, setShowStudentDropdown] = useState(false);
   const [studentQuery, setStudentQuery] = useState('');
 
@@ -905,12 +908,52 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
       }
   };
 
-  // Abre o modal de seleção de modo (substituir vs mesclar)
+  // Abre o modal de seleção de modo (substituir vs mesclar) — school templates .docx
   const handleUseStoredTemplate = (template: SchoolTemplate) => {
     if (!selectedStudent) return;
     setShowStoredTemplateSelector(false);
     setPendingTemplate(template);
     setShowTemplateModeModal(true);
+  };
+
+  // Handler de user template (JSON estruturado) — Fase 2
+  // PONTO DE CONVERSÃO: TemplateData → DocumentData (cópia profunda independente)
+  // Editar o documento resultante não altera o template original.
+  const handleSelectUserTemplate = (template: UserDocumentTemplate) => {
+    if (!selectedStudent) return;
+    setShowStoredTemplateSelector(false);
+
+    // Converte estrutura reutilizável → instância de documento (valores vazios)
+    const docData = UserTemplateService.templateToDocumentData(template);
+
+    // Preenche a seção de identificação com dados reais do aluno
+    const school = user.schoolConfigs?.find(s => s.id === selectedStudent.schoolId);
+    const headerIdx = docData.sections.findIndex(s => s.id === 'header');
+    if (headerIdx !== -1) {
+      const setVal = (fieldId: string, val: string) => {
+        const f = docData.sections[headerIdx].fields.find(f => f.id === fieldId);
+        if (f) f.value = val;
+      };
+      setVal('name',   selectedStudent.name);
+      setVal('age',    selectedStudent.birthDate
+        ? new Date(selectedStudent.birthDate + 'T00:00:00').toLocaleDateString('pt-BR')
+        : '—');
+      setVal('school', school?.schoolName || '');
+      setVal('grade',  `${selectedStudent.grade} - ${selectedStudent.shift}`);
+      setVal('regent', selectedStudent.regentTeacher || '');
+      setVal('aee',    selectedStudent.aeeTeacher || '');
+      setVal('coord',  selectedStudent.coordinator || '');
+    }
+
+    setSections(docData.sections);
+    setStep('editor');
+    setIsEditing(true);
+
+    // Incrementa uso (fire-and-forget — não bloqueia)
+    UserTemplateService.incrementUsage(template.id).catch(() => {});
+
+    // Auto-salva como rascunho
+    onSave(docData, selectedStudent, `Modelo: ${template.name}`, 'DRAFT');
   };
 
   // Aplica o modelo conforme o modo escolhido pelo usuário
@@ -1493,6 +1536,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                   <StoredTemplateSelector
                     docType={type}
                     onSelect={handleUseStoredTemplate}
+                    onSelectUserTemplate={handleSelectUserTemplate}
                     onClose={() => setShowStoredTemplateSelector(false)}
                   />
                 )}
@@ -1597,8 +1641,8 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 
                 {isEditing && (
                     <>
-                        <button 
-                            onClick={() => setIsReordering(!isReordering)} 
+                        <button
+                            onClick={() => setIsReordering(!isReordering)}
                             className={`px-3 py-2 border rounded flex gap-2 text-sm font-medium transition-colors ${isReordering ? 'bg-yellow-100 border-yellow-300 text-yellow-800' : 'hover:bg-gray-50'}`}
                             title="Reordenar campos e seções"
                         >
@@ -1608,6 +1652,18 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                         <button onClick={handleAddSection} className="px-3 py-2 border border-dashed border-gray-400 rounded hover:bg-gray-50 flex gap-2 text-sm font-medium" title="Criar nova seção/bloco">
                             <Plus size={16}/> <span className="hidden sm:inline">Add Seção</span>
                         </button>
+                        {/* Botão "Salvar como meu modelo" — apenas PEI e Estudo de Caso */}
+                        {(type === DocumentType.PEI || type === DocumentType.ESTUDO_CASO) && (
+                            <button
+                                onClick={() => setShowTemplateEditor(true)}
+                                className="px-3 py-2 border rounded flex gap-2 text-sm font-medium hover:bg-amber-50"
+                                style={{ borderColor: '#C69214', color: '#92650a', background: '#fffbeb' }}
+                                title="Editar estrutura e salvar como meu modelo reutilizável"
+                            >
+                                <Star size={15} style={{ color: '#C69214' }} />
+                                <span className="hidden sm:inline">Salvar como meu modelo</span>
+                            </button>
+                        )}
                     </>
                 )}
 
@@ -1999,6 +2055,16 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 </div>
             )}
         </div>
+        )}
+
+        {/* Editor de estrutura / Salvar como meu modelo */}
+        {showTemplateEditor && selectedStudent && (type === DocumentType.PEI || type === DocumentType.ESTUDO_CASO) && (
+            <DocumentTemplateEditor
+                docType={type === DocumentType.PEI ? 'PEI' : 'ESTUDO_CASO'}
+                initialSections={sections}
+                onSaved={() => {}}
+                onClose={() => setShowTemplateEditor(false)}
+            />
         )}
     </div>
   );

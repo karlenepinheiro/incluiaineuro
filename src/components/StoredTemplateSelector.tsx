@@ -5,8 +5,10 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, FileText, Clock, CheckCircle, AlertCircle, Loader, Search, Star } from 'lucide-react';
+import { X, FileText, Clock, CheckCircle, AlertCircle, Loader, Search, Star, BookMarked, Crown } from 'lucide-react';
 import { listTemplates, SchoolTemplate, TemplateDocType, DOC_TYPE_LABELS } from '../services/templateService';
+import { UserTemplateService } from '../services/userTemplateService';
+import { UserDocumentTemplate, UserDocTemplateType } from '../types';
 
 // ─── Paleta IncluiAI ──────────────────────────────────────────────────────────
 const C = {
@@ -27,31 +29,54 @@ const DOC_TYPE_MAP: Record<string, TemplateDocType> = {
   'Estudo de Caso': 'estudo_de_caso',
 };
 
+// Mapa de DocumentType (enum value) para UserDocTemplateType
+const DOC_TYPE_TO_USER_TEMPLATE: Record<string, UserDocTemplateType | null> = {
+  'PEI':            'PEI',
+  'Estudo de Caso': 'ESTUDO_CASO',
+  'PAEE':           null,  // Fase 2 — não suportado ainda
+  'PDI':            null,
+};
+
 interface StoredTemplateSelectorProps {
   /** Tipo do documento no DocumentBuilder (ex: "PEI", "Estudo de Caso") */
   docType: string;
   onSelect: (template: SchoolTemplate) => void;
+  /** Callback para user templates (JSON estruturado). Se não fornecido, seção fica oculta. */
+  onSelectUserTemplate?: (template: UserDocumentTemplate) => void;
   onClose: () => void;
 }
 
 export const StoredTemplateSelector: React.FC<StoredTemplateSelectorProps> = ({
   docType,
   onSelect,
+  onSelectUserTemplate,
   onClose,
 }) => {
-  const [templates, setTemplates] = useState<SchoolTemplate[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [error, setError]         = useState<string | null>(null);
-  const [search, setSearch]       = useState('');
-  const [showAll, setShowAll]     = useState(false);
+  const [templates, setTemplates]             = useState<SchoolTemplate[]>([]);
+  const [userTemplates, setUserTemplates]     = useState<UserDocumentTemplate[]>([]);
+  const [loading, setLoading]                 = useState(true);
+  const [loadingUser, setLoadingUser]         = useState(false);
+  const [error, setError]                     = useState<string | null>(null);
+  const [search, setSearch]                   = useState('');
+  const [showAll, setShowAll]                 = useState(false);
 
-  const templateDocType = DOC_TYPE_MAP[docType] as TemplateDocType | undefined;
+  const templateDocType   = DOC_TYPE_MAP[docType] as TemplateDocType | undefined;
+  const userDocType       = DOC_TYPE_TO_USER_TEMPLATE[docType] ?? null;
+  const showUserSection   = !!onSelectUserTemplate && !!userDocType;
+
+  // Carrega user templates (Meus Modelos) quando o tipo é suportado
+  useEffect(() => {
+    if (!showUserSection || !userDocType) return;
+    setLoadingUser(true);
+    UserTemplateService.list(userDocType)
+      .then(list => setUserTemplates(list))
+      .catch(() => setUserTemplates([]))
+      .finally(() => setLoadingUser(false));
+  }, [userDocType, showUserSection]);
 
   useEffect(() => {
     setLoading(true);
     setError(null);
-    // Busca filtrado pelo tipo do documento atual (mais relevante)
-    // e também busca todos para permitir "ver todos"
     listTemplates(showAll ? undefined : templateDocType)
       .then(list => {
         setTemplates(list.filter(t => t.status === 'ready'));
@@ -104,14 +129,14 @@ export const StoredTemplateSelector: React.FC<StoredTemplateSelectorProps> = ({
                 background: `linear-gradient(135deg, ${C.petrol}, ${C.dark})`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                <Star size={18} color="white" />
+                <BookMarked size={18} color="white" />
               </div>
               <div>
                 <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: C.dark }}>
-                  Biblioteca de Modelos
+                  Escolher Modelo
                 </h3>
                 <p style={{ margin: 0, fontSize: 12, color: C.muted }}>
-                  Modelos salvos em "Meus Modelos"
+                  Meus modelos personalizados ou modelos da escola (.docx)
                 </p>
               </div>
             </div>
@@ -166,7 +191,59 @@ export const StoredTemplateSelector: React.FC<StoredTemplateSelectorProps> = ({
         {/* ── Lista ── */}
         <div style={{ overflowY: 'auto', flex: 1, padding: '12px 24px 16px' }}>
 
-          {/* Contexto */}
+          {/* ── SEÇÃO: MEUS MODELOS (user templates JSON) ── */}
+          {showUserSection && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <Crown size={14} color={C.gold} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: C.dark, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Meus Modelos
+                </span>
+                <span style={{ fontSize: 11, color: C.muted }}>({userTemplates.length})</span>
+              </div>
+
+              {loadingUser && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', color: C.muted }}>
+                  <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                  <span style={{ fontSize: 12 }}>Carregando meus modelos...</span>
+                </div>
+              )}
+
+              {!loadingUser && userTemplates.length === 0 && (
+                <div style={{
+                  padding: '12px 16px', borderRadius: 10,
+                  background: '#F6F4EF', border: `1.5px dashed ${C.border}`,
+                  textAlign: 'center', color: C.muted,
+                }}>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Nenhum modelo personalizado salvo ainda.</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 11 }}>
+                    Crie um documento, edite a estrutura e clique em "Salvar como meu modelo".
+                  </p>
+                </div>
+              )}
+
+              {!loadingUser && userTemplates.map(t => (
+                <UserTemplateCard
+                  key={t.id}
+                  template={t}
+                  onSelect={() => onSelectUserTemplate!(t)}
+                />
+              ))}
+
+              {/* Divisor visual entre user templates e school templates */}
+              {templates.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0 4px' }}>
+                  <div style={{ flex: 1, height: 1, background: C.border }} />
+                  <span style={{ fontSize: 11, color: C.muted, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    Modelos da escola (.docx)
+                  </span>
+                  <div style={{ flex: 1, height: 1, background: C.border }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Contexto modelos escola */}
           {!showAll && templateDocType && (
             <p style={{ margin: '0 0 12px', fontSize: 12, color: C.muted }}>
               Exibindo modelos compatíveis com <strong>{docTypeLabel}</strong>.
@@ -232,7 +309,87 @@ export const StoredTemplateSelector: React.FC<StoredTemplateSelectorProps> = ({
   );
 };
 
-// ─── Card de cada modelo ──────────────────────────────────────────────────────
+// ─── Card de User Template (modelo personalizado JSON) ───────────────────────
+
+interface UserTemplateCardProps {
+  template: UserDocumentTemplate;
+  onSelect: () => void;
+}
+
+const UserTemplateCard: React.FC<UserTemplateCardProps> = ({ template, onSelect }) => {
+  const typeLabel = template.documentType === 'ESTUDO_CASO' ? 'Estudo de Caso' : 'PEI';
+  const typeColors = template.documentType === 'ESTUDO_CASO'
+    ? { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa' }
+    : { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' };
+
+  return (
+    <div style={{
+      border: `1.5px solid ${template.isDefault ? C.gold : C.border}`,
+      borderRadius: 12, padding: '12px 14px', marginBottom: 8,
+      background: template.isDefault ? '#fffbeb' : C.surface,
+      display: 'flex', alignItems: 'flex-start', gap: 10,
+    }}>
+      <div style={{
+        width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+        background: typeColors.bg, border: `1px solid ${typeColors.border}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <FileText size={17} color={typeColors.text} />
+      </div>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: C.dark }}>{template.name}</span>
+          {template.isDefault && (
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+              background: C.gold, color: 'white',
+            }}>PADRÃO</span>
+          )}
+          {template.source === 'system' && (
+            <span style={{
+              fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 99,
+              background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0',
+            }}>baseado no IncluiAI</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+          <span style={{
+            fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+            background: typeColors.bg, color: typeColors.text, border: `1px solid ${typeColors.border}`,
+          }}>{typeLabel}</span>
+          {template.timesUsed > 0 && (
+            <span style={{ fontSize: 11, color: C.muted, display: 'flex', alignItems: 'center', gap: 3 }}>
+              <Clock size={11} /> Usado {template.timesUsed}×
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: C.muted }}>
+            {template.templateData.sections.length} seções
+          </span>
+        </div>
+        {template.description && (
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: C.muted, lineHeight: 1.4 }}>
+            {template.description}
+          </p>
+        )}
+      </div>
+
+      <button
+        onClick={onSelect}
+        style={{
+          flexShrink: 0, padding: '7px 14px', borderRadius: 8,
+          background: `linear-gradient(135deg, ${C.gold}, #a07010)`,
+          color: 'white', border: 'none', fontSize: 12, fontWeight: 700,
+          cursor: 'pointer', whiteSpace: 'nowrap',
+        }}
+      >
+        Usar este
+      </button>
+    </div>
+  );
+};
+
+// ─── Card de cada modelo .docx ────────────────────────────────────────────────
 
 const TYPE_COLORS: Record<TemplateDocType, { bg: string; text: string; border: string }> = {
   PEI:           { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },

@@ -1,7 +1,12 @@
 .env
+.env.local
+.env.*
+!.env.example
 node_modules
 dist
 .claude/
 *.zip
 *.rar
 *.7z
+service-account.json
+supabase/.temp/

@@ -542,6 +542,83 @@ export interface Protocol {
 }
 
 // ============================================================================
+// USER DOCUMENT TEMPLATES — Modelos Personalizados de Documentos
+// Separação explícita (Ajuste 2):
+//   TemplateData  = estrutura reutilizável (NUNCA contém dados de aluno)
+//   DocumentData  = instância gerada (dados reais de um aluno/documento final)
+// A conversão ocorre em userTemplateService.templateToDocumentData()
+// ============================================================================
+
+/** Tipos de documento suportados na Fase 1 */
+export type UserDocTemplateType = 'ESTUDO_CASO' | 'PEI';
+
+/** Origem explícita do modelo (Ajuste 4) */
+export type UserDocTemplateSource = 'system' | 'user';
+
+/** Definição de um campo dentro de um template (sem value de aluno) */
+export interface TemplateFieldDef {
+  id: string;
+  label: string;
+  type: DocField['type'];
+  placeholder?: string;
+  description?: string;
+  required?: boolean;
+  /** Valor pré-preenchido fixo do template — NÃO é dado de aluno */
+  defaultValue?: string;
+  options?: string[];
+  columns?: string[];
+  minScale?: number;
+  maxScale?: number;
+  allowAudio?: 'none' | 'optional' | 'only';
+  order: number;
+  /** Se true: campo não pode ser deletado pelo usuário (MVP: não exposto no editor) */
+  isLocked: boolean;
+}
+
+/** Definição de uma seção dentro de um template */
+export interface TemplateSectionDef {
+  id: string;
+  title: string;
+  description?: string;
+  order: number;
+  /** Se true: seção não pode ser deletada (ex: Identificação) */
+  isLocked: boolean;
+  fields: TemplateFieldDef[];
+}
+
+/** Estrutura principal armazenada em user_document_templates.template_data */
+export interface TemplateData {
+  sections: TemplateSectionDef[];
+  metadata: {
+    schemaVersion: '1.0';
+    docType: UserDocTemplateType;
+    lang: 'pt-BR';
+    /** 'system' = derivado do template padrão | uuid = derivado de outro user template */
+    createdFrom: 'system' | string;
+  };
+}
+
+/** Registro completo de um modelo personalizado do usuário */
+export interface UserDocumentTemplate {
+  id: string;
+  tenantId: string;
+  createdBy: string;
+  name: string;
+  description?: string;
+  documentType: UserDocTemplateType;
+  /** Origem explícita: 'system' = baseado no padrão IncluiAI, 'user' = criado livremente */
+  source: UserDocTemplateSource;
+  baseTemplateId?: string;
+  templateData: TemplateData;
+  version: number;
+  isDefault: boolean;
+  isActive: boolean;
+  timesUsed: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================================================
 // BILLING / ADD-ONS (Kiwify)
 // ============================================================================
 

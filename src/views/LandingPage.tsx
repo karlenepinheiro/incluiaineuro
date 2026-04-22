@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldCheck, FileText, ArrowRight,
-  CheckCircle, Lock, Phone,
-  Zap, X, Star, ChevronDown, ChevronUp,
+  Lock, Phone,
+  Zap, Star, ChevronDown, ChevronUp,
   Clock, Users,
 } from 'lucide-react';
 import { SiteConfig } from '../types';
@@ -11,6 +11,7 @@ import { LandingService } from '../services/landingService';
 import { PricingSection } from '../components/PricingSection';
 import Hero from '../components/Hero';
 import { BrandLogo } from '../components/BrandLogo';
+import { BeforeAfterSlider } from '../components/BeforeAfterSlider';
 
 interface Props {
   onLogin: () => void;
@@ -326,68 +327,9 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
               </p>
             </div>
 
-            {/* Antes / Depois grid */}
-            <div className="ba-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
-
-              {/* Antes */}
-              <div className={`reveal rd1 ${beforeAfter.visible ? 'on' : ''}`} style={{
-                background: '#FEF2F2', border: '2px solid #FECACA', borderRadius: 22, padding: '36px 32px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
-                  <div style={{ background: '#FEE2E2', borderRadius: 11, padding: '8px 10px' }}>
-                    <X size={18} color={P.red} />
-                  </div>
-                  <span style={{ fontSize: 19, fontWeight: 800, color: '#B91C1C' }}>Antes</span>
-                </div>
-                {[
-                  'Horas planejando cada atividade',
-                  'Papel acumulado em todo lugar',
-                  'Trabalho levado pro fim de semana',
-                  'Cada professor usa um formato diferente',
-                  'Sem histórico real do aluno',
-                ].map(item => (
-                  <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
-                    <div style={{
-                      width: 22, height: 22, borderRadius: '50%', background: '#FEE2E2',
-                      border: '1.5px solid #FCA5A5', display: 'flex', alignItems: 'center',
-                      justifyContent: 'center', flexShrink: 0, marginTop: 2,
-                    }}>
-                      <X size={11} color={P.red} />
-                    </div>
-                    <span style={{ fontSize: 15, color: '#7F1D1D', lineHeight: 1.55 }}>{item}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Depois */}
-              <div className={`reveal rd2 ${beforeAfter.visible ? 'on' : ''}`} style={{
-                background: P.greenLight, border: '2px solid #BBF7D0', borderRadius: 22, padding: '36px 32px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
-                  <div style={{ background: '#DCFCE7', borderRadius: 11, padding: '8px 10px' }}>
-                    <CheckCircle size={18} color={P.greenDark} />
-                  </div>
-                  <span style={{ fontSize: 19, fontWeight: 800, color: P.greenDark }}>Depois</span>
-                </div>
-                {[
-                  'Atividade pronta em segundos',
-                  'Tudo organizado e centralizado',
-                  'Mais tempo livre toda semana',
-                  'Padrão profissional unificado',
-                  'Histórico completo por aluno',
-                ].map(item => (
-                  <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
-                    <div style={{
-                      width: 22, height: 22, borderRadius: '50%', background: '#DCFCE7',
-                      border: '1.5px solid #86EFAC', display: 'flex', alignItems: 'center',
-                      justifyContent: 'center', flexShrink: 0, marginTop: 2,
-                    }}>
-                      <CheckCircle size={11} color={P.greenDark} />
-                    </div>
-                    <span style={{ fontSize: 15, color: '#166534', lineHeight: 1.55 }}>{item}</span>
-                  </div>
-                ))}
-              </div>
+            {/* Widget interativo Antes / Depois */}
+            <div className={`reveal rd1 ${beforeAfter.visible ? 'on' : ''}`}>
+              <BeforeAfterSlider imageSrc="/images/antes-depois-incluiai.jpg" />
             </div>
 
             {/* Mini CTA */}

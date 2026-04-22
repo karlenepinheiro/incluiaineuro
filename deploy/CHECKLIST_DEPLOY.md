@@ -34,7 +34,7 @@ cp .env.example .env
 # Editar .env com suas chaves reais:
 VITE_SUPABASE_URL=https://SEU_PROJETO.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGc...sua_anon_key
-VITE_GEMINI_API_KEY=AIzaSy...sua_chave_gemini
+VITE_GEMINI_API_KEY=CHAVE
 VITE_APP_URL=https://seudominio.com.br
 VITE_APP_ENV=production
 ```
