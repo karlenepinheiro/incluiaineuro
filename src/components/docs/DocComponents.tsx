@@ -8,6 +8,7 @@ import {
   Award, Target,
 } from 'lucide-react';
 import { colors, fonts, fontSize, spacing, radius, shadows, a4, DocType, docAccents } from './DocTokens';
+import { formatDateBR } from '../../utils/dateUtils';
 
 // ─── QR Code placeholder ──────────────────────────────────────────────────────
 
@@ -203,6 +204,8 @@ export const DocumentCard: React.FC<DocumentCardProps> = ({
     border: `1px solid ${colors.border}`,
     boxShadow: shadows.card,
     marginBottom: spacing.xl,
+    pageBreakInside: 'avoid',
+    breakInside: 'avoid',
     ...style,
   }}>
     {/* Header */}
@@ -400,6 +403,7 @@ export const DocumentChartBlock: React.FC<DocumentChartBlockProps> = ({
     borderRadius: radius.xl, border: `1px solid ${accentColor}20`,
     background: colors.surface, overflow: 'hidden',
     boxShadow: shadows.sm, marginBottom: spacing.xl,
+    pageBreakInside: 'avoid', breakInside: 'avoid',
   }}>
     {title && (
       <div style={{
@@ -496,6 +500,7 @@ export const DocumentSignatureBlock: React.FC<DocumentSignatureBlockProps> = ({
     marginTop: spacing.xl, padding: `${spacing.lg}px ${spacing.xl}px`,
     borderRadius: radius.xl, border: `1.5px dashed ${colors.border}`,
     background: colors.bg,
+    pageBreakInside: 'avoid', breakInside: 'avoid',
   }}>
     {(title || date || location) && (
       <div style={{ marginBottom: spacing.xl, textAlign: 'center' }}>
@@ -579,6 +584,7 @@ export const DocumentHighlight: React.FC<{
       background: v.bg, border: `2px solid ${v.border}30`,
       borderLeft: `4px solid ${v.border}`,
       marginBottom: spacing.xl,
+      pageBreakInside: 'avoid', breakInside: 'avoid',
     }}>
       {title && (
         <div style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md }}>
@@ -602,6 +608,7 @@ export const DocumentPage: React.FC<{
 }> = ({ children, id, breakAfter = false }) => (
   <div
     id={id}
+    data-doc-page="true"
     style={{
       width: a4.width,
       minHeight: a4.minHeight,
@@ -610,6 +617,7 @@ export const DocumentPage: React.FC<{
       fontFamily: fonts.body,
       color: colors.dark,
       boxSizing: 'border-box',
+      breakAfter: breakAfter ? 'page' : undefined,
       pageBreakAfter: breakAfter ? 'always' : undefined,
     }}
   >
@@ -708,7 +716,7 @@ export const DocumentStudentBadge: React.FC<{
           </h2>
           {student.birthDate && (
             <p style={{ margin: '3px 0 0', fontSize: fontSize.sm, color: colors.gray }}>
-              Nascimento: {student.birthDate}
+              Nascimento: {formatDateBR(student.birthDate)}
             </p>
           )}
         </div>

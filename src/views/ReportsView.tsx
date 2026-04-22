@@ -11,10 +11,12 @@ import { ExportService } from '../services/exportService';
 import { SmartTextarea } from '../components/SmartTextarea';
 import { AudioRecorder } from '../components/AudioRecorder';
 import { StudentProfileService, TimelineService } from '../services/persistenceService';
+import { databaseService } from '../services/databaseService';
 import { DEMO_MODE } from '../services/supabase';
 import { AIService, getModelsForContext } from '../services/aiService';
 import { CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { generateRelatorioAluno, type RelatorioResultado, type ReportMode } from '../services/reportService';
+import { RelatorioPreview } from '../components/RelatorioPreview';
 
 const CRITERIA = [
   { name: "Comunicação Expressiva", desc: "Expressão verbal, gestual ou alternativa." },
@@ -245,6 +247,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
   const [generatingRelatorio, setGeneratingRelatorio] = useState(false);
   const [relatorioError, setRelatorioError] = useState<string | null>(null);
   const [showRelatorio, setShowRelatorio] = useState(false);
+  // ID do documento salvo no banco para o relatório técnico atual
+  const [savedRelatorioId, setSavedRelatorioId] = useState<string | null>(null);
 
   const selectedStudent = students.find(s => s.id === selectedStudentId);
   const planLimits = getPlanLimits(currentPlan);
@@ -256,6 +260,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
     StudentProfileService.getForStudent(selectedStudentId)
       .then(setDbProfiles)
       .catch(() => setDbProfiles([]));
+  }, [selectedStudentId]);
+
+  // Limpa o relatório técnico gerado quando o aluno muda
+  useEffect(() => {
+    setRelatorioResultado(null);
+    setSavedRelatorioId(null);
+    setShowRelatorio(false);
+    setRelatorioError(null);
   }, [selectedStudentId]);
 
   // Popula campos quando o histórico selecionado muda
@@ -386,6 +398,7 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
     setRelatorioError(null);
     setGeneratingRelatorio(true);
     setShowRelatorio(false);
+    setSavedRelatorioId(null);
     try {
       const school = currentUser?.schoolConfigs?.[0] ?? null;
       const resultado = await generateRelatorioAluno({
@@ -400,6 +413,24 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
       });
       setRelatorioResultado(resultado);
       setShowRelatorio(true);
+
+      // Persiste o relatório gerado na tabela documents
+      if (!DEMO_MODE && currentUser?.tenant_id && selectedStudent?.id) {
+        try {
+          const saved = await databaseService.saveDocument({
+            studentId: selectedStudent.id,
+            tenant_id: currentUser.tenant_id,
+            doc_type: 'RELATORIO_TECNICO',
+            title: `Relatório Técnico — ${selectedStudent.name} — ${new Date().toLocaleDateString('pt-BR')}`,
+            status: 'DRAFT',
+            structuredData: resultado,
+            auditCode: resultado.codigoDoc,
+          });
+          setSavedRelatorioId((saved as any)?.id ?? null);
+        } catch (e) {
+          console.error('[ReportsView] erro ao persistir relatório técnico:', e);
+        }
+      }
     } catch (e: any) {
       setRelatorioError(e?.message || 'Erro ao gerar relatório. Verifique sua conexão e créditos.');
     } finally {
@@ -407,18 +438,24 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
     }
   };
 
-  const handleExportRelatorioPDF = async () => {
-    if (!selectedStudent || !relatorioResultado) return;
+  // Chamado pelo RelatorioPreview ao salvar edições — faz upsert no banco
+  const handleSaveRelatorioEdits = async (updated: RelatorioResultado) => {
+    setRelatorioResultado(updated);
+    if (DEMO_MODE || !currentUser?.tenant_id || !selectedStudent?.id || !savedRelatorioId) return;
     try {
-      const school = currentUser?.schoolConfigs?.[0] ?? null;
-      await ExportService.exportRelatorioAlunoPDF({
-        student: selectedStudent,
-        resultado: relatorioResultado,
-        scores,
-        school,
-        createdBy: currentUser?.name || 'Profissional',
+      await databaseService.saveDocument({
+        id: savedRelatorioId,
+        studentId: selectedStudent.id,
+        tenant_id: currentUser.tenant_id,
+        doc_type: 'RELATORIO_TECNICO',
+        title: `Relatório Técnico — ${selectedStudent.name} — ${new Date(updated.geradoEm).toLocaleDateString('pt-BR')}`,
+        status: 'DRAFT',
+        structuredData: updated,
+        auditCode: updated.codigoDoc,
       });
-    } catch { alert('Erro ao exportar PDF.'); }
+    } catch (e) {
+      console.error('[ReportsView] erro ao atualizar relatório técnico:', e);
+    }
   };
 
   const allLabels = CRITERIA.map(c => c.name);
@@ -432,10 +469,12 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
           <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><BarChart3 className="text-brand-600"/> Relatório Evolutivo</h2>
           <p className="text-gray-500 text-sm">Avalie critérios, adicione evidências e gere PDF auditável.</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => window.print()} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold flex gap-2 items-center"><Printer size={16}/> Imprimir</button>
-          <button onClick={handleExportPDF} className="px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-bold flex gap-2 items-center"><Download size={16}/> PDF</button>
-        </div>
+        {!showRelatorio && (
+          <div className="flex gap-2">
+            <button onClick={() => window.print()} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold flex gap-2 items-center"><Printer size={16}/> Imprimir</button>
+            <button onClick={handleExportPDF} className="px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-bold flex gap-2 items-center"><Download size={16}/> PDF</button>
+          </div>
+        )}
       </div>
 
       {/* Seleção */}
@@ -485,6 +524,17 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
           <BarChart3 size={40} className="mx-auto mb-3 text-gray-200"/>
           <p>Selecione um aluno para iniciar o relatório.</p>
         </div>
+      ) : showRelatorio && relatorioResultado ? (
+        /* ── Preview full-screen (issues 6, 7, 8, 9) ── */
+        <RelatorioPreview
+          resultado={relatorioResultado}
+          student={selectedStudent}
+          scores={scores}
+          school={currentUser?.schoolConfigs?.[0] ?? null}
+          onUpdate={setRelatorioResultado}
+          onSaveEdits={handleSaveRelatorioEdits}
+          onClose={() => setShowRelatorio(false)}
+        />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
@@ -663,18 +713,19 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
                       <p className="text-[10px] text-white/60 mt-0.5">Documento profissional pronto para INSS, saúde e órgãos públicos</p>
                     </div>
                   </div>
-                  {showRelatorio && (
+                  {relatorioResultado && !showRelatorio && (
                     <button
-                      onClick={() => setShowRelatorio(false)}
-                      className="text-white/60 hover:text-white transition"
+                      onClick={() => setShowRelatorio(true)}
+                      className="text-[#C69214] hover:text-white transition text-[10px] font-bold"
+                      style={{ background: 'rgba(198,146,20,0.15)', padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(198,146,20,0.3)' }}
                     >
-                      <X size={16} />
+                      Ver preview
                     </button>
                   )}
                 </div>
 
-                {/* Seletor de modo */}
-                {!showRelatorio && (
+                {/* Seletor de modo — aparece só quando não há resultado gerado */}
+                {!relatorioResultado && (
                   <div className="p-5 bg-white">
                     {/* Toggle simples/completo */}
                     <div className="mb-4">
@@ -749,78 +800,29 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
                   </div>
                 )}
 
-                {/* Card de resultado */}
-                {showRelatorio && relatorioResultado && (
-                  <div className="p-5 bg-white">
-                    {/* Status badge */}
-                    <div className="flex items-center gap-2 mb-4">
+                {/* Banner compacto quando relatório foi gerado mas preview está fechado */}
+                {relatorioResultado && !showRelatorio && (
+                  <div className="p-4 bg-white">
+                    <div className="rounded-xl border border-green-100 bg-green-50 px-4 py-3 flex items-center gap-3">
                       <CheckCircle size={16} className="text-green-500 shrink-0" />
-                      <span className="text-sm font-bold text-green-700">Relatório gerado com sucesso</span>
-                    </div>
-
-                    {/* Card do documento */}
-                    <div className="rounded-xl border border-gray-200 overflow-hidden">
-                      {/* Cabeçalho do card */}
-                      <div className="px-4 py-3 flex items-center gap-3" style={{ background: 'linear-gradient(135deg, #1F4E5F 0%, #2E3A59 100%)' }}>
-                        <div className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(198,146,20,0.2)' }}>
-                          <FileText size={17} color="#C69214" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-bold text-white truncate">Relatório Técnico Pedagógico</p>
-                          <p className="text-[10px] text-white/60 truncate">{selectedStudent.name}</p>
-                        </div>
-                        <span className="text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0"
-                          style={{ background: 'rgba(198,146,20,0.25)', color: '#C69214', border: '1px solid rgba(198,146,20,0.4)' }}>
-                          {relatorioResultado.data.tipo === 'simples' ? 'SIMPLES' : 'COMPLETO'}
-                        </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-green-700">Relatório gerado</p>
+                        <p className="text-[10px] font-mono text-gray-500 truncate">{relatorioResultado.codigoDoc}</p>
                       </div>
-
-                      {/* Metadados */}
-                      <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 grid grid-cols-2 gap-x-4 gap-y-1.5">
-                        <div>
-                          <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Gerado em</p>
-                          <p className="text-xs font-semibold text-gray-800">
-                            {new Date(relatorioResultado.geradoEm).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                            {' '}às{' '}
-                            {new Date(relatorioResultado.geradoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Tipo</p>
-                          <p className="text-xs font-semibold text-gray-800 capitalize">
-                            {relatorioResultado.data.tipo === 'simples' ? 'Relatório Simples' : 'Relatório Completo'}
-                          </p>
-                        </div>
-                        <div className="col-span-2">
-                          <p className="text-[9px] font-bold uppercase tracking-wider text-gray-400">Código do documento</p>
-                          <p className="text-xs font-mono font-semibold" style={{ color: '#1F4E5F' }}>{relatorioResultado.codigoDoc}</p>
-                        </div>
-                      </div>
-
-                      {/* Ações */}
-                      <div className="px-4 py-3 bg-white flex items-center gap-2">
-                        <button
-                          onClick={handleExportRelatorioPDF}
-                          className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold text-white transition"
-                          style={{ background: '#1F4E5F' }}
-                        >
-                          <Download size={13} /> Baixar PDF
-                        </button>
-                        <button
-                          onClick={() => setShowRelatorio(false)}
-                          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-gray-200 text-gray-600 hover:bg-gray-50 transition"
-                          title="Editar configurações e regenerar"
-                        >
-                          <Edit2 size={13} /> Editar
-                        </button>
-                        <button
-                          onClick={() => { setShowRelatorio(false); setRelatorioResultado(null); }}
-                          className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-red-100 text-red-500 hover:bg-red-50 transition"
-                          title="Excluir este resultado"
-                        >
-                          <Trash2 size={13} /> Excluir
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => setShowRelatorio(true)}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white transition shrink-0"
+                        style={{ background: '#1F4E5F' }}
+                      >
+                        <FileText size={12} /> Ver Preview
+                      </button>
+                      <button
+                        onClick={() => setRelatorioResultado(null)}
+                        className="text-gray-400 hover:text-red-500 transition shrink-0"
+                        title="Descartar resultado"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
                   </div>
                 )}

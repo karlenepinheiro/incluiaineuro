@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Edit, Trash2, ArrowRight, Plus, Search, Users, UserPlus, Filter, Globe, Upload, AlertCircle } from 'lucide-react';
+import { Edit, Trash2, Plus, Search, Users, UserPlus, Globe, Upload, AlertCircle, LayoutGrid, List } from 'lucide-react';
 import { Student, PlanTier, getPlanLimits, type User } from '../types';
 import { StudentCodeSearchModal } from '../components/StudentCodeSearchModal';
 import { StudentImportModal } from '../components/StudentImportModal';
@@ -52,6 +52,7 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
 }) => {
   const [search, setSearch]             = useState('');
   const [filter, setFilter]             = useState<FilterType>('all');
+  const [viewMode, setViewMode]         = useState<'grid' | 'compact'>('grid');
   const [showCodeSearch, setShowCodeSearch] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
 
@@ -199,6 +200,26 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
             />
           </div>
 
+          {/* Toggle de visualização */}
+          <div
+            className="flex rounded-xl overflow-hidden shrink-0"
+            style={{ border: `1.5px solid ${C.border}`, background: C.surface }}
+          >
+            {(['grid', 'compact'] as const).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className="px-3 py-2 transition"
+                title={mode === 'grid' ? 'Visualização em grade' : 'Visualização compacta'}
+                style={viewMode === mode
+                  ? { background: C.petrol, color: '#fff' }
+                  : { color: C.textSec }}
+              >
+                {mode === 'grid' ? <LayoutGrid size={15} /> : <List size={15} />}
+              </button>
+            ))}
+          </div>
+
           <div
             className="flex rounded-xl overflow-hidden"
             style={{ border: `1.5px solid ${C.border}`, background: C.surface }}
@@ -254,6 +275,18 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
               {search ? 'Tente outros termos' : 'Clique em "+ Com Laudo" ou "Em Triagem" para começar'}
             </p>
           </div>
+        ) : viewMode === 'compact' ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+            {filtered.map(s => (
+              <StudentCardCompact
+                key={s.id}
+                student={s}
+                onSelect={onSelect}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            ))}
+          </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map(s => (
@@ -297,6 +330,26 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
   );
 };
 
+// ── Helpers de status compartilhados ─────────────────────────────────────────
+function studentStatus(s: Student) {
+  const isTriagem            = s.tipo_aluno === 'em_triagem';
+  const isIncomplete         = s.registrationStatus === 'incomplete'
+                               || s.registrationStatus === 'pre_registered'
+                               || s.isPreRegistered === true;
+  const isImportedIncomplete = isIncomplete && s.importSource === 'csv';
+  const accentColor = isImportedIncomplete ? '#7F1D1D'
+    : isIncomplete ? C.red
+    : isTriagem    ? '#F59E0B'
+    : C.petrol;
+  const avatarBg = isImportedIncomplete
+    ? 'linear-gradient(135deg,#7F1D1D,#B91C1C)'
+    : isIncomplete
+      ? `linear-gradient(135deg,${C.red},#F87171)`
+      : `linear-gradient(135deg,${isTriagem ? '#F59E0B' : C.petrol},${isTriagem ? '#FCD34D' : C.dark})`;
+  return { isTriagem, isIncomplete, isImportedIncomplete, accentColor, avatarBg };
+}
+
+// ── Modo grade (padrão) — versão limpa ───────────────────────────────────────
 function StudentCard({
   student: s,
   onSelect,
@@ -308,12 +361,7 @@ function StudentCard({
   onEdit: (s: Student) => void;
   onDelete: (id: string) => void;
 }) {
-  const isTriagem            = s.tipo_aluno === 'em_triagem';
-  const isExternal           = s.isExternalStudent;
-  const isIncomplete         = s.registrationStatus === 'incomplete'
-                               || s.registrationStatus === 'pre_registered'
-                               || s.isPreRegistered === true;
-  const isImportedIncomplete = isIncomplete && s.importSource === 'csv';
+  const { isTriagem, isIncomplete, isImportedIncomplete, accentColor, avatarBg } = studentStatus(s);
 
   return (
     <div
@@ -321,175 +369,216 @@ function StudentCard({
       className="rounded-2xl cursor-pointer group transition"
       style={{
         background: C.surface,
-        border: `1.5px solid ${isImportedIncomplete ? '#B91C1C60' : isIncomplete ? C.red + '60' : C.border}`,
+        border: `1.5px solid ${isIncomplete ? accentColor + '50' : C.border}`,
         boxShadow: '0 2px 8px rgba(31,78,95,0.05)',
       }}
       onMouseEnter={e => {
-        (e.currentTarget as HTMLDivElement).style.borderColor = isImportedIncomplete ? '#7F1D1D' : isIncomplete ? C.red : C.petrol;
-        (e.currentTarget as HTMLDivElement).style.boxShadow = `0 6px 24px rgba(31,78,95,0.12)`;
+        (e.currentTarget as HTMLDivElement).style.borderColor = accentColor;
+        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 6px 24px rgba(31,78,95,0.12)';
       }}
       onMouseLeave={e => {
-        (e.currentTarget as HTMLDivElement).style.borderColor = isImportedIncomplete ? '#B91C1C60' : isIncomplete ? C.red + '60' : C.border;
+        (e.currentTarget as HTMLDivElement).style.borderColor = isIncomplete ? accentColor + '50' : C.border;
         (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(31,78,95,0.05)';
       }}
     >
-      {/* Accent bar */}
-      <div
-        className="h-1.5 rounded-t-2xl"
-        style={{
-          background: isImportedIncomplete
-            ? 'linear-gradient(90deg,#7F1D1D,#B91C1C,#DC2626)'
-            : isIncomplete
-              ? `linear-gradient(90deg,${C.red},#F87171)`
-              : isTriagem
-                ? 'linear-gradient(90deg,#F59E0B,#FCD34D)'
-                : `linear-gradient(90deg,${C.petrol},${C.dark})`,
-        }}
-      />
+      {/* Faixa de status */}
+      <div className="h-1 rounded-t-2xl" style={{
+        background: isImportedIncomplete ? 'linear-gradient(90deg,#7F1D1D,#DC2626)'
+          : isIncomplete               ? `linear-gradient(90deg,${C.red},#F87171)`
+          : isTriagem                  ? 'linear-gradient(90deg,#F59E0B,#FCD34D)'
+          : `linear-gradient(90deg,${C.petrol},${C.dark})`,
+      }} />
 
-      <div className="p-5">
-        <div className="flex items-center gap-3 mb-4">
+      <div className="p-4">
+        {/* Avatar + nome */}
+        <div className="flex items-center gap-3 mb-3">
           <div
-            className="w-12 h-12 rounded-full flex items-center justify-center overflow-hidden shrink-0 text-lg font-bold text-white"
-            style={{
-              background: s.photoUrl
-                ? undefined
-                : isImportedIncomplete
-                  ? 'linear-gradient(135deg,#7F1D1D,#B91C1C)'
-                  : isIncomplete
-                    ? `linear-gradient(135deg,${C.red},#F87171)`
-                    : `linear-gradient(135deg,${isTriagem ? '#F59E0B' : C.petrol},${isTriagem ? '#FCD34D' : C.dark})`,
-            }}
+            className="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden shrink-0 text-base font-bold text-white"
+            style={{ background: s.photoUrl ? undefined : avatarBg }}
           >
-            {s.photoUrl ? (
-              <img src={s.photoUrl} className="w-full h-full object-cover" alt={s.name} />
-            ) : (
-              (s.name ?? '?').charAt(0).toUpperCase()
-            )}
+            {s.photoUrl
+              ? <img src={s.photoUrl} className="w-full h-full object-cover" alt={s.name} />
+              : (s.name ?? '?').charAt(0).toUpperCase()}
           </div>
+
           <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-sm truncate transition" style={{ color: C.dark }}>
-              {s.name}
-            </h3>
-            <p className="text-xs truncate mt-0.5" style={{ color: C.textSec }}>
-              {s.diagnosis?.length ? s.diagnosis.join(', ') : 'Sem diagnóstico definido'}
-            </p>
-            <div className="flex gap-1 mt-1 flex-wrap">
-              <span
-                className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                style={
-                  isTriagem
-                    ? { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' }
-                    : { background: '#EFF9FF', color: C.petrol, border: `1px solid #BAE6FD` }
-                }
-              >
-                {isTriagem ? 'Em Triagem' : 'Com Laudo'}
-              </span>
-              {isExternal && (
-                <span
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                  style={{ background: C.goldLight, color: C.gold, border: `1px solid ${C.borderMid}` }}
-                >
+            <h3 className="font-bold text-sm truncate" style={{ color: C.dark }}>{s.name}</h3>
+
+            {/* Subtítulo: diagnóstico (se houver) ou série */}
+            {s.diagnosis?.length ? (
+              <p className="text-xs truncate mt-0.5" style={{ color: C.textSec }}>
+                {s.diagnosis.join(', ')}
+              </p>
+            ) : s.grade ? (
+              <p className="text-xs truncate mt-0.5" style={{ color: C.textSec }}>{s.grade}{s.shift ? ` · ${s.shift}` : ''}</p>
+            ) : null}
+
+            {/* Badges — só os que agregam informação */}
+            <div className="flex gap-1 mt-1.5 flex-wrap">
+              {isTriagem && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' }}>
+                  Em Triagem
+                </span>
+              )}
+              {s.isExternalStudent && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                  style={{ background: C.goldLight, color: C.gold, border: `1px solid ${C.borderMid}` }}>
                   Externo
                 </span>
               )}
               {isImportedIncomplete ? (
-                <span
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5"
-                  style={{ background: '#FEE2E2', color: '#7F1D1D', border: '1px solid #B91C1C50' }}
-                >
-                  <Upload size={9} /> IMPORTADO INCOMPLETO
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5"
+                  style={{ background: '#FEE2E2', color: '#7F1D1D', border: '1px solid #B91C1C40' }}>
+                  <Upload size={9} /> CSV incompleto
                 </span>
               ) : isIncomplete ? (
-                <span
-                  className="text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5"
-                  style={{ background: C.redLight, color: C.red, border: `1px solid ${C.red}40` }}
-                >
-                  <AlertCircle size={9} /> Cadastro incompleto
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5"
+                  style={{ background: C.redLight, color: C.red, border: `1px solid ${C.red}40` }}>
+                  <AlertCircle size={9} /> Incompleto
                 </span>
               ) : null}
             </div>
           </div>
         </div>
 
-        {/* Info row */}
-        <div
-          className="text-xs mb-4 px-3 py-2 rounded-xl"
-          style={{ background: C.bg, color: C.textSec }}
-        >
-          {s.grade && <span>{s.grade}</span>}
-          {s.grade && s.shift && <span className="mx-1.5">·</span>}
-          {s.shift && <span>{s.shift}</span>}
-          {(s.grade || s.shift) && s.regentTeacher && <span className="mx-1.5">·</span>}
-          {s.regentTeacher && <span className="truncate">{s.regentTeacher}</span>}
-          {!s.grade && !s.shift && !s.regentTeacher && (
-            <span style={{ color: C.borderMid }}>Dados incompletos</span>
-          )}
-        </div>
+        {/* Linha de info — só se houver conteúdo e não foi exibido no subtítulo */}
+        {s.diagnosis?.length > 0 && (s.grade || s.shift || s.regentTeacher) && (
+          <p className="text-[11px] mb-3 truncate" style={{ color: C.textSec }}>
+            {[s.grade, s.shift, s.regentTeacher].filter(Boolean).join(' · ')}
+          </p>
+        )}
 
-        {/* Banner de cadastro incompleto */}
-        {isImportedIncomplete ? (
-          <div
-            className="mb-3 px-3 py-2 rounded-xl text-xs flex items-start gap-2"
-            style={{ background: '#FEE2E2', border: '1px solid #B91C1C30' }}
-          >
-            <Upload size={12} style={{ color: '#7F1D1D', flexShrink: 0, marginTop: 1 }} />
-            <span style={{ color: '#7F1D1D', fontWeight: 600 }}>
-              Aluno importado via CSV com cadastro incompleto. Complete os dados para liberar a ficha e os documentos.
+        {/* Banner incompleto — comprimido a uma linha */}
+        {isIncomplete && (
+          <div className="mb-3 px-3 py-2 rounded-xl text-xs flex items-center gap-2"
+            style={{ background: isImportedIncomplete ? '#FEE2E2' : C.redLight,
+                     border: `1px solid ${accentColor}30` }}>
+            {isImportedIncomplete
+              ? <Upload size={11} style={{ color: '#7F1D1D', flexShrink: 0 }} />
+              : <AlertCircle size={11} style={{ color: C.red, flexShrink: 0 }} />}
+            <span className="truncate font-medium" style={{ color: accentColor }}>
+              {isImportedIncomplete ? 'Importado via CSV — complete o cadastro' : 'Complete o cadastro para liberar documentos'}
             </span>
           </div>
-        ) : isIncomplete ? (
-          <div
-            className="mb-3 px-3 py-2 rounded-xl text-xs flex items-start gap-2"
-            style={{ background: C.redLight, border: `1px solid ${C.red}30` }}
-          >
-            <AlertCircle size={12} style={{ color: C.red, flexShrink: 0, marginTop: 1 }} />
-            <span style={{ color: C.red }}>
-              Complete o cadastro para liberar a ficha completa e os documentos institucionais.
-            </span>
-          </div>
-        ) : null}
+        )}
 
-        <div
-          className="flex items-center justify-between pt-3"
-          style={{ borderTop: `1px solid ${C.border}` }}
-        >
-          <div className="flex gap-1">
-            <button
-              onClick={e => { e.stopPropagation(); onEdit(s); }}
-              className="p-2 rounded-lg transition"
+        {/* Rodapé: ações */}
+        <div className="flex items-center justify-between pt-3" style={{ borderTop: `1px solid ${C.border}` }}>
+          <div className="flex gap-0.5">
+            <button onClick={e => { e.stopPropagation(); onEdit(s); }}
+              className="p-1.5 rounded-lg transition"
               style={{ color: C.textSec }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = C.petrol + '18';
-                (e.currentTarget as HTMLButtonElement).style.color = C.petrol;
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                (e.currentTarget as HTMLButtonElement).style.color = C.textSec;
-              }}
-            >
-              <Edit size={16} />
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.petrol + '18'; (e.currentTarget as HTMLButtonElement).style.color = C.petrol; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = C.textSec; }}>
+              <Edit size={14} />
             </button>
-            <button
-              onClick={e => { e.stopPropagation(); onDelete(s.id); }}
-              className="p-2 rounded-lg transition"
+            <button onClick={e => { e.stopPropagation(); onDelete(s.id); }}
+              className="p-1.5 rounded-lg transition"
               style={{ color: C.textSec }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = '#FEF2F2';
-                (e.currentTarget as HTMLButtonElement).style.color = '#EF4444';
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-                (e.currentTarget as HTMLButtonElement).style.color = C.textSec;
-              }}
-            >
-              <Trash2 size={16} />
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#FEF2F2'; (e.currentTarget as HTMLButtonElement).style.color = '#EF4444'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = C.textSec; }}>
+              <Trash2 size={14} />
             </button>
           </div>
-          <span className="flex items-center gap-1 text-xs font-semibold" style={{ color: C.petrol }}>
-            Ver ficha <ArrowRight size={12} />
+          <span className="text-[11px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: C.petrol }}>
+            Ver ficha →
           </span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modo compacto — avatar grande + nome, sem texto extra ────────────────────
+function StudentCardCompact({
+  student: s,
+  onSelect,
+  onEdit,
+  onDelete,
+}: {
+  student: Student;
+  onSelect: (s: Student) => void;
+  onEdit: (s: Student) => void;
+  onDelete: (id: string) => void;
+}) {
+  const { isTriagem, isIncomplete, isImportedIncomplete, accentColor, avatarBg } = studentStatus(s);
+
+  return (
+    <div
+      onClick={() => onSelect(s)}
+      className="relative rounded-2xl cursor-pointer group transition flex flex-col items-center gap-2.5 p-4"
+      style={{
+        background: C.surface,
+        border: `1.5px solid ${isIncomplete ? accentColor + '40' : C.border}`,
+        boxShadow: '0 1px 4px rgba(31,78,95,0.04)',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.borderColor = accentColor;
+        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(31,78,95,0.1)';
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.borderColor = isIncomplete ? accentColor + '40' : C.border;
+        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 4px rgba(31,78,95,0.04)';
+      }}
+    >
+      {/* Avatar com anel de status */}
+      <div className="relative">
+        <div
+          className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden text-xl font-bold text-white"
+          style={{
+            background: s.photoUrl ? undefined : avatarBg,
+            outline: isIncomplete ? `2.5px solid ${accentColor}` : isTriagem ? '2.5px solid #F59E0B' : 'none',
+            outlineOffset: 2,
+          }}
+        >
+          {s.photoUrl
+            ? <img src={s.photoUrl} className="w-full h-full object-cover" alt={s.name} />
+            : (s.name ?? '?').charAt(0).toUpperCase()}
+        </div>
+        {/* Dot indicador de status */}
+        {isIncomplete && (
+          <div className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white"
+            style={{ background: accentColor }} />
+        )}
+        {!isIncomplete && isTriagem && (
+          <div className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white bg-amber-400" />
+        )}
+      </div>
+
+      {/* Nome + subtítulo */}
+      <div className="text-center w-full min-w-0">
+        <p className="text-xs font-bold leading-snug" style={{ color: C.dark,
+          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {s.name}
+        </p>
+        {(s.diagnosis?.[0] || s.grade) && (
+          <p className="text-[10px] mt-0.5 truncate" style={{ color: C.textSec }}>
+            {s.diagnosis?.[0] || s.grade}
+          </p>
+        )}
+      </div>
+
+      {/* Ações — visíveis só no hover */}
+      <div className="absolute top-2 right-2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={e => { e.stopPropagation(); onEdit(s); }}
+          className="p-1 rounded-md transition"
+          style={{ background: C.bg, color: C.textSec }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.petrol; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textSec; }}
+        >
+          <Edit size={12} />
+        </button>
+        <button
+          onClick={e => { e.stopPropagation(); onDelete(s.id); }}
+          className="p-1 rounded-md transition"
+          style={{ background: C.bg, color: C.textSec }}
+          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#EF4444'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textSec; }}
+        >
+          <Trash2 size={12} />
+        </button>
       </div>
     </div>
   );

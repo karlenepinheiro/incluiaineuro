@@ -14,16 +14,16 @@ import { SmartTextarea } from './SmartTextarea';
 import { AIService } from '../services/aiService';
 import { ExportService } from '../services/exportService';
 import { databaseService } from '../services/databaseService';
-import { PDFGenerator } from '../services/PDFGenerator';
 import { StorageService } from '../services/storageService';
 import {
   StudentDocumentService, MedicalReportService, TimelineService,
   ObservationFormService, StudentProfileService, GeneratedActivityService,
 } from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
+import { formatDateBR, calculateAge } from '../utils/dateUtils';
 import { QuickDocModal, QuickDocType } from './QuickDocModal';
 import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
-import { RelatorioViewer } from './RelatorioViewer';
+import { RelatorioPreview } from './RelatorioPreview';
 import type { RelatorioResultado } from '../services/reportService';
 
 // ── Critérios do perfil evolutivo (10 dimensões) ─────────────────────────────
@@ -351,10 +351,6 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   const studentProtocols = protocols.filter(p => p.studentId === student.id);
 
-  const calculateAge = (dob: string) => {
-    const diff = Date.now() - new Date(dob).getTime();
-    return Math.abs(new Date(diff).getUTCFullYear() - 1970);
-  };
 
   // Abre o modal de configuração antes de gerar o PDF
   const handleDownloadFiche = () => setShowFichaConfig(true);
@@ -696,20 +692,6 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
   };
 
-  const handleDownloadReportPDF = async () => {
-    if (!reportResultado) return;
-    try {
-      await ExportService.exportRelatorioAlunoPDF({
-        student,
-        resultado: reportResultado,
-        scores: reportScores,
-        school: reportSchool,
-        createdBy: (user as any)?.name ?? 'Profissional',
-      });
-    } catch (e: any) {
-      alert('Erro ao exportar PDF: ' + (e?.message ?? 'Tente novamente.'));
-    }
-  };
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'ficha',      label: 'Ficha do Aluno',      icon: <User size={13}/> },
@@ -760,9 +742,22 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       </div>
 
       {/* ── Hero Card ── */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-        {/* Colored banner */}
-        <div className="h-2" style={{ background: 'linear-gradient(90deg, #1F4E5F, #2E3A59)' }}/>
+      {(() => {
+        const isIncomplete = student.registrationStatus === 'incomplete'
+          || student.registrationStatus === 'pre_registered'
+          || student.isPreRegistered === true;
+        const isImportedIncomplete = isIncomplete && student.importSource === 'csv';
+        const accentBar = isImportedIncomplete
+          ? 'linear-gradient(90deg,#7F1D1D,#B91C1C,#DC2626)'
+          : isIncomplete
+            ? 'linear-gradient(90deg,#DC2626,#F87171)'
+            : 'linear-gradient(90deg,#1F4E5F,#2E3A59)';
+        const cardBorder = isImportedIncomplete ? '#B91C1C60' : isIncomplete ? '#DC262660' : '#E5E7EB';
+
+        return (
+      <div className="bg-white rounded-2xl shadow-sm overflow-hidden" style={{ border: `1.5px solid ${cardBorder}` }}>
+        {/* Faixa colorida (vermelha se incompleto) */}
+        <div className="h-2" style={{ background: accentBar }}/>
 
         <div className="p-6 flex flex-col md:flex-row gap-6 items-start">
           {/* Avatar */}
@@ -791,7 +786,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             </div>
             <h1 className="text-2xl font-bold text-gray-900 mb-1">{student.name}</h1>
             <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-              <span className="flex items-center gap-1"><Calendar size={12}/> {calculateAge(student.birthDate)} anos · {new Date(student.birthDate + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+              <span className="flex items-center gap-1"><Calendar size={12}/> {calculateAge(student.birthDate)} anos · {formatDateBR(student.birthDate)}</span>
               <span className="flex items-center gap-1"><User size={12}/> Resp: {student.guardianName}</span>
               {student.schoolName && <span className="flex items-center gap-1"><BookOpen size={12}/> {student.schoolName} · {student.grade}</span>}
             </div>
@@ -811,6 +806,39 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             ))}
           </div>
         </div>
+
+        {/* Banner de cadastro incompleto — visível na ficha */}
+        {isIncomplete && (
+          <div
+            className="mx-6 mb-4 px-4 py-3 rounded-xl flex items-start gap-3 text-sm"
+            style={{
+              background: isImportedIncomplete ? '#FEE2E2' : '#FEF2F2',
+              border: `1px solid ${isImportedIncomplete ? '#B91C1C40' : '#DC262640'}`,
+            }}
+          >
+            <AlertCircle size={15} style={{ color: isImportedIncomplete ? '#7F1D1D' : '#DC2626', flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <p className="font-bold" style={{ color: isImportedIncomplete ? '#7F1D1D' : '#DC2626' }}>
+                {isImportedIncomplete ? 'Cadastro importado via CSV — incompleto' : 'Cadastro incompleto'}
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: isImportedIncomplete ? '#991B1B' : '#EF4444' }}>
+                {student.missingRequiredFields?.length
+                  ? `Campos faltantes: ${student.missingRequiredFields.join(', ')}. `
+                  : ''}
+                {isImportedIncomplete
+                  ? 'Complete os dados para liberar a ficha e os documentos institucionais.'
+                  : 'Complete o cadastro para liberar a ficha completa e os documentos.'}
+              </p>
+            </div>
+            <button
+              onClick={onEdit}
+              className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition"
+              style={{ background: isImportedIncomplete ? '#7F1D1D' : '#DC2626' }}
+            >
+              Completar
+            </button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-0 border-t border-gray-100 print:hidden overflow-x-auto">
@@ -834,6 +862,8 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           ))}
         </div>
       </div>
+        ); // fecha o return do IIFE
+      })()}
 
       {/* ══════════════════════════════════════════════════════════════════════
           TAB 1 — FICHA DO ALUNO
@@ -853,7 +883,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               <div className="space-y-0.5">
                 <UniqueCodeBadge code={student.unique_code} />
                 <InfoRow label="Nome completo"   value={student.name} />
-                <InfoRow label="Data de nascimento" value={new Date(student.birthDate + 'T12:00:00').toLocaleDateString('pt-BR')} />
+                <InfoRow label="Data de nascimento" value={formatDateBR(student.birthDate)} />
                 <InfoRow label="Idade"            value={`${calculateAge(student.birthDate)} anos`} />
                 <InfoRow label="Gênero"           value={student.gender === 'M' ? 'Masculino' : student.gender === 'F' ? 'Feminino' : student.gender} />
                 <InfoRow label="Responsável"      value={student.guardianName} />
@@ -2014,17 +2044,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowRelatorioViewer(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border"
-                    style={{ borderColor: '#1F4E5F40', color: '#1F4E5F', background: '#fff' }}
-                  >
-                    <Eye size={13}/> Visualizar
-                  </button>
-                  <button
-                    onClick={handleDownloadReportPDF}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white"
                     style={{ background: '#1F4E5F' }}
                   >
-                    <Download size={13}/> Baixar PDF
+                    <Eye size={13}/> Visualizar / Editar / PDF
                   </button>
                   <button
                     onClick={() => { setReportResultado(null); setReportType(null); setReportError(''); }}
@@ -2065,39 +2088,21 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             </div>
           )}
 
-          {/* Modal: visualizador premium do relatório */}
+          {/* Modal: visualizador + editor do relatório */}
           {showRelatorioViewer && reportResultado && (
             <div
               className="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto"
-              style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+              style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '24px 16px' }}
             >
-              <div className="w-full max-w-5xl my-6 mx-4">
-                <div className="flex items-center justify-between mb-3">
-                  <button
-                    onClick={() => setShowRelatorioViewer(false)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white"
-                    style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)' }}
-                  >
-                    <X size={15}/> Fechar
-                  </button>
-                  <button
-                    onClick={handleDownloadReportPDF}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white"
-                    style={{ background: '#C69214' }}
-                  >
-                    <Download size={15}/> Exportar PDF
-                  </button>
-                </div>
-                <div className="bg-white rounded-2xl overflow-hidden shadow-2xl">
-                  <RelatorioViewer
-                    student={student}
-                    scores={reportScores}
-                    resultado={reportResultado}
-                    school={reportSchool}
-                    onExportPDF={handleDownloadReportPDF}
-                    onPrint={() => window.print()}
-                  />
-                </div>
+              <div className="w-full max-w-5xl">
+                <RelatorioPreview
+                  resultado={reportResultado}
+                  student={student}
+                  scores={reportScores}
+                  school={reportSchool}
+                  onUpdate={r => setReportResultado(r)}
+                  onClose={() => setShowRelatorioViewer(false)}
+                />
               </div>
             </div>
           )}

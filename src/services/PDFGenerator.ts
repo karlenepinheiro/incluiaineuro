@@ -59,17 +59,28 @@ let _currentAuditCode = '';
 let _currentUserName  = '';
 let _currentSchool: SchoolConfig | null = null;
 
-/** Calcula idade em anos a partir de dd/mm/aaaa. Retorna '' se inválido. */
+/** Converts ISO (YYYY-MM-DD) or DD/MM/YYYY to DD/MM/YYYY for display in PDFs. */
+function formatBirthDate(date?: string): string {
+  if (!date) return '';
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(date)) return date;
+  const iso = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[3]}/${iso[2]}/${iso[1]}`;
+  return date;
+}
+
+/** Calcula idade em anos. Aceita DD/MM/YYYY ou ISO YYYY-MM-DD. Retorna '' se inválido. */
 function calcAge(birthDate?: string): string {
   if (!birthDate) return '';
-  const parts = birthDate.includes('/') ? birthDate.split('/') : birthDate.split('-');
-  const [d, m, y] = parts.map(Number);
-  if (!y || !m) return '';
+  let d = 0, m = 0, y = 0;
+  const ddmm = birthDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const iso   = birthDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ddmm)     { d = +ddmm[1]; m = +ddmm[2]; y = +ddmm[3]; }
+  else if (iso) { y = +iso[1];  m = +iso[2];  d = +iso[3];  }
+  else return '';
+  if (!y || !m || !d) return '';
   const today = new Date();
   let age = today.getFullYear() - y;
-  const monthOk = today.getMonth() + 1 < m ||
-    (today.getMonth() + 1 === m && today.getDate() < d);
-  if (monthOk) age--;
+  if (today.getMonth() + 1 < m || (today.getMonth() + 1 === m && today.getDate() < d)) age--;
   return age >= 0 ? `${age} anos` : '';
 }
 
@@ -520,7 +531,7 @@ function buildStudentBlock(
 
   const pairs: Array<[string, string]> = ([
     ['Nome Completo:',    student.name            ],
-    ['Data de Nasc.:',   student.birthDate || ''  ],
+    ['Data de Nasc.:',   formatBirthDate(student.birthDate)],
     ['Idade:',           age                      ],
     ['Sexo:',            gLabel                   ],
     ['Série / Turma:',   student.grade || ''      ],
@@ -1585,7 +1596,7 @@ export const PDFGenerator = {
 
     const kvData: [string, string][] = [
       ['Aluno(a):', student.name || '—'],
-      ['Data de Nascimento:', student.birthDate || '—'],
+      ['Data de Nascimento:', formatBirthDate(student.birthDate) || '—'],
       ['Série / Turma:', student.grade || '—'],
       ['Turno:', student.shift || '—'],
       ['Responsável Legal:', student.guardianName || '—'],

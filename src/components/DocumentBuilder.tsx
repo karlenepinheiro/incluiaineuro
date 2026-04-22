@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Plus, Trash2, Save, Printer, FileText, Sparkles, Edit3,
   Search, ChevronUp, ChevronDown,
@@ -9,7 +9,6 @@ import { DocumentType, DocumentData, DocSection, Student, User as UserType, Prot
 import { AudioEnhancedTextarea } from './AudioEnhancedTextarea';
 import { AudioRecorder } from './AudioRecorder';
 import { ExportService } from '../services/exportService';
-import { PDFGenerator } from '../services/PDFGenerator';
 import { StorageService } from '../services/storageService';
 import { AIService } from '../services/aiService';
 import { StudentContextService } from '../services/studentContextService';
@@ -1053,38 +1052,46 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
     setPendingTemplate(null);
   };
 
-  const handlePrint = () => window.print();
+  const documentRef = useRef<HTMLDivElement>(null);
 
-  // ── Geração de PDF via PDFGenerator (design unificado) ──────────────────────
-  const handleGeneratePDF = async () => {
-      if (!selectedStudent || sections.length === 0) {
-          alert('Nenhum conteúdo para exportar. Preencha ou gere o documento primeiro.');
-          return;
+  // ── Imprimir/PDF: injeta clone direto no body, sem overlay intermediário ─────
+  const handlePrint = async () => {
+    const el = documentRef.current;
+    if (!el) { window.print(); return; }
+
+    const clone = el.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.print\\:hidden, [data-no-print]').forEach(n => n.remove());
+    clone.style.cssText = 'max-height:none;overflow:visible;padding:0;margin:0;background:white;';
+    clone.id = '__doc_print_content__';
+
+    const bodyKids = Array.from(document.body.children) as HTMLElement[];
+    bodyKids.forEach(el => el.style.setProperty('display', 'none', 'important'));
+    document.body.appendChild(clone);
+
+    const style = document.createElement('style');
+    style.id = '__doc_print_style__';
+    style.textContent = `
+      @page { size: A4 portrait; margin: 15mm 15mm 20mm 15mm; }
+      html, body { margin:0; padding:0;
+        -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
+      #__doc_print_content__ [data-doc-page] {
+        width: 100% !important; min-height: auto !important; box-shadow: none !important;
       }
-      try {
-          const schoolCfg = user?.schoolConfigs?.[0] ?? null;
-          const auditCode = currentAuditCode || 'RASCUNHO';
-          const blob = await PDFGenerator.generateFromSections({
-              docType: type,
-              student: selectedStudent,
-              user,
-              school: schoolCfg,
-              sections: sections.map(sec => ({
-                  title:  sec.title,
-                  fields: sec.fields.map(f => ({
-                      label:    f.label,
-                      value:    f.value,
-                      type:     f.type,
-                      maxScale: (f as any).maxScale,
-                  })),
-              })),
-              auditCode,
-          });
-          PDFGenerator.download(blob, `${type}_${selectedStudent.name.replace(/\s+/g, '_')}.pdf`);
-      } catch (e) {
-          console.error(e);
-          alert('Erro ao gerar PDF.');
-      }
+      #__doc_print_content__ * { box-shadow: none !important; }
+    `;
+    document.head.appendChild(style);
+
+    const prevTitle = document.title;
+    document.title = `${type} — ${selectedStudent?.name ?? ''}`;
+    await new Promise<void>(r => setTimeout(r, 200));
+    window.print();
+
+    setTimeout(() => {
+      document.title = prevTitle;
+      clone.remove();
+      style.remove();
+      bodyKids.forEach(el => el.style.removeProperty('display'));
+    }, 800);
   };
 
   // ── Troca de aluno com autocomplete ─────────────────────────────────────────
@@ -1586,7 +1593,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
             <div className="flex flex-wrap gap-2 justify-end w-full md:w-auto">
                 
                 <button onClick={handlePrint} className="px-3 py-2 bg-gray-100 rounded hover:bg-gray-200 flex gap-2 text-sm font-medium" title="Imprimir documento atual"><Printer size={16}/> <span className="hidden sm:inline">Imprimir</span></button>
-                <button onClick={handleGeneratePDF} className="px-3 py-2 border border-brand-200 text-brand-700 rounded hover:bg-brand-50 flex gap-2 text-sm font-medium" title="Baixar PDF formatado"><Download size={16}/> <span className="hidden sm:inline">PDF</span></button>
+                <button onClick={handlePrint} className="px-3 py-2 border border-brand-200 text-brand-700 rounded hover:bg-brand-50 flex gap-2 text-sm font-medium" title="Salvar como PDF via impressão"><Download size={16}/> <span className="hidden sm:inline">PDF</span></button>
                 
                 {isEditing && (
                     <>
@@ -1762,7 +1769,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
         {/* Preview premium (modo visualização / impressão) */}
         {!isEditing && selectedStudent && (
-          <div className="w-full max-w-[210mm] mt-8 shadow-xl print:shadow-none print:w-full print:m-0" id="document-content">
+          <div ref={documentRef} className="w-full max-w-[210mm] mt-8 shadow-xl print:shadow-none print:w-full print:m-0" id="document-content">
             <DocumentPrintPreview
               docType={toDocType(type)}
               title={String(type)}

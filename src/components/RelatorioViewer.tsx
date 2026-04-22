@@ -378,7 +378,7 @@ export const RelatorioViewer: React.FC<Props> = ({
       {/* PÁGINAS INTERNAS                                                      */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
 
-      <div style={{ paddingTop: spacing['2xl'] }}>
+      <div style={{ paddingTop: spacing['2xl'], paddingLeft: 40, paddingRight: 40 }}>
 
         <DocumentRunningHeader
           studentName={student.name}

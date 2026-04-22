@@ -61,24 +61,28 @@ body { margin: 0; }
   /* Container A4 — DocumentPage e .print-page usam mesma base */
   .print-page,
   [id="document-print-preview"],
-  [id="relatorio-cover"] {
-    width: 210mm;
-    min-height: 297mm;
-    margin: 0 auto;
+  [data-doc-page] {
+    width: 100% !important;
+    min-height: auto !important;
+    margin: 0 !important;
     box-shadow: none !important;
+    border: none !important;
   }
 
   /* Quebras de página controladas */
   h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
-  .avoid-break  { break-inside: avoid; page-break-inside: avoid; }
-  .page-break   { break-before: page; page-break-before: always; }
+  .avoid-break   { break-inside: avoid; page-break-inside: avoid; }
+  .page-break    { break-before: page; page-break-before: always; }
   .section-block { break-inside: avoid; page-break-inside: avoid; }
-
-  /* Cards de seção não devem ser cortados no meio */
-  [style*="pageBreakInside"] { break-inside: avoid; }
 
   /* Cabeçalho de seção não deve ficar orphão */
   .section-header + * { break-before: avoid; page-break-before: avoid; }
+
+  /* Grid de gráficos e recomendações — mantém colunas sem cortar no meio */
+  [data-doc-page] > div > div[style*="grid"] { break-inside: avoid; page-break-inside: avoid; }
+
+  /* Bloco de assinaturas e highlights não devem ser cortados */
+  [style*="dashed"] { break-inside: avoid; page-break-inside: avoid; }
 
   /* Remove sombras e bordas decorativas */
   * { box-shadow: none !important; text-shadow: none !important; }

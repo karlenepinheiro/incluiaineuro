@@ -734,6 +734,12 @@ export const databaseService = {
       neighborhood:     r.neighborhood    ?? '',
       city:             r.city            ?? '',
       state:            r.state           ?? '',
+      // ── campos de importação (schema_v24) ──────────────────────────────────
+      // O spread ...r já inclui as colunas snake_case, mas a UI lê camelCase.
+      registrationStatus:   r.registration_status    ?? r.registrationStatus,
+      importSource:         r.import_source           ?? r.importSource,
+      isPreRegistered:      !!(r.is_pre_registered    ?? r.isPreRegistered ?? false),
+      missingRequiredFields: r.missing_required_fields ?? r.missingRequiredFields ?? [],
     });
 
     return [...(ownedData ?? []), ...linkedRows].map(normalize) as any;
