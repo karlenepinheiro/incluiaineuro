@@ -4,9 +4,9 @@
 import React, { useState, useCallback } from 'react';
 import {
   X, ChevronRight, ChevronLeft, CheckCircle2, User, ClipboardList,
-  Brain, FileDown, AlertCircle, Download, Loader2,
+  Brain, FileDown, AlertCircle, Download, Loader2, BookOpen, Sparkles,
 } from 'lucide-react';
-import { Student, User as UserType, SchoolConfig } from '../types';
+import { Student, User as UserType, SchoolConfig, PriorKnowledgeProfile } from '../types';
 import { PDFGenerator } from '../services/PDFGenerator';
 
 const C = {
@@ -67,9 +67,32 @@ const CHECKLIST_TEMPLATE: Omit<ChecklistItem, 'checked'>[] = [
 
 const CHECKLIST_CATEGORIES = [...new Set(CHECKLIST_TEMPLATE.map(i => i.category))];
 
+// Escores do perfil pedagógico (0 = não preenchido)
+type PKScore = 0 | 1 | 2 | 3 | 4 | 5;
+
+interface WizardPriorKnowledge {
+  leitura_score: PKScore; leitura_notes: string;
+  escrita_score: PKScore; escrita_notes: string;
+  entendimento_score: PKScore; entendimento_notes: string;
+  autonomia_score: PKScore; autonomia_notes: string;
+  atencao_score: PKScore; atencao_notes: string;
+  raciocinio_score: PKScore; raciocinio_notes: string;
+  observacoes_pedagogicas: string;
+}
+
+const EMPTY_PK: WizardPriorKnowledge = {
+  leitura_score: 0, leitura_notes: '',
+  escrita_score: 0, escrita_notes: '',
+  entendimento_score: 0, entendimento_notes: '',
+  autonomia_score: 0, autonomia_notes: '',
+  atencao_score: 0, atencao_notes: '',
+  raciocinio_score: 0, raciocinio_notes: '',
+  observacoes_pedagogicas: '',
+};
+
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 interface WizardData {
-  // Step 1
+  // Step 0
   name: string;
   birthDate: string;
   gender: string;
@@ -81,6 +104,8 @@ interface WizardData {
   schoolName: string;
   regentTeacher: string;
   tipo_aluno: 'em_triagem' | 'com_laudo';
+  // Step 1 — Perfil Pedagógico Inicial
+  priorKnowledge: WizardPriorKnowledge;
   // Step 2
   checklist: ChecklistItem[];
   checklistObs: string;
@@ -101,6 +126,7 @@ interface EnrollmentWizardProps {
 // ─── Step labels ─────────────────────────────────────────────────────────────
 const STEPS = [
   { label: 'Identificação', icon: User },
+  { label: 'Perfil Inicial', icon: BookOpen },
   { label: 'Checklist', icon: ClipboardList },
   { label: 'Análise', icon: Brain },
   { label: 'Finalizar', icon: FileDown },
@@ -124,6 +150,7 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
     name: '', birthDate: '', gender: '', guardianName: '', guardianPhone: '',
     guardianEmail: '', grade: '', shift: 'Manhã', schoolName: user.schoolConfigs?.[0]?.schoolName || '',
     regentTeacher: '', tipo_aluno: initialTipo,
+    priorKnowledge: { ...EMPTY_PK },
     checklist: CHECKLIST_TEMPLATE.map(i => ({ ...i, checked: false })),
     checklistObs: '', analiseManual: '', analiseIA: '',
     docs: { termo: true, declaracao: true, compromisso: true },
@@ -138,10 +165,13 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
   };
 
   const checkedCount = data.checklist.filter(i => i.checked).length;
+  const pkFilledCount = PK_DIMENSIONS.filter(d => (data.priorKnowledge as any)[d.scoreKey] > 0).length;
+  const pkIsIncomplete = pkFilledCount === 0;
 
   // ── Validações por step ──
   const canProceed = [
     data.name.trim().length >= 2 && data.guardianName.trim().length >= 2 && data.guardianPhone.trim().length >= 8,
+    true, // perfil pedagógico é opcional
     true, // checklist é opcional (observação livre)
     true, // análise também opcional
     true,
@@ -152,6 +182,28 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
     setSaving(true);
     setError(null);
     try {
+      // Converter WizardPriorKnowledge (scores 0=vazio) → PriorKnowledgeProfile
+      const pk = data.priorKnowledge;
+      const hasPK = pk.leitura_score > 0 || pk.escrita_score > 0 || pk.entendimento_score > 0 ||
+                    pk.autonomia_score > 0 || pk.atencao_score > 0 || pk.raciocinio_score > 0;
+      const priorKnowledgePayload: PriorKnowledgeProfile | undefined = hasPK ? {
+        leitura_score:      pk.leitura_score      > 0 ? pk.leitura_score      as 1|2|3|4|5 : undefined,
+        leitura_notes:      pk.leitura_notes      || undefined,
+        escrita_score:      pk.escrita_score      > 0 ? pk.escrita_score      as 1|2|3|4|5 : undefined,
+        escrita_notes:      pk.escrita_notes      || undefined,
+        entendimento_score: pk.entendimento_score > 0 ? pk.entendimento_score as 1|2|3|4|5 : undefined,
+        entendimento_notes: pk.entendimento_notes || undefined,
+        autonomia_score:    pk.autonomia_score    > 0 ? pk.autonomia_score    as 1|2|3|4|5 : undefined,
+        autonomia_notes:    pk.autonomia_notes    || undefined,
+        atencao_score:      pk.atencao_score      > 0 ? pk.atencao_score      as 1|2|3|4|5 : undefined,
+        atencao_notes:      pk.atencao_notes      || undefined,
+        raciocinio_score:   pk.raciocinio_score   > 0 ? pk.raciocinio_score   as 1|2|3|4|5 : undefined,
+        raciocinio_notes:   pk.raciocinio_notes   || undefined,
+        observacoes_pedagogicas: pk.observacoes_pedagogicas || undefined,
+        registeredAt: new Date().toISOString(),
+        registeredBy: user.name || undefined,
+      } : undefined;
+
       const studentData: Partial<Student> = {
         name: data.name,
         birthDate: data.birthDate,
@@ -165,6 +217,7 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
         regentTeacher: data.regentTeacher,
         tipo_aluno: data.tipo_aluno,
         observations: data.analiseManual,
+        priorKnowledge: priorKnowledgePayload,
         registrationDate: new Date().toISOString().split('T')[0],
         diagnosis: [],
         cid: [],
@@ -222,9 +275,10 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
   const renderStep = () => {
     switch (step) {
       case 0: return <StepIdentificacao data={data} set={set} />;
-      case 1: return <StepChecklist data={data} toggleCheck={toggleCheck} set={set} checkedCount={checkedCount} />;
-      case 2: return <StepAnalise data={data} set={set} checkedCount={checkedCount} />;
-      case 3: return (
+      case 1: return <StepPerfilPedagogico data={data} set={set} />;
+      case 2: return <StepChecklist data={data} toggleCheck={toggleCheck} set={set} checkedCount={checkedCount} />;
+      case 3: return <StepAnalise data={data} set={set} checkedCount={checkedCount} />;
+      case 4: return (
         <StepFinalizar
           data={data} set={set} saving={saving} savedStudent={savedStudent}
           generatingDocs={generatingDocs} docsReady={docsReady}
@@ -304,7 +358,7 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
         </div>
 
         {/* Footer navigation */}
-        {!(step === 3 && (savedStudent || saving)) && (
+        {!(step === STEPS.length - 1 && (savedStudent || saving)) && (
           <div style={{
             padding: '14px 24px', borderTop: `1px solid ${C.border}`, flexShrink: 0,
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -321,7 +375,7 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
               {step === 0 ? 'Cancelar' : 'Voltar'}
             </button>
 
-            {step < 3 ? (
+            {step < STEPS.length - 1 ? (
               <button
                 onClick={() => setStep(s => s + 1)}
                 disabled={!canProceed}
@@ -441,6 +495,143 @@ function StepIdentificacao({ data, set }: { data: WizardData; set: any }) {
         {field('Nome do Responsável', 'guardianName', 'text', true)}
         {field('Telefone do Responsável', 'guardianPhone', 'tel', true)}
         {field('E-mail do Responsável', 'guardianEmail', 'email')}
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 1: Perfil Pedagógico Inicial ───────────────────────────────────────
+const PK_SCALE_LABELS: Record<number, { label: string; color: string }> = {
+  1: { label: 'Muito inicial',            color: '#EF4444' },
+  2: { label: 'Inicial',                  color: '#F97316' },
+  3: { label: 'Em desenvolvimento',       color: '#EAB308' },
+  4: { label: 'Adequado para a etapa',    color: '#22C55E' },
+  5: { label: 'Avançado para a etapa',    color: '#0EA5E9' },
+};
+
+const PK_DIMENSIONS = [
+  { scoreKey: 'leitura_score',      notesKey: 'leitura_notes',      label: 'Nível de leitura',                      icon: '📖' },
+  { scoreKey: 'escrita_score',      notesKey: 'escrita_notes',      label: 'Nível de escrita',                      icon: '✏️' },
+  { scoreKey: 'entendimento_score', notesKey: 'entendimento_notes', label: 'Compreensão / Entendimento',            icon: '🧠' },
+  { scoreKey: 'autonomia_score',    notesKey: 'autonomia_notes',    label: 'Autonomia na realização de atividades', icon: '🙌' },
+  { scoreKey: 'atencao_score',      notesKey: 'atencao_notes',      label: 'Atenção durante atividades',            icon: '🎯' },
+  { scoreKey: 'raciocinio_score',   notesKey: 'raciocinio_notes',   label: 'Raciocínio lógico-matemático',          icon: '🔢' },
+] as const;
+
+function StepPerfilPedagogico({ data, set }: { data: WizardData; set: any }) {
+  const pk = data.priorKnowledge;
+
+  const setScore = (key: string, val: PKScore) => {
+    set('priorKnowledge', { ...pk, [key]: val });
+  };
+  const setNotes = (key: string, val: string) => {
+    set('priorKnowledge', { ...pk, [key]: val });
+  };
+
+  const filledCount = PK_DIMENSIONS.filter(d => (pk as any)[d.scoreKey] > 0).length;
+
+  return (
+    <div>
+      {/* Header informativo */}
+      <div style={{
+        background: '#EFF9FF', border: '1px solid #BAE6FD', borderRadius: 10,
+        padding: '10px 14px', marginBottom: 18, display: 'flex', alignItems: 'flex-start', gap: 10,
+      }}>
+        <BookOpen size={16} style={{ color: C.petrol, flexShrink: 0, marginTop: 1 }} />
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.petrol }}>Perfil Pedagógico Inicial</div>
+          <div style={{ fontSize: 11, color: '#0369A1', marginTop: 2 }}>
+            Registre o nível atual do aluno em cada área. Esses dados guiarão a IA na geração de atividades, PEI e relatórios coerentes com o nível real do aluno. Etapa opcional, mas altamente recomendada.
+          </div>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11, color: C.muted, marginBottom: 14 }}>
+        {filledCount} de {PK_DIMENSIONS.length} áreas preenchidas
+        {filledCount > 0 && <span style={{ color: C.green, fontWeight: 600 }}> ✓</span>}
+      </div>
+
+      {PK_DIMENSIONS.map(dim => {
+        const score = (pk as any)[dim.scoreKey] as PKScore;
+        const notes = (pk as any)[dim.notesKey] as string;
+        return (
+          <div key={dim.scoreKey} style={{
+            borderRadius: 10, border: `1.5px solid ${score > 0 ? '#BAE6FD' : C.border}`,
+            padding: '12px 14px', marginBottom: 12,
+            background: score > 0 ? '#F0F9FF' : C.surface,
+            transition: 'all 0.15s',
+          }}>
+            {/* Linha de score */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 16 }}>{dim.icon}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.dark, flex: 1 }}>{dim.label}</span>
+              {score > 0 && (
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                  background: PK_SCALE_LABELS[score].color + '20',
+                  color: PK_SCALE_LABELS[score].color,
+                }}>
+                  {PK_SCALE_LABELS[score].label}
+                </span>
+              )}
+            </div>
+
+            {/* Botões de escala */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: score > 0 ? 10 : 0 }}>
+              {([1, 2, 3, 4, 5] as const).map(n => (
+                <button
+                  key={n}
+                  onClick={() => setScore(dim.scoreKey, score === n ? 0 : n)}
+                  title={PK_SCALE_LABELS[n].label}
+                  style={{
+                    flex: 1, padding: '6px 0', borderRadius: 8, cursor: 'pointer', fontWeight: 700,
+                    fontSize: 13, border: '2px solid',
+                    borderColor: score === n ? PK_SCALE_LABELS[n].color : C.border,
+                    background: score === n ? PK_SCALE_LABELS[n].color : C.surface,
+                    color: score === n ? '#fff' : C.muted,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+
+            {/* Campo de notas (aparece quando score está selecionado) */}
+            {score > 0 && (
+              <input
+                type="text"
+                placeholder="Observação complementar (opcional)"
+                value={notes}
+                onChange={e => setNotes(dim.notesKey, e.target.value)}
+                style={{
+                  width: '100%', padding: '7px 10px', borderRadius: 8, fontSize: 12,
+                  border: `1.5px solid ${C.border}`, outline: 'none', color: C.dark,
+                  boxSizing: 'border-box', fontFamily: 'inherit',
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
+
+      {/* Observações pedagógicas gerais */}
+      <div style={{ marginTop: 4 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, color: C.muted, display: 'block', marginBottom: 6 }}>
+          Observações pedagógicas iniciais do professor
+          <span style={{ fontWeight: 400 }}> (campo livre — opcional)</span>
+        </label>
+        <textarea
+          value={pk.observacoes_pedagogicas}
+          onChange={e => set('priorKnowledge', { ...pk, observacoes_pedagogicas: e.target.value })}
+          rows={3}
+          placeholder="Descreva outras características pedagógicas relevantes observadas. Quanto mais detalhes, mais precisos serão os documentos gerados pela IA."
+          style={{
+            width: '100%', padding: '10px 12px', borderRadius: 9, fontSize: 12,
+            border: `1.5px solid ${C.border}`, outline: 'none', resize: 'vertical',
+            color: C.dark, boxSizing: 'border-box', fontFamily: 'inherit', lineHeight: 1.5,
+          }}
+        />
       </div>
     </div>
   );

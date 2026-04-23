@@ -354,6 +354,8 @@ export const databaseService = {
       // import tracking fields (schema_v24_import_fields.sql):
       'import_source', 'import_batch_id', 'registration_status',
       'missing_required_fields', 'is_pre_registered',
+      // prior knowledge (schema_v12_prior_knowledge.sql):
+      'prior_knowledge',
     ]);
 
     // 2. dbPayload: mapeamento camelCase/legado → nomes reais das colunas
@@ -461,6 +463,11 @@ export const databaseService = {
     if (student?.is_pre_registered !== undefined)
       dbPayload.is_pre_registered = !!student.is_pre_registered;
 
+    // Perfil pedagógico inicial (prior knowledge — schema_v12_prior_knowledge.sql)
+    if (student?.priorKnowledge !== undefined) {
+      dbPayload.prior_knowledge = student.priorKnowledge ?? null;
+    }
+
     if (student?.id) dbPayload.id = student.id;
     // created_by é NOT NULL — usa o ID do usuário autenticado como fallback
     dbPayload.created_by = student?.created_by ?? uid;
@@ -497,6 +504,8 @@ export const databaseService = {
         // import tracking (schema_v24):
         'import_source','import_batch_id','registration_status',
         'missing_required_fields','is_pre_registered',
+        // prior knowledge (schema_v12):
+        'prior_knowledge',
       ]);
       const corePayload = Object.fromEntries(
         Object.entries(dbPayload).filter(([k]) => !EXTRA_COLUMNS.has(k))
@@ -740,6 +749,7 @@ export const databaseService = {
       importSource:         r.import_source           ?? r.importSource,
       isPreRegistered:      !!(r.is_pre_registered    ?? r.isPreRegistered ?? false),
       missingRequiredFields: r.missing_required_fields ?? r.missingRequiredFields ?? [],
+      priorKnowledge:       r.prior_knowledge          ?? r.priorKnowledge          ?? undefined,
     });
 
     return [...(ownedData ?? []), ...linkedRows].map(normalize) as any;

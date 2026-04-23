@@ -271,19 +271,19 @@ function fichaSection(doc: any, text: string, x: number, y: number, w: number): 
   return y + h + 5;
 }
 
-/** Subseção com acento gold e numeração. */
+/** Subseção com acento gold. */
 function fichaSubSection(doc: any, text: string, x: number, y: number): number {
   sdd(doc, GOLD);
   sf(doc, GOLD);
-  doc.rect(x, y - 1, 2.5, 5.5, 'F');
+  doc.rect(x, y, 2.5, 5.5, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(F_LABEL_SIZE);
   sc(doc, BRAND);
-  doc.text(text, x + 5, y + 3.5);
-  return y + 8;
+  doc.text(text, x + 5, y + 4);
+  return y + 10;
 }
 
-/** Grid 2 colunas para pares chave-valor (Ficha). */
+/** Grid 2 colunas para pares chave-valor (Ficha) — suporta valores multi-linha. */
 function fichaKvGrid(
   doc: any,
   pairs: Array<[string, string]>,
@@ -296,32 +296,67 @@ function fichaKvGrid(
   if (!filtered.length) return y;
 
   const colW = (maxW - 8) / 2;
-  const rows = Math.ceil(filtered.length / 2);
-  const rowH = F_LINE_H + 2.5;
   const pad  = 4;
-  const boxH = rows * rowH + pad * 2 - 2;
+
+  // Pré-computa células: tenta inline, senão quebra linha
+  doc.setFontSize(F_TABLE_SIZE);
+  type Cell = { label: string; kw: number; vLines: string[]; inline: boolean; cellH: number };
+  const cells: Cell[] = filtered.map(([k, v]) => {
+    doc.setFont('helvetica', 'bold');
+    const kw = doc.getTextWidth(k);
+    const valStr = String(v || '—');
+    const inlineW = colW - kw - 3;
+    let inline: boolean;
+    let vLines: string[];
+    if (inlineW >= 18) {
+      const test = doc.splitTextToSize(valStr, inlineW);
+      inline = test.length === 1;
+      vLines = inline ? [test[0]] : doc.splitTextToSize(valStr, colW - pad);
+    } else {
+      inline = false;
+      vLines = doc.splitTextToSize(valStr, colW - pad);
+    }
+    const lineCount = inline ? 1 : 1 + vLines.length;
+    return { label: k, kw, vLines, inline, cellH: lineCount * F_LINE_H + 2.5 };
+  });
+
+  // Agrupa em linhas de 2 colunas
+  const rowCount = Math.ceil(cells.length / 2);
+  const rowHeights: number[] = [];
+  for (let r = 0; r < rowCount; r++) {
+    const c0 = cells[r * 2];
+    const c1 = cells[r * 2 + 1];
+    rowHeights.push(Math.max(c0?.cellH ?? 0, c1?.cellH ?? 0, F_LINE_H + 2.5));
+  }
+  const boxH = rowHeights.reduce((s, h) => s + h, 0) + pad * 2;
 
   sf(doc, GBKG); sdd(doc, BORDER);
   doc.setLineWidth(0.2);
   doc.roundedRect(x, y, maxW, boxH, 2, 2, 'FD');
 
   doc.setFontSize(F_TABLE_SIZE);
-  filtered.forEach(([k, v], i) => {
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    const cx  = x + pad + col * (colW + 4);
-    const cy  = y + pad + 4.5 + row * rowH;
-
-    doc.setFont('helvetica', 'bold');
-    sc(doc, BRAND);
-    doc.text(`${k}`, cx, cy);
-
-    const kw = doc.getTextWidth(`${k}`);
-    doc.setFont('helvetica', 'normal');
-    sc(doc, DARK);
-    const safeV = doc.splitTextToSize(String(v || '—'), colW - kw - 2)[0] || '';
-    doc.text(` ${safeV}`, cx + kw, cy);
-  });
+  let curY = y + pad + 4.5;
+  for (let r = 0; r < rowCount; r++) {
+    const rh = rowHeights[r];
+    for (let c = 0; c < 2; c++) {
+      const cell = cells[r * 2 + c];
+      if (!cell) continue;
+      const cx = x + pad + c * (colW + 4);
+      doc.setFont('helvetica', 'bold');
+      sc(doc, BRAND);
+      doc.text(cell.label, cx, curY);
+      doc.setFont('helvetica', 'normal');
+      sc(doc, DARK);
+      if (cell.inline) {
+        doc.text(` ${cell.vLines[0] || ''}`, cx + cell.kw, curY);
+      } else {
+        cell.vLines.forEach((ln, li) => {
+          doc.text(ln, cx + 2, curY + (li + 1) * F_LINE_H);
+        });
+      }
+    }
+    curY += rh;
+  }
 
   return y + boxH + 4;
 }
@@ -362,7 +397,7 @@ function fichaField(
     doc.text(ln, x, y);
     y += F_LINE_H;
   }
-  return y + 3;
+  return y + 5;
 }
 
 /** Renderiza lista como bullets (•) — para habilidades, dificuldades, comunicação. */
@@ -382,20 +417,20 @@ function fichaBullets(
     return y + F_LINE_H + 3;
   }
 
+  const BW = 5.5; // espaço reservado para bullet
   for (const item of validItems) {
     if (y > fichaBottom(H) - 8) { y = onNewPage(); }
-    doc.setFontSize(F_BODY_SIZE);
-    sc(doc, BRAND);
-    doc.setFont('helvetica', 'bold');
-    doc.text('•', x, y);
-    const bw = doc.getTextWidth('• ');
+    // círculo desenhado (evita dependência de glifo Unicode em Helvetica)
+    sf(doc, BRAND); sdd(doc, BRAND);
+    doc.circle(x + 1.2, y - 1.2, 1.1, 'F');
     doc.setFont('helvetica', 'normal');
+    doc.setFontSize(F_BODY_SIZE);
     sc(doc, DARK);
-    const ls = doc.splitTextToSize(item.trim(), maxW - bw);
-    doc.text(ls, x + bw, y);
+    const ls = doc.splitTextToSize(item.trim(), maxW - BW);
+    doc.text(ls, x + BW, y);
     y += ls.length * F_LINE_H_LIST + 1.5;
   }
-  return y + 2;
+  return y + 5;
 }
 
 /** Renderiza lista como checks (✓) — para estratégias aplicadas e adaptações. */
@@ -417,14 +452,15 @@ function fichaChecks(
 
   for (const item of validItems) {
     if (y > fichaBottom(H) - 8) { y = onNewPage(); }
-    // Checkbox petrol
+    // Checkbox petrol com visto desenhado (ASCII-safe)
     sf(doc, BRAND); sdd(doc, BRAND);
     doc.setLineWidth(0.3);
-    doc.roundedRect(x, y - 3.5, 4, 4, 0.5, 0.5, 'FD');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
-    sc(doc, WHITE);
-    doc.text('✓', x + 0.6, y + 0.1);
+    doc.roundedRect(x, y - 3.2, 4.2, 4.2, 0.6, 0.6, 'FD');
+    // Visto como duas linhas (compatível com Helvetica)
+    sdd(doc, WHITE);
+    doc.setLineWidth(0.7);
+    doc.line(x + 0.9, y - 1, x + 1.8, y + 0.4);
+    doc.line(x + 1.8, y + 0.4, x + 3.5, y - 2.2);
     // Texto
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(F_BODY_SIZE);
@@ -433,7 +469,7 @@ function fichaChecks(
     doc.text(ls, x + 7, y);
     y += ls.length * F_LINE_H_LIST + 1.5;
   }
-  return y + 2;
+  return y + 5;
 }
 
 /** Caixa de destaque âmbar — recomendações e encaminhamentos. */
@@ -657,7 +693,8 @@ function _drawAvatarCover(doc: any, name: string, cx: number, cy: number, r: num
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(r * 1.2);
   sc(doc, WHITE);
-  doc.text(getInitials(name), cx, cy + r * 0.38, { align: 'center' });
+  // Baseline = cy + cap_height/2 ≈ cy + 3mm para fonte 24pt em círculo r=20mm
+  doc.text(getInitials(name), cx, cy + r * 0.15, { align: 'center' });
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -2,7 +2,7 @@
 // Preview = PDF: impressão via DOM overlay (mesmo HTML que o usuário vê na tela)
 
 import React, { useState, useRef } from 'react';
-import { Edit2, Printer, Save, X, ChevronLeft, CheckCircle } from 'lucide-react';
+import { Edit2, Printer, Download, Save, X, ChevronLeft, CheckCircle } from 'lucide-react';
 import { RelatorioViewer } from './RelatorioViewer';
 import type {
   RelatorioResultado,
@@ -170,12 +170,24 @@ export const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
             onClick={() => setShowEdit(v => !v)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition"
             style={{
-              background: showEdit ? 'rgba(198,146,20,0.25)' : 'rgba(255,255,255,0.1)',
-              color: showEdit ? '#C69214' : 'rgba(255,255,255,0.8)',
-              border: `1px solid ${showEdit ? '#C69214' : 'rgba(255,255,255,0.2)'}`,
+              background: showEdit ? 'rgba(198,146,20,0.25)' : 'rgba(255,255,255,0.15)',
+              color: showEdit ? '#C69214' : '#ffffff',
+              border: `1px solid ${showEdit ? '#C69214' : 'rgba(255,255,255,0.55)'}`,
             }}
           >
-            {showEdit ? <><X size={12} /> Fechar edição</> : <><Edit2 size={12} /> Editar campos</>}
+            {showEdit ? <><X size={12} /> Fechar edição</> : <><Edit2 size={12} /> Editar</>}
+          </button>
+
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+            style={{
+              background: 'rgba(255,255,255,0.15)',
+              color: '#ffffff',
+              border: '1px solid rgba(255,255,255,0.55)',
+            }}
+          >
+            <Printer size={13} /> Imprimir
           </button>
 
           <button
@@ -183,7 +195,7 @@ export const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition"
             style={{ background: '#C69214' }}
           >
-            <Printer size={13} /> Imprimir / PDF
+            <Download size={13} /> Exportar PDF
           </button>
         </div>
       </div>

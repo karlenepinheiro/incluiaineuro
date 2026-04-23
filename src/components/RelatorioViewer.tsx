@@ -9,7 +9,7 @@ import {
   Building2, Star, Shield, Zap, AlertCircle, Stethoscope,
 } from 'lucide-react';
 import type {
-  RelatorioResultado, RelatorioSimples, RelatorioCompleto,
+  RelatorioResultado, RelatorioSimples, RelatorioCompleto, BlocoAvaliacaoItem,
 } from '../services/reportService';
 import type { Student, SchoolConfig } from '../types';
 import {
@@ -209,6 +209,67 @@ const ScoreIndicatorBar: React.FC<{ avg: number }> = ({ avg }) => (
     </div>
   </div>
 );
+
+// ─── Bloco de avaliação 1–5 ───────────────────────────────────────────────────
+
+const ESCALA_LABEL: Record<number, string> = {
+  1: 'Muito baixo',
+  2: 'Abaixo do esperado',
+  3: 'Em desenvolvimento',
+  4: 'Adequado',
+  5: 'Muito bom',
+};
+
+const BlocoAvaliacaoCard: React.FC<{ items: BlocoAvaliacaoItem[] }> = ({ items }) => {
+  if (!items?.length) return null;
+  return (
+    <DocumentCard
+      title="Avaliação de Comportamento e Desempenho"
+      icon={<ClipboardList size={14} />}
+      accentColor={colors.blue}
+    >
+      <p style={{ margin: '0 0 14px', fontSize: fontSize['2xs'], color: colors.gray2 }}>
+        Escala: 1 = Muito baixo &nbsp;|&nbsp; 2 = Abaixo do esperado &nbsp;|&nbsp; 3 = Em desenvolvimento &nbsp;|&nbsp; 4 = Adequado &nbsp;|&nbsp; 5 = Muito bom
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {items.map((item, i) => {
+          const v     = Math.min(5, Math.max(1, item.escala));
+          const color = scoreColor(v);
+          return (
+            <div key={i} style={{
+              borderRadius: radius.md,
+              border: `1px solid ${colors.border}`,
+              padding: `${spacing.md}px ${spacing.lg}px`,
+              background: colors.surface,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 8 }}>
+                <p style={{ margin: 0, fontSize: fontSize.sm, fontWeight: 600, color: colors.dark, flex: 1 }}>
+                  {i + 1}. {item.pergunta}
+                </p>
+                <span style={{
+                  flexShrink: 0, fontSize: fontSize.xs, fontWeight: 700,
+                  color, background: `${color}18`,
+                  padding: '2px 10px', borderRadius: radius.full, whiteSpace: 'nowrap',
+                }}>
+                  {v}/5 — {ESCALA_LABEL[v]}
+                </span>
+              </div>
+              {/* Barra de progresso */}
+              <div style={{ height: 6, borderRadius: 4, background: colors.border, overflow: 'hidden', marginBottom: item.justificativa ? 8 : 0 }}>
+                <div style={{ height: '100%', width: `${(v / 5) * 100}%`, background: color, borderRadius: 4 }} />
+              </div>
+              {item.justificativa && (
+                <p style={{ margin: 0, fontSize: fontSize.xs, color: colors.gray, lineHeight: 1.6, fontStyle: 'italic' }}>
+                  {item.justificativa}
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </DocumentCard>
+  );
+};
 
 // ─── Recomendações multidisciplinares ─────────────────────────────────────────
 // Componente local especializado; usa DocComponents internamente
@@ -550,6 +611,11 @@ export const RelatorioViewer: React.FC<Props> = ({
               columns={2}
             />
           </DocumentCard>
+        )}
+
+        {/* Bloco de avaliação 1–5 (completo) */}
+        {completo?.blocoAvaliacao && completo.blocoAvaliacao.length > 0 && (
+          <BlocoAvaliacaoCard items={completo.blocoAvaliacao} />
         )}
 
         {/* Evolução observada (completo) */}

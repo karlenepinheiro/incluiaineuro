@@ -338,6 +338,35 @@ export interface CollaboratorInvite {
   completedAt?: string;
 }
 
+// ─── CONHECIMENTO PRÉVIO E PERFIL PEDAGÓGICO INICIAL ─────────────────────────
+export type PriorKnowledgeScore = 1 | 2 | 3 | 4 | 5;
+
+export const PRIOR_KNOWLEDGE_LABELS: Record<1 | 2 | 3 | 4 | 5, string> = {
+  1: 'Muito inicial',
+  2: 'Inicial',
+  3: 'Em desenvolvimento',
+  4: 'Adequado para a etapa',
+  5: 'Avançado para a etapa',
+};
+
+export interface PriorKnowledgeProfile {
+  leitura_score?: PriorKnowledgeScore;
+  leitura_notes?: string;
+  escrita_score?: PriorKnowledgeScore;
+  escrita_notes?: string;
+  entendimento_score?: PriorKnowledgeScore;
+  entendimento_notes?: string;
+  autonomia_score?: PriorKnowledgeScore;
+  autonomia_notes?: string;
+  atencao_score?: PriorKnowledgeScore;
+  atencao_notes?: string;
+  raciocinio_score?: PriorKnowledgeScore;
+  raciocinio_notes?: string;
+  observacoes_pedagogicas?: string;
+  registeredAt?: string;
+  registeredBy?: string;
+}
+
 // ─── TIPO DE ALUNO ────────────────────────────────────────────────────────────
 export type StudentType = 'com_laudo' | 'em_triagem';
 
@@ -447,6 +476,7 @@ export interface Student {
   collaborators?: CollaboratorInvite[];
   evolutions?: StudentEvolution[];
   fichasComplementares?: FichaComplementar[];
+  priorKnowledge?: PriorKnowledgeProfile;
 }
 
 export interface ServiceDailyChecklist {

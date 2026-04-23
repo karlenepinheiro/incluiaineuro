@@ -2,6 +2,7 @@
 // Suporta modo 'simples' (1–2 págs, INSS) e 'completo' (3–5 págs, multidisciplinar)
 import { Student, User, DocField, SchoolConfig } from '../types';
 import { AIService } from './aiService';
+import { CanonicalStudentContextService } from './canonicalStudentContext';
 import generateReportFull from '../prompts/generate-report-full.md?raw';
 import generateReportSimple from '../prompts/generate-report-simple.md?raw';
 
@@ -35,6 +36,13 @@ export interface GraficoPonto {
   max: number;
 }
 
+/** Item do bloco de avaliação com escala 1–5 */
+export interface BlocoAvaliacaoItem {
+  pergunta: string;
+  escala: 1 | 2 | 3 | 4 | 5;
+  justificativa: string;
+}
+
 /** Estrutura retornada pelo modo COMPLETO */
 export interface RelatorioCompleto {
   tipo: 'completo';
@@ -48,6 +56,7 @@ export interface RelatorioCompleto {
   potencialidades: string[];
   estrategiasEficazes: string[];
   checklist: ChecklistItem[];
+  blocoAvaliacao: BlocoAvaliacaoItem[];
   evolucaoObservada: string;
   observacoesRelevantes: string;
   conclusao: string;
@@ -100,6 +109,39 @@ function arrToText(arr: string[] | string | undefined): string {
   return arr.filter(Boolean).join(', ');
 }
 
+/** Constrói o bloco de knowledge prévio do aluno para o relatório */
+function buildPriorKnowledgeBlock(student: Student): string {
+  const pk = student.priorKnowledge;
+  if (!pk) return '';
+  const dims = [
+    { key: 'leitura',      label: 'Leitura' },
+    { key: 'escrita',      label: 'Escrita' },
+    { key: 'entendimento', label: 'Compreensão / Entendimento' },
+    { key: 'autonomia',    label: 'Autonomia na realização de atividades' },
+    { key: 'atencao',      label: 'Atenção durante atividades' },
+    { key: 'raciocinio',   label: 'Raciocínio lógico-matemático' },
+  ] as const;
+  const lines: string[] = [];
+  for (const dim of dims) {
+    const score = (pk as any)[`${dim.key}_score`] as number | undefined;
+    const notes = (pk as any)[`${dim.key}_notes`] as string | undefined;
+    if (score) {
+      const lblMap: Record<number, string> = {
+        1: 'Muito inicial', 2: 'Inicial', 3: 'Em desenvolvimento',
+        4: 'Adequado para a etapa', 5: 'Avançado para a etapa',
+      };
+      lines.push(`  • ${dim.label}: ${score}/5 — ${lblMap[score] ?? score}${notes ? ` (${notes})` : ''}`);
+    }
+  }
+  if (lines.length === 0) return '';
+  return `
+=== CONHECIMENTO PRÉVIO E PERFIL PEDAGÓGICO INICIAL ===
+(Escala 1=Muito inicial a 5=Avançado para a etapa — registrado pelo professor no cadastro)
+${lines.join('\n')}${pk.observacoes_pedagogicas ? `\nObservações pedagógicas: ${pk.observacoes_pedagogicas}` : ''}
+INSTRUÇÃO: Use estes dados para calibrar a complexidade das análises e estratégias recomendadas.
+`;
+}
+
 /** Constrói o bloco de contexto do aluno — nunca usa "não informado" */
 function buildStudentContext(
   student: Student,
@@ -135,6 +177,7 @@ function buildStudentContext(
 
   const schoolName = school?.schoolName || student.schoolName || student.externalSchoolName || 'Escola não identificada no sistema';
   const city = school?.city || student.city || student.externalSchoolCity || '';
+  const priorKnowledgeBlock = buildPriorKnowledgeBlock(student);
 
   return `
 === DADOS DO ALUNO ===
@@ -171,7 +214,7 @@ ${scoresBlock}
 Média geral: ${avg}/5${avg !== 'N/A' ? ` (${Number(avg) >= 4 ? 'Avançado' : Number(avg) >= 3 ? 'Em desenvolvimento' : Number(avg) >= 2 ? 'Em construção' : 'Necessita suporte intensivo'})` : ''}
 ${customBlock ? `\n=== CRITÉRIOS ADICIONAIS ===\n${customBlock}` : ''}
 ${observation ? `\n=== PARECER DESCRITIVO DO PROFISSIONAL ===\n${observation}` : ''}
-`.trim();
+${priorKnowledgeBlock}`.trim();
 }
 
 function parseRelatorioJSON(raw: string, mode: ReportMode): RelatorioGerado {
@@ -211,6 +254,7 @@ function parseRelatorioJSON(raw: string, mode: ReportMode): RelatorioGerado {
       potencialidades: [],
       estrategiasEficazes: [],
       checklist: [],
+      blocoAvaliacao: [],
       evolucaoObservada: '',
       observacoesRelevantes: '',
       conclusao: '',
@@ -281,15 +325,37 @@ export async function generateRelatorioAluno(
   const systemPrompt = mode === 'completo' ? generateReportFull : generateReportSimple;
   const studentContext = buildStudentContext(student, scores, observation, customFields, school);
 
+  // Contexto canônico — timeline, atendimentos, faltas, laudos, prior knowledge do DB
+  let canonicalBlock = '';
+  let canonicalCtx: Awaited<ReturnType<typeof CanonicalStudentContextService.buildCanonicalContext>> | null = null;
+  try {
+    canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
+    if (CanonicalStudentContextService.hasData(canonicalCtx)) {
+      canonicalBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'relatorio');
+    }
+  } catch {
+    // contexto canônico é enriquecimento — não bloqueia geração
+  }
+
   const fullPrompt = `${systemPrompt}
 
-===== DADOS PARA O RELATÓRIO =====
+===== DADOS CADASTRAIS DO ALUNO =====
 ${studentContext}
-===================================
-
+=====================================
+${canonicalBlock ? `\n${canonicalBlock}\n` : ''}
 Gere o relatório agora no formato JSON conforme instruído. Retorne APENAS o JSON, sem texto adicional.`;
 
-  const rawText = await AIService.generateReport('', fullPrompt, user, modelId ?? 'padrao');
+  let rawText = await AIService.generateReport('', fullPrompt, user, modelId ?? 'padrao');
+
+  // Validação pós-geração + reparo automático (modo completo — sem débito extra)
+  if (mode === 'completo' && canonicalCtx) {
+    try {
+      const { output } = await CanonicalStudentContextService.validateAndRepair(
+        fullPrompt, rawText, 'relatorio', canonicalCtx,
+      );
+      rawText = output;
+    } catch { /* validação é opcional — não bloqueia */ }
+  }
 
   const data = parseRelatorioJSON(rawText, mode);
   enrichCharts(data, scores);

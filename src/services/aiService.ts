@@ -16,12 +16,18 @@ import {
   User, DocumentType, Student, DocumentAnalysis,
   AIModelConfig, AIModelContext, AIOutputType,
   AtividadeJSON, validateAtividadeJSON,
+  PRIOR_KNOWLEDGE_LABELS,
 } from '../types';
 import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { AiAuditService } from './persistenceService';
 import type { StudentContext } from './studentContextService';
 import { StudentContextService } from './studentContextService';
 import { callAIGateway } from './aiGatewayService';
+import {
+  CanonicalStudentContextService,
+  mapDocTypeToCategory,
+  type CanonicalStudentContext,
+} from './canonicalStudentContext';
 
 // @ts-ignore
 import * as mammoth from 'mammoth';
@@ -191,6 +197,34 @@ function insufficientCreditsError(_req?: number, _bal?: number, _action?: string
   return new Error(CREDIT_INSUFFICIENT_MSG);
 }
 
+// Formata o bloco de conhecimento prévio do aluno para injeção nos prompts de atividade
+function buildPKBlock(student: Student): string {
+  const pk = student.priorKnowledge;
+  if (!pk) return '';
+  const dims = [
+    { key: 'leitura',      label: 'Leitura' },
+    { key: 'escrita',      label: 'Escrita' },
+    { key: 'entendimento', label: 'Compreensão' },
+    { key: 'autonomia',    label: 'Autonomia' },
+    { key: 'atencao',      label: 'Atenção' },
+    { key: 'raciocinio',   label: 'Raciocínio lógico-matemático' },
+  ] as const;
+  const lines: string[] = [];
+  for (const dim of dims) {
+    const score = (pk as any)[`${dim.key}_score`] as number | undefined;
+    const notes = (pk as any)[`${dim.key}_notes`] as string | undefined;
+    if (score) {
+      const lbl = PRIOR_KNOWLEDGE_LABELS[score as 1|2|3|4|5] ?? String(score);
+      lines.push(`  - ${dim.label}: ${score}/5 (${lbl})${notes ? ` — ${notes}` : ''}`);
+    }
+  }
+  if (lines.length === 0) return '';
+  const header = '\nPERFIL PEDAGÓGICO INICIAL DO ALUNO (use para calibrar nível, linguagem e complexidade):';
+  const obs = pk.observacoes_pedagogicas
+    ? `\n  Observações pedagógicas: ${pk.observacoes_pedagogicas}` : '';
+  return `${header}\n${lines.join('\n')}${obs}\n`;
+}
+
 // ─── Serviço principal ────────────────────────────────────────────────────────
 
 export const AIService = {
@@ -306,20 +340,27 @@ export const AIService = {
     const difficulties = (student.difficulties || []).join('; ') || 'Não informado';
     const strategies   = (student.strategies || []).join('; ') || 'Não informado';
 
+    // Contexto canônico — fonte única de verdade para todos os documentos
     let ctxBlock = '';
-    if (studentContext && StudentContextService.hasData(studentContext)) {
-      ctxBlock = StudentContextService.toPromptText(studentContext);
-    } else if (student.id) {
-      try {
-        const autoCtx = await StudentContextService.buildContext(student.id);
-        if (StudentContextService.hasData(autoCtx)) ctxBlock = StudentContextService.toPromptText(autoCtx);
-      } catch { /* contexto é opcional */ }
+    let canonicalCtx: CanonicalStudentContext | null = null;
+    try {
+      canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
+      if (CanonicalStudentContextService.hasData(canonicalCtx)) {
+        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, mapDocTypeToCategory(String(type)));
+      }
+    } catch {
+      // Fallback ao contexto legado se o canônico falhar
+      if (studentContext && StudentContextService.hasData(studentContext)) {
+        ctxBlock = StudentContextService.toPromptText(studentContext);
+      } else if (student.id) {
+        try {
+          const autoCtx = await StudentContextService.buildContext(student.id);
+          if (StudentContextService.hasData(autoCtx)) ctxBlock = StudentContextService.toPromptText(autoCtx);
+        } catch { /* contexto é opcional */ }
+      }
     }
 
-    const prompt = `Você é especialista em educação inclusiva e documentação pedagógica brasileira.
-Gere um documento completo do tipo "${docLabel}" para o aluno abaixo.
-
-Dados cadastrais do aluno:
+    const studentDataBlock = `Dados cadastrais do aluno:
 - Nome do aluno: ${student.name}
 - Responsável legal: ${student.guardianName || '—'}
 - Telefone do responsável: ${student.guardianPhone || '—'}
@@ -338,7 +379,132 @@ Dados cadastrais do aluno:
 
 IMPORTANTE: "Nome do aluno" refere-se APENAS ao estudante. "Responsável legal" é o adulto guardião. Nunca confunda essas identidades.
 
-${ctxBlock}
+${ctxBlock}`;
+
+    const isPEI = String(type).toUpperCase().includes('PEI');
+    const isEstudoCaso = String(type).toUpperCase().replace(/\s/g, '_').includes('ESTUDO');
+
+    let prompt: string;
+
+    if (isPEI) {
+      prompt = `Você é psicopedagogo especialista em educação inclusiva e elaboração de PEI (Plano Educacional Individualizado).
+
+${studentDataBlock}
+
+REGRAS OBRIGATÓRIAS:
+- Nunca gere texto genérico. Todo conteúdo deve refletir o diagnóstico e perfil real do aluno.
+- Use linguagem técnica, objetiva e profissional.
+- Baseie objetivos, estratégias e critérios nas habilidades e dificuldades específicas informadas.
+- Conecte as estratégias ao diagnóstico: o que funciona para TEA pode diferir do que funciona para DI.
+
+RETORNE SOMENTE o JSON válido abaixo, sem texto adicional, sem markdown:
+{
+  "sections": [
+    {
+      "id": "identificacao",
+      "title": "Identificação do Aluno",
+      "fields": [
+        { "id": "nome", "label": "Nome completo", "type": "text", "value": "${student.name}" },
+        { "id": "diagnostico", "label": "Diagnóstico(s) / CID", "type": "text", "value": "${diagnosis}" },
+        { "id": "suporte", "label": "Nível de Suporte", "type": "text", "value": "${student.supportLevel || 'A definir'}" },
+        { "id": "vigencia", "label": "Vigência do PEI", "type": "text", "value": "Ano letivo atual" },
+        { "id": "objetivo_geral", "label": "Objetivo Geral do PEI", "type": "textarea", "value": "Descreva o objetivo geral personalizado ao perfil do aluno" }
+      ]
+    },
+    {
+      "id": "portugues",
+      "title": "Língua Portuguesa",
+      "fields": [
+        { "id": "pt_objetivo", "label": "Objetivo", "type": "textarea", "value": "Objetivo específico e mensurável para Língua Portuguesa, conectado às dificuldades do aluno" },
+        { "id": "pt_estrategia", "label": "Estratégia", "type": "textarea", "value": "Estratégias pedagógicas adaptadas ao diagnóstico e nível de suporte do aluno" },
+        { "id": "pt_frequencia", "label": "Frequência", "type": "text", "value": "Ex: 3 vezes por semana, 45 minutos por sessão" },
+        { "id": "pt_criterio", "label": "Critério de Avaliação", "type": "textarea", "value": "Como será avaliado o alcance do objetivo — indicadores observáveis e mensuráveis" }
+      ]
+    },
+    {
+      "id": "matematica",
+      "title": "Matemática",
+      "fields": [
+        { "id": "mt_objetivo", "label": "Objetivo", "type": "textarea", "value": "Objetivo específico e mensurável para Matemática, baseado nas habilidades e dificuldades do aluno" },
+        { "id": "mt_estrategia", "label": "Estratégia", "type": "textarea", "value": "Estratégias concretas e adaptadas (materiais manipuláveis, sequenciação, etc.)" },
+        { "id": "mt_frequencia", "label": "Frequência", "type": "text", "value": "Ex: 2 vezes por semana, 45 minutos por sessão" },
+        { "id": "mt_criterio", "label": "Critério de Avaliação", "type": "textarea", "value": "Indicadores observáveis de progresso para Matemática" }
+      ]
+    },
+    {
+      "id": "ciencias",
+      "title": "Ciências",
+      "fields": [
+        { "id": "ci_objetivo", "label": "Objetivo", "type": "textarea", "value": "Objetivo específico para Ciências, adaptado ao nível cognitivo e diagnóstico do aluno" },
+        { "id": "ci_estrategia", "label": "Estratégia", "type": "textarea", "value": "Estratégias visuais, experimentais ou concretas adequadas ao perfil do aluno" },
+        { "id": "ci_frequencia", "label": "Frequência", "type": "text", "value": "Ex: 1 vez por semana integrada às aulas regulares" },
+        { "id": "ci_criterio", "label": "Critério de Avaliação", "type": "textarea", "value": "Indicadores de compreensão e participação em Ciências" }
+      ]
+    },
+    {
+      "id": "geografia",
+      "title": "Geografia",
+      "fields": [
+        { "id": "ge_objetivo", "label": "Objetivo", "type": "textarea", "value": "Objetivo específico para Geografia, conectado ao contexto e capacidade de abstração do aluno" },
+        { "id": "ge_estrategia", "label": "Estratégia", "type": "textarea", "value": "Uso de mapas, imagens, recursos concretos e rotina visual adequados ao diagnóstico" },
+        { "id": "ge_frequencia", "label": "Frequência", "type": "text", "value": "Ex: 1 vez por semana integrada às aulas regulares" },
+        { "id": "ge_criterio", "label": "Critério de Avaliação", "type": "textarea", "value": "Indicadores observáveis de compreensão espacial e participação em Geografia" }
+      ]
+    },
+    {
+      "id": "acompanhamento",
+      "title": "Acompanhamento e Revisão",
+      "fields": [
+        { "id": "responsaveis", "label": "Responsáveis pela execução", "type": "text", "value": "${student.aeeTeacher ? `Prof. AEE: ${student.aeeTeacher}` : 'Professor AEE e Professor Regente'}" },
+        { "id": "revisao", "label": "Periodicidade de revisão do PEI", "type": "text", "value": "Bimestral ou conforme necessidade da equipe" },
+        { "id": "familia", "label": "Orientações para a família", "type": "textarea", "value": "Orientações práticas para reforço domiciliar alinhadas ao diagnóstico e às metas do PEI" },
+        { "id": "obs", "label": "Observações adicionais", "type": "textarea", "value": "Informações complementares relevantes para a equipe pedagógica" }
+      ]
+    }
+  ]
+}
+
+Preencha TODOS os campos value com conteúdo real, técnico e específico ao aluno. Português brasileiro formal.`;
+    } else if (isEstudoCaso) {
+      prompt = `Você é psicopedagogo especialista em educação inclusiva e elaboração de Estudos de Caso.
+
+${studentDataBlock}
+
+REGRAS OBRIGATÓRIAS:
+- Nunca gere texto genérico. Todo conteúdo deve refletir os dados reais do aluno.
+- Analise interpretativamente: não descreva, interprete o significado para o desenvolvimento.
+- Use evidências temporais (datas, frequência, evolução) sempre que disponíveis.
+- Conecte laudos, histórico, comportamento e desempenho entre si.
+- Identifique padrões: o que avança, o que regride, em quais condições.
+- Linguagem técnica, objetiva e profissional. Nunca capacitista.
+
+RETORNE SOMENTE o JSON válido abaixo, sem texto adicional, sem markdown:
+{
+  "sections": [
+    {
+      "id": "sec1",
+      "title": "Nome da Seção",
+      "fields": [
+        { "id": "f1", "label": "Nome do Campo", "type": "textarea", "value": "Conteúdo técnico e específico ao aluno..." }
+      ]
+    }
+  ]
+}
+
+Estrutura obrigatória — gere exatamente estas seções:
+1. Identificação e Contexto Geral
+2. Análise dos Laudos e Documentos Clínicos (interpretativa, não descritiva)
+3. Linha do Tempo dos Atendimentos (com padrões de frequência, faltas e impacto)
+4. Análise Cognitiva e Conexão com a Prática Pedagógica
+5. Identificação de Padrões (evolução, regressão, estabilidade)
+6. Parecer Técnico e Recomendações
+
+Cada seção: 2 a 5 campos. Preencha todos os valores com conteúdo real e técnico. Português brasileiro formal.`;
+    } else {
+      prompt = `Você é especialista em educação inclusiva e documentação pedagógica brasileira.
+Gere um documento completo do tipo "${docLabel}" para o aluno abaixo.
+
+${studentDataBlock}
 
 RETORNE SOMENTE o JSON válido abaixo, sem texto adicional, sem markdown:
 {
@@ -356,6 +522,7 @@ RETORNE SOMENTE o JSON válido abaixo, sem texto adicional, sem markdown:
 Regras: type "textarea" para textos longos, type "text" para valores curtos.
 Mínimo 4 seções, máximo 8. Cada seção: 2 a 5 campos. Português brasileiro formal.
 Baseie-se nas melhores práticas de educação inclusiva e na LDBEN/Lei Brasileira de Inclusão.`;
+    }
 
     let jsonResult: string;
     let serverDebited = false;
@@ -371,6 +538,16 @@ Baseie-se nas melhores práticas de educação inclusiva e na LDBEN/Lei Brasilei
       const msg = e?.message || String(e);
       if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0 });
       throw new Error(msg);
+    }
+
+    // Validação de qualidade + reparo automático (sem débito extra de créditos)
+    if (canonicalCtx) {
+      try {
+        const { output } = await CanonicalStudentContextService.validateAndRepair(
+          prompt, jsonResult, mapDocTypeToCategory(String(type)), canonicalCtx,
+        );
+        jsonResult = output;
+      } catch { /* validação é opcional — não bloqueia o fluxo */ }
     }
 
     try {
@@ -485,6 +662,9 @@ Inclua também:
 - **Extensões** (desafios, variações, casa)
 ` : '';
 
+    // Bloco de conhecimento prévio para calibrar a atividade
+    const pkBlock = buildPKBlock(student);
+
     const prompt = `Você é uma pedagoga especialista em AEE e adaptação curricular.
 Crie uma atividade adaptada **concisa** para ${student.name}.
 
@@ -496,7 +676,7 @@ Dados:
 - Período/Unidade: ${period || 'Não informado'}
 - Tema: ${topic}
 - BNCC (se informado): ${bncc.length ? bncc.join(', ') : 'Não informado'}
-${asTeacher ? formatTeacher : ''}
+${pkBlock}${asTeacher ? formatTeacher : ''}
 Formato OBRIGATÓRIO (use Markdown):
 # [Título curto da atividade]
 ## Objetivo (1–2 linhas)
@@ -544,6 +724,8 @@ Se BNCC estiver vazio, sugira **1–2** códigos plausíveis marcados como "Suge
     const period     = options?.period?.trim() || '';
     const bncc       = (options?.bnccCodes || []).filter(Boolean).join(', ') || '';
 
+    const pkBlockStructured = buildPKBlock(student);
+
     const prompt = `Você é uma pedagoga especialista em AEE e educação inclusiva brasileira.
 
 Crie uma atividade pedagógica adaptada para o aluno descrito abaixo.
@@ -556,6 +738,7 @@ DADOS DO ALUNO:
 - Disciplina: ${discipline}
 ${period ? `- Período/Unidade: ${period}` : ''}
 ${bncc ? `- BNCC: ${bncc}` : ''}
+${pkBlockStructured}
 
 TEMA: ${topic}
 
