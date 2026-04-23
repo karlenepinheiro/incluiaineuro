@@ -25,6 +25,7 @@
  */
 
 import { createClient }        from 'https://esm.sh/@supabase/supabase-js@2';
+import { jwtVerify, createRemoteJWKSet } from 'https://esm.sh/jose@5';
 import { generateGeminiText, generateGeminiJSON, generateVertexImage } from './_vertex.ts';
 import { getTenantContext, checkCredits, debitCredits }               from './_credits.ts';
 import { createAuditRecord, completeAuditRecord, modelForTask, outputTypeForTask } from './_audit.ts';
@@ -33,6 +34,11 @@ import { createAuditRecord, completeAuditRecord, modelForTask, outputTypeForTask
 
 const SUPABASE_URL         = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+// JWKS em nível de módulo — cacheado em instâncias quentes (warm invocations)
+const JWKS = createRemoteJWKSet(
+  new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
+);
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin':  '*',
@@ -62,29 +68,37 @@ Deno.serve(async (req: Request) => {
     return jsonError('Method not allowed', 405);
   }
 
-  // ── 1. Verificar JWT ────────────────────────────────────────────────────────
+  // ── 1. Verificar JWT via JWKS (suporta ES256, RS256) ─────────────────────────
   const authHeader = req.headers.get('Authorization') ?? '';
   if (!authHeader.startsWith('Bearer ')) {
     return jsonError('Missing or malformed Authorization header', 401);
   }
 
-  const jwt     = authHeader.slice(7);
+  const jwt = authHeader.slice(7);
+  let uid: string;
+
+  try {
+    const { payload } = await jwtVerify(jwt, JWKS, {
+      algorithms: ['ES256', 'RS256', 'HS256'],
+    });
+    uid = payload.sub as string;
+    if (!uid) throw new Error('JWT sem claim "sub"');
+  } catch (e: unknown) {
+    console.warn('[ai-gateway] JWT inválido:', (e as Error)?.message);
+    return jsonError('Unauthorized', 401);
+  }
+
+  // adminDb: service_role para operações que bypassam RLS (créditos, auditoria)
   const adminDb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false },
   });
-
-  const { data: { user }, error: authErr } = await adminDb.auth.getUser(jwt);
-  if (authErr || !user) {
-    console.warn('[ai-gateway] JWT inválido:', authErr?.message);
-    return jsonError('Unauthorized', 401);
-  }
 
   // ── 2. Buscar contexto do tenant ────────────────────────────────────────────
   let tenantId: string;
   let userId:   string;
 
   try {
-    const ctx = await getTenantContext(adminDb, user.id);
+    const ctx = await getTenantContext(adminDb, uid);
     tenantId  = ctx.tenantId;
     userId    = ctx.userId;
   } catch (e: unknown) {

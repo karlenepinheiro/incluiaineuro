@@ -54,7 +54,11 @@ export async function callAIGateway(req: AIGatewayRequest): Promise<AIGatewayRes
   });
 
   if (error) {
-    const msg = (error as any)?.message ?? 'Erro na chamada ao gateway de IA';
+    let msg = (error as any)?.message ?? 'Erro na chamada ao gateway de IA';
+    try {
+      const body = await (error as any)?.context?.json?.();
+      if (body?.error) msg = body.error;
+    } catch { /* ignora se não conseguir ler o body */ }
     throw new Error(msg);
   }
 
