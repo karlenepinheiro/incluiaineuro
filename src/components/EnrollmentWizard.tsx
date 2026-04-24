@@ -283,6 +283,8 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
           data={data} set={set} saving={saving} savedStudent={savedStudent}
           generatingDocs={generatingDocs} docsReady={docsReady}
           onDownload={downloadDoc} onFinish={handleFinish} error={error}
+          pkIsIncomplete={pkIsIncomplete} pkFilledCount={pkFilledCount}
+          onGoToProfile={() => setStep(1)}
         />
       );
     }
@@ -324,26 +326,29 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
         }}>
           {STEPS.map((s, i) => {
             const Icon = s.icon;
-            const done = i < step;
-            const active = i === step;
+            const done    = i < step;
+            const active  = i === step;
+            // Step 1 (Perfil Inicial) foi pulado sem preencher
+            const warning = done && i === 1 && pkIsIncomplete;
+            const bgColor = warning ? C.amber : done ? C.green : active ? C.petrol : C.border;
+            const lblColor = active ? C.petrol : warning ? '#92400E' : done ? C.green : C.muted;
             return (
               <React.Fragment key={i}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
                   <div style={{
                     width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: done ? C.green : active ? C.petrol : C.border,
-                    marginBottom: 4, transition: 'background 0.2s',
+                    background: bgColor, marginBottom: 4, transition: 'background 0.2s',
                   }}>
-                    {done ? <CheckCircle2 size={16} color="#fff" /> : <Icon size={15} color={active ? '#fff' : C.muted} />}
+                    {done && !warning ? <CheckCircle2 size={16} color="#fff" /> : <Icon size={15} color={active || done ? '#fff' : C.muted} />}
                   </div>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: active ? C.petrol : done ? C.green : C.muted, whiteSpace: 'nowrap' }}>
-                    {s.label}
+                  <span style={{ fontSize: 10, fontWeight: 600, color: lblColor, whiteSpace: 'nowrap' }}>
+                    {warning ? 'Incompleto' : s.label}
                   </span>
                 </div>
                 {i < STEPS.length - 1 && (
                   <div style={{
                     height: 2, flex: 1, maxWidth: 40, marginBottom: 16,
-                    background: i < step ? C.green : C.border,
+                    background: i < step ? (i === 1 && pkIsIncomplete ? C.amber : C.green) : C.border,
                     transition: 'background 0.3s',
                   }} />
                 )}
@@ -771,11 +776,12 @@ function StepAnalise({ data, set, checkedCount }: { data: WizardData; set: any; 
 }
 
 // ─── Step 4: Finalizar ────────────────────────────────────────────────────────
-function StepFinalizar({ data, set, saving, savedStudent, generatingDocs, docsReady, onDownload, onFinish, error }: {
+function StepFinalizar({ data, set, saving, savedStudent, generatingDocs, docsReady, onDownload, onFinish, error, pkIsIncomplete, pkFilledCount, onGoToProfile }: {
   data: WizardData; set: any; saving: boolean; savedStudent: Student | null;
   generatingDocs: boolean; docsReady: { nome: string; blob: Blob }[];
   onDownload: (d: { nome: string; blob: Blob }) => void;
   onFinish: () => void; error: string | null;
+  pkIsIncomplete: boolean; pkFilledCount: number; onGoToProfile: () => void;
 }) {
   const DOC_OPTIONS = [
     { key: 'termo' as const, label: 'Termo de Compromisso AEE', desc: 'Assinatura do responsável confirmando a matrícula no AEE' },
@@ -785,6 +791,34 @@ function StepFinalizar({ data, set, saving, savedStudent, generatingDocs, docsRe
 
   return (
     <div>
+      {/* Banner de aviso — perfil pedagógico incompleto */}
+      {pkIsIncomplete && !savedStudent && (
+        <div style={{
+          background: '#FFFBEB', border: '1.5px solid #FDE68A', borderRadius: 12,
+          padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'flex-start',
+        }}>
+          <Sparkles size={16} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: '#92400E', marginBottom: 3 }}>
+              Perfil Pedagógico Inicial não preenchido
+            </div>
+            <div style={{ fontSize: 11, color: '#92400E', lineHeight: 1.5 }}>
+              Sem esse perfil, a IA não consegue calibrar o nível de linguagem, complexidade de atividades e metas do PEI para o aluno real.
+              Documentos gerados terão qualidade reduzida.
+            </div>
+            <button
+              onClick={onGoToProfile}
+              style={{
+                marginTop: 8, padding: '5px 12px', borderRadius: 7, border: `1.5px solid ${C.amber}`,
+                background: 'transparent', color: '#92400E', fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              Voltar e preencher agora
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Resumo do aluno */}
       <div style={{ background: C.bg, borderRadius: 12, padding: '14px 18px', marginBottom: 20 }}>
         <div style={{ fontSize: 11, fontWeight: 800, color: C.petrol, textTransform: 'uppercase', marginBottom: 10 }}>

@@ -55,7 +55,7 @@ export async function generateGeminiText(
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ contents: [{ parts }] }),
-  }, 25_000);
+  }, 55_000);
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -83,7 +83,7 @@ export async function generateGeminiJSON(prompt: string): Promise<string> {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(body),
-    }, 25_000);
+    }, 60_000);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -170,7 +170,11 @@ async function getAccessToken(serviceAccountJson: string): Promise<string> {
   const claimB64  = toB64u(claim);
   const input     = `${headerB64}.${claimB64}`;
 
-  const pem    = sa.private_key.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
+  // Normaliza \\n literal (armazenado em env var) para newline real antes de decodificar PEM
+  const pem    = sa.private_key
+    .replace(/\\n/g, '\n')
+    .replace(/-----[^-]+-----/g, '')
+    .replace(/\s/g, '');
   const keyDer = Uint8Array.from(atob(pem), (c) => c.charCodeAt(0));
 
   const cryptoKey = await crypto.subtle.importKey(
@@ -180,7 +184,11 @@ async function getAccessToken(serviceAccountJson: string): Promise<string> {
   );
 
   const sig    = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(input));
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  // Loop explícito evita stack overflow com spread em assinaturas RSA-2048 (256 bytes)
+  const sigArr = new Uint8Array(sig);
+  let sigBin = '';
+  for (let i = 0; i < sigArr.length; i++) sigBin += String.fromCharCode(sigArr[i]);
+  const sigB64 = btoa(sigBin).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 
   const jwt = `${input}.${sigB64}`;
 

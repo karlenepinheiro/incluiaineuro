@@ -233,7 +233,7 @@ const BlocoAvaliacaoCard: React.FC<{ items: BlocoAvaliacaoItem[] }> = ({ items }
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {items.map((item, i) => {
-          const v     = Math.min(5, Math.max(1, item.escala));
+          const v     = Math.min(5, Math.max(1, Number(item.escala) || 3));
           const color = scoreColor(v);
           return (
             <div key={i} style={{

@@ -25,6 +25,7 @@ import { QuickDocModal, QuickDocType } from './QuickDocModal';
 import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
 import { RelatorioPreview } from './RelatorioPreview';
 import type { RelatorioResultado } from '../services/reportService';
+import { DocumentService } from '../services/documentService';
 
 // ── Critérios do perfil evolutivo (10 dimensões) ─────────────────────────────
 const CRITERIA = [
@@ -670,6 +671,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [reportLoading, setReportLoading]     = useState(false);
   const [reportError, setReportError]         = useState<string>('');
   const [showRelatorioViewer, setShowRelatorioViewer] = useState(false);
+  const [reportDocId, setReportDocId]         = useState<string | null>(null);
 
   const reportScores: number[] = sortedEvolutions[0]?.scores ?? [];
   const reportSchool = (user as any)?.schoolConfigs?.[0] ?? null;
@@ -678,6 +680,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     setReportType(type);
     setReportResultado(null);
     setReportError('');
+    setReportDocId(null);
     setReportLoading(true);
     try {
       const resultado = await AIService.generateStudentReport(student, user as any, type, {
@@ -685,10 +688,40 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         school: reportSchool,
       });
       setReportResultado(resultado);
+
+      // Persiste imediatamente no banco — falha silenciosa para não bloquear o usuário
+      try {
+        const tenantId = (user as any)?.tenantId ?? (user as any)?.tenant_id ?? '';
+        const createdBy = (user as any)?.id ?? '';
+        if (tenantId && createdBy) {
+          const saved = await DocumentService.saveDocument({
+            student_id:      student.id,
+            tenant_id:       tenantId,
+            created_by:      createdBy,
+            doc_type:        type === 'full' ? 'RELATORIO_COMPLETO' : 'RELATORIO_SIMPLES',
+            title:           `Relatório — ${student.name}`,
+            structured_data: resultado,
+            status:          'APPROVED',
+          });
+          setReportDocId(saved.id);
+        }
+      } catch (saveErr) {
+        console.warn('[StudentProfile] Falha ao persistir relatório:', saveErr);
+      }
     } catch (e: any) {
       setReportError(e?.message || 'Erro ao gerar relatório.');
     } finally {
       setReportLoading(false);
+    }
+  };
+
+  const handleSaveReportEdits = async (edited: RelatorioResultado) => {
+    setReportResultado(edited);
+    if (!reportDocId) return;
+    try {
+      await DocumentService.updateDocument(reportDocId, edited, 'APPROVED');
+    } catch (err) {
+      console.warn('[StudentProfile] Falha ao salvar edições do relatório:', err);
     }
   };
 
@@ -2101,6 +2134,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   scores={reportScores}
                   school={reportSchool}
                   onUpdate={r => setReportResultado(r)}
+                  onSaveEdits={handleSaveReportEdits}
                   onClose={() => setShowRelatorioViewer(false)}
                 />
               </div>

@@ -4,7 +4,7 @@ import {
   BarChart3, Save, Printer, Plus, Calendar, User as UserIcon, History,
   Lock, TrendingUp, Download, Trash2, CheckCircle, ShieldCheck,
   Mic, X, Edit2, ChevronDown, ChevronUp, Sparkles, Type, Coins, Loader, Zap,
-  FileText, Brain, ClipboardCheck, ChevronRight as ChevronR,
+  FileText, Brain, ClipboardCheck, ChevronRight as ChevronR, Eye,
 } from 'lucide-react';
 import { Student, StudentEvolution, PlanTier, getPlanLimits, DocField } from '../types';
 import { ExportService } from '../services/exportService';
@@ -249,6 +249,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
   const [showRelatorio, setShowRelatorio] = useState(false);
   // ID do documento salvo no banco para o relatório técnico atual
   const [savedRelatorioId, setSavedRelatorioId] = useState<string | null>(null);
+  // Histórico de relatórios técnicos salvos
+  const [savedRelatorios, setSavedRelatorios] = useState<any[]>([]);
+  const [showRelatorioHistory, setShowRelatorioHistory] = useState(false);
+  const [deletingRelatorioId, setDeletingRelatorioId] = useState<string | null>(null);
 
   const selectedStudent = students.find(s => s.id === selectedStudentId);
   const planLimits = getPlanLimits(currentPlan);
@@ -268,6 +272,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
     setSavedRelatorioId(null);
     setShowRelatorio(false);
     setRelatorioError(null);
+    setSavedRelatorios([]);
+    setShowRelatorioHistory(false);
+    if (!selectedStudentId || DEMO_MODE) return;
+    databaseService.getDocumentsByStudent(selectedStudentId)
+      .then(docs => setSavedRelatorios(docs.filter((d: any) => d.doc_type === 'RELATORIO_TECNICO')))
+      .catch(() => {});
   }, [selectedStudentId]);
 
   // Popula campos quando o histórico selecionado muda
@@ -458,6 +468,30 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
     }
   };
 
+  const handleDeleteRelatorio = async (id: string) => {
+    if (!window.confirm('Excluir este relatório? Esta ação não pode ser desfeita.')) return;
+    setDeletingRelatorioId(id);
+    try {
+      await databaseService.deleteDocument(id);
+      setSavedRelatorios(prev => prev.filter(r => r.id !== id));
+      if (savedRelatorioId === id) { setRelatorioResultado(null); setSavedRelatorioId(null); setShowRelatorio(false); }
+    } catch { alert('Erro ao excluir relatório.'); }
+    finally { setDeletingRelatorioId(null); }
+  };
+
+  const handleOpenSavedRelatorio = (doc: any) => {
+    try {
+      const resultado: RelatorioResultado = typeof doc.structured_data === 'string'
+        ? JSON.parse(doc.structured_data)
+        : doc.structured_data;
+      if (!resultado?.data) { alert('Relatório sem dados estruturados para exibir.'); return; }
+      setRelatorioResultado(resultado);
+      setSavedRelatorioId(doc.id);
+      setShowRelatorio(true);
+      setShowRelatorioHistory(false);
+    } catch { alert('Não foi possível carregar este relatório.'); }
+  };
+
   const allLabels = CRITERIA.map(c => c.name);
   const avg = scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : 0;
 
@@ -524,17 +558,6 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
           <BarChart3 size={40} className="mx-auto mb-3 text-gray-200"/>
           <p>Selecione um aluno para iniciar o relatório.</p>
         </div>
-      ) : showRelatorio && relatorioResultado ? (
-        /* ── Preview full-screen (issues 6, 7, 8, 9) ── */
-        <RelatorioPreview
-          resultado={relatorioResultado}
-          student={selectedStudent}
-          scores={scores}
-          school={currentUser?.schoolConfigs?.[0] ?? null}
-          onUpdate={setRelatorioResultado}
-          onSaveEdits={handleSaveRelatorioEdits}
-          onClose={() => setShowRelatorio(false)}
-        />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
@@ -695,6 +718,7 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
 
             {/* ── PAINEL: GERAR RELATÓRIO TÉCNICO ────────────────────────── */}
             {selectedStudent && (
+              <>
               <div
                 className="rounded-2xl overflow-hidden"
                 style={{ border: '2px solid #1F4E5F' }}
@@ -827,6 +851,56 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
                   </div>
                 )}
               </div>
+
+              {/* ── Histórico de relatórios técnicos salvos ── */}
+              {savedRelatorios.length > 0 && (
+                <div className="p-4 bg-white border-t border-gray-100">
+                  <button
+                    onClick={() => setShowRelatorioHistory(v => !v)}
+                    className="flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-gray-700 transition w-full"
+                  >
+                    <History size={13} />
+                    Relatórios salvos ({savedRelatorios.length})
+                    {showRelatorioHistory ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                  </button>
+                  {showRelatorioHistory && (
+                    <div className="mt-3 space-y-2">
+                      {savedRelatorios.map(doc => (
+                        <div key={doc.id} className="flex items-center gap-2 p-2.5 rounded-xl bg-gray-50 border border-gray-100">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-gray-700 truncate">
+                              {doc.title ?? `Relatório — ${selectedStudent?.name}`}
+                            </p>
+                            <p className="text-[10px] text-gray-400 font-mono">
+                              {doc.audit_code ?? '—'} · {new Date(doc.created_at).toLocaleDateString('pt-BR')}
+                            </p>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <button
+                              title="Abrir relatório"
+                              onClick={() => handleOpenSavedRelatorio(doc)}
+                              className="p-1.5 rounded-lg text-gray-500 hover:bg-white hover:text-[#1F4E5F] transition border border-transparent hover:border-gray-200"
+                            >
+                              <Eye size={13} />
+                            </button>
+                            <button
+                              title="Excluir relatório"
+                              onClick={() => handleDeleteRelatorio(doc.id)}
+                              disabled={deletingRelatorioId === doc.id}
+                              className="p-1.5 rounded-lg text-gray-500 hover:bg-white hover:text-red-600 transition border border-transparent hover:border-gray-200 disabled:opacity-40"
+                            >
+                              {deletingRelatorioId === doc.id
+                                ? <span className="w-3 h-3 border-2 border-gray-400 border-t-red-500 rounded-full animate-spin inline-block" />
+                                : <Trash2 size={13} />}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              </>
             )}
           </div>
         </div>
@@ -834,6 +908,21 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
 
       {/* Modais */}
       {addModal && <AddFieldModal mode={addModal} onAdd={addField} onClose={() => setAddModal(null)} />}
+
+      {/* ── Relatório: página dedicada em tela cheia ── */}
+      {showRelatorio && relatorioResultado && selectedStudent && (
+        <div className="fixed inset-0 z-50 bg-[#F6F4EF] overflow-y-auto print:static print:inset-auto print:z-auto">
+          <RelatorioPreview
+            resultado={relatorioResultado}
+            student={selectedStudent}
+            scores={scores}
+            school={currentUser?.schoolConfigs?.[0] ?? null}
+            onUpdate={setRelatorioResultado}
+            onSaveEdits={handleSaveRelatorioEdits}
+            onClose={() => setShowRelatorio(false)}
+          />
+        </div>
+      )}
     </div>
   );
 };

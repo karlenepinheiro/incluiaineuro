@@ -89,12 +89,19 @@ export function friendlyAIError(e: unknown): string {
     return 'Este modo de geração visual ainda não está configurado no ambiente.';
   if (raw.includes('Créditos insuficientes') || raw.includes('INSUFFICIENT_CREDITS'))
     return raw.includes('Saldo atual') ? raw : 'Créditos insuficientes para esta operação.';
-  if (raw.includes('Failed to fetch') || raw.includes('NetworkError') || (e as any)?.name === 'TypeError')
+  if (raw.includes('AUTH_ERROR:'))
+    return 'Sessão expirada. Faça login novamente.';
+  if (raw.includes('DATA_ERROR:'))
+    return raw.replace('DATA_ERROR:', '').trim();
+  if (raw.includes('Failed to fetch') || raw.includes('NetworkError') || (e as any)?.name === 'TypeError' || raw.includes('Sem conexão'))
     return 'Falha de conexão com o serviço de IA. Verifique sua internet e tente novamente.';
   if (raw.includes('quota') || raw.includes('429') || raw.includes('rate limit'))
     return 'Limite de uso da IA atingido. Aguarde alguns instantes e tente novamente.';
-  if (raw.includes('Tempo de resposta') || raw.includes('AbortError'))
+  if (raw.includes('Tempo de resposta') || raw.includes('AbortError') || raw.includes('TIMEOUT'))
     return 'A IA demorou demais para responder. Tente novamente.';
+  // Mensagem amigável já formatada pelo servidor — exibe diretamente
+  if (raw.length > 0 && raw.length < 200 && !raw.includes('Error:') && !raw.includes('at '))
+    return raw;
   return 'Ocorreu um erro ao processar sua solicitação. Tente novamente ou contate o suporte.';
 }
 
@@ -195,6 +202,22 @@ export function modelGeneratesImage(id: string): boolean {
 
 function insufficientCreditsError(_req?: number, _bal?: number, _action?: string): Error {
   return new Error(CREDIT_INSUFFICIENT_MSG);
+}
+
+// Bloco interpretado de contexto familiar — interpreta, não transcreve
+function buildFamilyBlock(student: Student): string {
+  const lines: string[] = [];
+  if (student.familyContext?.trim()) {
+    lines.push(`Contexto familiar relatado: ${student.familyContext.trim()}`);
+  }
+  if (student.guardianName?.trim()) {
+    lines.push(`Responsável legal: ${student.guardianName.trim()}`);
+  }
+  if ((student as any).guardianRelationship?.trim()) {
+    lines.push(`Vínculo: ${(student as any).guardianRelationship}`);
+  }
+  if (lines.length === 0) return '';
+  return `\nCONTEXTO FAMILIAR (interprete — não transcreva literalmente; use para embasar recomendações à família):\n${lines.join('\n')}\nINSTRUÇÃO: A fala da família deve ser interpretada à luz do diagnóstico. Identifique percepções relevantes, lacunas de informação e pontos que precisam de orientação profissional.\n`;
 }
 
 // Formata o bloco de conhecimento prévio do aluno para injeção nos prompts de atividade
@@ -381,23 +404,35 @@ IMPORTANTE: "Nome do aluno" refere-se APENAS ao estudante. "Responsável legal" 
 
 ${ctxBlock}`;
 
-    const isPEI = String(type).toUpperCase().includes('PEI');
-    const isEstudoCaso = String(type).toUpperCase().replace(/\s/g, '_').includes('ESTUDO');
+    const typeUpper   = String(type).toUpperCase().replace(/\s+/g, '_');
+    const isPEI       = typeUpper.includes('PEI');
+    const isEstudoCaso = typeUpper.includes('ESTUDO');
+    const isPAEE      = typeUpper.includes('PAEE');
+    const isPDI       = typeUpper.includes('PDI');
+
+    const familyBlock = buildFamilyBlock(student);
 
     let prompt: string;
 
+    // ── PEI ─────────────────────────────────────────────────────────────────────
     if (isPEI) {
-      prompt = `Você é psicopedagogo especialista em educação inclusiva e elaboração de PEI (Plano Educacional Individualizado).
+      prompt = `Você é psicopedagogo especialista em Plano Educacional Individualizado (PEI) conforme a Lei Brasileira de Inclusão (Lei 13.146/2015) e a Política Nacional de Educação Especial na Perspectiva da Educação Inclusiva.
+
+FINALIDADE DO PEI: Instrumento pedagógico que traduz o diagnóstico em metas anuais mensuráveis, por disciplina, com estratégias adaptadas ao perfil real do aluno e critérios claros de avaliação. Não é relatório — é plano de ação.
 
 ${studentDataBlock}
+${familyBlock}
 
-REGRAS OBRIGATÓRIAS:
-- Nunca gere texto genérico. Todo conteúdo deve refletir o diagnóstico e perfil real do aluno.
-- Use linguagem técnica, objetiva e profissional.
-- Baseie objetivos, estratégias e critérios nas habilidades e dificuldades específicas informadas.
-- Conecte as estratégias ao diagnóstico: o que funciona para TEA pode diferir do que funciona para DI.
+REGRAS DE GERAÇÃO — aplique a cada campo:
+1. Cada objetivo deve ser SMART: específico, mensurável, atingível, relevante e com prazo implícito (anual).
+2. Cada estratégia deve citar recursos concretos ligados ao diagnóstico (ex: para TEA — sequências visuais, antecipação; para DI — atividades em etapas, repetição; para TDAH — tarefas curtas, pausas estruturadas).
+3. Se há Perfil Pedagógico Inicial no contexto, use os scores para calibrar o nível de complexidade de cada objetivo.
+4. Critérios de avaliação devem ser comportamentos OBSERVÁVEIS (nunca "melhorar", sempre "identificar", "escrever", "resolver", "completar").
+5. A seção de família deve ser orientação prática de reforço domiciliar — não instrução clínica.
+6. Nunca repita o mesmo texto entre disciplinas. Cada seção deve ter conteúdo diferenciado.
+7. Linguagem técnica formal. Português brasileiro. Sem "não informado".
 
-RETORNE SOMENTE o JSON válido abaixo, sem texto adicional, sem markdown:
+RETORNE SOMENTE o JSON válido. Os campos "value" devem conter o conteúdo REAL gerado — não instruções nem placeholders:
 {
   "sections": [
     {
@@ -406,122 +441,297 @@ RETORNE SOMENTE o JSON válido abaixo, sem texto adicional, sem markdown:
       "fields": [
         { "id": "nome", "label": "Nome completo", "type": "text", "value": "${student.name}" },
         { "id": "diagnostico", "label": "Diagnóstico(s) / CID", "type": "text", "value": "${diagnosis}" },
-        { "id": "suporte", "label": "Nível de Suporte", "type": "text", "value": "${student.supportLevel || 'A definir'}" },
-        { "id": "vigencia", "label": "Vigência do PEI", "type": "text", "value": "Ano letivo atual" },
-        { "id": "objetivo_geral", "label": "Objetivo Geral do PEI", "type": "textarea", "value": "Descreva o objetivo geral personalizado ao perfil do aluno" }
+        { "id": "suporte", "label": "Nível de Suporte", "type": "text", "value": "${student.supportLevel || 'A definir com equipe multidisciplinar'}" },
+        { "id": "vigencia", "label": "Vigência do PEI", "type": "text", "value": "Ano letivo ${new Date().getFullYear()}" },
+        { "id": "objetivo_geral", "label": "Objetivo Geral do PEI", "type": "textarea", "value": "" }
       ]
     },
     {
       "id": "portugues",
       "title": "Língua Portuguesa",
       "fields": [
-        { "id": "pt_objetivo", "label": "Objetivo", "type": "textarea", "value": "Objetivo específico e mensurável para Língua Portuguesa, conectado às dificuldades do aluno" },
-        { "id": "pt_estrategia", "label": "Estratégia", "type": "textarea", "value": "Estratégias pedagógicas adaptadas ao diagnóstico e nível de suporte do aluno" },
-        { "id": "pt_frequencia", "label": "Frequência", "type": "text", "value": "Ex: 3 vezes por semana, 45 minutos por sessão" },
-        { "id": "pt_criterio", "label": "Critério de Avaliação", "type": "textarea", "value": "Como será avaliado o alcance do objetivo — indicadores observáveis e mensuráveis" }
+        { "id": "pt_objetivo", "label": "Objetivo anual", "type": "textarea", "value": "" },
+        { "id": "pt_estrategia", "label": "Estratégias e recursos", "type": "textarea", "value": "" },
+        { "id": "pt_frequencia", "label": "Frequência de atendimento", "type": "text", "value": "" },
+        { "id": "pt_criterio", "label": "Critério de avaliação", "type": "textarea", "value": "" }
       ]
     },
     {
       "id": "matematica",
       "title": "Matemática",
       "fields": [
-        { "id": "mt_objetivo", "label": "Objetivo", "type": "textarea", "value": "Objetivo específico e mensurável para Matemática, baseado nas habilidades e dificuldades do aluno" },
-        { "id": "mt_estrategia", "label": "Estratégia", "type": "textarea", "value": "Estratégias concretas e adaptadas (materiais manipuláveis, sequenciação, etc.)" },
-        { "id": "mt_frequencia", "label": "Frequência", "type": "text", "value": "Ex: 2 vezes por semana, 45 minutos por sessão" },
-        { "id": "mt_criterio", "label": "Critério de Avaliação", "type": "textarea", "value": "Indicadores observáveis de progresso para Matemática" }
+        { "id": "mt_objetivo", "label": "Objetivo anual", "type": "textarea", "value": "" },
+        { "id": "mt_estrategia", "label": "Estratégias e recursos", "type": "textarea", "value": "" },
+        { "id": "mt_frequencia", "label": "Frequência de atendimento", "type": "text", "value": "" },
+        { "id": "mt_criterio", "label": "Critério de avaliação", "type": "textarea", "value": "" }
       ]
     },
     {
       "id": "ciencias",
       "title": "Ciências",
       "fields": [
-        { "id": "ci_objetivo", "label": "Objetivo", "type": "textarea", "value": "Objetivo específico para Ciências, adaptado ao nível cognitivo e diagnóstico do aluno" },
-        { "id": "ci_estrategia", "label": "Estratégia", "type": "textarea", "value": "Estratégias visuais, experimentais ou concretas adequadas ao perfil do aluno" },
-        { "id": "ci_frequencia", "label": "Frequência", "type": "text", "value": "Ex: 1 vez por semana integrada às aulas regulares" },
-        { "id": "ci_criterio", "label": "Critério de Avaliação", "type": "textarea", "value": "Indicadores de compreensão e participação em Ciências" }
+        { "id": "ci_objetivo", "label": "Objetivo anual", "type": "textarea", "value": "" },
+        { "id": "ci_estrategia", "label": "Estratégias e recursos", "type": "textarea", "value": "" },
+        { "id": "ci_frequencia", "label": "Frequência de atendimento", "type": "text", "value": "" },
+        { "id": "ci_criterio", "label": "Critério de avaliação", "type": "textarea", "value": "" }
       ]
     },
     {
       "id": "geografia",
       "title": "Geografia",
       "fields": [
-        { "id": "ge_objetivo", "label": "Objetivo", "type": "textarea", "value": "Objetivo específico para Geografia, conectado ao contexto e capacidade de abstração do aluno" },
-        { "id": "ge_estrategia", "label": "Estratégia", "type": "textarea", "value": "Uso de mapas, imagens, recursos concretos e rotina visual adequados ao diagnóstico" },
-        { "id": "ge_frequencia", "label": "Frequência", "type": "text", "value": "Ex: 1 vez por semana integrada às aulas regulares" },
-        { "id": "ge_criterio", "label": "Critério de Avaliação", "type": "textarea", "value": "Indicadores observáveis de compreensão espacial e participação em Geografia" }
+        { "id": "ge_objetivo", "label": "Objetivo anual", "type": "textarea", "value": "" },
+        { "id": "ge_estrategia", "label": "Estratégias e recursos", "type": "textarea", "value": "" },
+        { "id": "ge_frequencia", "label": "Frequência de atendimento", "type": "text", "value": "" },
+        { "id": "ge_criterio", "label": "Critério de avaliação", "type": "textarea", "value": "" }
       ]
     },
     {
       "id": "acompanhamento",
-      "title": "Acompanhamento e Revisão",
+      "title": "Acompanhamento e Família",
       "fields": [
         { "id": "responsaveis", "label": "Responsáveis pela execução", "type": "text", "value": "${student.aeeTeacher ? `Prof. AEE: ${student.aeeTeacher}` : 'Professor AEE e Professor Regente'}" },
-        { "id": "revisao", "label": "Periodicidade de revisão do PEI", "type": "text", "value": "Bimestral ou conforme necessidade da equipe" },
-        { "id": "familia", "label": "Orientações para a família", "type": "textarea", "value": "Orientações práticas para reforço domiciliar alinhadas ao diagnóstico e às metas do PEI" },
-        { "id": "obs", "label": "Observações adicionais", "type": "textarea", "value": "Informações complementares relevantes para a equipe pedagógica" }
+        { "id": "revisao", "label": "Periodicidade de revisão", "type": "text", "value": "" },
+        { "id": "familia", "label": "Orientações práticas para a família", "type": "textarea", "value": "" },
+        { "id": "obs", "label": "Observações da equipe", "type": "textarea", "value": "" }
       ]
     }
   ]
 }
 
-Preencha TODOS os campos value com conteúdo real, técnico e específico ao aluno. Português brasileiro formal.`;
+Preencha TODOS os campos "value" com conteúdo real gerado a partir dos dados do aluno. Nenhum campo deve ficar vazio ou com texto genérico. Português brasileiro formal.`;
+
+    // ── PAEE ─────────────────────────────────────────────────────────────────────
+    } else if (isPAEE) {
+      prompt = `Você é especialista em Plano de Atendimento Educacional Especializado (PAEE) conforme a Resolução CNE/CEB nº 4/2009 e a Nota Técnica nº 11/2010 do MEC/SEESP.
+
+FINALIDADE DO PAEE: Documento técnico que define os recursos de acessibilidade, as adaptações de acessibilidade e as estratégias de inclusão necessárias para que o aluno com deficiência participe de forma plena do ambiente escolar. Foco em ACESSIBILIDADE, não em conteúdo curricular (isso é o PEI).
+
+${studentDataBlock}
+${familyBlock}
+
+REGRAS DE GERAÇÃO:
+1. Distinguir claramente: PAEE é sobre COMO o aluno acessa o ambiente e o currículo — não sobre O QUE ele aprende.
+2. Cada adaptação deve especificar: (a) o recurso ou estratégia, (b) a barreira que remove, (c) quem é responsável pela implementação.
+3. Tecnologia Assistiva: cite recursos concretos e gratuitos ou acessíveis ao contexto público (ex: CAA, pranchas de comunicação, leitores de tela, materiais em Braille, software de acessibilidade).
+4. Não repita o diagnóstico como se fosse limitação — foque nas barreiras ambientais que precisam ser removidas.
+5. Inclua adaptações para: ambiente físico, comunicação, material didático, avaliação, interação social.
+6. Se há perfil cognitivo ou laudos no contexto, use para justificar cada adaptação proposta.
+7. A seção de família deve orientar como reforçar a comunicação aumentativa ou estratégias de inclusão no contexto domiciliar.
+
+RETORNE SOMENTE o JSON válido. Os campos "value" devem conter conteúdo REAL:
+{
+  "sections": [
+    {
+      "id": "identificacao",
+      "title": "Identificação e Justificativa",
+      "fields": [
+        { "id": "nome", "label": "Nome completo", "type": "text", "value": "${student.name}" },
+        { "id": "diagnostico", "label": "Diagnóstico(s) / CID", "type": "text", "value": "${diagnosis}" },
+        { "id": "suporte", "label": "Nível de Suporte", "type": "text", "value": "${student.supportLevel || 'A definir'}" },
+        { "id": "justificativa", "label": "Justificativa do PAEE", "type": "textarea", "value": "" },
+        { "id": "barreiras", "label": "Barreiras de acessibilidade identificadas", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "comunicacao",
+      "title": "Adaptações de Comunicação e Linguagem",
+      "fields": [
+        { "id": "com_recursos", "label": "Recursos de comunicação alternativa e aumentativa (CAA)", "type": "textarea", "value": "" },
+        { "id": "com_estrategias", "label": "Estratégias de mediação da comunicação em sala", "type": "textarea", "value": "" },
+        { "id": "com_tecnologia", "label": "Tecnologia Assistiva de comunicação indicada", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "material",
+      "title": "Adaptações de Material e Avaliação",
+      "fields": [
+        { "id": "mat_adaptacoes", "label": "Adaptações de material didático e pedagógico", "type": "textarea", "value": "" },
+        { "id": "mat_avaliacao", "label": "Adaptações no processo avaliativo", "type": "textarea", "value": "" },
+        { "id": "mat_tempo", "label": "Ajustes de tempo e formato de atividades", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "ambiente",
+      "title": "Acessibilidade no Ambiente Escolar",
+      "fields": [
+        { "id": "amb_fisico", "label": "Adequações no ambiente físico", "type": "textarea", "value": "" },
+        { "id": "amb_sensorial", "label": "Adaptações sensoriais (luminosidade, ruído, estímulos)", "type": "textarea", "value": "" },
+        { "id": "amb_rotina", "label": "Apoios à organização da rotina e previsibilidade", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "inclusao_social",
+      "title": "Estratégias de Inclusão Social",
+      "fields": [
+        { "id": "inc_pares", "label": "Estratégias para interação com pares", "type": "textarea", "value": "" },
+        { "id": "inc_mediacao", "label": "Papel do professor e equipe na mediação social", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "familia_paee",
+      "title": "Orientações à Família",
+      "fields": [
+        { "id": "fam_comunicacao", "label": "Como a família pode reforçar a comunicação em casa", "type": "textarea", "value": "" },
+        { "id": "fam_rotina", "label": "Apoio à rotina e previsibilidade no ambiente domiciliar", "type": "textarea", "value": "" },
+        { "id": "fam_recursos", "label": "Recursos de baixo custo recomendados para uso em casa", "type": "textarea", "value": "" }
+      ]
+    }
+  ]
+}
+
+Preencha TODOS os campos "value" com conteúdo real. Cada adaptação deve ser concreta, justificada e implementável. Português brasileiro formal.`;
+
+    // ── PDI ─────────────────────────────────────────────────────────────────────
+    } else if (isPDI) {
+      prompt = `Você é psicopedagogo especialista em Plano de Desenvolvimento Individual (PDI) para educação inclusiva.
+
+FINALIDADE DO PDI: Documento abrangente que integra metas de desenvolvimento global do aluno — cognitivo, social, emocional, comunicativo e pedagógico — em perspectiva longitudinal. Combina o que o PEI define para o currículo com o que o PAEE define para acessibilidade, acrescentando metas de desenvolvimento pessoal e familiar.
+
+${studentDataBlock}
+${familyBlock}
+
+REGRAS DE GERAÇÃO:
+1. O PDI deve ter profundidade interpretativa — analise padrões, não apenas descreva situações.
+2. Use dados temporais sempre que disponíveis: datas de atendimento, evolução ao longo do tempo, padrões de frequência.
+3. Cada meta deve ter: situação atual (baseline) → meta de período → indicador de alcance.
+4. Conecte explicitamente: perfil cognitivo → metas de desenvolvimento → estratégias → papel da família.
+5. Inclua análise do contexto familiar como fator de suporte ou risco — não apenas como informação neutra.
+6. Identifique PADRÕES: o que o aluno avança, o que regride, sob quais condições cada um ocorre.
+7. Mencione outros profissionais que acompanham o aluno e como articular o trabalho (fonoaudiologia, psicologia, TO).
+8. Linguagem técnica formal. Nunca capacitista. Português brasileiro.
+
+RETORNE SOMENTE o JSON válido com estas seções obrigatórias:
+{
+  "sections": [
+    { "id": "identificacao", "title": "Identificação e Contexto Global", "fields": [
+      { "id": "nome", "label": "Nome completo", "type": "text", "value": "${student.name}" },
+      { "id": "diagnostico", "label": "Diagnóstico(s) / CID", "type": "text", "value": "${diagnosis}" },
+      { "id": "suporte", "label": "Nível de Suporte Global", "type": "text", "value": "${student.supportLevel || 'A definir'}" },
+      { "id": "contexto_atual", "label": "Situação atual — síntese interpretativa", "type": "textarea", "value": "" },
+      { "id": "fatores_risco", "label": "Fatores de risco e vulnerabilidade identificados", "type": "textarea", "value": "" },
+      { "id": "fatores_protecao", "label": "Fatores de proteção e potencialidades", "type": "textarea", "value": "" }
+    ]},
+    { "id": "historico", "title": "Histórico e Linha do Tempo", "fields": [
+      { "id": "trajetoria", "label": "Trajetória escolar e de atendimento (interpretativa)", "type": "textarea", "value": "" },
+      { "id": "evolucao", "label": "Evolução observada e padrões identificados", "type": "textarea", "value": "" },
+      { "id": "impacto_ausencias", "label": "Impacto das ausências ou interrupções no progresso", "type": "textarea", "value": "" }
+    ]},
+    { "id": "metas_cognitivas", "title": "Metas de Desenvolvimento Cognitivo e Pedagógico", "fields": [
+      { "id": "cog_baseline", "label": "Perfil cognitivo atual (baseline)", "type": "textarea", "value": "" },
+      { "id": "cog_metas", "label": "Metas de desenvolvimento por período", "type": "textarea", "value": "" },
+      { "id": "cog_indicadores", "label": "Indicadores observáveis de alcance", "type": "textarea", "value": "" }
+    ]},
+    { "id": "metas_sociais", "title": "Metas de Desenvolvimento Social e Emocional", "fields": [
+      { "id": "soc_atual", "label": "Situação atual — interação, autonomia, autorregulação", "type": "textarea", "value": "" },
+      { "id": "soc_metas", "label": "Metas socioemocionais por período", "type": "textarea", "value": "" },
+      { "id": "soc_estrategias", "label": "Estratégias de mediação social", "type": "textarea", "value": "" }
+    ]},
+    { "id": "familia_pdi", "title": "Papel da Família e Articulação Familiar", "fields": [
+      { "id": "fam_analise", "label": "Análise do contexto familiar como suporte ou risco", "type": "textarea", "value": "" },
+      { "id": "fam_metas", "label": "Metas e orientações para a família", "type": "textarea", "value": "" },
+      { "id": "fam_articulacao", "label": "Articulação escola-família-clínica", "type": "textarea", "value": "" }
+    ]},
+    { "id": "equipe", "title": "Equipe Multiprofissional e Próximos Passos", "fields": [
+      { "id": "eq_profissionais", "label": "Profissionais envolvidos e papéis", "type": "textarea", "value": "" },
+      { "id": "eq_encaminhamentos", "label": "Encaminhamentos e ações prioritárias", "type": "textarea", "value": "" },
+      { "id": "eq_revisao", "label": "Periodicidade de revisão do PDI", "type": "text", "value": "" }
+    ]}
+  ]
+}
+
+Preencha TODOS os campos "value" com conteúdo real e técnico baseado nos dados do aluno. Português brasileiro formal.`;
+
+    // ── Estudo de Caso ────────────────────────────────────────────────────────────
     } else if (isEstudoCaso) {
-      prompt = `Você é psicopedagogo especialista em educação inclusiva e elaboração de Estudos de Caso.
+      prompt = `Você é psicopedagogo especialista em elaboração de Estudos de Caso para educação inclusiva, com domínio em análise interpretativa de dados clínicos e pedagógicos.
+
+FINALIDADE DO ESTUDO DE CASO: Documento técnico-científico que integra e interpreta — de forma longitudinal — todos os dados disponíveis sobre o aluno. Destina-se a equipes multidisciplinares, órgãos de saúde (CAPS, CRAS, APAE), secretarias de educação e, quando necessário, ao sistema judiciário. Não é relatório de progresso — é análise interpretativa profunda.
 
 ${studentDataBlock}
+${familyBlock}
 
-REGRAS OBRIGATÓRIAS:
-- Nunca gere texto genérico. Todo conteúdo deve refletir os dados reais do aluno.
-- Analise interpretativamente: não descreva, interprete o significado para o desenvolvimento.
-- Use evidências temporais (datas, frequência, evolução) sempre que disponíveis.
-- Conecte laudos, histórico, comportamento e desempenho entre si.
-- Identifique padrões: o que avança, o que regride, em quais condições.
-- Linguagem técnica, objetiva e profissional. Nunca capacitista.
+REGRAS DE GERAÇÃO — aplique rigorosamente:
+1. ANALISE, não descreva. "Apresenta dificuldade na leitura" é descrição. "A dificuldade na decodificação fonológica observada compromete o acesso ao conteúdo curricular e se intensifica em contextos de avaliação formal" é análise.
+2. USE a linha do tempo. Se há dados de atendimento no contexto, cite-os explicitamente: datas, padrões, faltas, impacto das ausências no progresso.
+3. INTERPRETE os laudos. Não transcreva — explique o que o diagnóstico implica pedagogicamente.
+4. IDENTIFIQUE padrões: o que evolui, o que regride, em quais condições cada movimento ocorre.
+5. INTEGRE perspectiva familiar: a fala dos responsáveis deve ser interpretada, não transcrita. O que ela revela sobre percepção parental? Há lacunas? Há pontos de resistência ou de apoio?
+6. CONECTE dados entre si: o perfil cognitivo deve dialogar com os laudos, que devem dialogar com as fichas de observação.
+7. Nunca use frases genéricas. Cada parágrafo deve conter informação específica do aluno.
+8. Linguagem técnico-científica. Português brasileiro formal.
 
-RETORNE SOMENTE o JSON válido abaixo, sem texto adicional, sem markdown:
+RETORNE SOMENTE o JSON válido com estas seções obrigatórias:
 {
   "sections": [
-    {
-      "id": "sec1",
-      "title": "Nome da Seção",
-      "fields": [
-        { "id": "f1", "label": "Nome do Campo", "type": "textarea", "value": "Conteúdo técnico e específico ao aluno..." }
-      ]
-    }
+    { "id": "identificacao", "title": "Identificação e Contexto Geral", "fields": [
+      { "id": "id_dados", "label": "Dados de identificação", "type": "text", "value": "${student.name} — ${diagnosis} — ${student.supportLevel || 'Suporte a definir'}" },
+      { "id": "id_contexto", "label": "Contexto escolar e clínico atual", "type": "textarea", "value": "" },
+      { "id": "id_demanda", "label": "Demanda que originou o Estudo de Caso", "type": "textarea", "value": "" }
+    ]},
+    { "id": "laudos", "title": "Análise Interpretativa dos Laudos e Documentos Clínicos", "fields": [
+      { "id": "lau_analise", "label": "Interpretação clínico-pedagógica dos laudos disponíveis", "type": "textarea", "value": "" },
+      { "id": "lau_implicacoes", "label": "Implicações pedagógicas do diagnóstico — o que muda na prática", "type": "textarea", "value": "" },
+      { "id": "lau_lacunas", "label": "Lacunas diagnósticas ou documentais identificadas", "type": "textarea", "value": "" }
+    ]},
+    { "id": "timeline", "title": "Linha do Tempo dos Atendimentos e Evolução", "fields": [
+      { "id": "tl_frequencia", "label": "Padrão de frequência: atendimentos, faltas e tendências", "type": "textarea", "value": "" },
+      { "id": "tl_evolucao", "label": "Evolução observada ao longo dos atendimentos", "type": "textarea", "value": "" },
+      { "id": "tl_impacto", "label": "Impacto das ausências ou interrupções no progresso pedagógico", "type": "textarea", "value": "" }
+    ]},
+    { "id": "cognitivo", "title": "Análise Cognitiva e Conexão com a Prática Pedagógica", "fields": [
+      { "id": "cog_perfil", "label": "Interpretação do perfil cognitivo multidimensional", "type": "textarea", "value": "" },
+      { "id": "cog_conexao", "label": "Como o perfil cognitivo se manifesta no cotidiano escolar", "type": "textarea", "value": "" },
+      { "id": "cog_potencial", "label": "Dimensões preservadas e potencialidades identificadas", "type": "textarea", "value": "" }
+    ]},
+    { "id": "familia_ec", "title": "Análise do Contexto Familiar", "fields": [
+      { "id": "fam_perspectiva", "label": "Perspectiva familiar: o que revelam e o que omitem", "type": "textarea", "value": "" },
+      { "id": "fam_suporte", "label": "Nível de suporte familiar ao desenvolvimento do aluno", "type": "textarea", "value": "" }
+    ]},
+    { "id": "padroes", "title": "Identificação de Padrões", "fields": [
+      { "id": "pad_avanca", "label": "O que avança e sob quais condições", "type": "textarea", "value": "" },
+      { "id": "pad_regride", "label": "O que regride ou estabiliza e por quê", "type": "textarea", "value": "" }
+    ]},
+    { "id": "parecer", "title": "Parecer Técnico e Recomendações", "fields": [
+      { "id": "par_conclusao", "label": "Parecer técnico conclusivo", "type": "textarea", "value": "" },
+      { "id": "par_pedagogicas", "label": "Recomendações pedagógicas prioritárias", "type": "textarea", "value": "" },
+      { "id": "par_clinicas", "label": "Recomendações clínicas e encaminhamentos", "type": "textarea", "value": "" },
+      { "id": "par_institucionais", "label": "Recomendações institucionais e intersetoriais", "type": "textarea", "value": "" }
+    ]}
   ]
 }
 
-Estrutura obrigatória — gere exatamente estas seções:
-1. Identificação e Contexto Geral
-2. Análise dos Laudos e Documentos Clínicos (interpretativa, não descritiva)
-3. Linha do Tempo dos Atendimentos (com padrões de frequência, faltas e impacto)
-4. Análise Cognitiva e Conexão com a Prática Pedagógica
-5. Identificação de Padrões (evolução, regressão, estabilidade)
-6. Parecer Técnico e Recomendações
+Preencha TODOS os campos "value" com análise real, técnica e específica. Português brasileiro formal.`;
 
-Cada seção: 2 a 5 campos. Preencha todos os valores com conteúdo real e técnico. Português brasileiro formal.`;
+    // ── Genérico (FICHA, outros tipos) ───────────────────────────────────────────
     } else {
-      prompt = `Você é especialista em educação inclusiva e documentação pedagógica brasileira.
-Gere um documento completo do tipo "${docLabel}" para o aluno abaixo.
+      prompt = `Você é especialista em educação inclusiva e documentação pedagógica brasileira conforme a Lei Brasileira de Inclusão (Lei 13.146/2015) e diretrizes do MEC.
+
+Gere o documento pedagógico do tipo "${docLabel}" para o aluno abaixo. Este documento será usado por equipes escolares, famílias e profissionais de saúde.
 
 ${studentDataBlock}
+${familyBlock}
 
-RETORNE SOMENTE o JSON válido abaixo, sem texto adicional, sem markdown:
+REGRAS:
+1. Nunca gere texto genérico. Todo conteúdo deve partir dos dados reais fornecidos.
+2. Se a fala da família estiver disponível, interprete-a — não transcreva.
+3. Linguagem técnica formal, sem "não informado". Se um dado estiver ausente, infira a partir do diagnóstico.
+4. Mínimo 4 seções, máximo 8. Cada seção: 2 a 5 campos.
+
+RETORNE SOMENTE o JSON válido. Campos "value" devem conter conteúdo REAL:
 {
   "sections": [
     {
       "id": "sec1",
       "title": "Nome da Seção",
       "fields": [
-        { "id": "f1", "label": "Nome do Campo", "type": "textarea", "value": "Conteúdo..." }
+        { "id": "f1", "label": "Nome do Campo", "type": "textarea", "value": "" }
       ]
     }
   ]
 }
 
-Regras: type "textarea" para textos longos, type "text" para valores curtos.
-Mínimo 4 seções, máximo 8. Cada seção: 2 a 5 campos. Português brasileiro formal.
-Baseie-se nas melhores práticas de educação inclusiva e na LDBEN/Lei Brasileira de Inclusão.`;
+Preencha TODOS os "value" com conteúdo gerado. Português brasileiro formal.`;
     }
 
     let jsonResult: string;
@@ -541,12 +751,25 @@ Baseie-se nas melhores práticas de educação inclusiva e na LDBEN/Lei Brasilei
     }
 
     // Validação de qualidade + reparo automático (sem débito extra de créditos)
+    // Limitado a 12s para não bloquear o usuário — o reparo é melhoria opcional
     if (canonicalCtx) {
       try {
-        const { output } = await CanonicalStudentContextService.validateAndRepair(
-          prompt, jsonResult, mapDocTypeToCategory(String(type)), canonicalCtx,
-        );
-        jsonResult = output;
+        const repairResult = await Promise.race([
+          CanonicalStudentContextService.validateAndRepair(
+            prompt, jsonResult, mapDocTypeToCategory(String(type)), canonicalCtx,
+          ),
+          new Promise<null>((_, reject) => setTimeout(() => reject(new Error('repair_timeout')), 12_000)),
+        ]);
+        if (repairResult) {
+          const { output, audit } = repairResult as Awaited<ReturnType<typeof CanonicalStudentContextService.validateAndRepair>>;
+          jsonResult = output;
+          if (!audit.firstPassApproved) {
+            console.info(
+              `[AIService] reparo automático — tipo: ${String(type)} | score inicial: ${audit.initialScore} | score final: ${audit.finalScore} | reparado: ${audit.repairSucceeded}`,
+              audit.initialIssues,
+            );
+          }
+        }
       } catch { /* validação é opcional — não bloqueia o fluxo */ }
     }
 

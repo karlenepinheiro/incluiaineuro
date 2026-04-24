@@ -11,6 +11,7 @@ import { DocumentTemplateEditor } from './DocumentTemplateEditor';
 import { AudioEnhancedTextarea } from './AudioEnhancedTextarea';
 import { AudioRecorder } from './AudioRecorder';
 import { ExportService } from '../services/exportService';
+import { PDFGenerator } from '../services/PDFGenerator';
 import { StorageService } from '../services/storageService';
 import { AIService } from '../services/aiService';
 import { StudentContextService } from '../services/studentContextService';
@@ -1137,6 +1138,40 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
     }, 800);
   };
 
+  // ── Gerar PDF real via jsPDF (separado do Imprimir) ──────────────────────────
+  const [generatingPDF, setGeneratingPDF] = useState(false);
+  const handleGeneratePDF = async () => {
+    if (!selectedStudent || sections.length === 0) { alert('Nenhum conteúdo para exportar.'); return; }
+    setGeneratingPDF(true);
+    try {
+      const school = user.schoolConfigs?.[0] ?? null;
+      const auditCode = currentAuditCode || generateSecureAuditCode(user.name);
+      const pdfSections = sections.map(sec => ({
+        title: sec.title,
+        fields: (sec.fields ?? []).map(f => ({
+          label:    f.label,
+          value:    f.value ?? '',
+          type:     f.type,
+          maxScale: (f as any).maxScale,
+        })),
+      }));
+      const blob = await PDFGenerator.generateFromSections({
+        docType:  type,
+        title:    type,
+        student:  selectedStudent,
+        user:     user as any,
+        school,
+        sections: pdfSections,
+        auditCode,
+      });
+      PDFGenerator.download(blob, `${type}_${selectedStudent.name.replace(/\s+/g, '_')}_${auditCode}.pdf`);
+    } catch (e: any) {
+      alert(`Erro ao gerar PDF: ${e?.message || 'Tente novamente.'}`);
+    } finally {
+      setGeneratingPDF(false);
+    }
+  };
+
   // ── Troca de aluno com autocomplete ─────────────────────────────────────────
 
   const handleSwitchStudent = (student: Student) => {
@@ -1637,7 +1672,16 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
             <div className="flex flex-wrap gap-2 justify-end w-full md:w-auto">
                 
                 <button onClick={handlePrint} className="px-3 py-2 bg-gray-100 rounded hover:bg-gray-200 flex gap-2 text-sm font-medium" title="Imprimir documento atual"><Printer size={16}/> <span className="hidden sm:inline">Imprimir</span></button>
-                <button onClick={handlePrint} className="px-3 py-2 border border-brand-200 text-brand-700 rounded hover:bg-brand-50 flex gap-2 text-sm font-medium" title="Salvar como PDF via impressão"><Download size={16}/> <span className="hidden sm:inline">PDF</span></button>
+                <button
+                  onClick={handleGeneratePDF}
+                  disabled={generatingPDF}
+                  className="px-3 py-2 border border-brand-200 text-brand-700 rounded hover:bg-brand-50 flex gap-2 text-sm font-medium disabled:opacity-60"
+                  title="Gerar arquivo PDF auditável"
+                >
+                  {generatingPDF
+                    ? <><span className="w-4 h-4 border-2 border-brand-300 border-t-brand-700 rounded-full animate-spin" /> <span className="hidden sm:inline">Gerando…</span></>
+                    : <><Download size={16}/> <span className="hidden sm:inline">Gerar PDF</span></>}
+                </button>
                 
                 {isEditing && (
                     <>

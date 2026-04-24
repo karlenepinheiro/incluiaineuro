@@ -29,6 +29,8 @@ import { jwtVerify, createRemoteJWKSet } from 'https://esm.sh/jose@5';
 import { generateGeminiText, generateGeminiJSON, generateVertexImage } from './_vertex.ts';
 import { getTenantContext, checkCredits, debitCredits }               from './_credits.ts';
 import { createAuditRecord, completeAuditRecord, modelForTask, outputTypeForTask } from './_audit.ts';
+import { buildCanonicalContext }                                      from './_contextBuilder.ts';
+import { callAIWithRetryAndTimeout, validateAndRepair }               from './_aiUtils.ts';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -49,11 +51,13 @@ const CORS_HEADERS = {
 // ─── Tipos do payload ─────────────────────────────────────────────────────────
 
 interface GatewayPayload {
-  task:             'text' | 'json' | 'image';
+  task:             'text' | 'json' | 'image' | 'document';
   prompt:           string;
   imageBase64?:     string;
   creditsRequired?: number;  // 0 ou undefined = sem check/débito
   requestType?:     string;  // undefined = sem registro de auditoria
+  studentId?:       string;
+  documentType?:    string;
 }
 
 // ─── Handler principal ────────────────────────────────────────────────────────
@@ -114,10 +118,10 @@ Deno.serve(async (req: Request) => {
     return jsonError('Invalid JSON body', 400);
   }
 
-  const { task, prompt, imageBase64, creditsRequired = 0, requestType } = body;
+  const { task, prompt, imageBase64, creditsRequired = 0, requestType, studentId, documentType } = body;
 
-  if (!task || !['text', 'json', 'image'].includes(task)) {
-    return jsonError('Campo "task" inválido. Valores aceitos: text, json, image', 400);
+  if (!task || !['text', 'json', 'image', 'document'].includes(task)) {
+    return jsonError('Campo "task" inválido. Valores aceitos: text, json, image, document', 400);
   }
   if (typeof prompt !== 'string' || prompt.trim().length === 0) {
     return jsonError('Campo "prompt" é obrigatório e não pode estar vazio', 400);
@@ -157,26 +161,61 @@ Deno.serve(async (req: Request) => {
       tenantId,
       userId,
       requestType,
-      model:           modelForTask(task),
+      model:           modelForTask(task === 'document' ? 'json' : task),
       creditsConsumed: cost,
       inputSummary:    { task, promptLength: prompt.length },
     });
   }
 
-  // ── 6. Chamar o provider ────────────────────────────────────────────────────
+  // ── 5.5 Carregar Contexto Canônico (se task=document) ──────────────────────
+  let finalPrompt = prompt;
+  let contextWarnings: string[] = [];
+  let missingSources: string[] = [];
+
+  if (task === 'document') {
+    if (!studentId) return jsonError('O campo studentId é obrigatório para task="document"', 400);
+    try {
+      const ctx = await buildCanonicalContext(adminDb, studentId, tenantId);
+      contextWarnings = ctx.warnings;
+      missingSources = ctx.missingOptionalSources;
+
+      if (contextWarnings.length > 0) {
+        console.info('[ai-gateway] Contexto gerado com warnings opcionais:', contextWarnings);
+      }
+
+      finalPrompt = `${prompt}\n\n[DADOS CANÔNICOS DO ALUNO]\n${JSON.stringify(ctx.data)}`;
+    } catch (e: any) {
+      console.error('[ai-gateway] Erro ao construir contexto:', e.message);
+      const isCritical = e.message.includes('CRITICAL');
+      return jsonError(`Falha nos dados do aluno: ${e.message}`, isCritical ? 400 : 500);
+    }
+  }
+
+  // ── 6. Chamar o provider com Retry, Timeout e Validação ──────────────────────
   const t0 = Date.now();
   let result: string;
+  let parsedDocument: any = null;
   let providerError: string | null = null;
 
   try {
-    if (task === 'image') {
-      result = await generateVertexImage(prompt.trim());
-    } else if (task === 'json') {
-      result = await generateGeminiJSON(prompt.trim());
-    } else {
-      const img = typeof imageBase64 === 'string' && imageBase64.length > 0
-        ? imageBase64 : undefined;
-      result = await generateGeminiText(prompt.trim(), img);
+    const aiCall = async () => {
+      if (task === 'image') {
+        return await generateVertexImage(finalPrompt.trim());
+      } else if (task === 'json' || task === 'document') {
+        return await generateGeminiJSON(finalPrompt.trim());
+      } else {
+        const img = typeof imageBase64 === 'string' && imageBase64.length > 0 ? imageBase64 : undefined;
+        return await generateGeminiText(finalPrompt.trim(), img);
+      }
+    };
+
+    // 1 retry, 45s por tentativa — suficiente para Gemini 2.5 Flash gerar JSON complexo
+    // Total máximo: ~90s; dentro do limite de Edge Functions com plano Pro (150s)
+    result = await callAIWithRetryAndTimeout(aiCall, 1, 45_000);
+
+    if (task === 'json' || task === 'document') {
+      parsedDocument = await validateAndRepair(result);
+      result = JSON.stringify(parsedDocument); // Formata com segurança para o Audit
     }
   } catch (e: unknown) {
     providerError = (e instanceof Error ? e.message : String(e)) || 'PROVIDER_ERROR';
@@ -227,8 +266,39 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // ── 8.5 Persistir documento gerado no banco de dados (M05) ───────────────────
+  let documentId: string | undefined = undefined;
+  if (task === 'document' && parsedDocument) {
+    try {
+      const { data: docData, error: docErr } = await adminDb.from('documents').insert({
+        tenant_id: tenantId,
+        student_id: studentId,
+        doc_type: documentType || 'RELATORIO',
+        structured_data: parsedDocument,
+        status: 'DRAFT'
+      }).select('id').single();
+
+      if (docErr) {
+        console.error('[ai-gateway] Erro ao persistir documento na tabela:', docErr.message);
+      } else {
+        documentId = docData.id;
+      }
+    } catch (err) {
+      console.error('[ai-gateway] Exceção ao persistir documento:', err);
+    }
+  }
+
   // ── 9. Retornar resultado ────────────────────────────────────────────────────
-  const response: Record<string, unknown> = { result };
+  const response: Record<string, unknown> = {
+    result: parsedDocument !== null ? parsedDocument : result
+  };
+
+  if (task === 'document') {
+    response.warnings = contextWarnings;
+    response.missingOptionalSources = missingSources;
+    if (documentId) response.documentId = documentId;
+  }
+
   if (creditsRemaining !== undefined) response.creditsRemaining = creditsRemaining;
   if (auditId)                         response.auditId         = auditId;
 
@@ -256,6 +326,7 @@ function friendlyError(raw: string): string {
   if (raw.includes('CONFIG_VERTEX_IMAGE')) return 'Serviço de imagem IA não configurado. Contate o suporte.';
   if (raw.includes('429') || raw.includes('QUOTA')) return 'Limite de uso da IA atingido. Aguarde alguns instantes.';
   if (raw.includes('403'))                 return 'Sem permissão para acessar o modelo de IA. Verifique a service account.';
-  if (raw.includes('AbortError') || raw.includes('aborted')) return 'Tempo de resposta da IA excedido. Tente novamente.';
+  if (raw.includes('AbortError') || raw.includes('aborted') || raw.includes('TIMEOUT_EXCEEDED')) return 'Tempo de resposta da IA excedido. Tente novamente.';
+  if (raw.includes('VALIDATION_ERROR'))    return 'A IA gerou um documento com formato inválido. Tente novamente.';
   return 'Ocorreu um erro ao processar sua solicitação. Tente novamente.';
 }

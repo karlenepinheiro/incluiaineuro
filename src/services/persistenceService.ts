@@ -365,6 +365,22 @@ export const ObservationFormService = {
       return [];
     }
   },
+
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('observation_forms')
+      .delete()
+      .eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+
+  async update(id: string, fieldsData: Record<string, any>, status?: string): Promise<void> {
+    const { error } = await supabase
+      .from('observation_forms')
+      .update({ fields_data: fieldsData, status: status ?? 'finalizado', updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw new Error(error.message);
+  },
 };
 
 // ---------------------------------------------------------------------------

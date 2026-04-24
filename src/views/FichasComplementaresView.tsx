@@ -6,7 +6,7 @@ import { Student, User } from '../types';
 import {
   ClipboardCheck, FileText, Save, ShieldCheck, History,
   FilePlus, Download, Upload, PenLine, HandMetal,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Trash2, Eye, RotateCcw,
 } from 'lucide-react';
 import { AudioEnhancedTextarea } from '../components/AudioEnhancedTextarea';
 import { DynamicChecklist, DynChecklistSection } from '../components/DynamicChecklist';
@@ -312,6 +312,9 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
   const [fichaValues, setFichaValues] = useState<Record<string, Record<string, string>>>({});
   const [savedFichas, setSavedFichas] = useState<Record<string, { code: string; savedAt: string }>>({});
   const [generatingFicha, setGeneratingFicha] = useState<string | null>(null);
+  const [allFichaRecords, setAllFichaRecords] = useState<any[]>([]);
+  const [expandedFichaHistory, setExpandedFichaHistory] = useState<string | null>(null);
+  const [deletingFichaId, setDeletingFichaId] = useState<string | null>(null);
 
   // Tab 2: Documentos para Responsáveis
   const [parentDocs, setParentDocs] = useState<Record<string, ParentDocState>>({});
@@ -407,6 +410,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
       });
       setFichaValues(valuesFromDb);
       setSavedFichas(savedFromDb);
+      setAllFichaRecords(forms);
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudentId]);
@@ -500,6 +504,56 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
     } finally {
       setGeneratingFicha(null);
     }
+  };
+
+  // ─── Fichas — histórico CRUD ────────────────────────────────────────────────
+  const handleDeleteFichaRecord = async (recordId: string, fichaId: string) => {
+    if (!window.confirm('Excluir este registro de ficha? Esta ação não pode ser desfeita.')) return;
+    setDeletingFichaId(recordId);
+    try {
+      await ObservationFormService.delete(recordId);
+      const updated = allFichaRecords.filter(r => r.id !== recordId);
+      setAllFichaRecords(updated);
+      // Se era o mais recente, limpar o salvamento do tipo
+      const stillHasType = updated.some(r => r.form_type === fichaId);
+      if (!stillHasType) {
+        setSavedFichas(prev => { const n = { ...prev }; delete n[fichaId]; return n; });
+        setFichaValues(prev => { const n = { ...prev }; delete n[fichaId]; return n; });
+      } else {
+        const first = updated.find(r => r.form_type === fichaId);
+        if (first) {
+          setSavedFichas(prev => ({
+            ...prev,
+            [fichaId]: { code: first.audit_code ?? `FICHA-${first.id.substring(0, 8).toUpperCase()}`, savedAt: first.created_at },
+          }));
+          setFichaValues(prev => ({ ...prev, [fichaId]: first.fields_data ?? {} }));
+        }
+      }
+    } catch (e: any) {
+      alert(`Erro ao excluir: ${e?.message || 'Tente novamente.'}`);
+    } finally {
+      setDeletingFichaId(null);
+    }
+  };
+
+  const handleReopenFichaRecord = (record: any) => {
+    setFichaValues(prev => ({ ...prev, [record.form_type]: record.fields_data ?? {} }));
+    setExpandedFicha(record.form_type);
+    setExpandedFichaHistory(null);
+  };
+
+  const handlePdfFichaRecord = async (record: any) => {
+    const ficha = FICHAS.find(f => f.id === record.form_type);
+    if (!selectedStudent || !ficha) return;
+    const vals = record.fields_data ?? {};
+    const auditCode = record.audit_code ?? `FICHA-${record.id.substring(0, 8).toUpperCase()}`;
+    setGeneratingFicha(`hist_${record.id}`);
+    try {
+      const fields = ficha.fields.map(f => ({ label: f.label, value: vals[f.id] || '', isScale: f.type === 'scale' }));
+      const blob = await PDFGenerator.generateFicha({ fichaTitle: ficha.title, fichaIcon: ficha.icon, fields, student: selectedStudent, user, school, auditCode });
+      PDFGenerator.download(blob, `${ficha.title}_${selectedStudent.name}_${auditCode}.pdf`);
+    } catch { alert('Erro ao gerar PDF.'); }
+    finally { setGeneratingFicha(null); }
   };
 
   // ─── Documentos helpers ─────────────────────────────────────────────────────
@@ -805,7 +859,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
                           ))}
                         </div>
 
-                        <div className="flex gap-3 mt-6 pt-4 border-t border-white/60">
+                        <div className="flex flex-wrap gap-3 mt-6 pt-4 border-t border-white/60">
                           <button
                             onClick={() => handleSaveFicha(ficha.id)}
                             className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl font-bold text-sm hover:bg-black transition"
@@ -814,7 +868,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
                           </button>
                           <button
                             onClick={() => handlePrintFicha(ficha)}
-                            disabled={generatingFicha === ficha.id}
+                            disabled={!!generatingFicha}
                             className="flex items-center gap-2 px-4 py-2 text-white rounded-xl font-bold text-sm transition disabled:opacity-60"
                             style={{ background: '#1F4E5F' }}
                           >
@@ -829,6 +883,71 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
                             </div>
                           )}
                         </div>
+
+                        {/* ── Histórico de fichas salvas ── */}
+                        {(() => {
+                          const records = allFichaRecords.filter(r => r.form_type === ficha.id);
+                          if (!records.length) return null;
+                          const showHist = expandedFichaHistory === ficha.id;
+                          return (
+                            <div className="mt-3 pt-3 border-t border-dashed border-gray-200">
+                              <button
+                                onClick={() => setExpandedFichaHistory(showHist ? null : ficha.id)}
+                                className="flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-gray-700 transition"
+                              >
+                                <History size={13} />
+                                Registros salvos ({records.length})
+                                {showHist ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                              </button>
+                              {showHist && (
+                                <div className="mt-3 space-y-2">
+                                  {records.map((rec: any) => (
+                                    <div key={rec.id} className="flex items-center gap-2 p-2.5 rounded-xl bg-[#F6F4EF] border border-[#E7E2D8]">
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-bold text-gray-700 truncate font-mono">
+                                          {rec.audit_code ?? `FICHA-${rec.id.substring(0, 8).toUpperCase()}`}
+                                        </p>
+                                        <p className="text-xs text-gray-400">
+                                          {new Date(rec.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                          {rec.created_by ? ` · ${rec.created_by}` : ''}
+                                        </p>
+                                      </div>
+                                      <div className="flex gap-1 shrink-0">
+                                        <button
+                                          title="Reabrir para edição"
+                                          onClick={() => handleReopenFichaRecord(rec)}
+                                          className="p-1.5 rounded-lg text-gray-500 hover:bg-white hover:text-[#1F4E5F] transition"
+                                        >
+                                          <RotateCcw size={13} />
+                                        </button>
+                                        <button
+                                          title="Gerar PDF deste registro"
+                                          onClick={() => handlePdfFichaRecord(rec)}
+                                          disabled={generatingFicha === `hist_${rec.id}`}
+                                          className="p-1.5 rounded-lg text-gray-500 hover:bg-white hover:text-[#1F4E5F] transition disabled:opacity-40"
+                                        >
+                                          {generatingFicha === `hist_${rec.id}`
+                                            ? <span className="w-3 h-3 border-2 border-gray-400 border-t-[#1F4E5F] rounded-full animate-spin inline-block" />
+                                            : <Download size={13} />}
+                                        </button>
+                                        <button
+                                          title="Excluir registro"
+                                          onClick={() => handleDeleteFichaRecord(rec.id, ficha.id)}
+                                          disabled={deletingFichaId === rec.id}
+                                          className="p-1.5 rounded-lg text-gray-500 hover:bg-white hover:text-red-600 transition disabled:opacity-40"
+                                        >
+                                          {deletingFichaId === rec.id
+                                            ? <span className="w-3 h-3 border-2 border-gray-400 border-t-red-500 rounded-full animate-spin inline-block" />
+                                            : <Trash2 size={13} />}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </>
                     )}
                   </div>

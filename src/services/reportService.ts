@@ -348,12 +348,23 @@ Gere o relatório agora no formato JSON conforme instruído. Retorne APENAS o JS
   let rawText = await AIService.generateReport('', fullPrompt, user, modelId ?? 'padrao');
 
   // Validação pós-geração + reparo automático (modo completo — sem débito extra)
+  // Limitado a 12s para não bloquear o usuário
   if (mode === 'completo' && canonicalCtx) {
     try {
-      const { output } = await CanonicalStudentContextService.validateAndRepair(
-        fullPrompt, rawText, 'relatorio', canonicalCtx,
-      );
-      rawText = output;
+      const repairResult = await Promise.race([
+        CanonicalStudentContextService.validateAndRepair(fullPrompt, rawText, 'relatorio', canonicalCtx),
+        new Promise<null>((_, reject) => setTimeout(() => reject(new Error('repair_timeout')), 12_000)),
+      ]);
+      if (repairResult) {
+        const { output, audit } = repairResult as Awaited<ReturnType<typeof CanonicalStudentContextService.validateAndRepair>>;
+        rawText = output;
+        if (!audit.firstPassApproved) {
+          console.info(
+            `[ReportService] reparo automático — score inicial: ${audit.initialScore} | score final: ${audit.finalScore} | aprovado: ${audit.repairSucceeded}`,
+            audit.initialIssues,
+          );
+        }
+      }
     } catch { /* validação é opcional — não bloqueia */ }
   }
 

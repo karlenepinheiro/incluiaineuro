@@ -3,67 +3,100 @@
  *
  * Único ponto de contato do browser com IA.
  * O JWT do usuário logado é enviado automaticamente pelo cliente Supabase.
- *
- * Sub-etapa 2A: request agora inclui creditsRequired e requestType.
- * Response agora inclui creditsRemaining e auditId quando o servidor os debitar.
  */
 
 import { supabase } from './supabase';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-export type AITask = 'text' | 'json' | 'image';
+export type AITask = 'text' | 'json' | 'image' | 'document';
 
 export interface AIGatewayRequest {
   task:              AITask;
   prompt:            string;
   imageBase64?:      string;
-  /**
-   * Créditos necessários para esta operação.
-   * O servidor verificará o saldo ANTES de chamar a IA e debitará APÓS sucesso.
-   * 0 ou undefined = sem verificação nem débito no servidor.
-   */
   creditsRequired?:  number;
-  /**
-   * Tipo de operação para o registro de auditoria (ex: "protocol_pei", "activity").
-   * undefined = sem registro de auditoria no servidor para esta chamada.
-   */
   requestType?:      string;
+  studentId?:        string;
+  documentType?:     string;
 }
 
 export interface AIGatewayResponse {
-  result:              string;
-  /**
-   * Saldo restante após o débito no servidor.
-   * Definido somente quando o servidor efetivamente debitou os créditos.
-   * undefined durante a 2A se o débito do servidor falhar (o frontend debitará como fallback).
-   */
-  creditsRemaining?:   number;
-  /**
-   * UUID do registro em ai_requests criado pelo servidor.
-   * Definido somente quando requestType foi fornecido.
-   */
-  auditId?:            string;
+  result:                    string;
+  creditsRemaining?:         number;
+  auditId?:                  string;
+  documentId?:               string;
+  warnings?:                 string[];
+  missingOptionalSources?:   string[];
 }
 
 // ─── Chamada principal ────────────────────────────────────────────────────────
 
 export async function callAIGateway(req: AIGatewayRequest): Promise<AIGatewayResponse> {
-  const { data, error } = await supabase.functions.invoke('ai-gateway', {
-    body: req,
-  });
+  let rawResponse: Response | undefined;
 
-  if (error) {
-    let msg = (error as any)?.message ?? 'Erro na chamada ao gateway de IA';
-    try {
-      const body = await (error as any)?.context?.json?.();
-      if (body?.error) msg = body.error;
-    } catch { /* ignora se não conseguir ler o body */ }
-    throw new Error(msg);
+  // supabase.functions.invoke não expõe o status HTTP diretamente.
+  // Usamos fetch direto para ter acesso ao status e body em caso de erro.
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+
+  const supabaseUrl = (supabase as any).supabaseUrl as string;
+  const anonKey    = (supabase as any).supabaseKey as string;
+
+  try {
+    rawResponse = await fetch(`${supabaseUrl}/functions/v1/ai-gateway`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'apikey':        anonKey,
+        'Authorization': token ? `Bearer ${token}` : `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify(req),
+    });
+  } catch (networkErr: any) {
+    // Erro de rede (sem conexão, DNS, etc.)
+    throw new Error(`Sem conexão com o servidor de IA. Verifique sua internet. (${networkErr?.message})`);
   }
 
-  if (!data) throw new Error('Gateway de IA retornou resposta vazia');
-  if (data.error) throw new Error(data.error as string);
+  // Lê o body uma única vez
+  let body: any;
+  try {
+    body = await rawResponse.json();
+  } catch {
+    throw new Error(`Gateway de IA retornou resposta não-JSON (status ${rawResponse.status}).`);
+  }
 
-  return data as AIGatewayResponse;
+  if (!rawResponse.ok) {
+    const serverMsg = body?.error ?? `Erro ${rawResponse.status} no servidor de IA`;
+
+    // Diferencia os tipos de erro para o usuário
+    if (rawResponse.status === 402) {
+      throw new Error(`INSUFFICIENT_CREDITS: ${serverMsg}`);
+    }
+    if (rawResponse.status === 401 || rawResponse.status === 403) {
+      throw new Error(`AUTH_ERROR: ${serverMsg}`);
+    }
+    if (rawResponse.status === 400) {
+      throw new Error(`DATA_ERROR: ${serverMsg}`);
+    }
+    // 500 genérico — usa a mensagem amigável que o servidor já formatou
+    throw new Error(serverMsg);
+  }
+
+  if (!body) throw new Error('Gateway de IA retornou resposta vazia.');
+  if (body.error) throw new Error(body.error as string);
+
+  // Para task 'document', result já é o objeto JSON parseado pelo servidor
+  const result = typeof body.result === 'string'
+    ? body.result
+    : JSON.stringify(body.result);
+
+  return {
+    result,
+    creditsRemaining:       body.creditsRemaining,
+    auditId:                body.auditId,
+    documentId:             body.documentId,
+    warnings:               body.warnings,
+    missingOptionalSources: body.missingOptionalSources,
+  };
 }
