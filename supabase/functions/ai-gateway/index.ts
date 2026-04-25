@@ -209,9 +209,9 @@ Deno.serve(async (req: Request) => {
       }
     };
 
-    // 1 retry, 45s por tentativa — suficiente para Gemini 2.5 Flash gerar JSON complexo
-    // Total máximo: ~90s; dentro do limite de Edge Functions com plano Pro (150s)
-    result = await callAIWithRetryAndTimeout(aiCall, 1, 45_000);
+    // 0 retries, 90s timeout — janela única que cobre Gemini 2.5 Flash em JSON longo
+    // Sem retry: evita dupla execução concorrente que esgotava o limite de 150s
+    result = await callAIWithRetryAndTimeout(aiCall, 0, 90_000);
 
     if (task === 'json' || task === 'document') {
       parsedDocument = await validateAndRepair(result);

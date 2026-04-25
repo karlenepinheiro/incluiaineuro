@@ -336,257 +336,360 @@ const planLimits = getPlanLimits(user.plan);
       }
   }, [step, user, planLimits.audit_print]);
 
-  const [isReducedMode, setIsReducedMode] = useState(true); // Padrão: versão reduzida
-
-  const buildStandardSections = (docType: DocumentType, reduced = true): DocSection[] => {
+  const buildStandardSections = (docType: DocumentType): DocSection[] => {
     if (!selectedStudent) return [];
     const school = user.schoolConfigs.find(s => s.id === selectedStudent.schoolId);
-    
-    const commonHeader: DocSection = {
-      id: 'header',
-      title: 'Identificação',
-      fields: [
-        { id: 'name', label: 'Nome do Aluno', type: 'text', value: selectedStudent.name, allowAudio: 'none' },
-        { id: 'age', label: 'Data de Nascimento', type: 'text', value: selectedStudent.birthDate ? new Date(selectedStudent.birthDate + 'T00:00:00').toLocaleDateString('pt-BR') : '—', allowAudio: 'none' },
-        { id: 'school', label: 'Unidade Escolar', type: 'text', value: school?.schoolName || '', allowAudio: 'none' },
-        { id: 'grade', label: 'Ano/Série', type: 'text', value: `${selectedStudent.grade} - ${selectedStudent.shift}`, allowAudio: 'none' },
-        { id: 'regent', label: 'Professor Regente', type: 'text', value: selectedStudent.regentTeacher || '', allowAudio: 'none' },
-        { id: 'aee', label: 'Prof. AEE', type: 'text', value: selectedStudent.aeeTeacher || '', allowAudio: 'none' },
-        { id: 'coord', label: 'Coordenação', type: 'text', value: selectedStudent.coordinator || '', allowAudio: 'none' },
-      ]
-    };
-
-    let template: DocSection[] = [commonHeader];
-
-    // ── VERSÃO REDUZIDA (6-8 campos essenciais) ──────────────────────────────
-    if (reduced) {
-      if (docType === DocumentType.ESTUDO_CASO) {
-        const histValue = [
-          selectedStudent.schoolHistory ? `Histórico Escolar:\n${selectedStudent.schoolHistory}` : '',
-          selectedStudent.familyContext  ? `Contexto Familiar:\n${selectedStudent.familyContext}`  : '',
-          selectedStudent.medication     ? `Medicação: ${selectedStudent.medication}`               : '',
-        ].filter(Boolean).join('\n\n');
-        template.push(
-          { id: 'hist', title: 'Histórico Escolar e Familiar', fields: [
-            { id: 'h1', label: 'Histórico Escolar, Contexto Familiar e Saúde', type: 'textarea',
-              value: histValue,
-              allowAudio: 'optional', placeholder: 'Histórico escolar, composição familiar, medicação...' },
-          ]},
-          { id: 'diag', title: 'Diagnóstico e Condições', fields: [
-            { id: 'd1', label: 'Diagnósticos e CID', type: 'checklist', value: selectedStudent.diagnosis || [],
-              options: ['TEA', 'TDAH', 'Deficiência Intelectual', 'Síndrome de Down', 'Deficiência Auditiva', 'Deficiência Visual', 'Deficiência Física', 'Altas Habilidades', 'Outros'],
-              allowAudio: 'optional' },
-          ]},
-          { id: 'eval', title: 'Avaliação Funcional', fields: [
-            { id: 'e1', label: 'Habilidades e Potencialidades', type: 'textarea', value: (selectedStudent.abilities || []).join('\n'), allowAudio: 'optional', placeholder: 'O que o aluno já sabe fazer?' },
-            { id: 'e2', label: 'Dificuldades e Barreiras', type: 'textarea', value: (selectedStudent.difficulties || []).join('\n'), allowAudio: 'optional', placeholder: 'Principais dificuldades observadas?' },
-          ]},
-          { id: 'concl', title: 'Conclusão e Encaminhamento', fields: [
-            { id: 'c1', label: 'Parecer Final da Equipe', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Hipótese diagnóstica e encaminhamentos sugeridos...' },
-          ]},
-        );
-      } else if (docType === DocumentType.PAEE) {
-        template.push(
-          { id: 'modal', title: 'Modalidade de Atendimento', fields: [
-            { id: 'm1', label: 'Tipo de Atendimento', type: 'checklist', value: [],
-              options: ['Sala de Recursos Multifuncionais', 'Ensino Colaborativo', 'Itinerância', 'Centro de Atendimento Especializado'],
-              allowAudio: 'optional' },
-          ]},
-          { id: 'cron', title: 'Cronograma', fields: [
-            { id: 'c1', label: 'Horários e Dias de Atendimento', type: 'textarea', value: '', allowAudio: 'optional' },
-          ]},
-          { id: 'metas', title: 'Metas Principais', fields: [
-            { id: 'mt1', label: 'Objetivos do Atendimento AEE', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Descreva as principais metas para este período...' },
-          ]},
-        );
-      } else if (docType === DocumentType.PEI) {
-        template.push(
-          { id: 'base', title: 'Nível Atual de Desempenho', fields: [
-            { id: 'hb1', label: 'Nível Atual', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Descreva o nível atual nas áreas acadêmicas e funcionais...' },
-          ]},
-          { id: 'objs', title: 'Objetivos e Metas (SMART)', fields: [
-            { id: 'obj1', label: 'Objetivos de Curto Prazo', type: 'textarea', value: '', allowAudio: 'optional' },
-            { id: 'obj2', label: 'Objetivos de Médio/Longo Prazo', type: 'textarea', value: '', allowAudio: 'optional' },
-          ]},
-          { id: 'strat', title: 'Estratégias', fields: [
-            { id: 'st1', label: 'Estratégias Pedagógicas Principais', type: 'textarea', value: '', allowAudio: 'optional' },
-          ]},
-        );
-      }
-      return template;
-    }
-
-    // ── VERSÃO COMPLETA ───────────────────────────────────────────────────────
 
     if (docType === DocumentType.PEI) {
-        template.push(
-            {
-                id: 'barreiras', title: 'Barreiras e Impedimentos',
-                fields: [
-                    {
-                        id: 'b1',
-                        label: 'Barreiras Identificadas',
-                        type: 'checklist',
-                        value: [],
-                        options: ['Arquitetônicas', 'Comunicacionais', 'Metodológicas', 'Instrumentais', 'Programáticas', 'Atitudinais'],
-                        allowAudio: 'optional'
-                    }
-                ]
-            },
-            {
-                id: 'base', title: 'Habilidades de Base',
-                fields: [
-                    { id: 'hb1', label: 'Nível Atual de Desempenho', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Descreva o nível atual nas áreas acadêmicas e funcionais...' }
-                ]
-            },
-            {
-                id: 'objs', title: 'Objetivos e Metas (SMART)',
-                fields: [
-                    { id: 'obj1', label: 'Objetivos de Curto Prazo', type: 'textarea', value: '', allowAudio: 'optional' },
-                    { id: 'obj2', label: 'Objetivos de Médio/Longo Prazo', type: 'textarea', value: '', allowAudio: 'optional' }
-                ]
-            },
-            {
-                id: 'strat', title: 'Estratégias e Recursos',
-                fields: [
-                    { id: 'st1', label: 'Estratégias Pedagógicas', type: 'textarea', value: '', allowAudio: 'optional' },
-                    { 
-                        id: 'res1', 
-                        label: 'Recursos de Tecnologia Assistiva', 
-                        type: 'checklist', 
-                        value: [], 
-                        options: ['Prancha de Comunicação', 'Engrossadores', 'Tesoura Adaptada', 'Tablet/Software', 'Mobiliário Adaptado', 'Material Ampliado', 'Recursos Táteis'],
-                        allowAudio: 'optional'
-                    }
-                ]
-            },
-            {
-                id: 'aval', title: 'Avaliação e Monitoramento',
-                fields: [
-                    { id: 'av1', label: 'Parecer Avaliativo', type: 'scale', value: { rating: 0, text: '' }, allowAudio: 'optional', minScale: 1, maxScale: 5 }
-                ]
-            }
-        );
-    } else if (docType === DocumentType.PAEE) {
-        template.push(
-            {
-                id: 'modal', title: 'Modalidade de Ensino',
-                fields: [
-                    {
-                        id: 'm1',
-                        label: 'Tipo de Atendimento',
-                        type: 'checklist',
-                        value: [],
-                        options: ['Sala de Recursos Multifuncionais', 'Ensino Colaborativo', 'Itinerância', 'Centro de Atendimento Especializado'],
-                        allowAudio: 'optional'
-                    }
-                ]
-            },
-            {
-                id: 'cron', title: 'Cronograma e Frequência',
-                fields: [
-                    { id: 'c1', label: 'Horários e Dias de Atendimento', type: 'textarea', value: '', allowAudio: 'optional' }
-                ]
-            },
-            {
-                id: 'art', title: 'Articulação',
-                fields: [
-                    { id: 'a1', label: 'Articulação com Sala Comum', type: 'textarea', value: '', allowAudio: 'optional' },
-                    { id: 'a2', label: 'Articulação com Família', type: 'textarea', value: '', allowAudio: 'optional' }
-                ]
-            },
-            {
-                id: 'rec', title: 'Recursos e Acessibilidade',
-                fields: [
-                    { 
-                        id: 'r1', 
-                        label: 'Recursos a serem produzidos', 
-                        type: 'checklist', 
-                        value: [], 
-                        options: ['Material Adaptado', 'Jogos Pedagógicos', 'Recursos de Comunicação Aumentativa', 'Adaptação de Mobiliário'],
-                        allowAudio: 'optional'
-                    }
-                ]
-            }
-        );
-    } else if (docType === DocumentType.ESTUDO_CASO) {
-        template.push(
-            {
-                id: 'hist', title: 'Histórico Escolar e Familiar',
-                fields: [
-                    { 
-                        id: 'h1', 
-                        label: 'Histórico Completo (Escolar, Familiar, Saúde)', 
-                        type: 'textarea', 
-                        value: `Histórico Escolar:\n${selectedStudent.schoolHistory || ''}\n\nContexto Familiar:\n${selectedStudent.familyContext || ''}`,
-                        allowAudio: 'optional',
-                        placeholder: 'Descreva o histórico escolar, repetências, transferências, composição familiar e dinâmica...'
-                    }
-                ]
-            },
-            {
-                id: 'diag', title: 'Diagnóstico e Impactos',
-                fields: [
-                    {
-                        id: 'd1',
-                        label: 'Diagnósticos e Condições',
-                        type: 'checklist',
-                        value: selectedStudent.diagnosis || [],
-                        options: ['TEA', 'TDAH', 'Deficiência Intelectual', 'Síndrome de Down', 'Deficiência Auditiva', 'Deficiência Visual', 'Deficiência Física', 'Altas Habilidades', 'Outros'],
-                        allowAudio: 'optional'
-                    },
-                    {
-                        id: 'd2',
-                        label: 'Áreas Impactadas',
-                        type: 'checklist',
-                        value: [],
-                        options: ['Comunicação', 'Interação Social', 'Cognição', 'Motricidade Fina', 'Motricidade Global', 'Sensorial', 'Autonomia'],
-                        allowAudio: 'optional'
-                    }
-                ]
-            },
-            {
-                id: 'eval', title: 'Avaliação Funcional / Pedagógica',
-                fields: [
-                    {
-                        id: 'e1',
-                        label: 'Habilidades e Potencialidades',
-                        type: 'textarea',
-                        value: (selectedStudent.abilities || []).join('\n'),
-                        allowAudio: 'optional',
-                        placeholder: 'O que o aluno já sabe fazer? Quais seus interesses?'
-                    },
-                    {
-                        id: 'e2',
-                        label: 'Dificuldades e Barreiras',
-                        type: 'textarea',
-                        value: (selectedStudent.difficulties || []).join('\n'),
-                        allowAudio: 'optional',
-                        placeholder: 'Quais as principais dificuldades observadas?'
-                    }
-                ]
-            },
-            {
-                 id: 'obs', title: 'Observações Comportamentais',
-                 fields: [ { id: 'o1', label: 'Comportamento em Sala/Atendimento', type: 'textarea', value: selectedStudent.observations || '', allowAudio: 'optional' } ]
-            },
-            {
-                 id: 'concl', title: 'Hipótese Diagnóstica / Conclusão',
-                 fields: [ { id: 'c1', label: 'Parecer Final da Equipe', type: 'textarea', value: '', allowAudio: 'optional' } ]
-            }
-        );
-    } else {
-        template.push({ id: 'gen', title: 'Conteúdo', fields: [{ id: '1', label: 'Descrição', type: 'textarea', value: '', allowAudio: 'optional' }] });
-    }
+      return [
+        {
+          id: 'header', title: 'Identificação',
+          fields: [
+            { id: 'name',    label: 'Nome do Aluno',       type: 'text', value: selectedStudent.name, allowAudio: 'none' },
+            { id: 'age',     label: 'Data de Nascimento',   type: 'text', value: selectedStudent.birthDate ? new Date(selectedStudent.birthDate + 'T00:00:00').toLocaleDateString('pt-BR') : '—', allowAudio: 'none' },
+            { id: 'school',  label: 'Unidade Escolar',      type: 'text', value: school?.schoolName || '', allowAudio: 'none' },
+            { id: 'grade',   label: 'Ano/Série',            type: 'text', value: `${selectedStudent.grade} - ${selectedStudent.shift}`, allowAudio: 'none' },
+            { id: 'regent',  label: 'Professor Regente',    type: 'text', value: selectedStudent.regentTeacher || '', allowAudio: 'none' },
+            { id: 'aee',     label: 'Prof. AEE',            type: 'text', value: selectedStudent.aeeTeacher || '', allowAudio: 'none' },
+            { id: 'coord',   label: 'Coordenação',          type: 'text', value: selectedStudent.coordinator || '', allowAudio: 'none' },
+            { id: 'diag',    label: 'Diagnóstico / CID',    type: 'text', value: (selectedStudent.diagnosis || []).join(', '), allowAudio: 'none' },
+            { id: 'vigencia',label: 'Vigência do PEI',      type: 'text', value: `Ano letivo ${new Date().getFullYear()}`, allowAudio: 'none' },
+          ]
+        },
+        {
+          id: 'sintese', title: 'Estudo de Caso / Síntese-base',
+          fields: [
+            { id: 'sint1', label: 'Síntese do Estudo de Caso ou histórico relevante', type: 'textarea', value: selectedStudent.schoolHistory || '', allowAudio: 'optional', placeholder: 'Principais achados do Estudo de Caso que embasam este PEI...' },
+            { id: 'sint2', label: 'Contexto familiar e fatores de suporte', type: 'textarea', value: selectedStudent.familyContext || '', allowAudio: 'optional', placeholder: 'Como a família apoia o processo escolar? Fatores de risco ou proteção?' },
+          ]
+        },
+        {
+          id: 'potencial', title: 'Potencialidades',
+          fields: [
+            { id: 'pot1', label: 'Habilidades, interesses e pontos fortes', type: 'textarea', value: (selectedStudent.abilities || []).join('\n'), allowAudio: 'optional', placeholder: 'O que o aluno já faz bem? Quais são seus interesses e áreas de maior engajamento?' },
+          ]
+        },
+        {
+          id: 'necessidades', title: 'Necessidades Educacionais e Barreiras',
+          fields: [
+            { id: 'nec1', label: 'Principais necessidades educacionais especiais', type: 'textarea', value: (selectedStudent.difficulties || []).join('\n'), allowAudio: 'optional', placeholder: 'Necessidades pedagógicas identificadas...' },
+            { id: 'nec2', label: 'Barreiras identificadas', type: 'checklist', value: [], options: ['Arquitetônicas', 'Comunicacionais', 'Metodológicas', 'Instrumentais', 'Programáticas', 'Atitudinais', 'Sensoriais'], allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'obj_geral', title: 'Objetivo Geral do PEI',
+          fields: [
+            { id: 'og1', label: 'Objetivo geral para o ano letivo', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Objetivo amplo e integrativo para este ano, conectando todas as áreas...' },
+          ]
+        },
+        {
+          id: 'portugues', title: 'Língua Portuguesa',
+          fields: [
+            { id: 'pt_bncc',  label: 'Habilidades BNCC trabalhadas',  type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Ex: EF01LP01, EF02LP03...' },
+            { id: 'pt_obj',   label: 'Objetivos pedagógicos',         type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'O que o aluno deverá ser capaz de fazer ao final do período?' },
+            { id: 'pt_estrat',label: 'Estratégias de ensino',         type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Metodologias e estratégias a serem utilizadas...' },
+            { id: 'pt_adapt', label: 'Adaptações curriculares',       type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Adaptações de conteúdo, processo ou produto...' },
+            { id: 'pt_aval',  label: 'Critérios de avaliação',        type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Como o aprendizado será avaliado? Indicadores observáveis...' },
+          ]
+        },
+        {
+          id: 'matematica', title: 'Matemática',
+          fields: [
+            { id: 'mt_bncc',  label: 'Habilidades BNCC trabalhadas',  type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Ex: EF01MA01, EF02MA05...' },
+            { id: 'mt_obj',   label: 'Objetivos pedagógicos',         type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'mt_estrat',label: 'Estratégias de ensino',         type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'mt_adapt', label: 'Adaptações curriculares',       type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'mt_aval',  label: 'Critérios de avaliação',        type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'ciencias', title: 'Ciências',
+          fields: [
+            { id: 'ci_bncc',  label: 'Habilidades BNCC trabalhadas',  type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'ci_obj',   label: 'Objetivos pedagógicos',         type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'ci_estrat',label: 'Estratégias de ensino',         type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'ci_adapt', label: 'Adaptações curriculares',       type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'ci_aval',  label: 'Critérios de avaliação',        type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'historia', title: 'História',
+          fields: [
+            { id: 'hi_bncc',  label: 'Habilidades BNCC trabalhadas',  type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'hi_obj',   label: 'Objetivos pedagógicos',         type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'hi_estrat',label: 'Estratégias de ensino',         type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'hi_adapt', label: 'Adaptações curriculares',       type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'hi_aval',  label: 'Critérios de avaliação',        type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'geografia', title: 'Geografia',
+          fields: [
+            { id: 'ge_bncc',  label: 'Habilidades BNCC trabalhadas',  type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'ge_obj',   label: 'Objetivos pedagógicos',         type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'ge_estrat',label: 'Estratégias de ensino',         type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'ge_adapt', label: 'Adaptações curriculares',       type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'ge_aval',  label: 'Critérios de avaliação',        type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'ed_religiosa', title: 'Ensino Religioso (se aplicável)',
+          fields: [
+            { id: 'er_obj',   label: 'Objetivos pedagógicos',   type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'er_adapt', label: 'Adaptações e estratégias', type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'ed_fisica', title: 'Educação Física (se aplicável)',
+          fields: [
+            { id: 'ef_bncc',  label: 'Habilidades BNCC trabalhadas',  type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'ef_obj',   label: 'Objetivos pedagógicos',         type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'ef_adapt', label: 'Adaptações e estratégias',      type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'recursos', title: 'Recursos e Acessibilidade',
+          fields: [
+            { id: 'rec1', label: 'Recursos de Tecnologia Assistiva', type: 'checklist', value: [], options: ['Prancha de Comunicação', 'PECS/CAA', 'Engrossadores', 'Tesoura Adaptada', 'Tablet/Software Adaptado', 'Mobiliário Adaptado', 'Material Ampliado', 'Recursos Táteis', 'Audiodescrição'], allowAudio: 'optional' },
+            { id: 'rec2', label: 'Adaptações de ambiente e material', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Adaptações de sala, iluminação, mobiliário, materiais didáticos...' },
+          ]
+        },
+        {
+          id: 'comportamento', title: 'Comportamento e Autonomia',
+          fields: [
+            { id: 'comp1', label: 'Comportamentos observados e estratégias de manejo', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Quais comportamentos interferem na aprendizagem? Quais estratégias serão usadas?' },
+            { id: 'comp2', label: 'Metas de autonomia e independência', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'O que o aluno deverá conseguir fazer com maior independência?' },
+          ]
+        },
+        {
+          id: 'avaliacao', title: 'Avaliação',
+          fields: [
+            { id: 'av1', label: 'Formas de avaliação adaptada', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Como o aluno será avaliado? Quais adaptações no processo avaliativo?' },
+            { id: 'av2', label: 'Instrumentos e periodicidade', type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'monitoramento', title: 'Monitoramento',
+          fields: [
+            { id: 'mon1', label: 'Periodicidade de revisão do PEI',    type: 'text',     value: 'Bimestral', allowAudio: 'none' },
+            { id: 'mon2', label: 'Responsáveis pelo monitoramento',    type: 'text',     value: selectedStudent.aeeTeacher ? `Prof. AEE: ${selectedStudent.aeeTeacher}` : 'Professor AEE e Professor Regente', allowAudio: 'none' },
+            { id: 'mon3', label: 'Observações do monitoramento',       type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'assinaturas', title: 'Assinaturas',
+          fields: [
+            { id: 'ass1', label: 'Professor Regente',        type: 'text', value: selectedStudent.regentTeacher || '', allowAudio: 'none' },
+            { id: 'ass2', label: 'Professor AEE',            type: 'text', value: selectedStudent.aeeTeacher || '', allowAudio: 'none' },
+            { id: 'ass3', label: 'Coordenação / Direção',    type: 'text', value: selectedStudent.coordinator || '', allowAudio: 'none' },
+            { id: 'ass4', label: 'Responsável pelo Aluno',   type: 'text', value: '', allowAudio: 'none' },
+            { id: 'ass5', label: 'Data de elaboração',       type: 'text', value: new Date().toLocaleDateString('pt-BR'), allowAudio: 'none' },
+          ]
+        },
+      ];
 
-    return template;
+    } else if (docType === DocumentType.ESTUDO_CASO) {
+      return [
+        {
+          id: 'dados_inst', title: 'Dados Institucionais',
+          fields: [
+            { id: 'di_escola',    label: 'Unidade Escolar',            type: 'text', value: school?.schoolName || '', allowAudio: 'none' },
+            { id: 'di_municipio', label: 'Município / Secretaria',     type: 'text', value: '', allowAudio: 'none' },
+            { id: 'di_data',      label: 'Data de elaboração',         type: 'text', value: new Date().toLocaleDateString('pt-BR'), allowAudio: 'none' },
+          ]
+        },
+        {
+          id: 'responsaveis', title: 'Responsáveis pela Construção do Estudo de Caso',
+          fields: [
+            { id: 'resp1', label: 'Professor Regente / Sala Comum',        type: 'text',     value: selectedStudent.regentTeacher || '', allowAudio: 'none' },
+            { id: 'resp2', label: 'Professor AEE / Sala de Recursos',      type: 'text',     value: selectedStudent.aeeTeacher || '', allowAudio: 'none' },
+            { id: 'resp3', label: 'Coordenação / Direção',                 type: 'text',     value: selectedStudent.coordinator || '', allowAudio: 'none' },
+            { id: 'resp4', label: 'Outros profissionais participantes',    type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Psicólogo, fonoaudiólogo, assistente social...' },
+          ]
+        },
+        {
+          id: 'header', title: 'Identificação do Estudante',
+          fields: [
+            { id: 'name',       label: 'Nome completo',                      type: 'text',     value: selectedStudent.name, allowAudio: 'none' },
+            { id: 'age',        label: 'Data de Nascimento',                 type: 'text',     value: selectedStudent.birthDate ? new Date(selectedStudent.birthDate + 'T00:00:00').toLocaleDateString('pt-BR') : '—', allowAudio: 'none' },
+            { id: 'grade',      label: 'Ano/Série',                          type: 'text',     value: `${selectedStudent.grade} - ${selectedStudent.shift}`, allowAudio: 'none' },
+            { id: 'd1',         label: 'Diagnóstico e CID (se houver)',      type: 'text',     value: (selectedStudent.diagnosis || []).join(', '), allowAudio: 'none' },
+            { id: 'id_demanda', label: 'Motivo do Estudo de Caso / Demanda de encaminhamento', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Qual situação motivou a abertura deste Estudo de Caso?' },
+          ]
+        },
+        {
+          id: 'modalidades', title: 'Modalidades e Serviços Acessados',
+          fields: [
+            { id: 'mod1', label: 'Serviços da educação especial que o aluno acessa', type: 'checklist', value: [], options: ['Sala de Recursos Multifuncionais (AEE)', 'Classe Especial', 'Ensino Colaborativo', 'Itinerância', 'APAE / Centro Especializado', 'CAPS Infantil', 'Outros serviços de saúde'], allowAudio: 'optional' },
+            { id: 'mod2', label: 'Frequência e periodicidade dos atendimentos', type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'historico', title: 'Histórico de Escolarização',
+          fields: [
+            { id: 'hist1', label: 'Trajetória escolar (escolas, anos, turmas, repetências)', type: 'textarea', value: selectedStudent.schoolHistory || '', allowAudio: 'optional', placeholder: 'Percurso escolar: onde estudou, repetências, transferências, intercorrências...' },
+            { id: 'hist2', label: 'Percepção do estudante sobre a escola', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'O que o aluno diz/demonstra sobre sua experiência escolar?' },
+          ]
+        },
+        {
+          id: 'cuidador', title: 'Oferta / Necessidade de Cuidador Social',
+          fields: [
+            { id: 'cui1', label: 'O aluno necessita de cuidador social?', type: 'checklist', value: [], options: ['Sim — tempo integral', 'Sim — tempo parcial', 'Não necessita', 'A avaliar'], allowAudio: 'none' },
+            { id: 'cui2', label: 'Justificativa', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Quais atividades da vida diária demandam apoio de cuidador?' },
+          ]
+        },
+        {
+          id: 'entrevista', title: 'Entrevista com Responsável',
+          fields: [
+            { id: 'ent1', label: 'Informações e perspectiva trazida pela família', type: 'textarea', value: selectedStudent.familyContext || '', allowAudio: 'optional', placeholder: 'O que a família relata sobre o aluno? Quais são suas preocupações e expectativas?' },
+            { id: 'ent2', label: 'Análise interpretativa da fala dos responsáveis', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'O que a fala dos responsáveis revela? Há pontos de apoio, resistência ou lacunas?' },
+          ]
+        },
+        {
+          id: 'saude', title: 'Informações de Saúde',
+          fields: [
+            { id: 'sau1', label: 'Diagnósticos clínicos e laudos disponíveis', type: 'textarea', value: (selectedStudent.diagnosis || []).join('\n'), allowAudio: 'optional' },
+            { id: 'sau2', label: 'Medicações em uso', type: 'textarea', value: selectedStudent.medication || '', allowAudio: 'optional' },
+            { id: 'sau3', label: 'Histórico de saúde (gestação, nascimento, desenvolvimento)', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'sau4', label: 'Profissionais de saúde que acompanham o aluno', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Psicólogo, fonoaudiólogo, neurologista, terapeuta ocupacional...' },
+          ]
+        },
+        {
+          id: 'pedagogico', title: 'Dados Pedagógicos',
+          fields: [
+            { id: 'ped1', label: 'Habilidades e potencialidades pedagógicas', type: 'textarea', value: (selectedStudent.abilities || []).join('\n'), allowAudio: 'optional', placeholder: 'O que o aluno realiza com autonomia no contexto escolar?' },
+            { id: 'ped2', label: 'Dificuldades e desafios pedagógicos', type: 'textarea', value: (selectedStudent.difficulties || []).join('\n'), allowAudio: 'optional', placeholder: 'Principais barreiras de aprendizagem identificadas...' },
+            { id: 'ped3', label: 'Nível de alfabetização / numerização', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Em que nível de leitura, escrita e cálculo o aluno se encontra?' },
+          ]
+        },
+        {
+          id: 'comunicacao_ec', title: 'Comunicação',
+          fields: [
+            { id: 'com1', label: 'Modalidade de comunicação predominante', type: 'checklist', value: [], options: ['Verbal oral', 'Gestual / Libras', 'Comunicação Aumentativa (CAA)', 'Pictogramas', 'Escrita', 'Mista'], allowAudio: 'none' },
+            { id: 'com2', label: 'Comunicação expressiva e receptiva', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Como o aluno se comunica? Compreende instruções? Expressa suas necessidades?' },
+          ]
+        },
+        {
+          id: 'atencao_ec', title: 'Atenção',
+          fields: [
+            { id: 'at1', label: 'Tempo e qualidade de atenção sustentada', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Por quanto tempo o aluno se mantém concentrado? O que facilita ou dificulta?' },
+            { id: 'at2', label: 'Estratégias que auxiliam a manutenção da atenção', type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'engajamento_ec', title: 'Engajamento na Atividade',
+          fields: [
+            { id: 'eng1', label: 'Nível de participação e engajamento', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'O aluno participa das atividades? Em que condições se engaja mais?' },
+            { id: 'eng2', label: 'Interesses e motivadores identificados', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Quais temas, atividades ou recursos aumentam o engajamento?' },
+          ]
+        },
+        {
+          id: 'comportamentos_ec', title: 'Comportamentos Observados',
+          fields: [
+            { id: 'comp1', label: 'Comportamentos frequentes em sala/atendimento', type: 'textarea', value: selectedStudent.observations || '', allowAudio: 'optional', placeholder: 'Quais comportamentos são observados regularmente?' },
+            { id: 'comp2', label: 'Fatores que antecedem comportamentos desafiadores', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'O que dispara os comportamentos? Há padrão?' },
+          ]
+        },
+        {
+          id: 'sobrecarga_ec', title: 'Sinais de Sobrecarga Sensorial',
+          fields: [
+            { id: 'sob1', label: 'Sinais de sobrecarga observados', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Reações a estímulos sensoriais (luz, som, toque, movimento)?' },
+            { id: 'sob2', label: 'Estratégias de regulação utilizadas', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'O que ajuda o aluno a se regular quando sobrecarregado?' },
+          ]
+        },
+        {
+          id: 'interacao_ec', title: 'Interação Social',
+          fields: [
+            { id: 'int1', label: 'Qualidade da interação com pares', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Como o aluno interage com os colegas? Busca interação? É isolado?' },
+            { id: 'int2', label: 'Qualidade da interação com adultos', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Como o aluno responde às orientações e interações com professores?' },
+          ]
+        },
+        {
+          id: 'linguagem_ec', title: 'Linguagem',
+          fields: [
+            { id: 'ling1', label: 'Desenvolvimento da linguagem oral', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Nível de vocabulário, construção de frases, narrativa...' },
+            { id: 'ling2', label: 'Compreensão de instruções e textos', type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'leitura_ec', title: 'Leitura',
+          fields: [
+            { id: 'leit1', label: 'Nível de leitura atual', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Pré-silábico, silábico, silábico-alfabético, alfabético, fluente...' },
+            { id: 'leit2', label: 'Estratégias utilizadas e avanços observados', type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'escrita_ec', title: 'Escrita',
+          fields: [
+            { id: 'esc1', label: 'Nível de escrita atual', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Pré-silábico, silábico, silábico-alfabético, alfabético, ortográfico...' },
+            { id: 'esc2', label: 'Estratégias e adaptações utilizadas', type: 'textarea', value: '', allowAudio: 'optional' },
+          ]
+        },
+        {
+          id: 'assinaturas', title: 'Assinaturas',
+          fields: [
+            { id: 'ass1', label: 'Professor Regente',      type: 'text', value: selectedStudent.regentTeacher || '', allowAudio: 'none' },
+            { id: 'ass2', label: 'Professor AEE',          type: 'text', value: selectedStudent.aeeTeacher || '', allowAudio: 'none' },
+            { id: 'ass3', label: 'Coordenação / Direção',  type: 'text', value: selectedStudent.coordinator || '', allowAudio: 'none' },
+            { id: 'ass4', label: 'Responsável pelo Aluno', type: 'text', value: '', allowAudio: 'none' },
+            { id: 'ass5', label: 'Data de elaboração',     type: 'text', value: new Date().toLocaleDateString('pt-BR'), allowAudio: 'none' },
+          ]
+        },
+      ];
+
+    } else if (docType === DocumentType.PAEE) {
+      const commonHeader: DocSection = {
+        id: 'header', title: 'Identificação',
+        fields: [
+          { id: 'name',   label: 'Nome do Aluno',    type: 'text', value: selectedStudent.name, allowAudio: 'none' },
+          { id: 'age',    label: 'Data de Nascimento', type: 'text', value: selectedStudent.birthDate ? new Date(selectedStudent.birthDate + 'T00:00:00').toLocaleDateString('pt-BR') : '—', allowAudio: 'none' },
+          { id: 'school', label: 'Unidade Escolar',  type: 'text', value: school?.schoolName || '', allowAudio: 'none' },
+          { id: 'grade',  label: 'Ano/Série',        type: 'text', value: `${selectedStudent.grade} - ${selectedStudent.shift}`, allowAudio: 'none' },
+          { id: 'regent', label: 'Professor Regente', type: 'text', value: selectedStudent.regentTeacher || '', allowAudio: 'none' },
+          { id: 'aee',    label: 'Prof. AEE',        type: 'text', value: selectedStudent.aeeTeacher || '', allowAudio: 'none' },
+          { id: 'coord',  label: 'Coordenação',      type: 'text', value: selectedStudent.coordinator || '', allowAudio: 'none' },
+        ]
+      };
+      return [
+        commonHeader,
+        { id: 'modal', title: 'Modalidade de Ensino', fields: [
+          { id: 'm1', label: 'Tipo de Atendimento', type: 'checklist', value: [], options: ['Sala de Recursos Multifuncionais', 'Ensino Colaborativo', 'Itinerância', 'Centro de Atendimento Especializado'], allowAudio: 'optional' }
+        ]},
+        { id: 'cron', title: 'Cronograma e Frequência', fields: [
+          { id: 'c1', label: 'Horários e Dias de Atendimento', type: 'textarea', value: '', allowAudio: 'optional' }
+        ]},
+        { id: 'art', title: 'Articulação', fields: [
+          { id: 'a1', label: 'Articulação com Sala Comum', type: 'textarea', value: '', allowAudio: 'optional' },
+          { id: 'a2', label: 'Articulação com Família',    type: 'textarea', value: '', allowAudio: 'optional' }
+        ]},
+        { id: 'rec', title: 'Recursos e Acessibilidade', fields: [
+          { id: 'r1', label: 'Recursos a serem produzidos', type: 'checklist', value: [], options: ['Material Adaptado', 'Jogos Pedagógicos', 'Recursos de Comunicação Aumentativa', 'Adaptação de Mobiliário'], allowAudio: 'optional' }
+        ]},
+        { id: 'metas_aee', title: 'Metas do Atendimento AEE', fields: [
+          { id: 'met1', label: 'Metas e objetivos para este período', type: 'textarea', value: '', allowAudio: 'optional', placeholder: 'Quais são as metas do AEE para este semestre/ano?' },
+        ]},
+        { id: 'resultados', title: 'Avaliação dos Resultados', fields: [
+          { id: 'res1', label: 'Indicadores de resultado e critérios de avaliação', type: 'textarea', value: '', allowAudio: 'optional' },
+        ]},
+      ];
+
+    } else {
+      const commonHeader: DocSection = {
+        id: 'header', title: 'Identificação',
+        fields: [
+          { id: 'name',   label: 'Nome do Aluno',    type: 'text', value: selectedStudent.name, allowAudio: 'none' },
+          { id: 'school', label: 'Unidade Escolar',  type: 'text', value: school?.schoolName || '', allowAudio: 'none' },
+          { id: 'grade',  label: 'Ano/Série',        type: 'text', value: `${selectedStudent.grade} - ${selectedStudent.shift}`, allowAudio: 'none' },
+        ]
+      };
+      return [commonHeader, { id: 'gen', title: 'Conteúdo', fields: [{ id: '1', label: 'Descrição', type: 'textarea', value: '', allowAudio: 'optional' }] }];
+    }
   };
 
-  const loadTemplate = (docType: DocumentType, reduced = true) => {
+  const loadTemplate = (docType: DocumentType) => {
     if (!selectedStudent) return;
-    const built = buildStandardSections(docType, reduced);
+    const built = buildStandardSections(docType);
     setSections(built);
-    setIsReducedMode(reduced);
     setStep('editor');
     setIsEditing(true);
   };
@@ -1006,8 +1109,8 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
     const contentTags = (pendingTemplate.tagsInjected || []).filter(t => t.found && !identTagSet.has(t.tag));
 
     if (contentTags.length === 0) {
-      // Nenhum campo de conteúdo → fallback para estrutura padrão
-      loadTemplate(type, isReducedMode);
+      // Nenhum campo de conteúdo → fallback para estrutura expandida
+      loadTemplate(type);
       setPendingTemplate(null);
       return;
     }
@@ -1069,8 +1172,8 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
       built = [headerSection, ...contentSections];
 
     } else {
-      // Mesclar: estrutura padrão + campos do modelo ao final
-      const stdSections = buildStandardSections(type, isReducedMode);
+      // Mesclar: estrutura expandida padrão + campos do modelo ao final
+      const stdSections = buildStandardSections(type);
       const templateSection: DocSection = {
         id: 'template_fields',
         title: `Campos do Modelo — ${pendingTemplate.name}`,
@@ -1081,7 +1184,6 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
         })),
       };
       built = [...stdSections, templateSection];
-      setIsReducedMode(isReducedMode);
     }
 
     setSections(built);
@@ -1439,127 +1541,84 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
               </div>
             ) : (
               <>
-                {/* Versão Reduzida vs Completa */}
-                <div className="mb-6 p-4 bg-brand-50 border border-brand-100 rounded-xl text-left">
-                  <p className="text-xs font-bold text-brand-800 uppercase mb-2">Modo de Preenchimento</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => setIsReducedMode(true)}
-                      className={`p-3 rounded-lg border-2 text-left transition ${isReducedMode ? 'border-brand-500 bg-white' : 'border-transparent bg-white/60 hover:bg-white'}`}
-                    >
-                      <p className="font-bold text-sm text-gray-800">⚡ Essencial (Recomendado)</p>
-                      <p className="text-xs text-gray-500 mt-0.5">6-8 campos objetivos. Rápido e completo.</p>
-                    </button>
-                    <button
-                      onClick={() => setIsReducedMode(false)}
-                      className={`p-3 rounded-lg border-2 text-left transition ${!isReducedMode ? 'border-brand-500 bg-white' : 'border-transparent bg-white/60 hover:bg-white'}`}
-                    >
-                      <p className="font-bold text-sm text-gray-800">📋 Completo</p>
-                      <p className="text-xs text-gray-500 mt-0.5">Todas as seções e campos avançados.</p>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Grade de 4 opções */}
-                <div className="grid md:grid-cols-2 gap-4">
+                {/* Grade de ações — layout limpo e minimalista */}
+                <div className="grid md:grid-cols-2 gap-3">
 
                   {/* ── Gerar com IA ── */}
                   <button
                     onClick={() => onGenerateAI(selectedStudent!)}
                     disabled={isGenerating}
-                    className="p-5 bg-white border-2 border-brand-100 rounded-2xl hover:border-brand-500 hover:shadow-lg transition flex flex-col items-start group text-left"
+                    className="p-4 bg-white border border-gray-200 rounded-xl hover:border-brand-400 hover:shadow-sm transition flex items-center gap-4 text-left group"
                   >
-                    <div className="bg-brand-50 p-3 rounded-xl mb-3 group-hover:bg-brand-100 transition">
-                      <Sparkles size={22} className="text-brand-600"/>
+                    <div className="shrink-0 w-10 h-10 rounded-lg bg-brand-50 flex items-center justify-center group-hover:bg-brand-100 transition">
+                      <Sparkles size={20} className="text-brand-600"/>
                     </div>
-                    <h3 className="text-base font-bold text-gray-900">Gerar com IA</h3>
-                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">Cria um rascunho completo com base nos dados do aluno.</p>
-                    <CreditBadge type={type} />
-                    {isGenerating && <span className="text-brand-600 text-xs font-bold mt-2 animate-pulse">Gerando...</span>}
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm">Gerar com IA</p>
+                      <p className="text-xs text-gray-500 leading-snug mt-0.5">Rascunho completo com base nos dados do aluno</p>
+                      <CreditBadge type={type} />
+                      {isGenerating && <span className="text-brand-600 text-xs font-semibold mt-1 block animate-pulse">Gerando...</span>}
+                    </div>
                   </button>
 
-                  {/* ── Gerar Manual ── */}
+                  {/* ── Preencher Manualmente ── */}
                   <button
-                    onClick={() => loadTemplate(type, isReducedMode)}
-                    className="p-5 bg-white border-2 border-gray-100 rounded-2xl hover:border-gray-400 hover:shadow-lg transition flex flex-col items-start group text-left"
+                    onClick={() => loadTemplate(type)}
+                    className="p-4 bg-white border border-gray-200 rounded-xl hover:border-gray-400 hover:shadow-sm transition flex items-center gap-4 text-left group"
                   >
-                    <div className="bg-gray-50 p-3 rounded-xl mb-3 group-hover:bg-gray-100 transition">
-                      <Edit3 size={22} className="text-gray-500"/>
+                    <div className="shrink-0 w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center group-hover:bg-gray-100 transition">
+                      <Edit3 size={20} className="text-gray-500"/>
                     </div>
-                    <h3 className="text-base font-bold text-gray-900">Preencher Manualmente</h3>
-                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                      Formulário {isReducedMode ? 'essencial' : 'completo'} para preenchimento livre.
-                    </p>
-                    <span className="mt-2 text-xs font-semibold text-gray-400">Sem consumo de créditos</span>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm">Preencher Manualmente</p>
+                      <p className="text-xs text-gray-500 leading-snug mt-0.5">Formulário completo com todas as seções</p>
+                      <span className="mt-1 block text-xs text-gray-400">Sem consumo de créditos</span>
+                    </div>
                   </button>
 
-                  {/* ── Upload novo ── */}
-                  <label className="p-5 bg-white border-2 border-dashed border-gray-300 rounded-2xl hover:border-brand-500 hover:bg-gray-50 transition cursor-pointer flex flex-col items-start group text-left">
-                    <div className="bg-gray-100 p-3 rounded-xl mb-3 group-hover:bg-white transition">
-                      <Upload size={22} className="text-gray-500"/>
+                  {/* ── Upload de Documento ── */}
+                  <label className="p-4 bg-white border border-dashed border-gray-300 rounded-xl hover:border-brand-400 hover:bg-gray-50 transition cursor-pointer flex items-center gap-4 text-left group">
+                    <div className="shrink-0 w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center group-hover:bg-white transition">
+                      <Upload size={20} className="text-gray-500"/>
                     </div>
-                    <h3 className="text-base font-bold text-gray-900">Upload Avulso</h3>
-                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                      Envie um arquivo .docx ou PDF para a IA extrair e estruturar o conteúdo.
-                    </p>
-                    {/* Aviso de créditos */}
-                    <div className="mt-2 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                      <span className="text-xs leading-snug text-amber-800">
-                        <strong>🪙 {AI_CREDIT_COSTS.UPLOAD_MODELO} créditos IA</strong> — a IA analisa e estrutura o documento enviado.
-                      </span>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm">Upload de Documento</p>
+                      <p className="text-xs text-gray-500 leading-snug mt-0.5">Envie .docx ou PDF — a IA extrai e estrutura</p>
+                      <span className="mt-1 block text-xs text-amber-700">🪙 {AI_CREDIT_COSTS.UPLOAD_MODELO} créditos</span>
                     </div>
                     <input type="file" className="hidden" accept=".pdf,.doc,.docx" onChange={handleUploadExternal} disabled={isUploading} />
-                    {isUploading && <span className="text-brand-600 text-xs font-bold mt-2 animate-pulse">Analisando com IA...</span>}
+                    {isUploading && <span className="text-brand-600 text-xs font-semibold mt-1 block animate-pulse">Analisando...</span>}
                   </label>
 
-                  {/* ── Usar modelo da biblioteca (Premium) ── */}
+                  {/* ── Usar Modelo Salvo (Premium) ── */}
                   {isPremiumUser ? (
                     <button
                       onClick={() => setShowStoredTemplateSelector(true)}
-                      className="p-5 bg-white border-2 border-dashed rounded-2xl transition flex flex-col items-start group text-left"
-                      style={{ borderColor: '#1F4E5F', background: '#1F4E5F08' }}
+                      className="p-4 bg-white border border-gray-200 rounded-xl hover:border-gray-400 hover:shadow-sm transition flex items-center gap-4 text-left group"
                     >
-                      <div className="p-3 rounded-xl mb-3 transition" style={{ background: '#1F4E5F15' }}>
-                        <Library size={22} style={{ color: '#1F4E5F' }}/>
+                      <div className="shrink-0 w-10 h-10 rounded-lg flex items-center justify-center transition" style={{ background: '#1F4E5F12' }}>
+                        <Library size={20} style={{ color: '#1F4E5F' }}/>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-base font-bold" style={{ color: '#1F4E5F' }}>Usar Modelo Salvo</h3>
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white" style={{ background: '#C69214' }}>PREMIUM</span>
-                      </div>
-                      <p className="text-xs mt-1 leading-relaxed" style={{ color: '#1F4E5F99' }}>
-                        Escolha um modelo da sua biblioteca para usar como base.
-                      </p>
-                      {/* Benefício sem créditos */}
-                      <div className="mt-2 flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5">
-                        <span className="text-xs leading-snug text-green-800">
-                          ✓ <strong>Sem consumo adicional</strong> — modelo já processado na sua biblioteca.
-                        </span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-sm" style={{ color: '#1F4E5F' }}>Usar Modelo Salvo</p>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-white" style={{ background: '#C69214' }}>PREMIUM</span>
+                        </div>
+                        <p className="text-xs text-gray-500 leading-snug mt-0.5">Escolha um modelo da sua biblioteca</p>
+                        <span className="mt-1 block text-xs text-green-700">Sem consumo adicional</span>
                       </div>
                     </button>
                   ) : (
-                    /* Bloqueado para não-Premium */
-                    <div
-                      className="p-5 bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl flex flex-col items-start text-left relative overflow-hidden cursor-not-allowed"
-                    >
-                      {/* Overlay de cadeado */}
-                      <div className="absolute top-3 right-3">
-                        <Lock size={15} className="text-gray-400"/>
+                    <div className="p-4 bg-gray-50 border border-dashed border-gray-200 rounded-xl flex items-center gap-4 text-left cursor-not-allowed relative">
+                      <div className="shrink-0 w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center opacity-50">
+                        <Library size={20} className="text-gray-400"/>
                       </div>
-                      <div className="p-3 rounded-xl mb-3 bg-gray-100 opacity-50">
-                        <Library size={22} className="text-gray-400"/>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-base font-bold text-gray-400">Usar Modelo Salvo</h3>
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full text-white bg-gray-400">PREMIUM</span>
-                      </div>
-                      <p className="text-xs text-gray-400 mt-1 leading-relaxed">
-                        Acesse sua biblioteca de modelos e reutilize documentos sem novo upload.
-                      </p>
-                      <div className="mt-2 flex items-start gap-1.5 bg-gray-100 border border-gray-200 rounded-lg px-2 py-1.5">
-                        <Lock size={11} className="text-gray-400 mt-0.5 shrink-0"/>
-                        <span className="text-xs leading-snug text-gray-500">
-                          Exclusivo do plano <strong>Master (Premium)</strong>. Faça upgrade para acessar a biblioteca de modelos.
-                        </span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-sm text-gray-400">Usar Modelo Salvo</p>
+                          <Lock size={12} className="text-gray-400"/>
+                        </div>
+                        <p className="text-xs text-gray-400 leading-snug mt-0.5">Disponível no plano Master (Premium)</p>
                       </div>
                     </div>
                   )}
@@ -1636,20 +1695,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
   return (
     <div className="bg-gray-100 min-h-screen pb-20 flex flex-col items-center">
         
-        {/* BANNER VERSÃO REDUZIDA */}
-        {isReducedMode && (
-            <div className="w-full bg-amber-50 border-b border-amber-200 p-3 text-center print:hidden">
-                <p className="text-xs text-amber-800 font-bold flex items-center justify-center gap-2">
-                    ⚡ Modo Essencial ativo — Mostrando apenas os campos principais.
-                    <button
-                      onClick={() => { loadTemplate(type, false); }}
-                      className="underline hover:text-amber-900 ml-1"
-                    >
-                      Expandir para versão completa →
-                    </button>
-                </p>
-            </div>
-        )}
+        {/* Versão completa — sem banner de modo reduzido */}
 
         {/* RECOMMENDATION BANNER */}
         {['PEI', 'PAEE', 'PDI'].includes(type) && (

@@ -416,96 +416,188 @@ ${ctxBlock}`;
 
     // ── PEI ─────────────────────────────────────────────────────────────────────
     if (isPEI) {
-      prompt = `Você é psicopedagogo especialista em Plano Educacional Individualizado (PEI) conforme a Lei Brasileira de Inclusão (Lei 13.146/2015) e a Política Nacional de Educação Especial na Perspectiva da Educação Inclusiva.
+      prompt = `Você é psicopedagogo especialista em Plano Educacional Individualizado (PEI) conforme a Lei Brasileira de Inclusão (Lei 13.146/2015) e a PNEEPEI.
 
-FINALIDADE DO PEI: Instrumento pedagógico que traduz o diagnóstico em metas anuais mensuráveis, por disciplina, com estratégias adaptadas ao perfil real do aluno e critérios claros de avaliação. Não é relatório — é plano de ação.
+FINALIDADE DO PEI: Instrumento que orienta o PROFESSOR DA SALA COMUM. Traduz o diagnóstico em metas anuais mensuráveis por disciplina/BNCC, com estratégias adaptadas ao perfil real do aluno e critérios observáveis de avaliação. Não é relatório — é plano de ação para o cotidiano da sala regular.
+
+ORIENTAÇÕES ÉTICAS DA IA:
+- Melhore linguagem, conectivos, gramática e vocabulário técnico — NÃO crie fatos.
+- A fala dos responsáveis deve ser interpretada com critério; jamais seja transcrita como verdade absoluta.
+- Não invente diagnósticos, laudos, habilidades ou histórico não fornecido.
+- Se um dado estiver ausente, deixe o campo vazio ou infira APENAS a partir de dados explicitamente fornecidos.
 
 ${studentDataBlock}
 ${familyBlock}
 
 REGRAS DE GERAÇÃO — aplique a cada campo:
-1. Cada objetivo deve ser SMART: específico, mensurável, atingível, relevante e com prazo implícito (anual).
-2. Cada estratégia deve citar recursos concretos ligados ao diagnóstico (ex: para TEA — sequências visuais, antecipação; para DI — atividades em etapas, repetição; para TDAH — tarefas curtas, pausas estruturadas).
-3. Se há Perfil Pedagógico Inicial no contexto, use os scores para calibrar o nível de complexidade de cada objetivo.
-4. Critérios de avaliação devem ser comportamentos OBSERVÁVEIS (nunca "melhorar", sempre "identificar", "escrever", "resolver", "completar").
-5. A seção de família deve ser orientação prática de reforço domiciliar — não instrução clínica.
-6. Nunca repita o mesmo texto entre disciplinas. Cada seção deve ter conteúdo diferenciado.
-7. Linguagem técnica formal. Português brasileiro. Sem "não informado".
+1. Cada objetivo deve ser SMART: específico, mensurável, atingível, relevante e com prazo anual implícito.
+2. Habilidades BNCC: cite os códigos reais da BNCC adequados ao ano/série e ao nível de desenvolvimento do aluno.
+3. Estratégias: cite recursos concretos ligados ao diagnóstico (TEA → sequências visuais, antecipação; DI → etapas simplificadas, repetição; TDAH → tarefas curtas, pausas estruturadas).
+4. Critérios de avaliação: comportamentos OBSERVÁVEIS (nunca "melhorar" — sempre "identificar", "escrever", "resolver", "completar com apoio").
+5. Nunca repita o mesmo texto entre disciplinas. Cada área tem conteúdo diferenciado.
+6. Para Ensino Religioso e Educação Física: gere apenas se houver dados suficientes; caso contrário, deixe os campos com string vazia.
+7. Linguagem técnica formal. Português brasileiro. Sem "não informado" ou "a definir" em campos de conteúdo.
 
-RETORNE SOMENTE o JSON válido. Os campos "value" devem conter o conteúdo REAL gerado — não instruções nem placeholders:
+RETORNE SOMENTE o JSON válido. Os campos "value" devem conter CONTEÚDO REAL — não instruções nem placeholders:
 {
   "sections": [
     {
-      "id": "identificacao",
-      "title": "Identificação do Aluno",
+      "id": "header",
+      "title": "Identificação",
       "fields": [
-        { "id": "nome", "label": "Nome completo", "type": "text", "value": "${student.name}" },
-        { "id": "diagnostico", "label": "Diagnóstico(s) / CID", "type": "text", "value": "${diagnosis}" },
-        { "id": "suporte", "label": "Nível de Suporte", "type": "text", "value": "${student.supportLevel || 'A definir com equipe multidisciplinar'}" },
-        { "id": "vigencia", "label": "Vigência do PEI", "type": "text", "value": "Ano letivo ${new Date().getFullYear()}" },
-        { "id": "objetivo_geral", "label": "Objetivo Geral do PEI", "type": "textarea", "value": "" }
+        { "id": "name",    "label": "Nome do Aluno",    "type": "text", "value": "${student.name}" },
+        { "id": "diag",    "label": "Diagnóstico / CID","type": "text", "value": "${diagnosis}" },
+        { "id": "vigencia","label": "Vigência do PEI",  "type": "text", "value": "Ano letivo ${new Date().getFullYear()}" }
+      ]
+    },
+    {
+      "id": "sintese",
+      "title": "Estudo de Caso / Síntese-base",
+      "fields": [
+        { "id": "sint1", "label": "Síntese do histórico relevante", "type": "textarea", "value": "" },
+        { "id": "sint2", "label": "Contexto familiar e fatores de suporte", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "potencial",
+      "title": "Potencialidades",
+      "fields": [
+        { "id": "pot1", "label": "Habilidades, interesses e pontos fortes", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "necessidades",
+      "title": "Necessidades Educacionais e Barreiras",
+      "fields": [
+        { "id": "nec1", "label": "Principais necessidades educacionais especiais", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "obj_geral",
+      "title": "Objetivo Geral do PEI",
+      "fields": [
+        { "id": "og1", "label": "Objetivo geral para o ano letivo", "type": "textarea", "value": "" }
       ]
     },
     {
       "id": "portugues",
       "title": "Língua Portuguesa",
       "fields": [
-        { "id": "pt_objetivo", "label": "Objetivo anual", "type": "textarea", "value": "" },
-        { "id": "pt_estrategia", "label": "Estratégias e recursos", "type": "textarea", "value": "" },
-        { "id": "pt_frequencia", "label": "Frequência de atendimento", "type": "text", "value": "" },
-        { "id": "pt_criterio", "label": "Critério de avaliação", "type": "textarea", "value": "" }
+        { "id": "pt_bncc",   "label": "Habilidades BNCC trabalhadas",  "type": "textarea", "value": "" },
+        { "id": "pt_obj",    "label": "Objetivos pedagógicos",         "type": "textarea", "value": "" },
+        { "id": "pt_estrat", "label": "Estratégias de ensino",         "type": "textarea", "value": "" },
+        { "id": "pt_adapt",  "label": "Adaptações curriculares",       "type": "textarea", "value": "" },
+        { "id": "pt_aval",   "label": "Critérios de avaliação",        "type": "textarea", "value": "" }
       ]
     },
     {
       "id": "matematica",
       "title": "Matemática",
       "fields": [
-        { "id": "mt_objetivo", "label": "Objetivo anual", "type": "textarea", "value": "" },
-        { "id": "mt_estrategia", "label": "Estratégias e recursos", "type": "textarea", "value": "" },
-        { "id": "mt_frequencia", "label": "Frequência de atendimento", "type": "text", "value": "" },
-        { "id": "mt_criterio", "label": "Critério de avaliação", "type": "textarea", "value": "" }
+        { "id": "mt_bncc",   "label": "Habilidades BNCC trabalhadas",  "type": "textarea", "value": "" },
+        { "id": "mt_obj",    "label": "Objetivos pedagógicos",         "type": "textarea", "value": "" },
+        { "id": "mt_estrat", "label": "Estratégias de ensino",         "type": "textarea", "value": "" },
+        { "id": "mt_adapt",  "label": "Adaptações curriculares",       "type": "textarea", "value": "" },
+        { "id": "mt_aval",   "label": "Critérios de avaliação",        "type": "textarea", "value": "" }
       ]
     },
     {
       "id": "ciencias",
       "title": "Ciências",
       "fields": [
-        { "id": "ci_objetivo", "label": "Objetivo anual", "type": "textarea", "value": "" },
-        { "id": "ci_estrategia", "label": "Estratégias e recursos", "type": "textarea", "value": "" },
-        { "id": "ci_frequencia", "label": "Frequência de atendimento", "type": "text", "value": "" },
-        { "id": "ci_criterio", "label": "Critério de avaliação", "type": "textarea", "value": "" }
+        { "id": "ci_bncc",   "label": "Habilidades BNCC trabalhadas",  "type": "textarea", "value": "" },
+        { "id": "ci_obj",    "label": "Objetivos pedagógicos",         "type": "textarea", "value": "" },
+        { "id": "ci_estrat", "label": "Estratégias de ensino",         "type": "textarea", "value": "" },
+        { "id": "ci_adapt",  "label": "Adaptações curriculares",       "type": "textarea", "value": "" },
+        { "id": "ci_aval",   "label": "Critérios de avaliação",        "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "historia",
+      "title": "História",
+      "fields": [
+        { "id": "hi_bncc",   "label": "Habilidades BNCC trabalhadas",  "type": "textarea", "value": "" },
+        { "id": "hi_obj",    "label": "Objetivos pedagógicos",         "type": "textarea", "value": "" },
+        { "id": "hi_estrat", "label": "Estratégias de ensino",         "type": "textarea", "value": "" },
+        { "id": "hi_adapt",  "label": "Adaptações curriculares",       "type": "textarea", "value": "" },
+        { "id": "hi_aval",   "label": "Critérios de avaliação",        "type": "textarea", "value": "" }
       ]
     },
     {
       "id": "geografia",
       "title": "Geografia",
       "fields": [
-        { "id": "ge_objetivo", "label": "Objetivo anual", "type": "textarea", "value": "" },
-        { "id": "ge_estrategia", "label": "Estratégias e recursos", "type": "textarea", "value": "" },
-        { "id": "ge_frequencia", "label": "Frequência de atendimento", "type": "text", "value": "" },
-        { "id": "ge_criterio", "label": "Critério de avaliação", "type": "textarea", "value": "" }
+        { "id": "ge_bncc",   "label": "Habilidades BNCC trabalhadas",  "type": "textarea", "value": "" },
+        { "id": "ge_obj",    "label": "Objetivos pedagógicos",         "type": "textarea", "value": "" },
+        { "id": "ge_estrat", "label": "Estratégias de ensino",         "type": "textarea", "value": "" },
+        { "id": "ge_adapt",  "label": "Adaptações curriculares",       "type": "textarea", "value": "" },
+        { "id": "ge_aval",   "label": "Critérios de avaliação",        "type": "textarea", "value": "" }
       ]
     },
     {
-      "id": "acompanhamento",
-      "title": "Acompanhamento e Família",
+      "id": "ed_religiosa",
+      "title": "Ensino Religioso (se aplicável)",
       "fields": [
-        { "id": "responsaveis", "label": "Responsáveis pela execução", "type": "text", "value": "${student.aeeTeacher ? `Prof. AEE: ${student.aeeTeacher}` : 'Professor AEE e Professor Regente'}" },
-        { "id": "revisao", "label": "Periodicidade de revisão", "type": "text", "value": "" },
-        { "id": "familia", "label": "Orientações práticas para a família", "type": "textarea", "value": "" },
-        { "id": "obs", "label": "Observações da equipe", "type": "textarea", "value": "" }
+        { "id": "er_obj",   "label": "Objetivos pedagógicos",    "type": "textarea", "value": "" },
+        { "id": "er_adapt", "label": "Adaptações e estratégias", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "ed_fisica",
+      "title": "Educação Física (se aplicável)",
+      "fields": [
+        { "id": "ef_bncc",  "label": "Habilidades BNCC trabalhadas", "type": "textarea", "value": "" },
+        { "id": "ef_obj",   "label": "Objetivos pedagógicos",        "type": "textarea", "value": "" },
+        { "id": "ef_adapt", "label": "Adaptações e estratégias",     "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "recursos",
+      "title": "Recursos e Acessibilidade",
+      "fields": [
+        { "id": "rec2", "label": "Adaptações de ambiente e material", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "comportamento",
+      "title": "Comportamento e Autonomia",
+      "fields": [
+        { "id": "comp1", "label": "Comportamentos observados e estratégias de manejo", "type": "textarea", "value": "" },
+        { "id": "comp2", "label": "Metas de autonomia e independência", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "avaliacao",
+      "title": "Avaliação",
+      "fields": [
+        { "id": "av1", "label": "Formas de avaliação adaptada",   "type": "textarea", "value": "" },
+        { "id": "av2", "label": "Instrumentos e periodicidade",   "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "monitoramento",
+      "title": "Monitoramento",
+      "fields": [
+        { "id": "mon1", "label": "Periodicidade de revisão do PEI",  "type": "text",     "value": "Bimestral" },
+        { "id": "mon2", "label": "Responsáveis pelo monitoramento",  "type": "text",     "value": "${student.aeeTeacher ? `Prof. AEE: ${student.aeeTeacher}` : 'Professor AEE e Professor Regente'}" },
+        { "id": "mon3", "label": "Observações do monitoramento",     "type": "textarea", "value": "" }
       ]
     }
   ]
 }
 
-Preencha TODOS os campos "value" com conteúdo real gerado a partir dos dados do aluno. Nenhum campo deve ficar vazio ou com texto genérico. Português brasileiro formal.`;
+Preencha TODOS os campos "value" com conteúdo real gerado a partir dos dados do aluno. Nenhum campo de conteúdo deve ficar vazio. Português brasileiro formal.`;
 
     // ── PAEE ─────────────────────────────────────────────────────────────────────
     } else if (isPAEE) {
       prompt = `Você é especialista em Plano de Atendimento Educacional Especializado (PAEE) conforme a Resolução CNE/CEB nº 4/2009 e a Nota Técnica nº 11/2010 do MEC/SEESP.
 
-FINALIDADE DO PAEE: Documento técnico que define os recursos de acessibilidade, as adaptações de acessibilidade e as estratégias de inclusão necessárias para que o aluno com deficiência participe de forma plena do ambiente escolar. Foco em ACESSIBILIDADE, não em conteúdo curricular (isso é o PEI).
+FINALIDADE DO PAEE: Instrumento que orienta a PROFESSORA DO AEE / SALA DE RECURSOS. Define os recursos de acessibilidade, adaptações e estratégias de inclusão para que o aluno participe plenamente do ambiente escolar. Foco em COMO o aluno acessa o ambiente e o currículo — não em O QUE aprende (isso é o PEI).
+
+ORIENTAÇÕES ÉTICAS DA IA:
+- Melhore linguagem e vocabulário técnico — NÃO crie fatos não fornecidos.
+- A fala dos responsáveis deve ser interpretada com critério; jamais transcrita como verdade absoluta.
+- Não invente recursos, laudos ou dados ausentes.
 
 ${studentDataBlock}
 ${familyBlock}
@@ -646,62 +738,95 @@ Preencha TODOS os campos "value" com conteúdo real e técnico baseado nos dados
     } else if (isEstudoCaso) {
       prompt = `Você é psicopedagogo especialista em elaboração de Estudos de Caso para educação inclusiva, com domínio em análise interpretativa de dados clínicos e pedagógicos.
 
-FINALIDADE DO ESTUDO DE CASO: Documento técnico-científico que integra e interpreta — de forma longitudinal — todos os dados disponíveis sobre o aluno. Destina-se a equipes multidisciplinares, órgãos de saúde (CAPS, CRAS, APAE), secretarias de educação e, quando necessário, ao sistema judiciário. Não é relatório de progresso — é análise interpretativa profunda.
+FINALIDADE DO ESTUDO DE CASO: Documento-base de toda a documentação pedagógica. Integra e interpreta de forma longitudinal todos os dados disponíveis sobre o aluno. Destina-se a equipes multidisciplinares, órgãos de saúde (CAPS, CRAS, APAE), secretarias de educação e, quando necessário, ao sistema judiciário. Embasa o PEI, o PAEE e o PDI.
+
+ORIENTAÇÕES ÉTICAS DA IA:
+- ANALISE, não descreva. "Dificuldade na leitura" é descrição. "A dificuldade na decodificação fonológica compromete o acesso curricular e se intensifica em avaliações formais" é análise.
+- A fala dos responsáveis deve ser INTERPRETADA com critério — nunca transcrita como verdade absoluta. Identifique o que revelam, o que omitem, pontos de apoio e resistência.
+- NUNCA invente dados, diagnósticos, laudos ou histórico não fornecido. Se um dado estiver ausente, deixe o campo vazio.
+- Melhore linguagem, conectivos, gramática e vocabulário técnico sem criar fatos novos.
 
 ${studentDataBlock}
 ${familyBlock}
 
-REGRAS DE GERAÇÃO — aplique rigorosamente:
-1. ANALISE, não descreva. "Apresenta dificuldade na leitura" é descrição. "A dificuldade na decodificação fonológica observada compromete o acesso ao conteúdo curricular e se intensifica em contextos de avaliação formal" é análise.
-2. USE a linha do tempo. Se há dados de atendimento no contexto, cite-os explicitamente: datas, padrões, faltas, impacto das ausências no progresso.
-3. INTERPRETE os laudos. Não transcreva — explique o que o diagnóstico implica pedagogicamente.
-4. IDENTIFIQUE padrões: o que evolui, o que regride, em quais condições cada movimento ocorre.
-5. INTEGRE perspectiva familiar: a fala dos responsáveis deve ser interpretada, não transcrita. O que ela revela sobre percepção parental? Há lacunas? Há pontos de resistência ou de apoio?
-6. CONECTE dados entre si: o perfil cognitivo deve dialogar com os laudos, que devem dialogar com as fichas de observação.
-7. Nunca use frases genéricas. Cada parágrafo deve conter informação específica do aluno.
-8. Linguagem técnico-científica. Português brasileiro formal.
+REGRAS DE GERAÇÃO:
+1. USE dados temporais disponíveis: datas, padrões, faltas, impacto das ausências no progresso.
+2. INTERPRETE laudos: o que o diagnóstico implica pedagogicamente na prática diária.
+3. IDENTIFIQUE padrões: o que evolui, o que regride, em quais condições cada movimento ocorre.
+4. CONECTE dados: perfil cognitivo ↔ laudos ↔ fichas de observação ↔ fala familiar.
+5. Linguagem técnico-científica. Português brasileiro formal. Sem frases genéricas.
 
-RETORNE SOMENTE o JSON válido com estas seções obrigatórias:
+RETORNE SOMENTE o JSON válido com estas seções:
 {
   "sections": [
-    { "id": "identificacao", "title": "Identificação e Contexto Geral", "fields": [
-      { "id": "id_dados", "label": "Dados de identificação", "type": "text", "value": "${student.name} — ${diagnosis} — ${student.supportLevel || 'Suporte a definir'}" },
-      { "id": "id_contexto", "label": "Contexto escolar e clínico atual", "type": "textarea", "value": "" },
-      { "id": "id_demanda", "label": "Demanda que originou o Estudo de Caso", "type": "textarea", "value": "" }
+    { "id": "dados_inst", "title": "Dados Institucionais", "fields": [
+      { "id": "di_escola",    "label": "Unidade Escolar",        "type": "text", "value": "" },
+      { "id": "di_municipio", "label": "Município / Secretaria", "type": "text", "value": "" },
+      { "id": "di_data",      "label": "Data de elaboração",     "type": "text", "value": "${new Date().toLocaleDateString('pt-BR')}" }
     ]},
-    { "id": "laudos", "title": "Análise Interpretativa dos Laudos e Documentos Clínicos", "fields": [
-      { "id": "lau_analise", "label": "Interpretação clínico-pedagógica dos laudos disponíveis", "type": "textarea", "value": "" },
-      { "id": "lau_implicacoes", "label": "Implicações pedagógicas do diagnóstico — o que muda na prática", "type": "textarea", "value": "" },
-      { "id": "lau_lacunas", "label": "Lacunas diagnósticas ou documentais identificadas", "type": "textarea", "value": "" }
+    { "id": "header", "title": "Identificação do Estudante", "fields": [
+      { "id": "name",       "label": "Nome completo",                      "type": "text",     "value": "${student.name}" },
+      { "id": "d1",         "label": "Diagnóstico e CID",                  "type": "text",     "value": "${diagnosis}" },
+      { "id": "id_demanda", "label": "Motivo do Estudo de Caso / Demanda", "type": "textarea", "value": "" }
     ]},
-    { "id": "timeline", "title": "Linha do Tempo dos Atendimentos e Evolução", "fields": [
-      { "id": "tl_frequencia", "label": "Padrão de frequência: atendimentos, faltas e tendências", "type": "textarea", "value": "" },
-      { "id": "tl_evolucao", "label": "Evolução observada ao longo dos atendimentos", "type": "textarea", "value": "" },
-      { "id": "tl_impacto", "label": "Impacto das ausências ou interrupções no progresso pedagógico", "type": "textarea", "value": "" }
+    { "id": "historico", "title": "Histórico de Escolarização", "fields": [
+      { "id": "hist1", "label": "Trajetória escolar (escolas, anos, repetências)", "type": "textarea", "value": "" },
+      { "id": "hist2", "label": "Percepção do estudante sobre a escola",           "type": "textarea", "value": "" }
     ]},
-    { "id": "cognitivo", "title": "Análise Cognitiva e Conexão com a Prática Pedagógica", "fields": [
-      { "id": "cog_perfil", "label": "Interpretação do perfil cognitivo multidimensional", "type": "textarea", "value": "" },
-      { "id": "cog_conexao", "label": "Como o perfil cognitivo se manifesta no cotidiano escolar", "type": "textarea", "value": "" },
-      { "id": "cog_potencial", "label": "Dimensões preservadas e potencialidades identificadas", "type": "textarea", "value": "" }
+    { "id": "entrevista", "title": "Entrevista com Responsável", "fields": [
+      { "id": "ent1", "label": "Informações e perspectiva trazida pela família",  "type": "textarea", "value": "" },
+      { "id": "ent2", "label": "Análise interpretativa da fala dos responsáveis", "type": "textarea", "value": "" }
     ]},
-    { "id": "familia_ec", "title": "Análise do Contexto Familiar", "fields": [
-      { "id": "fam_perspectiva", "label": "Perspectiva familiar: o que revelam e o que omitem", "type": "textarea", "value": "" },
-      { "id": "fam_suporte", "label": "Nível de suporte familiar ao desenvolvimento do aluno", "type": "textarea", "value": "" }
+    { "id": "saude", "title": "Informações de Saúde", "fields": [
+      { "id": "sau1", "label": "Diagnósticos clínicos e laudos — interpretação clínico-pedagógica", "type": "textarea", "value": "" },
+      { "id": "sau2", "label": "Medicações em uso",                              "type": "textarea", "value": "" },
+      { "id": "sau3", "label": "Histórico de saúde (gestação, nascimento, desenvolvimento)", "type": "textarea", "value": "" },
+      { "id": "sau4", "label": "Profissionais de saúde que acompanham o aluno", "type": "textarea", "value": "" }
     ]},
-    { "id": "padroes", "title": "Identificação de Padrões", "fields": [
-      { "id": "pad_avanca", "label": "O que avança e sob quais condições", "type": "textarea", "value": "" },
-      { "id": "pad_regride", "label": "O que regride ou estabiliza e por quê", "type": "textarea", "value": "" }
+    { "id": "pedagogico", "title": "Dados Pedagógicos", "fields": [
+      { "id": "ped1", "label": "Habilidades e potencialidades pedagógicas",  "type": "textarea", "value": "" },
+      { "id": "ped2", "label": "Dificuldades e desafios pedagógicos",        "type": "textarea", "value": "" },
+      { "id": "ped3", "label": "Nível de alfabetização / numerização atual", "type": "textarea", "value": "" }
     ]},
-    { "id": "parecer", "title": "Parecer Técnico e Recomendações", "fields": [
-      { "id": "par_conclusao", "label": "Parecer técnico conclusivo", "type": "textarea", "value": "" },
-      { "id": "par_pedagogicas", "label": "Recomendações pedagógicas prioritárias", "type": "textarea", "value": "" },
-      { "id": "par_clinicas", "label": "Recomendações clínicas e encaminhamentos", "type": "textarea", "value": "" },
-      { "id": "par_institucionais", "label": "Recomendações institucionais e intersetoriais", "type": "textarea", "value": "" }
+    { "id": "comunicacao_ec", "title": "Comunicação", "fields": [
+      { "id": "com2", "label": "Comunicação expressiva e receptiva — descrição e análise", "type": "textarea", "value": "" }
+    ]},
+    { "id": "atencao_ec", "title": "Atenção", "fields": [
+      { "id": "at1", "label": "Tempo e qualidade de atenção sustentada",            "type": "textarea", "value": "" },
+      { "id": "at2", "label": "Estratégias que auxiliam a manutenção da atenção",  "type": "textarea", "value": "" }
+    ]},
+    { "id": "engajamento_ec", "title": "Engajamento na Atividade", "fields": [
+      { "id": "eng1", "label": "Nível de participação e engajamento",     "type": "textarea", "value": "" },
+      { "id": "eng2", "label": "Interesses e motivadores identificados",  "type": "textarea", "value": "" }
+    ]},
+    { "id": "comportamentos_ec", "title": "Comportamentos Observados", "fields": [
+      { "id": "comp1", "label": "Comportamentos frequentes em sala/atendimento",             "type": "textarea", "value": "" },
+      { "id": "comp2", "label": "Fatores que antecedem comportamentos desafiadores",        "type": "textarea", "value": "" }
+    ]},
+    { "id": "sobrecarga_ec", "title": "Sinais de Sobrecarga Sensorial", "fields": [
+      { "id": "sob1", "label": "Sinais de sobrecarga observados",         "type": "textarea", "value": "" },
+      { "id": "sob2", "label": "Estratégias de regulação utilizadas",    "type": "textarea", "value": "" }
+    ]},
+    { "id": "interacao_ec", "title": "Interação Social", "fields": [
+      { "id": "int1", "label": "Qualidade da interação com pares",   "type": "textarea", "value": "" },
+      { "id": "int2", "label": "Qualidade da interação com adultos", "type": "textarea", "value": "" }
+    ]},
+    { "id": "linguagem_ec", "title": "Linguagem", "fields": [
+      { "id": "ling1", "label": "Desenvolvimento da linguagem oral",         "type": "textarea", "value": "" },
+      { "id": "ling2", "label": "Compreensão de instruções e textos",       "type": "textarea", "value": "" }
+    ]},
+    { "id": "leitura_ec", "title": "Leitura", "fields": [
+      { "id": "leit1", "label": "Nível de leitura atual (hipótese de escrita)", "type": "textarea", "value": "" },
+      { "id": "leit2", "label": "Estratégias utilizadas e avanços observados",  "type": "textarea", "value": "" }
+    ]},
+    { "id": "escrita_ec", "title": "Escrita", "fields": [
+      { "id": "esc1", "label": "Nível de escrita atual (hipótese de escrita)",  "type": "textarea", "value": "" },
+      { "id": "esc2", "label": "Estratégias e adaptações utilizadas",           "type": "textarea", "value": "" }
     ]}
   ]
 }
 
-Preencha TODOS os campos "value" com análise real, técnica e específica. Português brasileiro formal.`;
+Preencha TODOS os campos "value" com análise real, técnica e específica. Deixe vazio apenas o que for genuinamente desconhecido. Português brasileiro formal.`;
 
     // ── Genérico (FICHA, outros tipos) ───────────────────────────────────────────
     } else {

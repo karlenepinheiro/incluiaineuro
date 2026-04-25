@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Student, SchoolConfig, PlanTier, getPlanLimits, StudentType } from '../types';
+import { Student, SchoolConfig, PlanTier, getPlanLimits, PriorKnowledgeProfile } from '../types';
 import { Save, ArrowLeft, Upload, FileText, Trash2, Plus, AlertCircle, Lock, Stethoscope, BookOpen, Users, HelpCircle, X, Paperclip, Sparkles } from 'lucide-react';
 import { MultiSelect } from './MultiSelect';
 import { SmartTextarea } from './SmartTextarea'; 
+import { PedagogicalProfileSection, PedagogicalProfileSuggestionKey } from './PedagogicalProfileSection';
+import { AIService, friendlyAIError } from '../services/aiService';
 import { StorageService } from '../services/storageService';
 
 const DIAGNOSIS_LIBRARY = [
@@ -41,6 +43,16 @@ const PROFESSIONALS_LIBRARY = [
     "Professor Regente", "Psicólogo Escolar", "Mediador Escolar", 
     "Neuropsicólogo", "Orientador Educacional", "Nutricionista", "Fisioterapeuta"
 ];
+
+const PEDAGOGICAL_AI_LABELS: Record<PedagogicalProfileSuggestionKey, string> = {
+  leitura: 'Leitura',
+  escrita: 'Escrita',
+  entendimento: 'Compreensão e entendimento',
+  autonomia: 'Autonomia',
+  atencao: 'Atenção',
+  raciocinio: 'Raciocínio lógico-matemático',
+  observacoes_pedagogicas: 'Observações pedagógicas gerais',
+};
 
 interface Props {
   initialData?: Student | null;
@@ -118,6 +130,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
     neighborhood: initialData?.neighborhood || '',
     city: initialData?.city || '',
     state: initialData?.state || '',
+    priorKnowledge: initialData?.priorKnowledge ?? undefined,
   });
 
   const [cidInput, setCidInput] = useState('');
@@ -125,6 +138,53 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
   const [isUploading, setIsUploading] = useState(false);
   const [docUploadType, setDocUploadType] = useState<'Laudo' | 'Relatorio' | 'Outro'>('Laudo');
 
+  const [generatingAI, setGeneratingAI] = useState<Partial<Record<PedagogicalProfileSuggestionKey, boolean>>>({});
+
+  const handleSuggestAI = async (areaKey: PedagogicalProfileSuggestionKey) => {
+    setGeneratingAI(prev => ({ ...prev, [areaKey]: true }));
+    try {
+      const notesKey: keyof PriorKnowledgeProfile =
+        areaKey === 'observacoes_pedagogicas' ? areaKey : `${areaKey}_notes`;
+      const currentScore =
+        areaKey === 'observacoes_pedagogicas'
+          ? undefined
+          : formData.priorKnowledge?.[`${areaKey}_score` as keyof PriorKnowledgeProfile];
+      const currentVal = formData.priorKnowledge?.[notesKey];
+      const prompt = [
+        'Você é um assistente pedagógico do IncluiAI.',
+        `Gere somente 2 ou 3 bullet points curtos, em português do Brasil, para o campo "${PEDAGOGICAL_AI_LABELS[areaKey]}".`,
+        'Use observações pedagógicas objetivas, éticas e verificáveis.',
+        'Não invente diagnóstico, não cite deficiência sem base explícita e não escreva título.',
+        `Aluno: ${formData.name || 'Não informado'}.`,
+        `Série/ano: ${formData.grade || 'Não informado'}.`,
+        `Histórico escolar: ${formData.schoolHistory || 'Não informado'}.`,
+        `Contexto familiar: ${formData.familyContext || 'Não informado'}.`,
+        `Observações gerais: ${formData.observations || 'Não informado'}.`,
+        `Texto já preenchido no campo: ${String(currentVal || 'Não informado')}.`,
+        currentScore ? `Score atual (1 a 5): ${currentScore}.` : '',
+        'Retorne apenas os bullets finais, um por linha, começando com "- ".',
+      ].filter(Boolean).join('\n');
+      const suggestion = (await AIService.generateTextFromPrompt(prompt, null as unknown as never)).trim();
+
+      if (!suggestion) {
+        throw new Error('A IA não retornou sugestão para este campo.');
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        priorKnowledge: {
+          ...(prev.priorKnowledge || {}),
+          [notesKey]: prev.priorKnowledge?.[notesKey]
+            ? `${String(prev.priorKnowledge[notesKey]).trim()}\n${suggestion}`
+            : suggestion,
+        },
+      }));
+    } catch (error) {
+      alert(friendlyAIError(error));
+    } finally {
+      setGeneratingAI(prev => ({ ...prev, [areaKey]: false }));
+    }
+  };
 
   const canUpload = getPlanLimits(userPlan)?.uploads ?? false;
 
@@ -173,7 +233,8 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         strategies: initialData.strategies || [],
         communication: initialData.communication || [],
         documents: initialData.documents || [],
-        cid: normalizedCid
+        cid: normalizedCid,
+        priorKnowledge: initialData.priorKnowledge ?? undefined,
       }));
     }
   }, [initialData]);
@@ -838,20 +899,28 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         <section>
             <h3 className="section-title"><AlertCircle size={20} className="text-brand-600"/> Perfil Pedagógico</h3>
             <div className="space-y-4">
-                <MultiSelect 
-                    label="Habilidades / Potencialidades" 
-                    options={SKILLS_LIBRARY} 
-                    selected={formData.abilities} 
-                    onChange={v => setFormData({...formData, abilities: v})} 
+                <MultiSelect
+                    label="Habilidades / Potencialidades"
+                    options={SKILLS_LIBRARY}
+                    selected={formData.abilities}
+                    onChange={v => setFormData({...formData, abilities: v})}
                 />
-                <MultiSelect 
-                    label="Dificuldades / Barreiras" 
-                    options={DIFFICULTIES_LIBRARY} 
-                    selected={formData.difficulties} 
-                    onChange={v => setFormData({...formData, difficulties: v})} 
+                <MultiSelect
+                    label="Dificuldades / Barreiras"
+                    options={DIFFICULTIES_LIBRARY}
+                    selected={formData.difficulties}
+                    onChange={v => setFormData({...formData, difficulties: v})}
                 />
             </div>
         </section>
+
+        {/* Conhecimento Prévio e Perfil Pedagógico Inicial */}
+        <PedagogicalProfileSection
+          data={formData.priorKnowledge}
+          onChange={(pk) => setFormData(prev => ({ ...prev, priorKnowledge: pk }))}
+          onSuggestAI={handleSuggestAI}
+          generatingAreas={generatingAI}
+        />
 
         <div className="flex justify-end gap-3 pt-6 border-t border-gray-200">
           <button type="button" onClick={onCancel} className="btn-secondary">Cancelar</button>

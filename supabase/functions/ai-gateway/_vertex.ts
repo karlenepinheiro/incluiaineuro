@@ -55,7 +55,7 @@ export async function generateGeminiText(
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ contents: [{ parts }] }),
-  }, 55_000);
+  }, 90_000);
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -83,7 +83,7 @@ export async function generateGeminiJSON(prompt: string): Promise<string> {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(body),
-    }, 60_000);
+    }, 90_000);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -152,7 +152,18 @@ export async function generateVertexImage(prompt: string): Promise<string> {
 // ─── OAuth2 — service account JWT ────────────────────────────────────────────
 
 async function getAccessToken(serviceAccountJson: string): Promise<string> {
-  const sa  = JSON.parse(serviceAccountJson);
+  // Supabase secrets às vezes armazenam o JSON com aspas externas extras (double-stringified).
+  // Tentamos parsear duas vezes se o resultado do primeiro parse for ainda uma string.
+  let rawJson = serviceAccountJson.trim();
+  if (rawJson.startsWith('"') && rawJson.endsWith('"')) {
+    try { rawJson = JSON.parse(rawJson); } catch { /* segue com o original */ }
+  }
+  const sa  = JSON.parse(rawJson);
+
+  if (!sa.client_email || !sa.private_key) {
+    throw new Error('OAuth2: service account JSON inválido — faltam client_email ou private_key');
+  }
+
   const now = Math.floor(Date.now() / 1000);
 
   const claim = {
@@ -170,11 +181,23 @@ async function getAccessToken(serviceAccountJson: string): Promise<string> {
   const claimB64  = toB64u(claim);
   const input     = `${headerB64}.${claimB64}`;
 
-  // Normaliza \\n literal (armazenado em env var) para newline real antes de decodificar PEM
-  const pem    = sa.private_key
+  // Normaliza a chave privada:
+  // 1. Remove aspas externas se a chave foi salva com elas
+  // 2. Substitui \\n literal (env var) por newline real
+  // 3. Remove cabeçalho/rodapé PEM e espaços para obter o DER base64
+  let rawKey: string = sa.private_key;
+  if (rawKey.startsWith('"') && rawKey.endsWith('"')) {
+    rawKey = rawKey.slice(1, -1);
+  }
+  const pem = rawKey
     .replace(/\\n/g, '\n')
     .replace(/-----[^-]+-----/g, '')
     .replace(/\s/g, '');
+
+  if (!pem || pem.length < 100) {
+    throw new Error('OAuth2: private_key inválida ou vazia após normalização');
+  }
+
   const keyDer = Uint8Array.from(atob(pem), (c) => c.charCodeAt(0));
 
   const cryptoKey = await crypto.subtle.importKey(

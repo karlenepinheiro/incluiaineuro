@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Student, Protocol, DocumentType, PlanTier, ServiceRecord, Appointment,
   DocumentAnalysis, FichaComplementar, StudentEvolution, User as UserType,
+  PRIOR_KNOWLEDGE_LABELS,
 } from '../types';
 import {
   User, Calendar, FileText, Activity, Brain,
@@ -1090,6 +1091,50 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             </div>
           </div>
 
+          {/* ─ Seção 4: Conhecimento Prévio e Perfil Pedagógico Inicial ─ */}
+          {student.priorKnowledge &&
+            (['leitura','escrita','entendimento','autonomia','atencao','raciocinio'] as const)
+              .some(k => (student.priorKnowledge as any)?.[`${k}_score`]) && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
+              <SectionHeader
+                icon={<BookOpen size={16} style={{ color: '#1F4E5F' }}/>}
+                title="4. Conhecimento Prévio e Perfil Pedagógico Inicial"
+                subtitle="Avaliação inicial do nível em áreas-chave (escala 1–5)"
+              />
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                {([
+                  { key: 'leitura',      label: 'Leitura' },
+                  { key: 'escrita',      label: 'Escrita' },
+                  { key: 'entendimento', label: 'Compreensão / Entendimento' },
+                  { key: 'autonomia',    label: 'Autonomia' },
+                  { key: 'atencao',      label: 'Atenção' },
+                  { key: 'raciocinio',   label: 'Raciocínio Lógico-Matemático' },
+                ] as { key: string; label: string }[]).map(({ key, label }) => {
+                  const score = (student.priorKnowledge as any)?.[`${key}_score`] as number | undefined;
+                  const notes = (student.priorKnowledge as any)?.[`${key}_notes`] as string | undefined;
+                  if (!score) return null;
+                  const colors = ['', 'bg-red-100 text-red-700', 'bg-orange-100 text-orange-700', 'bg-yellow-100 text-yellow-700', 'bg-emerald-100 text-emerald-700', 'bg-teal-100 text-teal-700'];
+                  return (
+                    <div key={key} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wide font-bold mb-1">{label}</p>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${colors[score] ?? ''}`}>{score}/5</span>
+                        <span className="text-[11px] text-gray-600">{PRIOR_KNOWLEDGE_LABELS[score as 1|2|3|4|5]}</span>
+                      </div>
+                      {notes && <p className="text-xs text-gray-500 italic mt-1 leading-tight">{notes}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+              {student.priorKnowledge?.observacoes_pedagogicas && (
+                <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+                  <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wide mb-1">Observações Pedagógicas Iniciais</p>
+                  <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{student.priorKnowledge.observacoes_pedagogicas}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Escola (histórico escolar) — leitura rápida */}
           {student.schoolHistory && (
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
@@ -1280,7 +1325,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               value={historyText}
               onChange={setHistoryText}
               placeholder="Registre aqui o histórico evolutivo do aluno, observações diárias e anotações importantes..."
-              className="min-h-[200px]"
+              rows={8}
             />
           </div>
         </div>
@@ -1338,7 +1383,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                               a.status === 'realizado'  ? 'bg-green-100 text-green-700' :
                               a.status === 'cancelado'  ? 'bg-red-100 text-red-600' :
-                              a.status === 'falta'      ? 'bg-orange-100 text-orange-700' :
+                              (a.status as string) === 'falta' ? 'bg-orange-100 text-orange-700' :
                               'bg-blue-100 text-blue-700'
                             }`}>{a.status ?? 'agendado'}</span>
                           </td>
@@ -1376,7 +1421,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                           <td className="px-4 py-3 font-semibold text-gray-700 whitespace-nowrap">
                             {new Date(r.date).toLocaleDateString('pt-BR')}
                           </td>
-                          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{r.time ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{(r as any).time ?? '—'}</td>
                           <td className="px-4 py-3 text-gray-700">{r.type}</td>
                           <td className="px-4 py-3 text-gray-600">{r.professional}</td>
                           <td className="px-4 py-3">
@@ -1385,7 +1430,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                               r.attendance === 'Falta' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'
                             }`}>{r.attendance ?? '—'}</span>
                           </td>
-                          <td className="px-4 py-3 text-gray-400 text-xs max-w-xs truncate" title={r.observations}>{r.observations ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-400 text-xs max-w-xs truncate" title={r.observation}>{r.observation ?? '—'}</td>
                         </tr>
                       ))}
                     </tbody>
