@@ -119,6 +119,134 @@ const QRCodeRenderer: React.FC<{ code: string }> = ({ code }) => {
   return <canvas ref={canvasRef} width={80} height={80} className="border border-gray-100 rounded" title={url} />;
 };
 
+// ─── BNCC Suggestor ───────────────────────────────────────────────────────────
+const BNCC_BY_DISCIPLINE: Record<string, { code: string; desc: string }[]> = {
+  portugues: [
+    { code: 'EF01LP01', desc: 'Reconhecer que palavras diferentes compartilham certas letras' },
+    { code: 'EF01LP02', desc: 'Escrever, corretamente, palavras do vocabulário cotidiano' },
+    { code: 'EF02LP01', desc: 'Ler e escrever palavras com correspondências regulares diretas' },
+    { code: 'EF03LP01', desc: 'Ler e compreender, com certa autonomia, textos de gêneros variados' },
+    { code: 'EF04LP01', desc: 'Ler e compreender textos narrativos de médio porte' },
+    { code: 'EF05LP01', desc: 'Ler e compreender textos argumentativos simples' },
+    { code: 'EF15LP01', desc: 'Identificar a função social dos textos que circulam em campos da vida' },
+    { code: 'EF15LP02', desc: 'Estabelecer expectativas em relação ao texto lido' },
+    { code: 'EF15LP03', desc: 'Localizar informações explícitas em textos' },
+    { code: 'EF15LP04', desc: 'Identificar o efeito de sentido produzido pelo uso de recursos expressivos' },
+    { code: 'EF15LP18', desc: 'Relacionar textos verbais e não verbais, observando se complementam' },
+  ],
+  matematica: [
+    { code: 'EF01MA01', desc: 'Utilizar números naturais como indicador de quantidade' },
+    { code: 'EF01MA02', desc: 'Contar de maneira exata ou aproximada objetos de coleções' },
+    { code: 'EF02MA01', desc: 'Comparar e ordenar números naturais até 1000' },
+    { code: 'EF03MA01', desc: 'Ler, escrever e comparar números naturais de até a ordem de unidades de milhar' },
+    { code: 'EF04MA01', desc: 'Ler, escrever e ordenar números naturais até a ordem de dezenas de milhar' },
+    { code: 'EF05MA01', desc: 'Ler, escrever e ordenar números racionais na forma decimal' },
+    { code: 'EF01MA06', desc: 'Construir fatos básicos da adição e usá-los em procedimentos de cálculo' },
+    { code: 'EF02MA06', desc: 'Resolver e elaborar problemas de adição e subtração' },
+    { code: 'EF03MA07', desc: 'Resolver e elaborar problemas de multiplicação por 2, 3, 4, 5 e 10' },
+    { code: 'EF35MA01', desc: 'Ler, escrever e comparar números naturais e racionais' },
+    { code: 'EF35MA11', desc: 'Resolver e elaborar problemas de adição, subtração, multiplicação e divisão' },
+  ],
+  ciencias: [
+    { code: 'EF01CI01', desc: 'Comparar características de diferentes materiais presentes em objetos de uso cotidiano' },
+    { code: 'EF02CI01', desc: 'Identificar de onde vêm alguns produtos usados no cotidiano' },
+    { code: 'EF03CI01', desc: 'Produzir diferentes sons a partir da vibração de variados objetos' },
+    { code: 'EF04CI01', desc: 'Identificar misturas na vida diária, com base em suas propriedades físicas' },
+    { code: 'EF05CI01', desc: 'Explorar fenômenos da vida cotidiana que evidenciem propriedades físicas dos materiais' },
+    { code: 'EF01CI03', desc: 'Discutir as razões pelas quais os hábitos de higiene do corpo são necessários' },
+    { code: 'EF02CI05', desc: 'Identificar os cuidados necessários para a manutenção da saúde' },
+    { code: 'EF35CI02', desc: 'Observar e descrever características de plantas e animais' },
+  ],
+  historia: [
+    { code: 'EF01HI01', desc: 'Identificar aspectos do seu crescimento por meio do registro das lembranças' },
+    { code: 'EF02HI01', desc: 'Reconhecer espaços de sociabilidade e identificar os motivos que aproximam as pessoas' },
+    { code: 'EF03HI01', desc: 'Identificar os grupos populacionais que formam a comunidade, o município e a região' },
+    { code: 'EF04HI01', desc: 'Identificar as relações entre os indivíduos e a natureza' },
+    { code: 'EF05HI01', desc: 'Identificar os processos de formação das culturas e dos povos' },
+  ],
+  geografia: [
+    { code: 'EF01GE01', desc: 'Descrever características observadas de seus lugares de vivência' },
+    { code: 'EF02GE01', desc: 'Comparar o espaço do campo e da cidade' },
+    { code: 'EF03GE01', desc: 'Identificar e comparar aspectos culturais dos grupos sociais de seus lugares de vivência' },
+    { code: 'EF04GE01', desc: 'Selecionar, em seus lugares de vivência, e apresentar argumentos para a conservação ambiental' },
+    { code: 'EF05GE01', desc: 'Descrever e analisar dinâmicas populacionais na UF em que vive' },
+  ],
+  ed_fisica: [
+    { code: 'EF12EF01', desc: 'Experimentar e fruir, de forma inclusiva, diversas brincadeiras' },
+    { code: 'EF35EF01', desc: 'Experimentar e fruir, de forma inclusiva, brincadeiras e jogos culturais do Brasil e do mundo' },
+    { code: 'EF12EF05', desc: 'Identificar as sensações corporais produzidas pela prática de exercícios físicos' },
+    { code: 'EF35EF05', desc: 'Experimentar e fruir ginástica geral, identificando e descrevendo seus elementos técnicos' },
+  ],
+};
+
+const DISCIPLINE_KEY_MAP: Record<string, string> = {
+  pt_bncc: 'portugues', mt_bncc: 'matematica', ci_bncc: 'ciencias',
+  hi_bncc: 'historia', ge_bncc: 'geografia', ef_bncc: 'ed_fisica',
+  er_bncc: 'portugues',
+};
+
+const BnccSuggestor: React.FC<{
+  fieldId: string;
+  currentValue: string;
+  onInsert: (code: string) => void;
+}> = ({ fieldId, currentValue, onInsert }) => {
+  const [query, setQuery] = React.useState('');
+  const disciplineKey = DISCIPLINE_KEY_MAP[fieldId];
+  const pool = disciplineKey ? BNCC_BY_DISCIPLINE[disciplineKey] ?? [] : Object.values(BNCC_BY_DISCIPLINE).flat();
+  const already = new Set(
+    (currentValue || '').split(/[\s,;]+/).map(s => s.trim()).filter(Boolean)
+  );
+
+  const filtered = query.length >= 2
+    ? pool.filter(b =>
+        !already.has(b.code) &&
+        (b.code.toLowerCase().includes(query.toLowerCase()) ||
+         b.desc.toLowerCase().includes(query.toLowerCase()))
+      ).slice(0, 6)
+    : pool.filter(b => !already.has(b.code)).slice(0, 6);
+
+  if (!disciplineKey && !query) return null;
+
+  return (
+    <div className="mt-1.5">
+      <div className="flex items-center gap-2 mb-1.5">
+        <input
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Filtrar habilidades BNCC…"
+          className="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1"
+          style={{ '--tw-ring-color': '#1F4E5F' } as React.CSSProperties}
+        />
+        {query && (
+          <button onClick={() => setQuery('')} className="text-gray-400 hover:text-gray-600">
+            <X size={13}/>
+          </button>
+        )}
+      </div>
+      {filtered.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {filtered.map(b => (
+            <button
+              key={b.code}
+              type="button"
+              onClick={() => onInsert(b.code)}
+              title={b.desc}
+              className="inline-flex items-center gap-1 text-[10px] font-mono font-bold px-2 py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100 hover:border-blue-400 transition"
+            >
+              {b.code}
+              <span className="font-normal text-blue-500 max-w-[120px] truncate hidden sm:inline">{b.desc}</span>
+            </button>
+          ))}
+          <span className="text-[10px] text-gray-400 self-center ml-1">
+            {filtered.length < pool.filter(b => !already.has(b.code)).length ? 'mostrando 6' : ''} · clique para inserir
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Grupos semânticos para agrupamento de campos de modelo salvo ─────────────
 const TAG_SECTION_GROUPS: Array<{ id: string; title: string; tags: string[] }> = [
   { id: 'tmpl_hist',  title: 'Histórico e Contexto',          tags: ['{{historico_escolar}}', '{{contexto_familiar}}', '{{medicacao}}', '{{responsavel}}', '{{telefone_responsavel}}'] },
@@ -762,10 +890,26 @@ const planLimits = getPlanLimits(user.plan);
       if (field.value || field.audioUrl) {
           if (!confirm("Este campo contém dados. Tem certeza que deseja excluir?")) return;
       }
-      
+
       const newSecs = [...sections];
       newSecs[secIdx].fields.splice(fieldIdx, 1);
       setSections(newSecs);
+  };
+
+  const PROTECTED_SECTION_IDS = new Set(['header', 'dados_inst', 'assinaturas', 'identificacao']);
+
+  const handleDeleteSection = (secIdx: number) => {
+      const section = sections[secIdx];
+      if (PROTECTED_SECTION_IDS.has(section.id)) {
+          alert('Esta seção é obrigatória e não pode ser excluída (Identificação / Assinaturas).');
+          return;
+      }
+      const hasData = section.fields.some(f => f.value && String(f.value).trim());
+      const msg = hasData
+          ? `Excluir a seção "${section.title}"?\nEla contém dados preenchidos que serão perdidos.`
+          : `Excluir a seção "${section.title}"?`;
+      if (!confirm(msg)) return;
+      setSections(prev => prev.filter((_, i) => i !== secIdx));
   };
 
   // ─── SEÇÃO MODAL PREMIUM ────────────────────────────────────────────────────
@@ -1959,12 +2103,23 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                     <div className="flex justify-between items-center bg-gray-100 p-2 mb-2 print:bg-transparent print:border-b print:border-gray-300 print:pl-0">
                         <h3 className="font-bold uppercase text-sm text-gray-800">{sec.title}</h3>
                         {isEditing && (
-                            <button 
-                                onClick={() => { setTargetSectionIndex(i); setShowCustomFieldModal(true); }}
-                                className="text-xs flex items-center gap-1 text-brand-600 hover:text-brand-800 font-bold print:hidden"
-                            >
-                                <Plus size={14}/> Add Campo
-                            </button>
+                            <div className="flex items-center gap-2 print:hidden">
+                                <button
+                                    onClick={() => { setTargetSectionIndex(i); setShowCustomFieldModal(true); }}
+                                    className="text-xs flex items-center gap-1 text-brand-600 hover:text-brand-800 font-bold"
+                                >
+                                    <Plus size={14}/> Add Campo
+                                </button>
+                                {!PROTECTED_SECTION_IDS.has(sec.id) && (
+                                    <button
+                                        onClick={() => handleDeleteSection(i)}
+                                        title="Excluir esta seção"
+                                        className="text-xs flex items-center gap-1 text-red-400 hover:text-red-600 font-bold opacity-0 group-hover/section:opacity-100 transition-opacity"
+                                    >
+                                        <Trash2 size={13}/> Excluir seção
+                                    </button>
+                                )}
+                            </div>
                         )}
                     </div>
 
@@ -2119,13 +2274,25 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                                 {/* Audio Recorder */}
                                 {f.allowAudio && f.allowAudio !== 'none' && (
                                     <div className={!isEditing && !f.audioUrl ? 'hidden' : ''}>
-                                        <AudioRecorder 
+                                        <AudioRecorder
                                             initialAudioUrl={f.audioUrl}
                                             onSave={(url, duration) => handleAudioUpdate(i, j, url, duration)}
                                             onDelete={() => handleAudioDelete(i, j)}
                                             readOnly={!isEditing}
                                         />
                                     </div>
+                                )}
+
+                                {/* BNCC Suggestor — campos *_bncc no PEI */}
+                                {isEditing && type === DocumentType.PEI && f.id in DISCIPLINE_KEY_MAP && (
+                                    <BnccSuggestor
+                                        fieldId={f.id}
+                                        currentValue={String(f.value ?? '')}
+                                        onInsert={(code) => {
+                                            const cur = String(f.value ?? '').trim();
+                                            handleFieldChange(i, j, cur ? `${cur}, ${code}` : code);
+                                        }}
+                                    />
                                 )}
                             </div>
                         </div>

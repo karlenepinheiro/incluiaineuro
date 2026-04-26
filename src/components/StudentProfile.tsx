@@ -198,6 +198,97 @@ const UniqueCodeBadge: React.FC<{ code?: string | null }> = ({ code }) => {
   );
 };
 
+// ── AnalysisCards: exibe resultado da análise IA em cards estruturados ────────
+const AnalysisCards: React.FC<{
+  synthesis?: string | null;
+  pedagogicalPoints?: string[] | null;
+  suggestions?: string[] | null;
+  impacts?: string[] | null;
+  alerts?: string[] | null;
+}> = ({ synthesis, pedagogicalPoints, suggestions, impacts, alerts }) => (
+  <div className="rounded-xl overflow-hidden border border-purple-100 bg-purple-50/40">
+    {/* Header */}
+    <div className="flex items-center gap-2 px-3 py-2 bg-purple-100/60 border-b border-purple-100">
+      <Brain size={13} className="text-purple-600 shrink-0"/>
+      <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700">Análise IA do documento</span>
+    </div>
+    <div className="grid sm:grid-cols-2 gap-0 divide-y sm:divide-y-0 sm:divide-x divide-purple-100">
+
+      {/* Síntese */}
+      {synthesis && (
+        <div className="p-3 sm:col-span-2 border-b border-purple-100">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-purple-600 mb-1">Síntese da IA</p>
+          <p className="text-xs text-gray-700 leading-relaxed">{synthesis}</p>
+        </div>
+      )}
+
+      {/* Pontos pedagógicos */}
+      {Array.isArray(pedagogicalPoints) && pedagogicalPoints.length > 0 && (
+        <div className="p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600 mb-1.5 flex items-center gap-1">
+            <BookOpen size={10}/> Pontos pedagógicos
+          </p>
+          <ul className="space-y-1">
+            {pedagogicalPoints.slice(0, 4).map((p, i) => (
+              <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                <span className="text-blue-400 mt-0.5 shrink-0">•</span>{p}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Impactos pedagógicos */}
+      {Array.isArray(impacts) && impacts.length > 0 && (
+        <div className="p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-orange-600 mb-1.5 flex items-center gap-1">
+            <TrendingUp size={10}/> Impactos pedagógicos
+          </p>
+          <ul className="space-y-1">
+            {impacts.slice(0, 4).map((p, i) => (
+              <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                <span className="text-orange-400 mt-0.5 shrink-0">•</span>{p}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Recomendações */}
+      {Array.isArray(suggestions) && suggestions.length > 0 && (
+        <div className="p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-green-600 mb-1.5 flex items-center gap-1">
+            <CheckCircle size={10}/> Recomendações
+          </p>
+          <ul className="space-y-1">
+            {suggestions.slice(0, 4).map((s, i) => (
+              <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                <span className="text-green-500 mt-0.5 shrink-0">•</span>{s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Alertas */}
+      {Array.isArray(alerts) && alerts.length > 0 && (
+        <div className="p-3 sm:col-span-2 border-t border-purple-100 bg-amber-50/60">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1.5 flex items-center gap-1">
+            <AlertCircle size={10}/> Alertas / Observações
+          </p>
+          <ul className="space-y-1">
+            {alerts.map((a, i) => (
+              <li key={i} className="text-xs text-amber-800 flex items-start gap-1.5">
+                <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>{a}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface StudentProfileProps {
   student: Student;
@@ -666,6 +757,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   // Mantém índice válido quando lista muda
   const safeEvoIndex = Math.min(selectedEvoIndex, Math.max(0, sortedEvolutions.length - 1));
 
+  // ── Estado fichas complementares (ações: expandir, excluir) ─────────────────
+  const [expandedObsFormId, setExpandedObsFormId] = useState<string | null>(null);
+
+  const handleDeleteObsForm = async (formId: string) => {
+    if (!confirm('Excluir esta ficha? Esta ação é irreversível.')) return;
+    try {
+      await ObservationFormService.delete(formId);
+      setDbObsForms(prev => prev.filter((f: any) => f.id !== formId));
+    } catch (err: any) {
+      alert('Erro ao excluir ficha: ' + (err?.message ?? ''));
+    }
+  };
+
   // ── Estado da aba Relatório ───────────────────────────────────────────────────
   const [reportType, setReportType]           = useState<'simple' | 'full' | null>(null);
   const [reportResultado, setReportResultado] = useState<RelatorioResultado | null>(null);
@@ -673,6 +777,25 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [reportError, setReportError]         = useState<string>('');
   const [showRelatorioViewer, setShowRelatorioViewer] = useState(false);
   const [reportDocId, setReportDocId]         = useState<string | null>(null);
+
+  // Relatórios salvos no banco (carregados ao entrar na aba)
+  const [dbReports, setDbReports]             = useState<any[]>([]);
+  const [loadingReports, setLoadingReports]   = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== 'relatorio' || !student.id) return;
+    setLoadingReports(true);
+    DocumentService.listByStudent(student.id)
+      .then(docs => setDbReports(
+        docs.filter(d =>
+          d.doc_type === 'RELATORIO_SIMPLES' ||
+          d.doc_type === 'RELATORIO_COMPLETO' ||
+          d.doc_type === 'RELATORIO_TECNICO'
+        )
+      ))
+      .catch(() => {})
+      .finally(() => setLoadingReports(false));
+  }, [activeTab, student.id]);
 
   const reportScores: number[] = sortedEvolutions[0]?.scores ?? [];
   const reportSchool = (user as any)?.schoolConfigs?.[0] ?? null;
@@ -1567,51 +1690,23 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                     {/* IA analysis result — legado (student.documentAnalyses) */}
                     {analyses.filter(a => a.documentName === doc.name).map(analysis => (
                       <div key={analysis.id} className="mt-3 border-t border-gray-200 pt-3">
-                        <div className="bg-white p-3 rounded-lg border border-purple-100">
-                          <p className="text-xs font-bold text-purple-800 mb-1">Análise IA:</p>
-                          <p className="text-xs text-gray-600 italic mb-2">"{analysis.synthesis}"</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <p className="text-[10px] font-bold uppercase text-gray-500">Pontos Pedagógicos</p>
-                              <ul className="text-[10px] list-disc pl-3 text-gray-600">
-                                {analysis.pedagogicalPoints.slice(0, 3).map((p, i) => <li key={i}>{p}</li>)}
-                              </ul>
-                            </div>
-                            <div>
-                              <p className="text-[10px] font-bold uppercase text-gray-500">Sugestões</p>
-                              <ul className="text-[10px] list-disc pl-3 text-gray-600">
-                                {analysis.suggestions.slice(0, 3).map((s, i) => <li key={i}>{s}</li>)}
-                              </ul>
-                            </div>
-                          </div>
-                        </div>
+                        <AnalysisCards
+                          synthesis={analysis.synthesis}
+                          pedagogicalPoints={analysis.pedagogicalPoints}
+                          suggestions={analysis.suggestions}
+                        />
                       </div>
                     ))}
                     {/* IA analysis result — banco (medical_reports) */}
                     {dbMedicalReports.filter(r => r.raw_content === doc.name).map((r: any) => (
                       <div key={r.id} className="mt-3 border-t border-gray-200 pt-3">
-                        <div className="bg-white p-3 rounded-lg border border-purple-100">
-                          <p className="text-xs font-bold text-purple-800 mb-1">Análise IA (salva):</p>
-                          {r.synthesis && <p className="text-xs text-gray-600 italic mb-2">"{r.synthesis}"</p>}
-                          <div className="grid grid-cols-2 gap-2">
-                            {Array.isArray(r.pedagogical_points) && r.pedagogical_points.length > 0 && (
-                              <div>
-                                <p className="text-[10px] font-bold uppercase text-gray-500">Pontos Pedagógicos</p>
-                                <ul className="text-[10px] list-disc pl-3 text-gray-600">
-                                  {r.pedagogical_points.slice(0, 3).map((p: string, i: number) => <li key={i}>{p}</li>)}
-                                </ul>
-                              </div>
-                            )}
-                            {Array.isArray(r.suggestions) && r.suggestions.length > 0 && (
-                              <div>
-                                <p className="text-[10px] font-bold uppercase text-gray-500">Sugestões</p>
-                                <ul className="text-[10px] list-disc pl-3 text-gray-600">
-                                  {r.suggestions.slice(0, 3).map((s: string, i: number) => <li key={i}>{s}</li>)}
-                                </ul>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                        <AnalysisCards
+                          synthesis={r.synthesis}
+                          pedagogicalPoints={r.pedagogical_points}
+                          suggestions={r.suggestions}
+                          impacts={r.pedagogical_impacts}
+                          alerts={r.alerts}
+                        />
                       </div>
                     ))}
                   </div>
@@ -1647,50 +1742,78 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   </div>
                 ) : hasBankFichas ? (
                   /* ── Fichas do banco (observation_forms) ── */
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="text-[10px] text-gray-500 uppercase bg-gray-50 border-b border-gray-100">
-                        <tr>
-                          <th className="px-4 py-3 text-left font-bold">Tipo / Título</th>
-                          <th className="px-4 py-3 text-left font-bold">Data</th>
-                          <th className="px-4 py-3 text-left font-bold">Por</th>
-                          <th className="px-4 py-3 text-left font-bold">Status</th>
-                          <th className="px-4 py-3 text-left font-bold">Código Auditoria</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-50">
-                        {dbObsForms.map((f: any) => (
-                          <tr key={f.id} className="hover:bg-gray-50 transition">
-                            <td className="px-4 py-3">
-                              <p className="font-semibold text-gray-800 text-sm">{f.title}</p>
-                              <p className="text-[10px] text-gray-400 mt-0.5">{f.form_type}</p>
-                            </td>
-                            <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
-                              {new Date(f.created_at).toLocaleDateString('pt-BR')}
-                            </td>
-                            <td className="px-4 py-3 text-gray-500 text-xs">{f.created_by ?? '—'}</td>
-                            <td className="px-4 py-3">
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${f.status === 'finalizado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                {f.status === 'finalizado' ? '✅ Finalizado' : '📝 Rascunho'}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 font-mono text-[10px] text-gray-400">{f.audit_code ?? '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {/* Audit trail */}
-                    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 mt-3">
-                      <p className="text-[10px] font-bold text-gray-500 uppercase mb-2 flex items-center gap-1.5">
+                  <div className="space-y-2">
+                    {dbObsForms.map((f: any) => {
+                      const isExpanded = expandedObsFormId === f.id;
+                      const fields = f.fields_data ? Object.entries(f.fields_data as Record<string, string>) : [];
+                      return (
+                        <div key={f.id} className="rounded-xl border border-gray-100 overflow-hidden">
+                          {/* Row header */}
+                          <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-gray-800 text-sm truncate">{f.title}</p>
+                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                <span className="text-[10px] text-gray-400">{new Date(f.created_at).toLocaleDateString('pt-BR')}</span>
+                                {f.created_by && <span className="text-[10px] text-gray-400">· {f.created_by}</span>}
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${f.status === 'finalizado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                  {f.status === 'finalizado' ? 'Finalizado' : 'Rascunho'}
+                                </span>
+                                {f.audit_code && <span className="text-[10px] font-mono text-gray-400">{f.audit_code}</span>}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                onClick={() => setExpandedObsFormId(isExpanded ? null : f.id)}
+                                className="flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition"
+                              >
+                                <Eye size={12}/> {isExpanded ? 'Fechar' : 'Ver'}
+                              </button>
+                              <button
+                                onClick={() => onNavigateTo?.('fichas')}
+                                className="flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition"
+                              >
+                                <Download size={12}/> PDF
+                              </button>
+                              <button
+                                onClick={() => handleDeleteObsForm(f.id)}
+                                className="flex items-center gap-1 text-xs font-bold px-2 py-1.5 rounded-lg border border-red-100 bg-white text-red-400 hover:bg-red-50 transition"
+                              >
+                                <Trash2 size={12}/>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Expanded content */}
+                          {isExpanded && fields.length > 0 && (
+                            <div className="px-4 py-3 bg-white border-t border-gray-100 space-y-3">
+                              {fields.map(([key, val]) => val ? (
+                                <div key={key}>
+                                  <p className="text-[10px] font-bold uppercase text-gray-400 tracking-wide mb-0.5">{key.replace(/_/g, ' ')}</p>
+                                  <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{String(val)}</p>
+                                </div>
+                              ) : null)}
+                            </div>
+                          )}
+                          {isExpanded && fields.length === 0 && (
+                            <div className="px-4 py-3 bg-white border-t border-gray-100">
+                              <p className="text-xs text-gray-400 italic">Sem conteúdo registrado.</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {/* Audit trail compacto */}
+                    <div className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                      <p className="text-[10px] font-bold text-gray-500 uppercase mb-1.5 flex items-center gap-1.5">
                         <ShieldCheck size={11} className="text-green-500"/> Log de Auditoria
                       </p>
-                      <div className="space-y-1">
+                      <div className="space-y-0.5">
                         {dbObsForms.map((f: any) => (
                           <div key={f.id} className="text-[10px] text-gray-500 font-mono flex flex-wrap gap-2">
                             <span>{new Date(f.created_at).toLocaleString('pt-BR')}</span>
-                            <span className="text-gray-400">|</span>
+                            <span className="text-gray-300">|</span>
                             <span>{f.form_type}</span>
-                            <span className="text-gray-400">|</span>
+                            <span className="text-gray-300">|</span>
                             <span>{f.audit_code ?? 'sem código'}</span>
                           </div>
                         ))}
@@ -1998,6 +2121,77 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Relatórios salvos no banco */}
+          {(loadingReports || dbReports.length > 0) && (
+            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50">
+                <div className="flex items-center gap-2">
+                  <FileText size={14} className="text-brand-600"/>
+                  <span className="text-sm font-bold text-gray-800">Relatórios Salvos</span>
+                  {!loadingReports && (
+                    <span className="text-xs text-gray-400 font-normal">{dbReports.length} documento(s)</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    if (!student.id) return;
+                    setLoadingReports(true);
+                    DocumentService.listByStudent(student.id)
+                      .then(docs => setDbReports(docs.filter(d =>
+                        d.doc_type === 'RELATORIO_SIMPLES' || d.doc_type === 'RELATORIO_COMPLETO' || d.doc_type === 'RELATORIO_TECNICO'
+                      )))
+                      .catch(() => {})
+                      .finally(() => setLoadingReports(false));
+                  }}
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 transition"
+                >
+                  <RefreshCw size={12}/> Atualizar
+                </button>
+              </div>
+              {loadingReports ? (
+                <div className="px-5 py-4 text-xs text-gray-400 flex items-center gap-2">
+                  <RefreshCw size={13} className="animate-spin"/> Carregando…
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {dbReports.map((r: any) => {
+                    const label = r.doc_type === 'RELATORIO_COMPLETO' ? 'Relatório Completo'
+                      : r.doc_type === 'RELATORIO_TECNICO' ? 'Relatório Técnico'
+                      : 'Relatório Simples';
+                    const date = r.created_at ? new Date(r.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+                    return (
+                      <div key={r.id} className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: '#EFF9FF' }}>
+                            <BarChart2 size={14} style={{ color: '#1F4E5F' }}/>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-800 truncate">{r.title || label}</p>
+                            <p className="text-xs text-gray-400">{date} · {label}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => {
+                            if (r.structured_data) {
+                              setReportResultado(r.structured_data as RelatorioResultado);
+                              setReportDocId(r.id);
+                              setReportType(r.doc_type === 'RELATORIO_COMPLETO' ? 'full' : 'simple');
+                              setShowRelatorioViewer(true);
+                            }
+                          }}
+                          className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg text-white shrink-0 transition hover:opacity-90"
+                          style={{ background: '#1F4E5F' }}
+                        >
+                          <Eye size={12}/> Abrir
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Botões de geração */}
           {!reportLoading && !reportResultado && (
