@@ -1,22 +1,29 @@
-// IncluiLabView.tsx — Laboratório de Adaptações IncluiAI
-// v4.0 — Interface assistente simples: prompt → resultado pronto
-// 3 modos: Atividade completa | Gerar como imagem A4 | Adaptar imagem enviada
+// IncluiLabView.tsx — IncluiLAB v5.0 Studio
+// Layout: Studio centralizado estilo Claude/Gemini — sem bolhas de chat
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
-  Send, Paperclip, Zap, Sparkles, Loader, Download,
-  Printer, BookOpen, ChevronRight, Brain, Coins, X, CheckCircle,
-  FileText, Image as ImageIcon, User as UserIcon, Bot, Bookmark,
-  Trash2, BookMarked, FileImage, Type,
+  Brain, Zap, Sparkles, Loader, Download,
+  Printer, BookOpen, Coins, X, CheckCircle,
+  FileText, Bookmark,
+  Trash2, BookMarked, FileImage, Type, Paperclip,
+  RefreshCw, User as UserIcon, ChevronDown, ChevronRight,
+  Clock, Star, Layers, Target, Package, ListOrdered,
+  Lightbulb, GraduationCap, AlertCircle,
 } from 'lucide-react';
-import { User, Student } from '../types';
+import { User, Student, ActivitySchema, ActivityVisualAsset } from '../types';
 import { AIService, friendlyAIError } from '../services/aiService';
-import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
+import { INCLUILAB_ACTIVITY_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { StudentContextService } from '../services/studentContextService';
 import { GeneratedActivityService } from '../services/persistenceService';
 import { WorkflowCanvas as AtivaIACanvas } from '../components/ativaIA/WorkflowCanvas';
+import { A4ActivityRenderer } from '../components/incluilab/A4ActivityRenderer';
+import {
+  isActivitySchemaValidationError,
+  validateActivitySchema,
+} from '../utils/validateActivitySchema';
 
 // ─── Paleta ───────────────────────────────────────────────────────────────────
 const C = {
@@ -28,16 +35,69 @@ const C = {
   border:  '#E7E2D8',
   sec:     '#667085',
   light:   '#F0F7FA',
+  green:   '#16A34A',
+  greenBg: '#DCFCE7',
+  greenBorder: '#BBF7D0',
 };
 
 // ─── Modos de geração ─────────────────────────────────────────────────────────
-type GenerationMode = 'texto' | 'imagem' | 'adaptar';
+type GenerationMode =
+  | 'a4_economica'
+  | 'a4_visual'
+  | 'a4_premium'
+  | 'adaptar_economico'
+  | 'adaptar_visual'
+  | 'adaptar_premium';
 
-const MODES: { id: GenerationMode; label: string; desc: string; cost: number }[] = [
-  { id: 'texto',   label: 'Atividade completa',    desc: 'Texto formatado + exportar',  cost: INCLUILAB_MODEL_COSTS.TEXT },
-  { id: 'imagem',  label: 'Gerar como imagem',     desc: 'PNG A4 pronto para imprimir', cost: INCLUILAB_MODEL_COSTS.GPT_IMAGE },
-  { id: 'adaptar', label: 'Adaptar imagem enviada', desc: 'Envie uma imagem → adaptação visual', cost: INCLUILAB_MODEL_COSTS.TEXT + INCLUILAB_MODEL_COSTS.GPT_IMAGE },
+interface ModeConfig {
+  id: GenerationMode;
+  label: string;
+  desc: string;
+  maxCost: number;
+  icon: React.ElementType;
+  requiresFile: boolean;
+}
+
+const MODES_CRIAR: ModeConfig[] = [
+  { id: 'a4_economica', label: 'A4 Econômica',     desc: 'Texto + pictogramas internos',             maxCost: INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA,  icon: FileText,  requiresFile: false },
+  { id: 'a4_visual',    label: 'A4 Visual',         desc: 'Até 4 imagens IA inclusas',               maxCost: INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX, icon: Sparkles,  requiresFile: false },
+  { id: 'a4_premium',   label: 'Premium Ilustrada', desc: 'Worksheet visual completo estilo Canva',  maxCost: INCLUILAB_ACTIVITY_COSTS.A4_PREMIUM,    icon: FileImage, requiresFile: false },
 ];
+
+const MODES_ADAPTAR: ModeConfig[] = [
+  { id: 'adaptar_economico', label: 'Adaptar — Texto',    desc: 'Analisa + reconstrói como A4 estruturado',      maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO,  icon: Layers,    requiresFile: true },
+  { id: 'adaptar_visual',    label: 'Adaptar — Visual',   desc: 'Analisa + reconstrói com imagens IA (máx. 4)', maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX, icon: Layers,    requiresFile: true },
+  { id: 'adaptar_premium',   label: 'Adaptar — Premium',  desc: 'Recria como worksheet visual completo',         maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_PREMIUM,   icon: FileImage, requiresFile: true },
+];
+
+const ALL_MODES: ModeConfig[] = [...MODES_CRIAR, ...MODES_ADAPTAR];
+
+function getModeConfig(mode: GenerationMode): ModeConfig {
+  return ALL_MODES.find(m => m.id === mode) ?? MODES_CRIAR[0];
+}
+
+function isAdaptarMode(mode: GenerationMode): boolean {
+  return mode.startsWith('adaptar_');
+}
+
+// ─── Seções com ícones mapeados ───────────────────────────────────────────────
+const SECTION_ICONS: Record<string, React.ElementType> = {
+  'objetivo':    Target,
+  'materiais':   Package,
+  'desenvolv':   ListOrdered,
+  'adaptaç':     Lightbulb,
+  'dica':        GraduationCap,
+  'avalia':      CheckCircle,
+  'recurso':     Star,
+};
+
+function getSectionIcon(title: string): React.ElementType {
+  const t = title.toLowerCase();
+  for (const [key, icon] of Object.entries(SECTION_ICONS)) {
+    if (t.includes(key)) return icon;
+  }
+  return BookOpen;
+}
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 interface AttachedFile {
@@ -47,17 +107,19 @@ interface AttachedFile {
   previewUrl?: string;
 }
 
-interface ChatMessage {
-  id:             string;
-  role:           'user' | 'assistant';
-  text:           string;
-  file?:          AttachedFile;
-  result?:        string;         // markdown (modo texto)
-  resultImageUrl?: string;        // data URL PNG (modo imagem/adaptar)
-  creditsUsed?:   number;
-  savedId?:       string;
-  timestamp:      Date;
+interface GeneratedResult {
+  id:           string;
+  title:        string;
+  activity?:    ActivitySchema;
+  content?:     string;
+  imageUrl?:    string;
+  analysisText?: string;
+  creditsUsed:  number;
+  mode:         GenerationMode;
+  savedId?:     string;
 }
+
+type LabState = 'idle' | 'preflight' | 'generating' | 'result';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -71,37 +133,25 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-function exportAsDoc(content: string, filename: string) {
-  const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office'
-    xmlns:w='urn:schemas-microsoft-com:office:word'
-    xmlns='http://www.w3.org/TR/REC-html40'>
-    <head><meta charset='utf-8'/><title>${filename}</title></head>
-    <body><pre style="font-family:Arial,sans-serif;font-size:12pt;line-height:1.6">
-    ${content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-    </pre></body></html>`;
-  const blob = new Blob([html], { type: 'application/msword;charset=utf-8' });
+function activityToJson(activity: ActivitySchema): string {
+  return JSON.stringify(activity, null, 2);
+}
+
+function exportActivityJson(activity: ActivitySchema, filename: string) {
+  const blob = new Blob([activityToJson(activity)], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
 
-function printMarkdown(content: string, title: string) {
-  const win = window.open('', '_blank');
-  if (!win) return;
-  win.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
-  <style>body{font-family:Arial,sans-serif;font-size:12pt;line-height:1.6;padding:40px;max-width:800px;margin:0 auto}
-  h1,h2,h3{color:#1F4E5F}pre{white-space:pre-wrap}@media print{body{padding:20px}}</style></head>
-  <body><pre>${content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>
-  <script>window.onload=()=>{window.print();window.close();}<\/script></body></html>`);
-  win.document.close();
+function printActivity() {
+  window.print();
 }
 
 function downloadImage(dataUrl: string, filename = 'atividade.png') {
   const a = document.createElement('a');
-  a.href = dataUrl;
-  a.download = filename;
-  a.click();
+  a.href = dataUrl; a.download = filename; a.click();
 }
 
 async function safeDeductCredits(user: User, action: string, cost: number) {
@@ -109,352 +159,433 @@ async function safeDeductCredits(user: User, action: string, cost: number) {
   window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
 }
 
-// ─── Prompts ──────────────────────────────────────────────────────────────────
-function buildActivityPrompt(topic: string, studentCtx: string): string {
-  const sb = studentCtx
-    ? `\n\n${studentCtx}\n\nIMPORTANTE: Crie especificamente para este aluno.`
-    : '';
-
-  return `Você é especialista em educação inclusiva e criação de atividades pedagógicas.${sb}
-
-Crie uma atividade pedagógica inclusiva sobre o tema: "${topic}"
-
-IMPORTANTE: Seja sucinto e objetivo. O corpo da atividade não deve ultrapassar 300 palavras. Use linguagem direta e passos claros.
-
-Retorne em Markdown formatado:
-# Título da Atividade
-**Tema:** ${topic}
-**Nível:** [Educação Infantil / Anos Iniciais / Anos Finais]
-
-## Objetivo de Aprendizagem
-
-## Materiais Necessários
-
-## Desenvolvimento (Passo a Passo)
-
-## Adaptações Inclusivas
-
-## Dica para o Professor`;
+// Gera até `maxImages` imagens IA pequenas para os visualAssets do tipo placeholder.
+// Cobra `perImageCost` créditos por imagem bem-sucedida; falhas usam emoji/pictograma fallback sem cobrança.
+async function generateSmallImagesForAssets(
+  assets: ActivityVisualAsset[],
+  user: User,
+  perImageCost: number,
+  maxImages: number,
+): Promise<{ updatedAssets: ActivityVisualAsset[]; imagesGenerated: number }> {
+  const { ImageGenerationService } = await import('../services/imageGenerationService');
+  const tenantId = (user as any).tenant_id ?? user.id;
+  let imagesGenerated = 0;
+  const updatedAssets = assets.map(a => ({ ...a }));
+  const targets = updatedAssets.filter(a => a.type === 'placeholder').slice(0, maxImages);
+  for (const asset of targets) {
+    // Usa imagePrompt do JSON se disponível; caso contrário, monta prompt genérico
+    const imgPrompt = asset.imagePrompt
+      || `ilustracao educativa infantil premium, fundo branco, cores suaves, traco limpo, sem texto na imagem: ${asset.description || asset.title}`;
+    try {
+      const result = await ImageGenerationService.generate(imgPrompt, { tenantId, userId: user.id });
+      const idx = updatedAssets.findIndex(a => a.id === asset.id);
+      if (idx >= 0) updatedAssets[idx] = { ...updatedAssets[idx], url: result.base64DataUrl, type: 'image' };
+      await safeDeductCredits(user, 'INCLUILAB_VISUAL_IMAGE', perImageCost);
+      imagesGenerated++;
+    } catch {
+      // Imagem falhou — sem cobrança, renderer usa fallbackEmoji ou pictogramLibrary
+    }
+  }
+  return { updatedAssets, imagesGenerated };
 }
+
+function activitySchemaErrorMessage(err: unknown): string {
+  if (isActivitySchemaValidationError(err)) {
+    return `${err.message} Revise o pedido e tente gerar novamente.`;
+  }
+  return `Erro: ${friendlyAIError(err)}`;
+}
+
+function parseStoredActivity(content?: string | null): ActivitySchema | null {
+  if (!content?.trim()) return null;
+  try {
+    return validateActivitySchema(content);
+  } catch {
+    return null;
+  }
+}
+
+function createLegacyActivity(title: string, content: string): ActivitySchema {
+  const lines = content
+    .split('\n')
+    .map(line => line.replace(/^#+\s*/, '').replace(/^\s*[-*]\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 8);
+
+  return {
+    schemaVersion: '1.0',
+    header: {
+      title: title || 'Atividade',
+      theme: 'Conteudo salvo',
+      objective: lines[0] || 'Atividade salva anteriormente na biblioteca.',
+      instructions: ['Leia as orientacoes.', 'Resolva uma etapa por vez.'],
+    },
+    blocks: lines.slice(1, 5).map((line, index) => ({
+      id: `legacy-block-${index + 1}`,
+      type: 'practice',
+      title: `Orientacao ${index + 1}`,
+      content: line,
+      items: [],
+      visualAssetIds: [],
+    })),
+    exercises: [
+      {
+        id: 'legacy-exercise-1',
+        type: 'short_answer',
+        title: 'Registro da atividade',
+        prompt: lines.slice(5).join(' ') || 'Use este espaco para registrar a resposta.',
+        options: [],
+        answerLines: 4,
+      },
+    ],
+    visualAssets: [],
+    accessibilityNotes: {
+      supports: [],
+      adaptations: [],
+      teacherNotes: ['Conteudo legado convertido apenas para visualizacao A4.'],
+    },
+    footer: { note: 'Atividade salva na biblioteca IncluiLAB.', generatedBy: 'IncluiLAB' },
+  };
+}
+
+// ─── Prompts ──────────────────────────────────────────────────────────────────
+
+const IMAGE_STYLE_PROMPT = 'ilustracao educativa infantil premium, fundo branco, cores suaves, traco limpo, sem texto na imagem, adequada para impressao A4';
 
 function buildImageActivityPrompt(topic: string, studentCtx: string): string {
   const studentHint = studentCtx
     ? `Aluno: ${studentCtx.split('\n').find(l => l.startsWith('Aluno:')) || studentCtx.split('\n')[0] || 'necessidades especiais'}.`
-    : 'inclusiva e acessível para todos.';
-
-  return `Folha de atividade pedagógica visual, formato A4 retrato, pronta para imprimir. ` +
+    : 'inclusiva e acessivel para todos.';
+  return `Folha de atividade pedagogica visual, formato A4 retrato, pronta para imprimir. ` +
     `Tema: "${topic}". ${studentHint} ` +
-    `Layout: título grande e colorido no topo, instruções simples em etapas numeradas, ` +
-    `ilustrações educativas coloridas e alegres, espaços em branco para o aluno escrever ou desenhar, ` +
-    `borda decorativa suave. Fundo branco. Texto legível, fonte grande. Estilo lúdico e educativo infantil. ` +
+    `Layout: titulo grande e colorido no topo, instrucoes simples em etapas numeradas, ` +
+    `ilustracoes educativas coloridas e alegres, espacos em branco para o aluno escrever ou desenhar, ` +
+    `borda decorativa suave. Fundo branco. Texto legivel, fonte grande. Estilo ludico e educativo infantil. ` +
     `Sem texto excessivo. Cores vivas mas suaves.`;
+}
+
+function buildActivitySchemaPrompt(topic: string, studentCtx: string): string {
+  const studentBlock = studentCtx
+    ? `\n\nCONTEXTO DO ALUNO:\n${studentCtx}\n\nCrie especificamente para este aluno.`
+    : '';
+
+  return `Voce e especialista em educacao inclusiva e criacao de atividades pedagogicas.${studentBlock}
+
+Crie uma atividade pedagogica inclusiva sobre o tema: "${topic}".
+
+RETORNE APENAS JSON valido. Nao use Markdown. Nao escreva texto antes ou depois do JSON.
+
+Use exatamente este contrato:
+{
+  "guia_pedagogico": {
+    "objetivo_da_aula": "Objetivo claro da aula em uma frase",
+    "metodologia_adaptada": "Como aplicar a atividade com adaptacoes inclusivas",
+    "dicas_de_mediacao": ["Dica 1 para o professor", "Dica 2"],
+    "criterios_de_avaliacao": ["Criterio 1 observavel", "Criterio 2"],
+    "materiais_necessarios": ["Material 1", "Material 2"],
+    "tempo_estimado": "30 minutos",
+    "adaptacoes_inclusivas": ["Adaptacao 1", "Adaptacao 2"]
+  },
+  "folha_do_aluno": {
+    "cabecalho": {
+      "escola": "",
+      "aluno": "",
+      "data": "",
+      "disciplina": "Disciplina",
+      "ano": "Ano/Serie",
+      "tema": "${topic}"
+    },
+    "titulo": "Titulo curto e atraente da atividade",
+    "objetivo_simplificado": "O que voce vai aprender hoje em uma frase simples",
+    "instrucoes_simplificadas": ["Instrucao curta 1", "Instrucao curta 2", "Instrucao curta 3"],
+    "conteudo_visual": [
+      {
+        "id": "cv-1",
+        "posicao": 1,
+        "titulo": "Nome do elemento visual",
+        "texto_apoio": "Texto curto de apoio",
+        "prompt_ia_imagem": "${IMAGE_STYLE_PROMPT}, [descreva o elemento visual especifico]",
+        "url_gerada": null,
+        "fallback_emoji": "🖼️"
+      }
+    ],
+    "exercicios": [
+      {
+        "id": "ex-1",
+        "tipo": "multipla_escolha",
+        "titulo": "Atividade 1",
+        "comando": "Enunciado curto e claro para o aluno",
+        "opcoes": ["Opcao A", "Opcao B", "Opcao C"],
+        "linhas_resposta": 3,
+        "prompt_ia_imagem": "${IMAGE_STYLE_PROMPT}, [elemento visual deste exercicio]",
+        "url_gerada": null,
+        "dica_visual": "Apoio opcional"
+      }
+    ]
+  }
+}
+
+Tipos validos de exercicio: multipla_escolha | ligar_colunas | completar_frase | circular | desenho | resposta_curta | verdadeiro_falso
+
+Para ligar_colunas: use itens_esquerda e itens_direita (arrays) em vez de opcoes.
+Para verdadeiro_falso: opcoes = ["Verdadeiro", "Falso"].
+
+Regras pedagogicas:
+- Portugues do Brasil.
+- TAMANHO: maximo 4 exercicios. Atividade simples: 2-3 exercicios. Atividade padrao: 4 exercicios.
+- Cada exercicio deve conter 1 ideia central. Enunciado com no maximo 2 frases curtas.
+- Se o conteudo ficar extenso: resumir e remover redundancia. NUNCA truncar com "...".
+- Objetivo: atividade enxuta que caiba em 1 a 2 paginas A4 impressas.
+- VISUAL: se o enunciado citar "observe", "conte os objetos" ou "veja ao lado", inclua fallback_emoji obrigatorio naquele exercicio.
+- Nao repita "Materiais necessarios" em mais de 1 bloco.
+- Linguagem direta, frases curtas — e para o aluno, nao para o professor.
+- Guia do professor deve ser separado e detalhado.
+- Inclua pelo menos 2 elementos em conteudo_visual.
+- Nao retorne texto livre fora do JSON.`;
 }
 
 function buildAdaptImagePrompt(studentCtx: string, extraInstructions: string): string {
   const target = studentCtx
     ? `adaptada especificamente para o aluno descrito: ${studentCtx.split('\n').slice(0, 3).join('; ')}`
-    : 'adaptada para inclusão e acessibilidade';
-  const extra = extraInstructions ? ` Instrução adicional: ${extraInstructions}.` : '';
-
-  return `Analise esta atividade educativa enviada como imagem. Extraia o conteúdo e crie uma versão ` +
+    : 'adaptada para inclusao e acessibilidade';
+  const extra = extraInstructions ? ` Instrucao adicional: ${extraInstructions}.` : '';
+  return `Analise esta atividade educativa enviada como imagem. Extraia o conteudo e crie uma versao ` +
     `completamente redesenhada, ${target}.${extra} ` +
-    `Simplifique o texto, divida em passos curtos, remova complexidade desnecessária. ` +
-    `Descreva detalhadamente como deve ser a nova atividade visual: título, instruções passo a passo, ` +
-    `elementos visuais, layout A4 para imprimir.`;
+    `Simplifique o texto, divida em passos curtos, remova complexidade desnecessaria. ` +
+    `Descreva detalhadamente o conteudo: titulo, objetivo, instrucoes, exercicios com enunciados completos.`;
 }
 
-// ─── Componente: ChatBubble ───────────────────────────────────────────────────
-const ChatBubble: React.FC<{
-  msg:          ChatMessage;
-  onViewResult: (msg: ChatMessage) => void;
-}> = ({ msg, onViewResult }) => {
-  const isUser = msg.role === 'user';
+// ─── A4 Renderer — renderização visual rica ───────────────────────────────────
+function buildAdaptActivitySchemaPrompt(analysis: string, studentCtx: string, extraInstructions: string): string {
+  const studentBlock = studentCtx
+    ? `\n\nCONTEXTO DO ALUNO:\n${studentCtx}\n\nAdapte especificamente para este aluno.`
+    : '';
+  const extra = extraInstructions ? `\n\nINSTRUCAO EXTRA DO PROFESSOR:\n${extraInstructions}` : '';
+
+  return `Voce e especialista em educacao inclusiva.${studentBlock}${extra}
+
+Com base na analise abaixo de uma atividade original, crie uma NOVA atividade pedagogica inclusiva em formato A4.
+
+ANALISE DA ATIVIDADE ORIGINAL:
+${analysis.slice(0, 1400)}
+
+RETORNE APENAS JSON valido. Nao use Markdown. Nao escreva texto antes ou depois do JSON.
+
+Use exatamente este contrato:
+{
+  "guia_pedagogico": {
+    "objetivo_da_aula": "Objetivo pedagogico preservado e adaptado",
+    "metodologia_adaptada": "Como aplicar a atividade adaptada",
+    "dicas_de_mediacao": ["Dica 1", "Dica 2"],
+    "criterios_de_avaliacao": ["Criterio 1", "Criterio 2"],
+    "materiais_necessarios": ["Material 1", "Material 2"],
+    "tempo_estimado": "30 minutos",
+    "adaptacoes_inclusivas": ["Adaptacao 1", "Adaptacao 2"]
+  },
+  "folha_do_aluno": {
+    "cabecalho": {
+      "escola": "",
+      "aluno": "",
+      "data": "",
+      "disciplina": "Disciplina",
+      "ano": "Ano/Serie",
+      "tema": "Tema principal"
+    },
+    "titulo": "Titulo curto da atividade adaptada",
+    "objetivo_simplificado": "O que voce vai aprender hoje",
+    "instrucoes_simplificadas": ["Instrucao 1", "Instrucao 2", "Instrucao 3"],
+    "conteudo_visual": [
+      {
+        "id": "cv-1",
+        "posicao": 1,
+        "titulo": "Elemento visual",
+        "texto_apoio": "Texto de apoio",
+        "prompt_ia_imagem": "${IMAGE_STYLE_PROMPT}, [elemento especifico]",
+        "url_gerada": null,
+        "fallback_emoji": "🖼️"
+      }
+    ],
+    "exercicios": [
+      {
+        "id": "ex-1",
+        "tipo": "resposta_curta",
+        "titulo": "Atividade 1",
+        "comando": "Enunciado curto para o aluno",
+        "opcoes": [],
+        "linhas_resposta": 4,
+        "prompt_ia_imagem": "${IMAGE_STYLE_PROMPT}, [elemento deste exercicio]",
+        "url_gerada": null,
+        "dica_visual": "Apoio opcional"
+      }
+    ]
+  }
+}
+
+Tipos validos de exercicio: multipla_escolha | ligar_colunas | completar_frase | circular | desenho | resposta_curta | verdadeiro_falso
+
+Regras:
+- Preserve o objetivo pedagogico da atividade original.
+- Reduza carga de leitura e aumente clareza visual.
+- TAMANHO: maximo 4 exercicios. 1 ideia por exercicio. Enunciado com no maximo 2 frases.
+- Se conteudo ficar extenso: resumir, remover redundancia. Nunca truncar com "...".
+- VISUAL: se o enunciado citar "observe", "conte os objetos" ou "veja ao lado", inclua fallback_emoji obrigatorio.
+- Nao repita "Materiais necessarios" em mais de 1 bloco.
+- Objetivo: atividade enxuta em 1 a 2 paginas A4.
+- Nao retorne texto livre.`;
+}
+
+function buildAdaptPremiumImagePrompt(analysis: string, studentCtx: string): string {
+  const target = studentCtx
+    ? `adaptado para o aluno: ${studentCtx.split('\n').slice(0, 3).join('; ')}`
+    : 'inclusivo e acessivel para todos';
+  return `Folha de atividade pedagogica visual, formato A4 retrato, pronta para imprimir. ` +
+    `Versao inclusiva e adaptada de atividade original: ${analysis.slice(0, 400)}. ` +
+    `${target}. ` +
+    `Layout: titulo grande e colorido no topo, instrucoes simples em etapas numeradas, ` +
+    `ilustracoes educativas coloridas e alegres, espacos em branco para o aluno escrever ou desenhar, ` +
+    `borda decorativa suave. Fundo branco. Texto legivel, fonte grande. Estilo ludico e educativo infantil. ` +
+    `Sem texto excessivo. Cores vivas mas suaves.`;
+}
+
+const LegacyA4MarkdownRenderer: React.FC<{ content: string; studentName?: string }> = ({ content, studentName }) => {
+  const lines = content.split('\n');
+  const titleLine = lines.find(l => l.startsWith('# '));
+  const title = titleLine ? titleLine.replace(/^#+\s*/, '') : 'Atividade';
+
+  const components = {
+    h1: ({ children }: any) => (
+      <div style={{
+        background: `linear-gradient(135deg, ${C.petrol} 0%, #2a6880 100%)`,
+        borderRadius: '12px 12px 0 0',
+        padding: '24px 28px 20px',
+        margin: '-32px -28px 28px',
+        color: '#fff',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 10,
+            background: 'rgba(255,255,255,0.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Brain size={20} color="#fff" />
+          </div>
+          <div>
+            <p style={{ margin: 0, fontSize: 10, opacity: 0.75, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              IncluiLAB · Atividade Pedagógica Inclusiva
+            </p>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, lineHeight: 1.2 }}>{children}</h1>
+          </div>
+        </div>
+        {studentName && (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: 'rgba(255,255,255,0.15)', borderRadius: 20,
+            padding: '4px 12px', fontSize: 11, fontWeight: 600,
+          }}>
+            <UserIcon size={11} /> Para: {studentName}
+          </div>
+        )}
+      </div>
+    ),
+    h2: ({ children }: any) => {
+      const text = String(children);
+      const Icon = getSectionIcon(text);
+      return (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          margin: '24px 0 12px',
+          paddingBottom: 8,
+          borderBottom: `2px solid ${C.border}`,
+        }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 8,
+            background: C.light,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <Icon size={14} color={C.petrol} />
+          </div>
+          <h2 style={{
+            margin: 0, fontSize: 14, fontWeight: 800,
+            color: C.dark, letterSpacing: '-0.01em',
+          }}>{children}</h2>
+        </div>
+      );
+    },
+    h3: ({ children }: any) => (
+      <h3 style={{ margin: '16px 0 8px', fontSize: 13, fontWeight: 700, color: C.petrol }}>{children}</h3>
+    ),
+    p: ({ children }: any) => (
+      <p style={{ margin: '0 0 10px', fontSize: 13, lineHeight: 1.7, color: '#2a2a2a' }}>{children}</p>
+    ),
+    ul: ({ children }: any) => (
+      <ul style={{ margin: '8px 0 16px', paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</ul>
+    ),
+    ol: ({ children }: any) => (
+      <ol style={{ margin: '8px 0 16px', paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</ol>
+    ),
+    li: ({ children }: any) => (
+      <li style={{ fontSize: 13, lineHeight: 1.6, color: '#2a2a2a' }}>{children}</li>
+    ),
+    strong: ({ children }: any) => (
+      <strong style={{ fontWeight: 700, color: C.dark }}>{children}</strong>
+    ),
+    blockquote: ({ children }: any) => (
+      <blockquote style={{
+        margin: '12px 0', padding: '12px 16px',
+        background: '#FFF8E7', border: `1px solid #F0D080`,
+        borderLeft: `4px solid ${C.gold}`, borderRadius: '0 8px 8px 0',
+        fontSize: 13, color: '#5a4000',
+      }}>{children}</blockquote>
+    ),
+    hr: () => <hr style={{ border: 'none', borderTop: `1px solid ${C.border}`, margin: '20px 0' }} />,
+  };
 
   return (
     <div style={{
-      display: 'flex', gap: 10, marginBottom: 16,
-      flexDirection: isUser ? 'row-reverse' : 'row',
-      alignItems: 'flex-start',
+      background: '#fff', borderRadius: 12,
+      padding: '40px 44px',
+      boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
+      minHeight: 700, maxWidth: 900, margin: '0 auto',
+      fontFamily: "'Segoe UI', Arial, sans-serif",
     }}>
-      {/* Avatar */}
-      <div style={{
-        width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
-        background: isUser ? C.dark : C.petrol,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        {isUser ? <UserIcon size={15} color="#fff" /> : <Bot size={15} color="#fff" />}
-      </div>
-
-      {/* Balão */}
-      <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 6, alignItems: isUser ? 'flex-end' : 'flex-start' }}>
-
-        {/* Preview de arquivo anexado */}
-        {msg.file && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '8px 12px', borderRadius: 12,
-            background: isUser ? '#E8F0F7' : C.light,
-            border: `1px solid ${C.border}`, maxWidth: 240,
-          }}>
-            {msg.file.type.startsWith('image/') && msg.file.previewUrl
-              ? <img src={msg.file.previewUrl} alt="preview" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8 }} />
-              : <FileText size={20} color={C.petrol} />
-            }
-            <span style={{ fontSize: 12, color: C.dark, fontWeight: 600, wordBreak: 'break-all' }}>
-              {msg.file.name}
-            </span>
-          </div>
-        )}
-
-        {/* Texto da mensagem */}
-        <div style={{
-          padding: '10px 14px',
-          borderRadius: isUser ? '18px 18px 4px 18px' : '4px 18px 18px 18px',
-          background: isUser ? C.dark : C.surface,
-          color: isUser ? '#fff' : C.dark,
-          border: isUser ? 'none' : `1px solid ${C.border}`,
-          fontSize: 14, lineHeight: 1.55,
-          boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-        }}>
-          {msg.text}
-        </div>
-
-        {/* Resultado de texto gerado — chip clicável */}
-        {msg.result && (
-          <div
-            onClick={() => onViewResult(msg)}
-            style={{
-              padding: '10px 14px', borderRadius: 12,
-              background: '#F0F9F4', border: '1px solid #BBF7D0',
-              fontSize: 12, color: '#166534', maxWidth: '100%',
-              display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-            }}
-          >
-            <CheckCircle size={14} color="#16A34A" />
-            <span style={{ fontWeight: 600 }}>Atividade gerada — clique para visualizar</span>
-            {msg.creditsUsed !== undefined && (
-              <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 3, color: C.gold, fontWeight: 700 }}>
-                <Coins size={10} /> {msg.creditsUsed} cr
-              </span>
-            )}
-            <ChevronRight size={13} color="#16A34A" style={{ marginLeft: 4 }} />
-          </div>
-        )}
-
-        {/* Resultado de imagem gerada — thumbnail clicável */}
-        {msg.resultImageUrl && (
-          <div
-            onClick={() => onViewResult(msg)}
-            style={{
-              borderRadius: 12, overflow: 'hidden',
-              border: `1px solid ${C.border}`, maxWidth: 200,
-              cursor: 'pointer', position: 'relative',
-            }}
-          >
-            <img
-              src={msg.resultImageUrl}
-              alt="Atividade gerada"
-              style={{ width: '100%', display: 'block', objectFit: 'cover' }}
-            />
-            <div style={{
-              position: 'absolute', bottom: 0, left: 0, right: 0,
-              background: 'rgba(31,78,95,0.85)', padding: '6px 10px',
-              fontSize: 10, color: '#fff', fontWeight: 600,
-              display: 'flex', alignItems: 'center', gap: 4,
-            }}>
-              <FileImage size={10} /> Clique para ver em tamanho completo
-            </div>
-          </div>
-        )}
-
-        {/* Timestamp */}
-        <span style={{ fontSize: 10, color: C.sec, paddingInline: 2 }}>
-          {msg.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-          {msg.savedId && <span style={{ marginLeft: 6, color: '#16A34A', fontWeight: 600 }}>· salvo</span>}
-        </span>
+      <div className="prose" style={{ maxWidth: '100%' }}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+          {content}
+        </ReactMarkdown>
       </div>
     </div>
   );
 };
 
-// ─── Componente: Visualização de resultado de texto (A4) ──────────────────────
-const A4Preview: React.FC<{
-  content:    string;
-  title:      string;
-  onSave:     () => void;
-  saving:     boolean;
-  saved:      boolean;
-  onExportDoc: () => void;
-  onPrint:    () => void;
-}> = ({ content, title, onSave, saving, saved, onExportDoc, onPrint }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-    {/* Toolbar */}
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
-      borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0,
-    }}>
-      <FileText size={14} color={C.petrol} />
-      <span style={{ fontSize: 12, fontWeight: 700, color: C.dark, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {title || 'Atividade Gerada'}
-      </span>
-      <button onClick={onExportDoc} title="Baixar .doc" style={btnStyle}>
-        <Download size={13} />
-      </button>
-      <button onClick={onPrint} title="Imprimir" style={btnStyle}>
-        <Printer size={13} />
-      </button>
-      <button onClick={onSave} disabled={saving || saved} style={{
-        ...btnStyle, padding: '5px 12px', fontSize: 12, fontWeight: 700, gap: 5,
-        background: saved ? '#DCFCE7' : C.petrol,
-        color: saved ? '#16A34A' : '#fff',
-        border: saved ? '1px solid #BBF7D0' : 'none',
-        opacity: saving ? 0.7 : 1,
-      }}>
-        {saving ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Bookmark size={12} />}
-        {saved ? 'Salvo!' : 'Salvar'}
-      </button>
-    </div>
-
-    {/* Folha A4 */}
-    <div style={{ flex: 1, overflowY: 'auto', padding: '20px 16px', background: C.bg }}>
-      <div style={{
-        background: '#fff', borderRadius: 8, padding: '32px 28px',
-        boxShadow: '0 2px 12px rgba(0,0,0,0.08)', minHeight: 640,
-        maxWidth: 640, margin: '0 auto',
-        fontFamily: 'Georgia, serif', fontSize: 13, lineHeight: 1.7, color: '#1a1a1a',
-      }}>
-        <div className="prose" style={{ maxWidth: '100%' }}>
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-        </div>
-      </div>
-    </div>
-    <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
-  </div>
-);
-
-// ─── Componente: Visualização de resultado de imagem ──────────────────────────
-const ImagePreview: React.FC<{
-  imageUrl:  string;
-  title:     string;
-  onSave:    () => void;
-  saving:    boolean;
-  saved:     boolean;
-  onDownload: () => void;
-}> = ({ imageUrl, title, onSave, saving, saved, onDownload }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-    {/* Toolbar */}
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
-      borderBottom: `1px solid ${C.border}`, background: C.surface, flexShrink: 0,
-    }}>
-      <FileImage size={14} color={C.petrol} />
-      <span style={{ fontSize: 12, fontWeight: 700, color: C.dark, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {title || 'Imagem A4 Gerada'}
-      </span>
-      <button onClick={onDownload} title="Baixar PNG" style={btnStyle}>
-        <Download size={13} /> <span style={{ fontSize: 11 }}>PNG</span>
-      </button>
-      <button onClick={onSave} disabled={saving || saved} style={{
-        ...btnStyle, padding: '5px 12px', fontSize: 12, fontWeight: 700, gap: 5,
-        background: saved ? '#DCFCE7' : C.petrol,
-        color: saved ? '#16A34A' : '#fff',
-        border: saved ? '1px solid #BBF7D0' : 'none',
-        opacity: saving ? 0.7 : 1,
-      }}>
-        {saving ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Bookmark size={12} />}
-        {saved ? 'Salvo!' : 'Salvar'}
-      </button>
-    </div>
-
-    {/* Imagem */}
-    <div style={{
-      flex: 1, overflowY: 'auto', padding: '20px 16px', background: C.bg,
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-    }}>
-      <img
-        src={imageUrl}
-        alt="Atividade gerada"
-        style={{
-          maxWidth: '100%', borderRadius: 8,
-          boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
-        }}
-      />
-    </div>
-  </div>
-);
-
-const btnStyle: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 4,
-  padding: '5px 10px', borderRadius: 8, border: `1px solid ${C.border}`,
-  background: C.surface, cursor: 'pointer', fontSize: 12, color: C.dark,
-  fontWeight: 500, outline: 'none',
+// ─── Componente: Botão padrão ──────────────────────────────────────────────────
+const Btn: React.FC<React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: 'default' | 'primary' | 'success' | 'ghost';
+  size?: 'sm' | 'md';
+  icon?: React.ElementType;
+}> = ({ variant = 'default', size = 'md', icon: Icon, children, style, ...rest }) => {
+  const base: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+    border: 'none', borderRadius: size === 'sm' ? 8 : 10, fontWeight: 600,
+    transition: 'all 0.15s', outline: 'none', flexShrink: 0,
+    padding: size === 'sm' ? '6px 12px' : '9px 18px',
+    fontSize: size === 'sm' ? 12 : 13,
+  };
+  const variants: Record<string, React.CSSProperties> = {
+    default: { background: C.surface, border: `1px solid ${C.border}`, color: C.dark },
+    primary: { background: C.petrol, color: '#fff' },
+    success: { background: C.greenBg, border: `1px solid ${C.greenBorder}`, color: C.green },
+    ghost:   { background: 'transparent', color: C.sec },
+  };
+  return (
+    <button style={{ ...base, ...variants[variant], ...style }} {...rest}>
+      {Icon && <Icon size={size === 'sm' ? 12 : 14} />}
+      {children}
+    </button>
+  );
 };
 
-// ─── Componente: Biblioteca ───────────────────────────────────────────────────
-const Library: React.FC<{
-  activities: any[];
-  loading:    boolean;
-  onSelect:   (act: any) => void;
-  onDelete:   (id: string) => void;
-  selectedId?: string;
-}> = ({ activities, loading, onSelect, onDelete, selectedId }) => (
-  <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-    <div style={{ padding: '12px 14px', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-      <p style={{ fontSize: 11, fontWeight: 700, color: C.petrol, textTransform: 'uppercase', letterSpacing: 1, margin: 0 }}>
-        Biblioteca Pessoal
-      </p>
-    </div>
-    <div style={{ flex: 1, overflowY: 'auto' }}>
-      {loading && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120 }}>
-          <Loader size={18} color={C.sec} style={{ animation: 'spin 1s linear infinite' }} />
-        </div>
-      )}
-      {!loading && activities.length === 0 && (
-        <div style={{ padding: 24, textAlign: 'center', color: C.sec, fontSize: 13 }}>
-          <BookMarked size={28} color={C.border} style={{ margin: '0 auto 8px' }} />
-          <p style={{ margin: 0 }}>Nenhuma atividade salva ainda.</p>
-          <p style={{ margin: '4px 0 0', fontSize: 11 }}>Gere e salve atividades para criar sua biblioteca.</p>
-        </div>
-      )}
-      {activities.map(act => (
-        <div key={act.id} onClick={() => onSelect(act)} style={{
-          padding: '12px 14px', borderBottom: `1px solid ${C.border}`,
-          cursor: 'pointer', transition: 'background 0.12s',
-          background: selectedId === act.id ? C.light : 'transparent',
-        }}
-          onMouseEnter={e => { if (selectedId !== act.id) (e.currentTarget as HTMLElement).style.background = '#FAFAF8'; }}
-          onMouseLeave={e => { if (selectedId !== act.id) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-        >
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <BookOpen size={14} color={C.petrol} style={{ flexShrink: 0, marginTop: 2 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: C.dark, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {act.title || 'Atividade sem título'}
-              </p>
-              <p style={{ margin: '2px 0 0', fontSize: 10, color: C.sec }}>
-                {act.is_adapted ? '📎 Adaptada' : '✨ Criada'} · {new Date(act.created_at).toLocaleDateString('pt-BR')}
-                {act.tags?.length ? ` · ${act.tags.slice(0,2).join(', ')}` : ''}
-              </p>
-            </div>
-            <button onClick={e => { e.stopPropagation(); onDelete(act.id); }} style={{
-              background: 'none', border: 'none', cursor: 'pointer', padding: 4,
-              borderRadius: 6, color: '#ccc', flexShrink: 0,
-            }}
-              onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#ef4444'}
-              onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#ccc'}
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
-        </div>
-      ))}
-    </div>
-    <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
-  </div>
-);
-
-// ─── Componente: Seletor de aluno ─────────────────────────────────────────────
+// ─── Componente: Seletor de aluno ──────────────────────────────────────────────
 const StudentSelector: React.FC<{
   students:   Student[];
   selectedId: string;
@@ -467,59 +598,691 @@ const StudentSelector: React.FC<{
     const student = students.find(s => s.id === id);
     if (!student) { onChange(id, '', ''); return; }
 
-    let ctxText = [`Aluno: ${student.name}`];
-    if ((student as any).grade) ctxText.push(`Ano/Série: ${(student as any).grade}`);
-    if (student.diagnosis?.length) ctxText.push(`Diagnóstico(s): ${student.diagnosis.join(', ')}`);
-    if (student.supportLevel) ctxText.push(`Nível de suporte: ${student.supportLevel}`);
-    if (student.difficulties?.length) ctxText.push(`Principais dificuldades: ${student.difficulties.join('; ')}`);
-    let ctx = ctxText.join('\n');
+    let ctx = [`Aluno: ${student.name}`];
+    if ((student as any).grade)          ctx.push(`Ano/Série: ${(student as any).grade}`);
+    if (student.diagnosis?.length)        ctx.push(`Diagnóstico(s): ${student.diagnosis.join(', ')}`);
+    if (student.supportLevel)             ctx.push(`Nível de suporte: ${student.supportLevel}`);
+    if (student.difficulties?.length)     ctx.push(`Dificuldades: ${student.difficulties.join('; ')}`);
+    let ctxText = ctx.join('\n');
 
     try {
       setFetching(true);
       const full = await StudentContextService.buildContext(id);
-      if (StudentContextService.hasData(full)) ctx = StudentContextService.toPromptText(full);
+      if (StudentContextService.hasData(full)) ctxText = StudentContextService.toPromptText(full);
     } catch { /* usa básico */ } finally { setFetching(false); }
 
-    onChange(id, ctx, student.name);
+    onChange(id, ctxText, student.name);
   };
 
   const selected = students.find(s => s.id === selectedId);
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <UserIcon size={14} color={C.petrol} />
-      <select
-        value={selectedId}
-        onChange={e => handleChange(e.target.value)}
-        disabled={fetching}
-        style={{
-          padding: '6px 28px 6px 10px', borderRadius: 20, fontSize: 13,
-          border: `1.5px solid ${selectedId ? C.petrol : C.border}`,
-          background: selectedId ? C.light : C.surface,
-          color: selectedId ? C.petrol : C.sec,
-          fontWeight: selectedId ? 600 : 400,
-          outline: 'none', cursor: 'pointer', appearance: 'none',
-          backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'8\' viewBox=\'0 0 12 8\'%3E%3Cpath d=\'M1 1l5 5 5-5\' stroke=\'%231F4E5F\' stroke-width=\'1.5\' fill=\'none\'/%3E%3C/svg%3E")',
-          backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center',
-        }}
-      >
-        <option value="">Sem aluno específico</option>
-        {students.map(s => (
-          <option key={s.id} value={s.id}>
-            {s.name}{s.diagnosis?.length ? ` · ${s.diagnosis[0]}` : ''}
-          </option>
-        ))}
-      </select>
-      {fetching && <Loader size={12} color={C.sec} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />}
+      <div style={{ position: 'relative' }}>
+        <select
+          value={selectedId}
+          onChange={e => handleChange(e.target.value)}
+          disabled={fetching}
+          style={{
+            padding: '6px 32px 6px 32px', borderRadius: 20, fontSize: 13,
+            border: `1.5px solid ${selectedId ? C.petrol : C.border}`,
+            background: selectedId ? C.light : C.surface,
+            color: selectedId ? C.petrol : C.sec,
+            fontWeight: selectedId ? 600 : 400,
+            outline: 'none', cursor: 'pointer', appearance: 'none',
+          }}
+        >
+          <option value="">Nenhum aluno</option>
+          {students.map(s => (
+            <option key={s.id} value={s.id}>
+              {s.name}{s.diagnosis?.length ? ` · ${s.diagnosis[0]}` : ''}
+            </option>
+          ))}
+        </select>
+        <UserIcon size={13} color={selectedId ? C.petrol : C.sec} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+        <ChevronDown size={12} color={C.sec} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+      </div>
+      {fetching && <Loader size={12} color={C.sec} style={{ animation: 'spin 1s linear infinite' }} />}
       {selected && !fetching && (
-        <span style={{ fontSize: 10, color: '#16A34A', fontWeight: 600, whiteSpace: 'nowrap' }}>
-          ✓ prontuário carregado
+        <span style={{ fontSize: 11, color: C.green, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 3 }}>
+          <CheckCircle size={11} /> contexto carregado
         </span>
       )}
+    </div>
+  );
+};
+
+// ─── Componente: Sidebar Biblioteca ───────────────────────────────────────────
+const LibrarySidebar: React.FC<{
+  activities:  any[];
+  loading:     boolean;
+  selectedId?: string;
+  onSelect:    (act: any) => void;
+  onDelete:    (id: string) => void;
+}> = ({ activities, loading, selectedId, onSelect, onDelete }) => {
+  const [recentOpen, setRecentOpen] = useState(true);
+  const [savedOpen,  setSavedOpen]  = useState(true);
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 7);
+
+  const recent = activities.filter(a => new Date(a.created_at) >= cutoff);
+  const older  = activities.filter(a => new Date(a.created_at) < cutoff);
+
+  const ActivityItem: React.FC<{ act: any }> = ({ act }) => (
+    <div
+      onClick={() => onSelect(act)}
+      style={{
+        padding: '11px 14px', borderRadius: 8, cursor: 'pointer',
+        background: selectedId === act.id ? C.light : 'transparent',
+        display: 'flex', alignItems: 'flex-start', gap: 10,
+        transition: 'background 0.12s',
+      }}
+      onMouseEnter={e => { if (selectedId !== act.id) (e.currentTarget as HTMLElement).style.background = '#FAFAF8'; }}
+      onMouseLeave={e => { if (selectedId !== act.id) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+    >
+      <div style={{
+        width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+        background: act.image_url ? '#EDE9FE' : C.light,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        {act.image_url
+          ? <FileImage size={15} color="#7C3AED" />
+          : <FileText size={15} color={C.petrol} />
+        }
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: C.dark, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {act.title || 'Atividade'}
+        </p>
+        <p style={{ margin: '3px 0 0', fontSize: 11, color: C.sec }}>
+          {new Date(act.created_at).toLocaleDateString('pt-BR')}
+          {act.tags?.length ? ` · ${act.tags[0]}` : ''}
+        </p>
+      </div>
+      <button
+        onClick={e => { e.stopPropagation(); onDelete(act.id); }}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 3, borderRadius: 6, color: '#ddd', flexShrink: 0 }}
+        onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.color = '#ef4444'}
+        onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.color = '#ddd'}
+      >
+        <Trash2 size={11} />
+      </button>
+    </div>
+  );
+
+  const SectionHeader: React.FC<{ label: string; icon: React.ElementType; count: number; open: boolean; toggle: () => void }> = ({ label, icon: Icon, count, open, toggle }) => (
+    <button onClick={toggle} style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+      padding: '10px 12px 6px', textAlign: 'left',
+    }}>
+      <Icon size={12} color={C.sec} />
+      <span style={{ flex: 1, fontSize: 10, fontWeight: 700, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+        {label}
+      </span>
+      {count > 0 && (
+        <span style={{ fontSize: 10, fontWeight: 700, color: C.sec, background: C.border, borderRadius: 20, padding: '1px 6px' }}>
+          {count}
+        </span>
+      )}
+      {open ? <ChevronDown size={11} color={C.sec} /> : <ChevronRight size={11} color={C.sec} />}
+    </button>
+  );
+
+  return (
+    <div style={{
+      width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column',
+      borderRight: `1px solid ${C.border}`, background: C.surface,
+      overflow: 'hidden', minHeight: 0,
+    }}>
+      {/* Header sidebar */}
+      <div style={{ padding: '18px 16px 14px', borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <BookMarked size={16} color={C.petrol} />
+          <span style={{ fontSize: 14, fontWeight: 700, color: C.dark }}>Biblioteca</span>
+          {activities.length > 0 && (
+            <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, color: C.sec, background: C.bg, borderRadius: 20, padding: '2px 8px' }}>
+              {activities.length}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {loading && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 80 }}>
+            <Loader size={16} color={C.sec} style={{ animation: 'spin 1s linear infinite' }} />
+          </div>
+        )}
+
+        {!loading && activities.length === 0 && (
+          <div style={{ padding: '24px 16px', textAlign: 'center' }}>
+            <BookMarked size={28} color={C.border} style={{ margin: '0 auto 8px' }} />
+            <p style={{ margin: 0, fontSize: 12, color: C.sec }}>Nenhuma atividade salva.</p>
+            <p style={{ margin: '4px 0 0', fontSize: 11, color: C.border, lineHeight: 1.5 }}>
+              Gere e salve para criar sua biblioteca.
+            </p>
+          </div>
+        )}
+
+        {!loading && recent.length > 0 && (
+          <>
+            <SectionHeader label="Recentes" icon={Clock} count={recent.length} open={recentOpen} toggle={() => setRecentOpen(v => !v)} />
+            {recentOpen && (
+              <div style={{ padding: '0 4px' }}>
+                {recent.map(act => <ActivityItem key={act.id} act={act} />)}
+              </div>
+            )}
+          </>
+        )}
+
+        {!loading && older.length > 0 && (
+          <>
+            <SectionHeader label="Salvos" icon={Star} count={older.length} open={savedOpen} toggle={() => setSavedOpen(v => !v)} />
+            {savedOpen && (
+              <div style={{ padding: '0 4px' }}>
+                {older.map(act => <ActivityItem key={act.id} act={act} />)}
+              </div>
+            )}
+          </>
+        )}
+      </div>
       <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
     </div>
   );
 };
+
+// ─── Componente: Preflight de créditos ───────────────────────────────────────
+const PreflightPanel: React.FC<{
+  mode: GenerationMode;
+  maxCost: number;
+  creditsAvailable?: number;
+  topic: string;
+  fileName?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}> = ({ mode, maxCost, creditsAvailable, topic, fileName, onConfirm, onCancel }) => {
+  const cfg = getModeConfig(mode);
+  const isVisual = mode === 'a4_visual' || mode === 'adaptar_visual';
+  const hasEnough = creditsAvailable === undefined || creditsAvailable >= maxCost;
+  const hasBase = creditsAvailable === undefined || creditsAvailable >= (
+    mode === 'a4_visual' ? INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_BASE :
+    mode === 'adaptar_visual' ? INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_BASE : maxCost
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 420, padding: '40px 32px' }}>
+      <div style={{ background: C.surface, borderRadius: 20, padding: '32px 36px', maxWidth: 520, width: '100%', boxShadow: '0 4px 32px rgba(0,0,0,0.10)', border: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: '#FFF8E7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Coins size={22} color={C.gold} />
+          </div>
+          <div>
+            <p style={{ margin: 0, fontSize: 11, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Confirmar geração</p>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: C.dark }}>{cfg.label}</h3>
+          </div>
+        </div>
+
+        {(topic || fileName) && (
+          <div style={{ background: C.bg, borderRadius: 10, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: C.dark, display: 'flex', alignItems: 'center', gap: 6 }}>
+            {fileName && <Paperclip size={13} color={C.sec} />}
+            <span style={{ color: C.sec, fontSize: 11, fontWeight: 600 }}>{fileName ? 'Arquivo:' : 'Tema:'} </span>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fileName ?? topic}</span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', padding: '14px 0', borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, marginBottom: 16, gap: 12 }}>
+          <div>
+            <p style={{ margin: 0, fontSize: 11, color: C.sec }}>Custo {isVisual ? 'máximo estimado' : 'desta ação'}</p>
+            <p style={{ margin: '2px 0 0', fontSize: 26, fontWeight: 900, color: C.gold, lineHeight: 1 }}>
+              {maxCost} <span style={{ fontSize: 14, fontWeight: 700 }}>créditos</span>
+            </p>
+            {isVisual && (
+              <p style={{ margin: '4px 0 0', fontSize: 10, color: C.sec, lineHeight: 1.4 }}>
+                Imagens que falharem não são cobradas — você paga apenas o que for gerado.
+              </p>
+            )}
+          </div>
+          {creditsAvailable !== undefined && (
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <p style={{ margin: 0, fontSize: 11, color: C.sec }}>Seu saldo</p>
+              <p style={{ margin: '2px 0 0', fontSize: 26, fontWeight: 900, color: hasEnough ? C.green : hasBase ? C.gold : '#DC2626', lineHeight: 1 }}>
+                {creditsAvailable} <span style={{ fontSize: 14, fontWeight: 700 }}>créditos</span>
+              </p>
+            </div>
+          )}
+        </div>
+
+        {isVisual && !hasEnough && hasBase && (
+          <div style={{ background: '#FFF8E7', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#7C5800', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+            <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>Saldo abaixo do máximo — a atividade será gerada, mas o número de imagens IA pode ser reduzido para caber no seu saldo.</span>
+          </div>
+        )}
+        {!hasBase && (
+          <div style={{ background: '#FEF2F2', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#991B1B', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <AlertCircle size={14} style={{ flexShrink: 0 }} />
+            <span>Saldo insuficiente. Recarregue créditos para continuar.</span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Btn variant="default" style={{ flex: 1 }} onClick={onCancel}>Cancelar</Btn>
+          <Btn
+            variant="primary"
+            icon={Sparkles}
+            style={{ flex: 2, opacity: hasBase ? 1 : 0.5 }}
+            onClick={onConfirm}
+            disabled={!hasBase}
+          >
+            Confirmar e Gerar
+          </Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Componente: Estado vazio ─────────────────────────────────────────────────
+const EmptyState: React.FC<{
+  studentCtx:   string;
+  studentName:  string;
+  onSuggestion: (text: string) => void;
+}> = ({ studentCtx, studentName, onSuggestion }) => {
+  const SUGGESTIONS = [
+    { label: 'Atividade de frações', detail: 'com material concreto para Anos Iniciais' },
+    { label: 'Leitura e interpretação', detail: 'sobre animais para aluno com TEA' },
+    { label: 'Matemática lúdica', detail: 'contagem com objetos do dia a dia' },
+    { label: 'Produção de texto', detail: 'com apoio visual e figuras sequenciais' },
+  ];
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      minHeight: 420, padding: '48px 40px',
+    }}>
+      <div style={{ textAlign: 'center', marginBottom: 36, maxWidth: 620 }}>
+        <div style={{
+          width: 72, height: 72, borderRadius: 22,
+          background: `linear-gradient(135deg, ${C.petrol}, #2a6880)`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          margin: '0 auto 20px',
+          boxShadow: `0 10px 32px rgba(31,78,95,0.28)`,
+        }}>
+          <Sparkles size={34} color="#fff" />
+        </div>
+        <h2 style={{ margin: '0 0 10px', fontSize: 26, fontWeight: 800, color: C.dark, lineHeight: 1.2 }}>
+          O que você quer criar hoje?
+        </h2>
+        <p style={{ margin: 0, fontSize: 15, color: C.sec, lineHeight: 1.6 }}>
+          {studentCtx
+            ? <>Contexto de <strong style={{ color: C.petrol }}>{studentName}</strong> carregado. Atividades serão personalizadas.</>
+            : 'Descreva o tema no campo abaixo e gere a atividade inclusiva pronta para imprimir.'
+          }
+        </p>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: '100%', maxWidth: 680 }}>
+        {SUGGESTIONS.map(s => (
+          <button
+            key={s.label}
+            onClick={() => onSuggestion(`${s.label} ${s.detail}`)}
+            style={{
+              padding: '16px 20px', borderRadius: 14, cursor: 'pointer',
+              background: C.surface, border: `1.5px solid ${C.border}`,
+              textAlign: 'left', transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = C.petrol; (e.currentTarget as HTMLElement).style.background = C.light; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = C.border; (e.currentTarget as HTMLElement).style.background = C.surface; }}
+          >
+            <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: C.dark }}>{s.label}</p>
+            <p style={{ margin: 0, fontSize: 11, color: C.sec }}>{s.detail}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ─── Componente: Composer (entrada fixa sempre visível) ───────────────────────
+const Composer: React.FC<{
+  inputText:    string;
+  genMode:      GenerationMode;
+  pendingFile:  AttachedFile | null;
+  isGenerating: boolean;
+  onInput:      (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown:    (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onModeChange: (m: GenerationMode) => void;
+  onSend:       () => void;
+  onFileClick:  () => void;
+  onRemoveFile: () => void;
+  textAreaRef:  React.RefObject<HTMLTextAreaElement | null>;
+}> = ({
+  inputText, genMode, pendingFile, isGenerating,
+  onInput, onKeyDown, onModeChange, onSend, onFileClick, onRemoveFile, textAreaRef,
+}) => {
+  const adaptarAtivo = isAdaptarMode(genMode);
+  const canSend = !isGenerating && (adaptarAtivo ? !!pendingFile : !!inputText.trim());
+  const placeholder = adaptarAtivo
+    ? (pendingFile ? 'Instruções opcionais: "adaptar para TEA", "simplificar"…' : 'Clique em Anexar para selecionar a imagem a adaptar')
+    : genMode === 'a4_premium'
+    ? 'Ex: "Folha sobre formas geométricas, colorida e lúdica para 1º ano"'
+    : 'Peça uma atividade adaptada… Ex: "frações para aluno com TEA, 3º ano"';
+
+  return (
+    <div style={{
+      flexShrink: 0,
+      borderTop: `1px solid ${C.border}`,
+      background: C.surface,
+      padding: '10px 20px 16px',
+    }}>
+      {/* Seletor de modo — dois grupos: Criar / Adaptar */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Criar:</span>
+        {MODES_CRIAR.map(m => {
+          const active = genMode === m.id;
+          const Icon = m.icon;
+          return (
+            <button key={m.id} onClick={() => onModeChange(m.id)} disabled={isGenerating}
+              title={`${m.desc} · máx. ${m.maxCost} créditos`}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                padding: '5px 10px', borderRadius: 20, cursor: 'pointer',
+                background: active ? C.petrol : 'transparent',
+                color: active ? '#fff' : C.sec,
+                border: `1.5px solid ${active ? C.petrol : C.border}`,
+                fontWeight: 600, fontSize: 11, transition: 'all 0.15s', outline: 'none',
+              }}>
+              <Icon size={11} />
+              {m.label}
+              <span style={{ fontSize: 9, fontWeight: 700, background: active ? 'rgba(255,255,255,0.25)' : C.bg, color: active ? 'rgba(255,255,255,0.9)' : C.sec, borderRadius: 20, padding: '1px 5px', marginLeft: 1 }}>{m.maxCost}cr</span>
+            </button>
+          );
+        })}
+        <div style={{ width: 1, height: 20, background: C.border, flexShrink: 0 }} />
+        <span style={{ fontSize: 9, fontWeight: 700, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Adaptar:</span>
+        {MODES_ADAPTAR.map(m => {
+          const active = genMode === m.id;
+          const Icon = m.icon;
+          return (
+            <button key={m.id} onClick={() => onModeChange(m.id)} disabled={isGenerating}
+              title={`${m.desc} · máx. ${m.maxCost} créditos`}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                padding: '5px 10px', borderRadius: 20, cursor: 'pointer',
+                background: active ? C.petrol : 'transparent',
+                color: active ? '#fff' : C.sec,
+                border: `1.5px solid ${active ? C.petrol : C.border}`,
+                fontWeight: 600, fontSize: 11, transition: 'all 0.15s', outline: 'none',
+              }}>
+              <Icon size={11} />
+              {m.label}
+              <span style={{ fontSize: 9, fontWeight: 700, background: active ? 'rgba(255,255,255,0.25)' : C.bg, color: active ? 'rgba(255,255,255,0.9)' : C.sec, borderRadius: 20, padding: '1px 5px', marginLeft: 1 }}>{m.maxCost}cr</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Input box */}
+      <div style={{
+        background: C.bg,
+        border: `2px solid ${isGenerating ? C.border : C.petrol}`,
+        borderRadius: 16, overflow: 'hidden',
+        boxShadow: isGenerating ? 'none' : `0 4px 20px rgba(31,78,95,0.12)`,
+        transition: 'all 0.2s',
+      }}>
+        {pendingFile && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 14px', borderBottom: `1px solid ${C.border}`,
+            background: C.light,
+          }}>
+            {pendingFile.type.startsWith('image/') && pendingFile.previewUrl
+              ? <img src={pendingFile.previewUrl} alt="" style={{ width: 30, height: 30, objectFit: 'cover', borderRadius: 5 }} />
+              : <FileText size={16} color={C.petrol} />
+            }
+            <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {pendingFile.name}
+            </span>
+            <button onClick={onRemoveFile} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sec, padding: 2, borderRadius: 5 }}>
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
+        <textarea
+          ref={textAreaRef}
+          value={inputText}
+          onChange={onInput}
+          onKeyDown={onKeyDown}
+          placeholder={isGenerating ? 'Aguarde, gerando atividade…' : placeholder}
+          disabled={isGenerating}
+          rows={2}
+          style={{
+            width: '100%', border: 'none', outline: 'none', resize: 'none',
+            padding: '14px 16px 8px',
+            fontSize: 14, lineHeight: 1.6, fontFamily: 'inherit',
+            background: 'transparent', color: C.dark, boxSizing: 'border-box',
+            minHeight: 68,
+          }}
+        />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px 10px' }}>
+          <button
+            onClick={onFileClick}
+            disabled={isGenerating}
+            title="Anexar imagem"
+            style={{
+              background: 'none', border: `1.5px solid ${C.border}`,
+              borderRadius: 8, padding: '6px 12px', cursor: isGenerating ? 'default' : 'pointer',
+              color: pendingFile ? C.petrol : C.sec,
+              display: 'flex', alignItems: 'center', gap: 4,
+              fontSize: 12, fontWeight: 600,
+            }}
+          >
+            <Paperclip size={13} /> Anexar
+          </button>
+          <span style={{ flex: 1, fontSize: 10, color: C.sec, textAlign: 'center' }}>
+            Enter para enviar · Shift+Enter nova linha
+          </span>
+          <button
+            onClick={onSend}
+            disabled={!canSend}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              padding: '9px 24px', borderRadius: 12, border: 'none',
+              background: canSend ? C.petrol : C.border,
+              color: '#fff', fontWeight: 800, fontSize: 14,
+              cursor: canSend ? 'pointer' : 'default',
+              transition: 'all 0.15s',
+              boxShadow: canSend ? `0 4px 14px rgba(31,78,95,0.28)` : 'none',
+            }}
+          >
+            {isGenerating
+              ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Gerando…</>
+              : <><Sparkles size={14} /> Gerar</>
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Componente: Resultado (workspace) ────────────────────────────────────────
+const ResultView: React.FC<{
+  result:       GeneratedResult;
+  studentName:  string;
+  onSave:       () => void;
+  saving:       boolean;
+  onExportJson: () => void;
+  onPrint:      () => void;
+  onDownloadImg:() => void;
+}> = ({ result, studentName, onSave, saving, onExportJson, onPrint, onDownloadImg }) => {
+  const hasImage    = !!result.imageUrl;
+  const hasActivity = !!result.activity;
+  const hasText     = !!result.activity || !!result.content;
+  const hasAnalysis = !!result.analysisText;
+  const hasGuide    = !!result.activity?.guia_pedagogico;
+  const saved       = !!result.savedId;
+
+  type ResultTab = 'folha' | 'guia' | 'analise';
+  const [activeTab, setActiveTab] = useState<ResultTab>('folha');
+
+  const hasTabs = hasGuide || hasAnalysis;
+
+  const TabBtn: React.FC<{ id: ResultTab; label: string; icon: React.ElementType }> = ({ id, label, icon: Icon }) => (
+    <button
+      onClick={() => setActiveTab(id)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 5,
+        padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
+        background: activeTab === id ? C.petrol : 'transparent',
+        color: activeTab === id ? '#fff' : C.sec,
+        border: `1.5px solid ${activeTab === id ? C.petrol : C.border}`,
+        fontWeight: 600, fontSize: 12, transition: 'all 0.15s', outline: 'none',
+      }}
+    >
+      <Icon size={12} />&nbsp;{label}
+    </button>
+  );
+
+  return (
+    <div style={{ padding: '20px 28px 32px' }}>
+      {/* Toolbar sticky */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 10,
+        background: C.surface, borderRadius: 12,
+        border: `1px solid ${C.border}`,
+        padding: '10px 16px', marginBottom: 20,
+        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.07)',
+      }}>
+        {/* Título + créditos */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
+          <div style={{ width: 26, height: 26, borderRadius: 7, background: C.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            {hasImage ? <FileImage size={12} color={C.petrol} /> : <FileText size={12} color={C.petrol} />}
+          </div>
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
+            {result.title}
+          </span>
+          {result.creditsUsed > 0 && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: C.gold, fontWeight: 700, flexShrink: 0 }}>
+              <Coins size={11} /> {result.creditsUsed} cr
+            </span>
+          )}
+        </div>
+
+        {/* Tabs */}
+        {hasTabs && (
+          <div style={{ display: 'flex', gap: 5, flex: 1, justifyContent: 'center' }}>
+            <TabBtn id="folha" label="Folha do Aluno" icon={FileText} />
+            {hasGuide && <TabBtn id="guia" label="Guia do Professor" icon={GraduationCap} />}
+            {hasAnalysis && <TabBtn id="analise" label="Análise" icon={Brain} />}
+          </div>
+        )}
+
+        {/* Ações */}
+        <div style={{ display: 'flex', gap: 5, flexShrink: 0, marginLeft: hasTabs ? 0 : 'auto' }}>
+          {hasActivity && activeTab === 'folha' && (
+            <>
+              <Btn size="sm" icon={Download} onClick={onExportJson}>JSON</Btn>
+              <Btn size="sm" icon={Printer} onClick={onPrint}>Imprimir Folha</Btn>
+            </>
+          )}
+          {hasActivity && activeTab === 'guia' && (
+            <Btn size="sm" icon={Printer} onClick={onPrint}>Imprimir Guia</Btn>
+          )}
+          {hasImage && activeTab === 'folha' && <Btn size="sm" icon={Download} onClick={onDownloadImg}>PNG</Btn>}
+          <Btn size="sm" icon={saved ? CheckCircle : Bookmark} variant={saved ? 'success' : 'primary'} onClick={onSave} disabled={saving || saved}>
+            {saving ? 'Salvando…' : saved ? 'Salvo!' : 'Salvar'}
+          </Btn>
+        </div>
+      </div>
+
+      {/* Conteúdo: folha do aluno */}
+      {activeTab === 'folha' && (
+        <>
+          {hasImage && (
+            <div style={{ maxWidth: 900, margin: '0 auto' }}>
+              <img src={result.imageUrl} alt="Atividade gerada" style={{ width: '100%', borderRadius: 12, boxShadow: '0 4px 24px rgba(0,0,0,0.15)' }} />
+            </div>
+          )}
+          {result.activity && !hasImage && (
+            <A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="folha" />
+          )}
+          {!result.activity && hasText && !hasImage && result.content && (
+            <LegacyA4MarkdownRenderer content={result.content} studentName={studentName || undefined} />
+          )}
+        </>
+      )}
+
+      {/* Conteúdo: guia do professor */}
+      {activeTab === 'guia' && hasGuide && result.activity && (
+        <A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="guia" />
+      )}
+
+      {/* Conteúdo: análise da adaptação */}
+      {activeTab === 'analise' && hasAnalysis && (
+        <div style={{ maxWidth: 900, margin: '0 auto' }}>
+          <div style={{ background: C.surface, borderRadius: 14, padding: '32px 36px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', fontFamily: "'Segoe UI', Arial, sans-serif" }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: C.light, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Brain size={20} color={C.petrol} />
+              </div>
+              <div>
+                <p style={{ margin: 0, fontSize: 11, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Etapa interna · IA</p>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: C.dark }}>Análise da Adaptação</h3>
+              </div>
+            </div>
+            <div style={{ padding: '16px 20px', borderRadius: 10, background: C.bg, border: `1px solid ${C.border}`, fontSize: 13, lineHeight: 1.8, color: '#374151', whiteSpace: 'pre-wrap' }}>
+              {result.analysisText}
+            </div>
+            <p style={{ margin: '16px 0 0', fontSize: 11, color: C.sec }}>Esta análise foi usada internamente para gerar a atividade. Não é destinada ao aluno.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Estado de geração ────────────────────────────────────────────────────────
+const GeneratingState: React.FC<{ mode: GenerationMode; topic: string }> = ({ mode, topic }) => (
+  <div style={{
+    display: 'flex', flexDirection: 'column',
+    alignItems: 'center', justifyContent: 'center',
+    minHeight: 400, padding: 40,
+  }}>
+    <div style={{
+      width: 64, height: 64, borderRadius: 18,
+      background: `linear-gradient(135deg, ${C.petrol}, #2a6880)`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      marginBottom: 24,
+      boxShadow: `0 8px 24px rgba(31,78,95,0.3)`,
+      animation: 'pulse 2s ease-in-out infinite',
+    }}>
+      <Sparkles size={28} color="#fff" />
+    </div>
+    <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800, color: C.dark }}>
+      {mode === 'a4_visual' ? 'Criando atividade com imagens…' :
+       mode === 'a4_premium' ? 'Gerando worksheet premium…' :
+       mode === 'adaptar_economico' ? 'Adaptando atividade…' :
+       mode === 'adaptar_visual' ? 'Adaptando com imagens…' :
+       mode === 'adaptar_premium' ? 'Adaptando worksheet premium…' :
+       'Criando atividade…'}
+    </h2>
+    <p style={{ margin: '0 0 4px', fontSize: 14, color: C.sec }}>
+      {topic ? `Sobre: "${topic.length > 60 ? topic.slice(0, 60) + '…' : topic}"` : 'Processando…'}
+    </p>
+    <p style={{ margin: 0, fontSize: 12, color: C.border }}>
+      Isso pode levar alguns segundos
+    </p>
+    <style>{`
+      @keyframes pulse { 0%,100%{transform:scale(1);box-shadow:0 8px 24px rgba(31,78,95,0.3)} 50%{transform:scale(1.04);box-shadow:0 12px 32px rgba(31,78,95,0.45)} }
+      @keyframes spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    `}</style>
+  </div>
+);
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface IncluiLabViewProps {
@@ -537,40 +1300,37 @@ interface IncluiLabViewProps {
 export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   user, students, defaultTab, sidebarOpen = true, onWorkflowNodesChange, creditsAvailable,
 }) => {
-  const [showWorkflow, setShowWorkflow]   = useState(defaultTab === 'workflow');
+  const [showWorkflow, setShowWorkflow] = useState(defaultTab === 'workflow');
 
-  // ── Chat ──────────────────────────────────────────────────────────────────
-  const [messages,     setMessages]     = useState<ChatMessage[]>([]);
-  const [inputText,    setInputText]    = useState('');
-  const [pendingFile,  setPendingFile]  = useState<AttachedFile | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
+  // ── Estado do studio ──────────────────────────────────────────────────────
+  const [labState,    setLabState]    = useState<LabState>('idle');
+  const [result,      setResult]      = useState<GeneratedResult | null>(null);
+  const [currentTopic, setCurrentTopic] = useState('');
+  const [errorMsg,    setErrorMsg]    = useState('');
 
-  // ── Modo de geração ───────────────────────────────────────────────────────
-  const [genMode, setGenMode] = useState<GenerationMode>('texto');
+  // ── Input ─────────────────────────────────────────────────────────────────
+  const [inputText,   setInputText]   = useState('');
+  const [pendingFile, setPendingFile] = useState<AttachedFile | null>(null);
+  const [genMode,     setGenMode]     = useState<GenerationMode>('a4_economica');
 
   // ── Aluno ─────────────────────────────────────────────────────────────────
   const [studentId,   setStudentId]   = useState('');
   const [studentCtx,  setStudentCtx]  = useState('');
   const [studentName, setStudentName] = useState('');
 
-  // ── Painel direito ────────────────────────────────────────────────────────
-  const [rightTab,   setRightTab]   = useState<'preview' | 'library'>('preview');
-  const [previewMsg, setPreviewMsg] = useState<ChatMessage | null>(null);
-  const [savingId,   setSavingId]   = useState<string | null>(null);
-
   // ── Biblioteca ────────────────────────────────────────────────────────────
   const [library,        setLibrary]        = useState<any[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [librarySelId,   setLibrarySelId]   = useState<string | null>(null);
+  const [savingResult,   setSavingResult]   = useState(false);
 
-  const chatEndRef   = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // ── Preflight ─────────────────────────────────────────────────────────────
+  const [preflightData, setPreflightData] = useState<{
+    mode: GenerationMode; maxCost: number; topic: string; fileName?: string;
+  } | null>(null);
+
   const textAreaRef  = useRef<HTMLTextAreaElement>(null);
-
-  // ── Scroll automático ─────────────────────────────────────────────────────
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Carrega biblioteca ─────────────────────────────────────────────────────
   useEffect(() => { loadLibrary(); }, []);
@@ -585,35 +1345,14 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     }
   }
 
-  // ── Mensagem de boas-vindas ────────────────────────────────────────────────
-  useEffect(() => {
-    setMessages([{
-      id: uid(), role: 'assistant', timestamp: new Date(),
-      text: 'Olá! Descreva o que precisa e eu crio pronto para você.\n\nExemplos: "Atividade de frações para Anos Iniciais" ou "Leitura sobre animais para aluno com TEA".\n\nEscolha o modo de saída abaixo e clique em Gerar.',
-    }]);
-  }, []);
-
   // ── Aluno ─────────────────────────────────────────────────────────────────
   const handleStudentChange = useCallback((id: string, ctx: string, name: string) => {
     setStudentId(id);
     setStudentCtx(ctx);
     setStudentName(name);
-    if (id) {
-      addAssistantMsg(`Contexto de **${name}** carregado. Todas as gerações serão personalizadas para este aluno.`);
-    }
   }, []);
 
-  // ── Helpers de mensagem ───────────────────────────────────────────────────
-  function addAssistantMsg(text: string, extra?: Partial<ChatMessage>) {
-    setMessages(prev => [...prev, { id: uid(), role: 'assistant', text, timestamp: new Date(), ...extra }]);
-  }
-
-  function updateMessage(id: string, patch: Partial<ChatMessage>) {
-    setMessages(prev => prev.map(m => m.id === id ? { ...m, ...patch } : m));
-    setPreviewMsg(prev => prev?.id === id ? { ...prev, ...patch } : prev);
-  }
-
-  // ── Selecionar arquivo ────────────────────────────────────────────────────
+  // ── Arquivo ───────────────────────────────────────────────────────────────
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -623,212 +1362,214 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     e.target.value = '';
   };
 
-  // ── Quando modo 'adaptar' é selecionado, abre o seletor de arquivo ─────────
   const handleModeChange = (mode: GenerationMode) => {
     setGenMode(mode);
-    if (mode === 'adaptar' && !pendingFile) {
-      // pequeno delay para garantir que o input está disponível
+    if (isAdaptarMode(mode) && !pendingFile) {
       setTimeout(() => fileInputRef.current?.click(), 100);
     }
   };
 
-  // ── Enviar ────────────────────────────────────────────────────────────────
-  const handleSend = async () => {
+  // ── Input handlers ────────────────────────────────────────────────────────
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputText(e.target.value);
+    const ta = e.target;
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+
+  // ── Enviar → mostra preflight de créditos ─────────────────────────────────
+  const handleSend = () => {
     const text = inputText.trim();
-    const file = pendingFile;
+    if (labState === 'generating') return;
 
-    if (isGenerating) return;
-
-    // Modo adaptar: precisa de arquivo
-    if (genMode === 'adaptar') {
-      if (!file) {
-        addAssistantMsg('⚠️ Para adaptar uma imagem, selecione primeiro a imagem que deseja adaptar.');
-        return;
-      }
-      if (!file.type.startsWith('image/')) {
-        addAssistantMsg('⚠️ O modo "Adaptar imagem" aceita apenas arquivos de imagem (PNG, JPG, WEBP).');
-        return;
-      }
+    if (isAdaptarMode(genMode)) {
+      if (!pendingFile) { setErrorMsg('Selecione uma imagem para adaptar.'); return; }
+      if (!pendingFile.type.startsWith('image/')) { setErrorMsg('Aceita apenas PNG, JPG ou WEBP.'); return; }
     } else {
       if (!text) return;
     }
 
-    // Mensagem do usuário
-    const userMsg: ChatMessage = {
-      id: uid(), role: 'user', timestamp: new Date(),
-      text: text || (file ? `Adaptar: ${file.name}` : ''),
-      file: file ?? undefined,
-    };
-    setMessages(prev => [...prev, userMsg]);
-    setInputText('');
-    setPendingFile(null);
+    setErrorMsg('');
+    const topic = text || (pendingFile?.name ?? '');
+    setCurrentTopic(topic);
+    setPreflightData({ mode: genMode, maxCost: getModeConfig(genMode).maxCost, topic, fileName: pendingFile?.name });
+    setLabState('preflight');
+  };
 
-    // Roteamento por modo
-    if (genMode === 'texto') {
-      await generateTextActivity(text);
-    } else if (genMode === 'imagem') {
-      await generateImageActivity(text);
-    } else if (genMode === 'adaptar' && file) {
-      await adaptImageToImage(file, text);
+  // ── Confirmar geração após preflight ──────────────────────────────────────
+  const handleConfirmGenerate = async () => {
+    if (!preflightData) return;
+    const { mode, topic } = preflightData;
+    setLabState('generating');
+    setPreflightData(null);
+    const extras = inputText.trim();
+    switch (mode) {
+      case 'a4_economica':      await generateA4Economica(topic); break;
+      case 'a4_visual':         await generateA4Visual(topic); break;
+      case 'a4_premium':        await generateA4Premium(topic); break;
+      case 'adaptar_economico': if (pendingFile) await generateAdaptarEconomico(pendingFile, extras); break;
+      case 'adaptar_visual':    if (pendingFile) await generateAdaptarVisual(pendingFile, extras); break;
+      case 'adaptar_premium':   if (pendingFile) await generateAdaptarPremium(pendingFile, extras); break;
     }
   };
 
-  // ── Modo 1: Atividade completa (texto) ────────────────────────────────────
-  async function generateTextActivity(topic: string) {
-    const cost = INCLUILAB_MODEL_COSTS.TEXT;
-
-    const hasCredits = creditsAvailable !== undefined
-      ? creditsAvailable >= cost
-      : await AIService.checkCredits(user, cost);
-    if (!hasCredits) { addAssistantMsg(`⚠️ ${CREDIT_INSUFFICIENT_MSG}`); return; }
-
-    setIsGenerating(true);
-    const thinkingId = uid();
-    setMessages(prev => [...prev, {
-      id: thinkingId, role: 'assistant', timestamp: new Date(),
-      text: `Criando atividade sobre "${topic}"…`,
-    }]);
-
+  // ── 1. A4 Econômica (3 cr) — JSON + pictogramas/emoji, sem imagem IA ─────
+  async function generateA4Economica(topic: string) {
+    const cost = INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
+    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
     try {
-      const prompt = buildActivityPrompt(topic, studentCtx);
-      const raw = await AIService.generateFromPromptWithImage(prompt, '', user);
-      await safeDeductCredits(user, 'INCLUILAB_TEXT', cost);
-
-      const patch: Partial<ChatMessage> = {
-        text: `Atividade sobre **"${topic}"** pronta${studentName ? ` para ${studentName}` : ''}!`,
-        result: raw,
-        creditsUsed: cost,
-      };
-      updateMessage(thinkingId, patch);
-      setPreviewMsg({ id: thinkingId, role: 'assistant', timestamp: new Date(), text: '', ...patch } as ChatMessage);
-      setRightTab('preview');
-    } catch (err: any) {
-      updateMessage(thinkingId, { text: `❌ Erro: ${friendlyAIError(err)}` });
-    } finally {
-      setIsGenerating(false);
-    }
+      const raw = await AIService.generateIncluiLabActivitySchema(buildActivitySchemaPrompt(topic, studentCtx), user);
+      const activity = validateActivitySchema(raw);
+      await safeDeductCredits(user, 'INCLUILAB_A4_ECONOMICA', cost);
+      setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), creditsUsed: cost, mode: 'a4_economica' });
+      setLabState('result'); setInputText(''); setPendingFile(null);
+    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
   }
 
-  // ── Modo 2: Gerar como imagem A4 ─────────────────────────────────────────
-  async function generateImageActivity(topic: string) {
-    const cost = INCLUILAB_MODEL_COSTS.GPT_IMAGE;
-
-    const hasCredits = creditsAvailable !== undefined
-      ? creditsAvailable >= cost
-      : await AIService.checkCredits(user, cost);
-    if (!hasCredits) { addAssistantMsg(`⚠️ ${CREDIT_INSUFFICIENT_MSG}`); return; }
-
-    setIsGenerating(true);
-    const thinkingId = uid();
-    setMessages(prev => [...prev, {
-      id: thinkingId, role: 'assistant', timestamp: new Date(),
-      text: `Gerando folha A4 sobre "${topic}"…`,
-    }]);
-
+  // ── 2. A4 Visual (até 15 cr) — JSON + até 4 imagens IA ──────────────────
+  async function generateA4Visual(topic: string) {
+    const baseCost = INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_BASE;
+    const maxCost  = INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= baseCost : await AIService.checkCredits(user, baseCost);
+    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
     try {
-      const imagePrompt = buildImageActivityPrompt(topic, studentCtx);
+      const raw = await AIService.generateIncluiLabActivitySchema(buildActivitySchemaPrompt(topic, studentCtx), user);
+      const activity = validateActivitySchema(raw);
+      await safeDeductCredits(user, 'INCLUILAB_A4_VISUAL_BASE', baseCost);
+      let totalCost: number = baseCost;
+      // Tenta gerar até 4 imagens IA; falhas usam emoji fallback sem cobrança
+      const canAffordImages = creditsAvailable === undefined || (creditsAvailable - baseCost) >= INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_PER_IMAGE;
+      if (canAffordImages) {
+        const { updatedAssets, imagesGenerated } = await generateSmallImagesForAssets(
+          activity.visualAssets, user, INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_PER_IMAGE, 4,
+        );
+        activity.visualAssets = updatedAssets;
+        totalCost = Math.min(baseCost + imagesGenerated * INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_PER_IMAGE, maxCost);
+      }
+      setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), creditsUsed: totalCost, mode: 'a4_visual' });
+      setLabState('result'); setInputText(''); setPendingFile(null);
+    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+  }
+
+  // ── 3. A4 Premium Ilustrada (50 cr) — imagem estilo Canva, fallback texto ─
+  async function generateA4Premium(topic: string) {
+    const cost = INCLUILAB_ACTIVITY_COSTS.A4_PREMIUM;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
+    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+    try {
       const { ImageGenerationService } = await import('../services/imageGenerationService');
       const tenantId = (user as any).tenant_id ?? user.id;
-      const result = await ImageGenerationService.generate(imagePrompt, { tenantId, userId: user.id });
-
-      await safeDeductCredits(user, 'INCLUILAB_IMAGE_A4', cost);
-
-      const patch: Partial<ChatMessage> = {
-        text: `Imagem A4 pronta${studentName ? ` para ${studentName}` : ''}! Clique para ver.`,
-        resultImageUrl: result.base64DataUrl,
-        creditsUsed: cost,
-      };
-      updateMessage(thinkingId, patch);
-      setPreviewMsg({ id: thinkingId, role: 'assistant', timestamp: new Date(), text: '', ...patch } as ChatMessage);
-      setRightTab('preview');
-    } catch (err: any) {
-      updateMessage(thinkingId, { text: `❌ Erro ao gerar imagem: ${friendlyAIError(err)}` });
-    } finally {
-      setIsGenerating(false);
-    }
+      try {
+        const imgResult = await ImageGenerationService.generate(buildImageActivityPrompt(topic, studentCtx), { tenantId, userId: user.id });
+        await safeDeductCredits(user, 'INCLUILAB_A4_PREMIUM', cost);
+        setResult({ id: uid(), title: `Atividade Premium: ${topic}`, imageUrl: imgResult.base64DataUrl, creditsUsed: cost, mode: 'a4_premium' });
+      } catch {
+        // Fallback se imagem falhar — cobra apenas texto
+        const textCost = INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA;
+        const raw = await AIService.generateIncluiLabActivitySchema(buildActivitySchemaPrompt(topic, studentCtx), user);
+        const activity = validateActivitySchema(raw);
+        await safeDeductCredits(user, 'INCLUILAB_A4_ECONOMICA', textCost);
+        setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), creditsUsed: textCost, mode: 'a4_economica' });
+      }
+      setLabState('result'); setInputText(''); setPendingFile(null);
+    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
   }
 
-  // ── Modo 3: Adaptar imagem enviada → saída imagem ─────────────────────────
-  async function adaptImageToImage(file: AttachedFile, extraInstructions: string) {
-    const step1Cost = AI_CREDIT_COSTS.OCR + INCLUILAB_MODEL_COSTS.TEXT;
-    const step2Cost = INCLUILAB_MODEL_COSTS.GPT_IMAGE;
-    const totalCost = step1Cost + step2Cost;
-
-    const hasCredits = creditsAvailable !== undefined
-      ? creditsAvailable >= totalCost
-      : await AIService.checkCredits(user, totalCost);
-    if (!hasCredits) { addAssistantMsg(`⚠️ ${CREDIT_INSUFFICIENT_MSG}`); return; }
-
-    setIsGenerating(true);
-    const thinkingId = uid();
-    setMessages(prev => [...prev, {
-      id: thinkingId, role: 'assistant', timestamp: new Date(),
-      text: 'Analisando a imagem e gerando versão adaptada…',
-    }]);
-
+  // ── 4. Adaptar — Econômico (5 cr) — analisa + JSON, sem imagem IA ────────
+  async function generateAdaptarEconomico(file: AttachedFile, extraInstructions: string) {
+    const cost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
+    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
     try {
-      // Passo 1: AI lê a imagem e descreve a versão adaptada
-      const analyzePrompt = buildAdaptImagePrompt(studentCtx, extraInstructions);
-      const adaptedDescription = await AIService.generateFromPromptWithImage(analyzePrompt, file.base64, user);
-      await safeDeductCredits(user, 'INCLUILAB_ADAPT_READ', step1Cost);
+      const analysisText = await AIService.generateFromPromptWithImage(buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user);
+      const raw = await AIService.generateIncluiLabActivitySchema(buildAdaptActivitySchemaPrompt(analysisText, studentCtx, extraInstructions), user);
+      const activity = validateActivitySchema(raw);
+      await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_ECONOMICO', cost);
+      setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), analysisText, creditsUsed: cost, mode: 'adaptar_economico' });
+      setLabState('result'); setInputText(''); setPendingFile(null);
+    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+  }
 
-      updateMessage(thinkingId, { text: 'Gerando imagem adaptada…' });
+  // ── 5. Adaptar — Visual (até 20 cr) — analisa + JSON + até 4 imagens IA ──
+  async function generateAdaptarVisual(file: AttachedFile, extraInstructions: string) {
+    const baseCost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_BASE;
+    const maxCost  = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= baseCost : await AIService.checkCredits(user, baseCost);
+    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+    try {
+      const analysisText = await AIService.generateFromPromptWithImage(buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user);
+      const raw = await AIService.generateIncluiLabActivitySchema(buildAdaptActivitySchemaPrompt(analysisText, studentCtx, extraInstructions), user);
+      const activity = validateActivitySchema(raw);
+      await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_VISUAL_BASE', baseCost);
+      let totalCost: number = baseCost;
+      const canAffordImages = creditsAvailable === undefined || (creditsAvailable - baseCost) >= INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_PER_IMAGE;
+      if (canAffordImages) {
+        const { updatedAssets, imagesGenerated } = await generateSmallImagesForAssets(
+          activity.visualAssets, user, INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_PER_IMAGE, 4,
+        );
+        activity.visualAssets = updatedAssets;
+        totalCost = Math.min(baseCost + imagesGenerated * INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_PER_IMAGE, maxCost);
+      }
+      setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), analysisText, creditsUsed: totalCost, mode: 'adaptar_visual' });
+      setLabState('result'); setInputText(''); setPendingFile(null);
+    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+  }
 
-      // Passo 2: Gera imagem visual com base na descrição adaptada
-      const imagePrompt = `Folha de atividade pedagógica A4, pronta para imprimir. ` +
-        `${adaptedDescription.slice(0, 600)} ` +
-        `Estilo educativo, texto grande e legível, ilustrações simples, cores suaves, fundo branco.`;
-
+  // ── 6. Adaptar — Premium (50 cr) — analisa + worksheet visual completo ────
+  async function generateAdaptarPremium(file: AttachedFile, extraInstructions: string) {
+    const cost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_PREMIUM;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
+    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+    try {
+      const analysisText = await AIService.generateFromPromptWithImage(buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user);
       const { ImageGenerationService } = await import('../services/imageGenerationService');
       const tenantId = (user as any).tenant_id ?? user.id;
-      const result = await ImageGenerationService.generate(imagePrompt, { tenantId, userId: user.id });
-      await safeDeductCredits(user, 'INCLUILAB_ADAPT_IMAGE', step2Cost);
-
-      const patch: Partial<ChatMessage> = {
-        text: `Imagem adaptada pronta${studentName ? ` para ${studentName}` : ''}!`,
-        resultImageUrl: result.base64DataUrl,
-        creditsUsed: totalCost,
-      };
-      updateMessage(thinkingId, patch);
-      setPreviewMsg({ id: thinkingId, role: 'assistant', timestamp: new Date(), text: '', ...patch } as ChatMessage);
-      setRightTab('preview');
-    } catch (err: any) {
-      updateMessage(thinkingId, { text: `❌ Erro: ${friendlyAIError(err)}` });
-    } finally {
-      setIsGenerating(false);
-    }
+      try {
+        const imgResult = await ImageGenerationService.generate(buildAdaptPremiumImagePrompt(analysisText, studentCtx), { tenantId, userId: user.id });
+        await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_PREMIUM', cost);
+        setResult({ id: uid(), title: `Atividade Adaptada Premium: ${file.name}`, imageUrl: imgResult.base64DataUrl, analysisText, creditsUsed: cost, mode: 'adaptar_premium' });
+      } catch {
+        // Fallback se imagem premium falhar — cobra apenas custo econômico
+        const textCost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO;
+        const raw = await AIService.generateIncluiLabActivitySchema(buildAdaptActivitySchemaPrompt(analysisText, studentCtx, extraInstructions), user);
+        const activity = validateActivitySchema(raw);
+        await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_ECONOMICO', textCost);
+        setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), analysisText, creditsUsed: textCost, mode: 'adaptar_economico' });
+      }
+      setLabState('result'); setInputText(''); setPendingFile(null);
+    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
   }
 
-  // ── Salvar na biblioteca ──────────────────────────────────────────────────
+  // ── Salvar resultado ──────────────────────────────────────────────────────
   const handleSave = async () => {
-    if (!previewMsg) return;
-    if (!previewMsg.result && !previewMsg.resultImageUrl) return;
-
-    setSavingId(previewMsg.id);
+    if (!result) return;
+    setSavingResult(true);
     try {
-      const lines = (previewMsg.result || '').split('\n');
-      const titleLine = lines.find(l => l.startsWith('#'));
-      const title = titleLine ? titleLine.replace(/^#+\s*/, '') : 'Atividade IncluiLAB';
-
       const id = await GeneratedActivityService.save({
         tenantId:    (user as any).tenant_id ?? user.id,
         userId:      user.id,
         studentId:   studentId || undefined,
-        title,
-        content:     previewMsg.result || `[Imagem gerada — ${new Date().toLocaleString('pt-BR')}]`,
-        imageUrl:    previewMsg.resultImageUrl,
-        isAdapted:   genMode === 'adaptar',
-        creditsUsed: previewMsg.creditsUsed ?? 0,
+        title:       result.title,
+        content:     result.content || `[Imagem gerada — ${new Date().toLocaleString('pt-BR')}]`,
+        imageUrl:    result.imageUrl,
+        guidance:    result.analysisText,
+        isAdapted:   result.mode.startsWith('adaptar_'),
+        creditsUsed: result.creditsUsed,
         tags:        studentName ? [studentName] : [],
       });
       if (id) {
-        updateMessage(previewMsg.id, { savedId: id });
+        setResult(prev => prev ? { ...prev, savedId: id } : prev);
         await loadLibrary();
       }
     } catch (e: any) {
       console.error('[IncluiLAB] Erro ao salvar:', e?.message);
     } finally {
-      setSavingId(null);
+      setSavingResult(false);
     }
   };
 
@@ -842,39 +1583,37 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
 
   // ── Selecionar da biblioteca ──────────────────────────────────────────────
   const handleLibSelect = (act: any) => {
+    const storedActivity = parseStoredActivity(act.content);
+    const legacyActivity = !storedActivity && act.content && !act.image_url
+      ? createLegacyActivity(act.title || 'Atividade', act.content)
+      : null;
+    const activity = storedActivity || legacyActivity || undefined;
     setLibrarySelId(act.id);
-    const fakeMsg: ChatMessage = {
-      id: act.id, role: 'assistant',
-      text: act.title,
-      result: act.content,
-      resultImageUrl: act.image_url,
-      creditsUsed: act.credits_used,
-      savedId: act.id,
-      timestamp: new Date(act.created_at),
-    };
-    setPreviewMsg(fakeMsg);
-    setRightTab('preview');
+    setResult({
+      id:          act.id,
+      title:       activity?.header.title || act.title || 'Atividade',
+      activity,
+      content:     act.content,
+      imageUrl:    act.image_url,
+      analysisText: act.guidance || undefined,
+      creditsUsed: act.credits_used ?? 0,
+      mode:        act.is_adapted ? 'adaptar_economico' : 'a4_economica',
+      savedId:     act.id,
+    });
+    setLabState('result');
   };
 
-  // ── Keyboard ──────────────────────────────────────────────────────────────
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  // ── Regenerar / cancelar preflight ───────────────────────────────────────
+  const handleRegenerate = () => {
+    setLabState('idle');
+    setResult(null);
+    setLibrarySelId(null);
+    setPreflightData(null);
+    setTimeout(() => textAreaRef.current?.focus(), 100);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputText(e.target.value);
-    const ta = e.target;
-    ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
-  };
-
-  // ── Sugestões rápidas ─────────────────────────────────────────────────────
-  const suggestions = [
-    'Atividade de frações para Anos Iniciais',
-    'Leitura e interpretação sobre animais',
-    'Matemática lúdica com material concreto',
-    'Produção de texto com apoio visual',
-  ];
+  // ── Título para export ────────────────────────────────────────────────────
+  const exportTitle = result?.title ?? 'Atividade IncluiLAB';
 
   // ── AtivaIA canvas ────────────────────────────────────────────────────────
   if (showWorkflow) {
@@ -884,7 +1623,11 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
           display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px',
           background: C.surface, borderBottom: `1px solid ${C.border}`,
         }}>
-          <button onClick={() => setShowWorkflow(false)} style={{ ...btnStyle, gap: 6 }}>
+          <button onClick={() => setShowWorkflow(false)} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 12px', borderRadius: 8, border: `1px solid ${C.border}`,
+            background: C.surface, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: C.dark,
+          }}>
             ← Voltar
           </button>
           <div style={{ width: 32, height: 32, borderRadius: 10, background: C.petrol, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -902,57 +1645,54 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     );
   }
 
-  // ── Preview do painel direito ─────────────────────────────────────────────
-  const hasImagePreview = !!previewMsg?.resultImageUrl;
-  const hasTextPreview  = !!previewMsg?.result;
-
-  const previewTitle = (() => {
-    if (!previewMsg?.result) return 'Resultado gerado';
-    const line = previewMsg.result.split('\n').find(l => l.startsWith('#'));
-    return line ? line.replace(/^#+\s*/, '') : 'Atividade Gerada';
-  })();
-
-  // ── Placeholder do textarea muda com o modo ────────────────────────────────
-  const inputPlaceholder = genMode === 'adaptar'
-    ? (pendingFile ? 'Adicione instruções (opcional): "adaptar para TEA", "simplificar"…' : 'Clique no 📎 para selecionar a imagem a ser adaptada')
-    : genMode === 'imagem'
-    ? 'Descreva a atividade… ex: "Frações com pizza para 3º ano"'
-    : 'Descreva o tema… ex: "Atividade de frações para aluno com TEA"';
-
   // ─────────────────────────────────────────────────────────────────────────
-  // RENDER
+  // RENDER PRINCIPAL
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg }}>
 
-      {/* ── Header ────────────────────────────────────────────────────────── */}
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div style={{
-        display: 'flex', alignItems: 'center', padding: '10px 16px',
+        display: 'flex', alignItems: 'center', padding: '10px 20px',
         background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0,
         flexWrap: 'wrap', gap: 10,
       }}>
-        {/* Logo */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 10, background: C.petrol, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Brain size={17} color="#fff" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10,
+            background: `linear-gradient(135deg, ${C.petrol}, #2a6880)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Brain size={18} color="#fff" />
           </div>
           <div>
             <p style={{ margin: 0, fontSize: 14, fontWeight: 800, color: C.dark, lineHeight: 1 }}>IncluiLAB</p>
-            <p style={{ margin: 0, fontSize: 10, color: C.petrol, lineHeight: 1.2 }}>Laboratório de Adaptações</p>
+            <p style={{ margin: 0, fontSize: 10, color: C.sec, lineHeight: 1.3 }}>Laboratório de Adaptações</p>
           </div>
         </div>
 
-        <div style={{ width: 1, height: 28, background: C.border, flexShrink: 0 }} />
+        <div style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }} />
 
-        {/* Seletor de aluno */}
-        <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ flex: 1, minWidth: 180 }}>
           <StudentSelector students={students} selectedId={studentId} onChange={handleStudentChange} />
         </div>
 
-        {/* AtivaIA */}
+        {/* Nova atividade — aparece quando há resultado */}
+        {labState !== 'idle' && (
+          <button onClick={handleRegenerate} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '7px 16px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+            background: C.petrol, border: 'none', cursor: 'pointer',
+            color: '#fff', flexShrink: 0,
+            boxShadow: `0 2px 8px rgba(31,78,95,0.25)`,
+          }}>
+            + Nova atividade
+          </button>
+        )}
+
         <button onClick={() => setShowWorkflow(true)} style={{
           display: 'flex', alignItems: 'center', gap: 6,
-          padding: '7px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+          padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700,
           background: C.bg, border: `1.5px solid ${C.border}`, cursor: 'pointer',
           color: C.dark, flexShrink: 0,
         }}>
@@ -960,288 +1700,99 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         </button>
       </div>
 
-      {/* ── Body ──────────────────────────────────────────────────────────── */}
+      {/* ── Body: sidebar + workspace ─────────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-        {/* ── Coluna esquerda: Chat ────────────────────────────────────────── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, borderRight: `1px solid ${C.border}` }}>
+        {/* Sidebar biblioteca */}
+        <LibrarySidebar
+          activities={library}
+          loading={libraryLoading}
+          selectedId={librarySelId ?? undefined}
+          onSelect={handleLibSelect}
+          onDelete={handleDeleteLib}
+        />
 
-          {/* Mensagens */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px' }}>
-            {messages.map(msg => (
-              <ChatBubble
-                key={msg.id}
-                msg={msg}
-                onViewResult={m => { setPreviewMsg(m); setRightTab('preview'); }}
-              />
-            ))}
-            {/* Loader global visível na conversa enquanto gera */}
-            {isGenerating && (
-              <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'flex-start' }}>
-                <div style={{ width: 32, height: 32, borderRadius: '50%', background: C.petrol, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <Bot size={15} color="#fff" />
-                </div>
-                <div style={{
-                  padding: '10px 16px', borderRadius: '4px 18px 18px 18px',
-                  background: C.surface, border: `1px solid ${C.border}`,
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  fontSize: 13, color: C.sec,
-                }}>
-                  <Loader size={14} color={C.petrol} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
-                  Gerando…
-                </div>
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
+        {/* Workspace + Composer */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
-          {/* Sugestões (somente quando conversa vazia) */}
-          {messages.length <= 1 && !isGenerating && (
-            <div style={{ padding: '0 16px 8px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {suggestions.map(s => (
-                <button key={s} onClick={() => { setInputText(s); textAreaRef.current?.focus(); }} style={{
-                  padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 500,
-                  background: C.surface, border: `1px solid ${C.border}`,
-                  color: C.dark, cursor: 'pointer',
-                }}>
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Preview arquivo pendente */}
-          {pendingFile && (
+          {/* Banner de erro */}
+          {errorMsg && (
             <div style={{
-              margin: '0 16px 8px', padding: '8px 12px', borderRadius: 12,
-              background: C.light, border: `1px solid ${C.border}`,
               display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 20px', background: '#FEF2F2', borderBottom: '1px solid #FECACA',
+              flexShrink: 0,
             }}>
-              {pendingFile.type.startsWith('image/') && pendingFile.previewUrl
-                ? <img src={pendingFile.previewUrl} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6 }} />
-                : <FileText size={18} color={C.petrol} />
-              }
-              <span style={{ fontSize: 12, fontWeight: 600, color: C.dark, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {pendingFile.name}
-              </span>
-              <button onClick={() => setPendingFile(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sec, padding: 2 }}>
+              <AlertCircle size={14} color="#DC2626" />
+              <span style={{ flex: 1, fontSize: 13, color: '#991B1B' }}>{errorMsg}</span>
+              <button onClick={() => setErrorMsg('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991B1B', padding: 2 }}>
                 <X size={14} />
               </button>
             </div>
           )}
 
-          {/* ── Seletor de modo ───────────────────────────────────────────── */}
-          <div style={{
-            padding: '10px 16px 0',
-            background: C.surface,
-            borderTop: `1px solid ${C.border}`,
-          }}>
-            <p style={{ margin: '0 0 8px', fontSize: 10, fontWeight: 700, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              Modo de geração
-            </p>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {MODES.map(m => {
-                const active = genMode === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => handleModeChange(m.id)}
-                    disabled={isGenerating}
-                    style={{
-                      padding: '7px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                      cursor: isGenerating ? 'default' : 'pointer',
-                      background: active ? C.petrol : C.bg,
-                      color: active ? '#fff' : C.dark,
-                      border: `1.5px solid ${active ? C.petrol : C.border}`,
-                      transition: 'all 0.15s', outline: 'none',
-                      display: 'flex', alignItems: 'center', gap: 6,
-                    }}
-                    title={`${m.desc} · ${m.cost} créditos`}
-                  >
-                    {m.id === 'texto'   && <Type size={11} />}
-                    {m.id === 'imagem'  && <FileImage size={11} />}
-                    {m.id === 'adaptar' && <Paperclip size={11} />}
-                    {m.label}
-                    <span style={{
-                      fontSize: 9, fontWeight: 700, opacity: 0.75,
-                      background: active ? 'rgba(255,255,255,0.2)' : C.border,
-                      color: active ? '#fff' : C.sec,
-                      borderRadius: 20, padding: '1px 6px',
-                    }}>
-                      {m.cost} cr
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* ── Input ────────────────────────────────────────────────────── */}
-          <div style={{ padding: '10px 16px 14px', background: C.surface, flexShrink: 0 }}>
-            <div style={{
-              display: 'flex', alignItems: 'flex-end', gap: 8,
-              border: `1.5px solid ${isGenerating ? C.border : C.petrol}`,
-              borderRadius: 20, padding: '8px 10px',
-              background: C.surface, transition: 'border-color 0.2s',
-            }}>
-              {/* Anexar */}
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                title="Anexar imagem ou arquivo"
-                disabled={isGenerating}
-                style={{
-                  background: 'none', border: 'none',
-                  cursor: isGenerating ? 'default' : 'pointer',
-                  color: pendingFile ? C.petrol : C.sec,
-                  padding: '2px 4px', flexShrink: 0, borderRadius: 8,
-                  transition: 'color 0.15s',
-                }}
-              >
-                <Paperclip size={18} />
-              </button>
-
-              {/* Textarea */}
-              <textarea
-                ref={textAreaRef}
-                value={inputText}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                placeholder={isGenerating ? 'Aguarde…' : inputPlaceholder}
-                disabled={isGenerating}
-                rows={1}
-                style={{
-                  flex: 1, border: 'none', outline: 'none', resize: 'none',
-                  fontSize: 14, lineHeight: 1.5, fontFamily: 'inherit',
-                  background: 'transparent', color: C.dark,
-                  minHeight: 24, maxHeight: 120,
+          {/* Workspace scrollável */}
+          <div style={{ flex: 1, overflowY: 'auto', background: C.bg }}>
+            {labState === 'idle' && (
+              <EmptyState
+                studentCtx={studentCtx}
+                studentName={studentName}
+                onSuggestion={(text) => {
+                  setInputText(text);
+                  setTimeout(() => textAreaRef.current?.focus(), 50);
                 }}
               />
-
-              {/* Enviar */}
-              <button
-                onClick={handleSend}
-                disabled={isGenerating || (genMode !== 'adaptar' && !inputText.trim()) || (genMode === 'adaptar' && !pendingFile)}
-                title="Gerar"
-                style={{
-                  width: 36, height: 36, borderRadius: '50%', border: 'none',
-                  background: (() => {
-                    if (isGenerating) return C.border;
-                    if (genMode === 'imagem') return '#7C3AED';
-                    if (genMode === 'adaptar') return '#0369A1';
-                    return C.petrol;
-                  })(),
-                  cursor: isGenerating ? 'default' : 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0, transition: 'background 0.15s',
-                }}
-              >
-                {isGenerating
-                  ? <Loader size={15} color="#fff" style={{ animation: 'spin 1s linear infinite' }} />
-                  : <Send size={15} color="#fff" />
-                }
-              </button>
-            </div>
-
-            <p style={{ fontSize: 10, color: C.sec, margin: '6px 0 0', textAlign: 'center' }}>
-              Enter para enviar · Shift+Enter para nova linha
-              {genMode === 'adaptar' && ' · Aceita PNG, JPG, WEBP'}
-              {genMode === 'texto' && ' · Descreva o tema livremente'}
-            </p>
-          </div>
-
-          {/* Input file oculto */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={genMode === 'adaptar' ? '.png,.jpg,.jpeg,.webp' : '.pdf,.png,.jpg,.jpeg,.webp,.docx,.doc'}
-            style={{ display: 'none' }}
-            onChange={handleFileSelect}
-          />
-        </div>
-
-        {/* ── Painel direito ───────────────────────────────────────────────── */}
-        <div style={{ width: 420, flexShrink: 0, display: 'flex', flexDirection: 'column', background: C.surface }}>
-
-          {/* Tabs */}
-          <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-            {([
-              { key: 'preview', label: 'Resultado', icon: Sparkles },
-              { key: 'library', label: `Biblioteca (${library.length})`, icon: BookMarked },
-            ] as const).map(({ key, label, icon: Icon }) => (
-              <button key={key} onClick={() => setRightTab(key)} style={{
-                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                padding: '11px 8px', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                border: 'none', borderBottom: rightTab === key ? `2px solid ${C.petrol}` : '2px solid transparent',
-                background: 'transparent', color: rightTab === key ? C.petrol : C.sec,
-                transition: 'all 0.15s',
-              }}>
-                <Icon size={13} /> {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Conteúdo do painel */}
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-            {rightTab === 'preview' ? (
-              hasImagePreview ? (
-                <ImagePreview
-                  imageUrl={previewMsg!.resultImageUrl!}
-                  title={previewTitle}
-                  onSave={handleSave}
-                  saving={savingId === previewMsg?.id}
-                  saved={!!previewMsg?.savedId}
-                  onDownload={() => downloadImage(previewMsg!.resultImageUrl!, `${previewTitle}.png`)}
-                />
-              ) : hasTextPreview ? (
-                <A4Preview
-                  content={previewMsg!.result!}
-                  title={previewTitle}
-                  onSave={handleSave}
-                  saving={savingId === previewMsg?.id}
-                  saved={!!previewMsg?.savedId}
-                  onExportDoc={() => exportAsDoc(previewMsg!.result!, `${previewTitle}.doc`)}
-                  onPrint={() => printMarkdown(previewMsg!.result!, previewTitle)}
-                />
-              ) : (
-                <div style={{
-                  display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center',
-                  height: '100%', color: C.sec, padding: 32, textAlign: 'center',
-                }}>
-                  <Sparkles size={40} color={C.border} style={{ marginBottom: 16 }} />
-                  <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.dark }}>
-                    Resultado aparece aqui
-                  </p>
-                  <p style={{ margin: '8px 0 0', fontSize: 13, lineHeight: 1.6, maxWidth: 240 }}>
-                    Escolha um modo, descreva o que precisa e clique em Gerar.
-                  </p>
-                  <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 260 }}>
-                    {MODES.map(m => (
-                      <div key={m.id} style={{
-                        padding: '10px 14px', borderRadius: 12,
-                        background: C.bg, border: `1px solid ${C.border}`,
-                        fontSize: 12, color: C.dark, textAlign: 'left',
-                      }}>
-                        <span style={{ fontWeight: 700 }}>{m.label}</span>
-                        <span style={{ color: C.sec }}> — {m.desc}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            ) : (
-              <Library
-                activities={library}
-                loading={libraryLoading}
-                onSelect={handleLibSelect}
-                onDelete={handleDeleteLib}
-                selectedId={librarySelId ?? undefined}
+            )}
+            {labState === 'preflight' && preflightData && (
+              <PreflightPanel
+                mode={preflightData.mode}
+                maxCost={preflightData.maxCost}
+                creditsAvailable={creditsAvailable}
+                topic={preflightData.topic}
+                fileName={preflightData.fileName}
+                onConfirm={handleConfirmGenerate}
+                onCancel={handleRegenerate}
+              />
+            )}
+            {labState === 'generating' && (
+              <GeneratingState mode={genMode} topic={currentTopic} />
+            )}
+            {labState === 'result' && result && (
+              <ResultView
+                result={result}
+                studentName={studentName}
+                onSave={handleSave}
+                saving={savingResult}
+                onExportJson={() => result.activity && exportActivityJson(result.activity, `${exportTitle}.json`)}
+                onPrint={printActivity}
+                onDownloadImg={() => downloadImage(result.imageUrl ?? '', `${exportTitle}.png`)}
               />
             )}
           </div>
+
+          {/* Composer — sempre fixo no rodapé */}
+          <Composer
+            inputText={inputText}
+            genMode={genMode}
+            pendingFile={pendingFile}
+            isGenerating={labState === 'generating'}
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            onModeChange={handleModeChange}
+            onSend={handleSend}
+            onFileClick={() => fileInputRef.current?.click()}
+            onRemoveFile={() => setPendingFile(null)}
+            textAreaRef={textAreaRef}
+          />
         </div>
       </div>
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={isAdaptarMode(genMode) ? '.png,.jpg,.jpeg,.webp' : '.pdf,.png,.jpg,.jpeg,.webp,.docx,.doc'}
+        style={{ display: 'none' }}
+        onChange={handleFileSelect}
+      />
       <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
     </div>
   );
