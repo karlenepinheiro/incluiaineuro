@@ -71,6 +71,7 @@ const MODES_ADAPTAR: ModeConfig[] = [
 ];
 
 const ALL_MODES: ModeConfig[] = [...MODES_CRIAR, ...MODES_ADAPTAR];
+const showAtivaAI = false;
 
 function getModeConfig(mode: GenerationMode): ModeConfig {
   return ALL_MODES.find(m => m.id === mode) ?? MODES_CRIAR[0];
@@ -734,7 +735,7 @@ const LibrarySidebar: React.FC<{
     <div style={{
       width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column',
       borderRight: `1px solid ${C.border}`, background: C.surface,
-      overflow: 'hidden', minHeight: 0,
+      height: '100%', overflow: 'hidden', minHeight: 0, maxHeight: '100%',
     }}>
       {/* Header sidebar */}
       <div style={{ padding: '18px 16px 14px', borderBottom: `1px solid ${C.border}` }}>
@@ -749,7 +750,7 @@ const LibrarySidebar: React.FC<{
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {loading && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 80 }}>
             <Loader size={16} color={C.sec} style={{ animation: 'spin 1s linear infinite' }} />
@@ -972,6 +973,9 @@ const Composer: React.FC<{
   return (
     <div style={{
       flexShrink: 0,
+      position: 'sticky',
+      bottom: 0,
+      zIndex: 20,
       borderTop: `1px solid ${C.border}`,
       background: C.surface,
       padding: '10px 20px 16px',
@@ -1618,7 +1622,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   // ── AtivaIA canvas ────────────────────────────────────────────────────────
   if (showWorkflow) {
     return (
-      <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ height: '100%', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px',
           background: C.surface, borderBottom: `1px solid ${C.border}`,
@@ -1638,7 +1642,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
             <p style={{ margin: 0, fontSize: 11, color: C.petrol }}>Canvas de Atividades</p>
           </div>
         </div>
-        <div style={{ flex: 1, overflow: 'hidden' }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <AtivaIACanvas user={user} students={students as any} sidebarOpen={sidebarOpen} onWorkflowNodesChange={onWorkflowNodesChange} />
         </div>
       </div>
@@ -1649,7 +1653,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   // RENDER PRINCIPAL
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: C.bg }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', maxHeight: '100%', minHeight: 0, overflow: 'hidden', background: C.bg }}>
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div style={{
@@ -1690,18 +1694,20 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
           </button>
         )}
 
-        <button onClick={() => setShowWorkflow(true)} style={{
-          display: 'flex', alignItems: 'center', gap: 6,
-          padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-          background: C.bg, border: `1.5px solid ${C.border}`, cursor: 'pointer',
-          color: C.dark, flexShrink: 0,
-        }}>
-          <Zap size={13} color={C.petrol} /> AtivaIA
-        </button>
+        {showAtivaAI && (
+          <button onClick={() => setShowWorkflow(true)} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 12px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+            background: C.bg, border: `1.5px solid ${C.border}`, cursor: 'pointer',
+            color: C.dark, flexShrink: 0,
+          }}>
+            <Zap size={13} color={C.petrol} /> AtivaIA
+          </button>
+        )}
       </div>
 
       {/* ── Body: sidebar + workspace ─────────────────────────────────────────── */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
 
         {/* Sidebar biblioteca */}
         <LibrarySidebar
@@ -1713,7 +1719,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         />
 
         {/* Workspace + Composer */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
           {/* Banner de erro */}
           {errorMsg && (
@@ -1731,7 +1737,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
           )}
 
           {/* Workspace scrollável */}
-          <div style={{ flex: 1, overflowY: 'auto', background: C.bg }}>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', background: C.bg }}>
             {labState === 'idle' && (
               <EmptyState
                 studentCtx={studentCtx}
