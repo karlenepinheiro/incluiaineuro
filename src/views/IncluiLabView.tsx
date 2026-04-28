@@ -14,7 +14,7 @@ import {
   Lightbulb, GraduationCap, AlertCircle,
 } from 'lucide-react';
 import { User, Student, ActivitySchema, ActivityVisualAsset } from '../types';
-import { AIService, friendlyAIError } from '../services/aiService';
+import { AIService, friendlyAIError, cleanJsonString } from '../services/aiService';
 import { INCLUILAB_ACTIVITY_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { StudentContextService } from '../services/studentContextService';
 import { GeneratedActivityService } from '../services/persistenceService';
@@ -59,15 +59,15 @@ interface ModeConfig {
 }
 
 const MODES_CRIAR: ModeConfig[] = [
-  { id: 'a4_economica', label: 'A4 Econômica',     desc: 'Texto + pictogramas internos',             maxCost: INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA,  icon: FileText,  requiresFile: false },
-  { id: 'a4_visual',    label: 'A4 Visual',         desc: 'Até 4 imagens IA inclusas',               maxCost: INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX, icon: Sparkles,  requiresFile: false },
-  { id: 'a4_premium',   label: 'Premium Ilustrada', desc: 'Worksheet visual completo estilo Canva',  maxCost: INCLUILAB_ACTIVITY_COSTS.A4_PREMIUM,    icon: FileImage, requiresFile: false },
+  { id: 'a4_economica', label: 'A4 Econômica',     desc: 'Guia pedagógico + folha estruturada (pictogramas internos)',       maxCost: INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA,  icon: FileText,  requiresFile: false },
+  { id: 'a4_visual',    label: 'A4 Visual',         desc: 'Guia pedagógico (texto) + folha A4 como imagem premium (OpenAI)', maxCost: INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX, icon: Sparkles,  requiresFile: false },
+  { id: 'a4_premium',   label: 'Premium Ilustrada', desc: 'Guia pedagógico + worksheet A4 premium retrato HD (OpenAI)',      maxCost: INCLUILAB_ACTIVITY_COSTS.A4_PREMIUM,    icon: FileImage, requiresFile: false },
 ];
 
 const MODES_ADAPTAR: ModeConfig[] = [
-  { id: 'adaptar_economico', label: 'Adaptar — Texto',    desc: 'Analisa + reconstrói como A4 estruturado',      maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO,  icon: Layers,    requiresFile: true },
-  { id: 'adaptar_visual',    label: 'Adaptar — Visual',   desc: 'Analisa + reconstrói com imagens IA (máx. 4)', maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX, icon: Layers,    requiresFile: true },
-  { id: 'adaptar_premium',   label: 'Adaptar — Premium',  desc: 'Recria como worksheet visual completo',         maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_PREMIUM,   icon: FileImage, requiresFile: true },
+  { id: 'adaptar_economico', label: 'Adaptar — Texto',   desc: 'Analisa imagem + reconstrói como A4 estruturado (Gemini)',        maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO,  icon: Layers,    requiresFile: true },
+  { id: 'adaptar_visual',    label: 'Adaptar — Visual',  desc: 'Analisa + guia pedagógico + reconstrói folha A4 imagem (OpenAI)', maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX, icon: Sparkles,  requiresFile: true },
+  { id: 'adaptar_premium',   label: 'Adaptar — Premium', desc: 'Analisa + guia pedagógico + worksheet A4 premium HD (OpenAI)',    maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_PREMIUM,   icon: FileImage, requiresFile: true },
 ];
 
 const ALL_MODES: ModeConfig[] = [...MODES_CRIAR, ...MODES_ADAPTAR];
@@ -115,6 +115,7 @@ interface GeneratedResult {
   content?:     string;
   imageUrl?:    string;
   analysisText?: string;
+  guiaText?:    string;  // Guia Pedagógico texto para modos Visual/Premium (OpenAI)
   creditsUsed:  number;
   mode:         GenerationMode;
   savedId?:     string;
@@ -251,18 +252,17 @@ function createLegacyActivity(title: string, content: string): ActivitySchema {
 
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 
-const IMAGE_STYLE_PROMPT = 'ilustracao educativa infantil premium, fundo branco, cores suaves, traco limpo, sem texto na imagem, adequada para impressao A4';
+const IMAGE_STYLE_PROMPT = 'imagem pequena educativa para apoiar atividade escolar, fundo branco, cores suaves, traco limpo, sem texto na imagem';
+const A4_WORKSHEET_STYLE_PROMPT = 'folha de atividade escolar A4, fundo branco, titulo grande, quadros simples, bordas discretas, poucas cores, imagens pequenas e educativas, texto legivel, organizacao limpa, estilo atividade impressa de escola brasileira, sem poluicao visual, sem excesso de elementos, sem degrades pesados, no maximo 5 questoes';
 
 function buildImageActivityPrompt(topic: string, studentCtx: string): string {
   const studentHint = studentCtx
     ? `Aluno: ${studentCtx.split('\n').find(l => l.startsWith('Aluno:')) || studentCtx.split('\n')[0] || 'necessidades especiais'}.`
     : 'inclusiva e acessivel para todos.';
-  return `Folha de atividade pedagogica visual, formato A4 retrato, pronta para imprimir. ` +
+  return `${A4_WORKSHEET_STYLE_PROMPT}. ` +
     `Tema: "${topic}". ${studentHint} ` +
-    `Layout: titulo grande e colorido no topo, instrucoes simples em etapas numeradas, ` +
-    `ilustracoes educativas coloridas e alegres, espacos em branco para o aluno escrever ou desenhar, ` +
-    `borda decorativa suave. Fundo branco. Texto legivel, fonte grande. Estilo ludico e educativo infantil. ` +
-    `Sem texto excessivo. Cores vivas mas suaves.`;
+    `Cabeçalho simples com Nome, Data e Turma. Use 3 a 5 questões em quadros separados, com espaços de resposta. ` +
+    `Nao inclua objetivo pedagogico longo, metodologia, materiais ou guia do professor na folha do aluno.`;
 }
 
 function buildActivitySchemaPrompt(topic: string, studentCtx: string): string {
@@ -297,8 +297,8 @@ Use exatamente este contrato:
       "tema": "${topic}"
     },
     "titulo": "Titulo curto e atraente da atividade",
-    "objetivo_simplificado": "O que voce vai aprender hoje em uma frase simples",
-    "instrucoes_simplificadas": ["Instrucao curta 1", "Instrucao curta 2", "Instrucao curta 3"],
+    "objetivo_simplificado": "Frase curta para orientar o aluno, sem explicacao pedagogica",
+    "instrucoes_simplificadas": ["Leia e responda com calma."],
     "conteudo_visual": [
       {
         "id": "cv-1",
@@ -333,15 +333,16 @@ Para verdadeiro_falso: opcoes = ["Verdadeiro", "Falso"].
 
 Regras pedagogicas:
 - Portugues do Brasil.
-- TAMANHO: maximo 4 exercicios. Atividade simples: 2-3 exercicios. Atividade padrao: 4 exercicios.
+- FOLHA DO ALUNO: visual de worksheet escolar A4 tradicional, fundo branco, titulo grande, quadros simples, bordas discretas e poucas cores.
+- Nao misture objetivo longo, metodologia, materiais, BNCC, observacoes do professor ou explicacoes pedagogicas na folha_do_aluno.
+- TAMANHO: 3 a 5 exercicios no maximo. Atividade simples: 3 exercicios. Atividade padrao: 4 exercicios. Nunca passe de 5.
 - Cada exercicio deve conter 1 ideia central. Enunciado com no maximo 2 frases curtas.
 - Se o conteudo ficar extenso: resumir e remover redundancia. NUNCA truncar com "...".
-- Objetivo: atividade enxuta que caiba em 1 a 2 paginas A4 impressas.
-- VISUAL: se o enunciado citar "observe", "conte os objetos" ou "veja ao lado", inclua fallback_emoji obrigatorio naquele exercicio.
+- Objetivo: atividade enxuta que caiba em 1 pagina A4 quando simples e no maximo 2 paginas quando media.
+- VISUAL: use no maximo 2 elementos em conteudo_visual; imagens pequenas e laterais apenas quando ajudam.
 - Nao repita "Materiais necessarios" em mais de 1 bloco.
 - Linguagem direta, frases curtas — e para o aluno, nao para o professor.
 - Guia do professor deve ser separado e detalhado.
-- Inclua pelo menos 2 elementos em conteudo_visual.
 - Nao retorne texto livre fora do JSON.`;
 }
 
@@ -393,8 +394,8 @@ Use exatamente este contrato:
       "tema": "Tema principal"
     },
     "titulo": "Titulo curto da atividade adaptada",
-    "objetivo_simplificado": "O que voce vai aprender hoje",
-    "instrucoes_simplificadas": ["Instrucao 1", "Instrucao 2", "Instrucao 3"],
+    "objetivo_simplificado": "Frase curta para orientar o aluno",
+    "instrucoes_simplificadas": ["Leia e responda com calma."],
     "conteudo_visual": [
       {
         "id": "cv-1",
@@ -427,11 +428,13 @@ Tipos validos de exercicio: multipla_escolha | ligar_colunas | completar_frase |
 Regras:
 - Preserve o objetivo pedagogico da atividade original.
 - Reduza carga de leitura e aumente clareza visual.
-- TAMANHO: maximo 4 exercicios. 1 ideia por exercicio. Enunciado com no maximo 2 frases.
+- FOLHA DO ALUNO: worksheet escolar A4 tradicional, fundo branco, titulo grande, quadros simples, bordas discretas e poucas cores.
+- Nao misture objetivo longo, metodologia, materiais, BNCC, observacoes do professor ou explicacoes pedagogicas na folha_do_aluno.
+- TAMANHO: 3 a 5 exercicios no maximo. 1 ideia por exercicio. Enunciado com no maximo 2 frases.
 - Se conteudo ficar extenso: resumir, remover redundancia. Nunca truncar com "...".
-- VISUAL: se o enunciado citar "observe", "conte os objetos" ou "veja ao lado", inclua fallback_emoji obrigatorio.
+- VISUAL: use no maximo 2 elementos em conteudo_visual; imagens pequenas e laterais apenas quando ajudam.
 - Nao repita "Materiais necessarios" em mais de 1 bloco.
-- Objetivo: atividade enxuta em 1 a 2 paginas A4.
+- Objetivo: atividade simples em 1 pagina A4 e media no maximo 2 paginas.
 - Nao retorne texto livre.`;
 }
 
@@ -439,14 +442,165 @@ function buildAdaptPremiumImagePrompt(analysis: string, studentCtx: string): str
   const target = studentCtx
     ? `adaptado para o aluno: ${studentCtx.split('\n').slice(0, 3).join('; ')}`
     : 'inclusivo e acessivel para todos';
-  return `Folha de atividade pedagogica visual, formato A4 retrato, pronta para imprimir. ` +
+  return `${A4_WORKSHEET_STYLE_PROMPT}. ` +
     `Versao inclusiva e adaptada de atividade original: ${analysis.slice(0, 400)}. ` +
     `${target}. ` +
-    `Layout: titulo grande e colorido no topo, instrucoes simples em etapas numeradas, ` +
-    `ilustracoes educativas coloridas e alegres, espacos em branco para o aluno escrever ou desenhar, ` +
-    `borda decorativa suave. Fundo branco. Texto legivel, fonte grande. Estilo ludico e educativo infantil. ` +
-    `Sem texto excessivo. Cores vivas mas suaves.`;
+    `Cabeçalho simples com Nome, Data e Turma. Use 3 a 5 questões em quadros separados, com espaços de resposta. ` +
+    `Nao inclua objetivo pedagogico longo, metodologia, materiais ou guia do professor na folha do aluno.`;
 }
+
+// ─── Helpers para modos OpenAI ────────────────────────────────────────────────
+
+type TargetType = 'turma_geral' | 'adaptada';
+
+interface GuiaConteudoResult {
+  titulo_atividade: string;
+  guia_pedagogico:  string;
+  descricao_folha:  string;
+}
+
+function safeParseGuiaJson(raw: string): GuiaConteudoResult {
+  try {
+    const cleaned = cleanJsonString(raw);
+    const parsed = JSON.parse(cleaned);
+    return {
+      titulo_atividade: parsed.titulo_atividade || '',
+      guia_pedagogico:  parsed.guia_pedagogico  || '',
+      descricao_folha:  parsed.descricao_folha  || '',
+    };
+  } catch {
+    return { titulo_atividade: '', guia_pedagogico: '', descricao_folha: raw.slice(0, 600) };
+  }
+}
+
+function buildGuiaEConteudoPrompt(
+  topic:        string,
+  targetType:   TargetType,
+  anoSerie:     string,
+  studentCtx:   string,
+  studentName:  string,
+): string {
+  const tipoStr = targetType === 'turma_geral'
+    ? 'Turma geral (sem adaptações clínicas específicas)'
+    : `Adaptada para aluno específico${studentName ? ': ' + studentName : ''}`;
+  const gradeStr = anoSerie ? `\nAno/Série: ${anoSerie}` : '';
+  const adaptStr = targetType === 'adaptada' && studentCtx
+    ? `\n\nCONTEXTO DO ALUNO:\n${studentCtx}\n\nAdapte a atividade especificamente para este aluno. Não invente dados.`
+    : '';
+
+  return `Você é especialista em educação inclusiva. Crie material pedagógico para:
+Tipo: ${tipoStr}
+Tema: ${topic}${gradeStr}${adaptStr}
+
+Retorne APENAS JSON válido, sem Markdown, sem texto antes ou depois:
+{
+  "titulo_atividade": "Título curto e atraente da atividade",
+  "guia_pedagogico": "# Guia do Professor\\n\\n## Objetivo da Aula\\n[Objetivo claro em uma frase]\\n\\n## Metodologia Adaptada\\n[Como aplicar com adaptações inclusivas]\\n\\n## Tempo Estimado\\n[X minutos]\\n\\n## Materiais Necessários\\n- Material 1\\n- Material 2\\n\\n## Dicas de Mediação\\n- Dica 1\\n- Dica 2\\n\\n## Critérios de Avaliação\\n- Critério observável 1\\n- Critério observável 2\\n\\n## Adaptações Inclusivas\\n- Adaptação 1\\n- Adaptação 2\\n\\n## Observações para o Professor\\n[Orientações adicionais]",
+  "descricao_folha": "Folha do aluno em A4 escolar limpo. CABECALHO: Nome, Data, Turma. TITULO: [titulo grande]. TEXTO CURTO: [uma instrucao breve, se necessario]. QUESTAO 1: [comando curto]; opcoes se houver; espaco para resposta. QUESTAO 2: [comando curto]. QUESTAO 3: [comando curto]. [3 a 5 questoes no maximo, cada uma em quadro proprio; sem guia do professor, sem metodologia, sem materiais]"
+}
+
+Regras:
+- guia_pedagogico: texto markdown completo com todas as 8 seções. Linguagem para o professor.
+- descricao_folha: texto descritivo (max. 220 palavras) que guiara geracao da imagem A4. 3 a 5 questoes no maximo. Portugues correto.
+- A folha do aluno deve ser limpa, branca, com quadros simples, bordas discretas, poucas cores e imagens pequenas apenas quando ajudam.
+- Nao incluir objetivo longo, metodologia, materiais, BNCC, observacoes do professor ou explicacoes pedagogicas na descricao_folha.
+- Nenhum dado inventado sobre o aluno.
+- Retorne apenas JSON, sem nada antes ou depois.`;
+}
+
+function buildGuiaEConteudoAdaptarPrompt(
+  analysisText:     string,
+  targetType:       TargetType,
+  anoSerie:         string,
+  studentCtx:       string,
+  studentName:      string,
+  extraInstructions: string,
+): string {
+  const tipoStr = targetType === 'turma_geral'
+    ? 'Turma geral'
+    : `Adaptada para aluno específico${studentName ? ': ' + studentName : ''}`;
+  const gradeStr = anoSerie ? `\nAno/Série: ${anoSerie}` : '';
+  const adaptStr = targetType === 'adaptada' && studentCtx
+    ? `\n\nCONTEXTO DO ALUNO:\n${studentCtx}\n\nAdapte especificamente para este aluno.`
+    : '';
+  const extraStr = extraInstructions ? `\n\nINSTRUÇÃO EXTRA: ${extraInstructions}` : '';
+
+  return `Você é especialista em educação inclusiva.
+Tipo: ${tipoStr}${gradeStr}${adaptStr}${extraStr}
+
+Com base na análise abaixo de uma atividade original, crie uma versão adaptada.
+
+ANÁLISE DA ATIVIDADE ORIGINAL:
+${analysisText.slice(0, 1200)}
+
+Retorne APENAS JSON válido, sem Markdown, sem texto antes ou depois:
+{
+  "titulo_atividade": "Título curto da atividade adaptada",
+  "guia_pedagogico": "# Guia do Professor\\n\\n## Objetivo da Aula\\n[Objetivo preservado e adaptado]\\n\\n## Metodologia Adaptada\\n[Como aplicar]\\n\\n## Tempo Estimado\\n[X minutos]\\n\\n## Materiais Necessários\\n- Material 1\\n\\n## Dicas de Mediação\\n- Dica 1\\n\\n## Critérios de Avaliação\\n- Critério 1\\n\\n## Adaptações Inclusivas\\n- Adaptação 1\\n\\n## Observações para o Professor\\n[Orientações]",
+  "descricao_folha": "Folha do aluno em A4 escolar limpo. CABECALHO: Nome, Data, Turma. TITULO: [titulo grande]. TEXTO CURTO: [uma instrucao breve, se necessario]. QUESTAO 1: [comando curto adaptado]; opcoes se houver; espaco para resposta. QUESTAO 2: [comando curto]. QUESTAO 3: [comando curto]. [3 a 5 questoes no maximo, cada uma em quadro proprio; sem guia do professor, sem metodologia, sem materiais]"
+}
+
+Regras: descricao_folha max. 220 palavras. Preserve o objetivo pedagogico original. Folha branca, limpa, com quadros simples, poucas cores e imagens pequenas apenas quando ajudam. Nao inclua guia do professor, metodologia, materiais ou explicacoes pedagogicas na folha do aluno. Portugues correto. Apenas JSON.`;
+}
+
+function buildOpenAIActivityImagePrompt(
+  topic:        string,
+  targetType:   TargetType,
+  anoSerie:     string,
+  studentCtx:   string,
+  studentName:  string,
+  descricaoFolha: string,
+  mode:         'visual' | 'premium',
+): string {
+  const tipoAtividade = targetType === 'turma_geral'
+    ? 'Turma geral'
+    : 'Adaptada para aluno específico';
+  const publicoAlvo = targetType === 'turma_geral'
+    ? `Turma do ${anoSerie || 'Ensino Fundamental'}`
+    : studentName || 'Aluno com necessidades educacionais especiais';
+  const adaptacaoLine = targetType === 'adaptada' && studentCtx
+    ? `\nNecessidade de adaptação: ${studentCtx.split('\n').slice(0, 3).join('; ')}`
+    : '';
+  const maxPages = mode === 'premium' ? '2 páginas' : '1 página';
+
+  return `${A4_WORKSHEET_STYLE_PROMPT}.
+
+Contexto:
+Tipo de atividade: ${tipoAtividade}
+Tema: ${topic}
+Ano/série: ${anoSerie || 'Ensino Fundamental'}
+Público-alvo: ${publicoAlvo}${adaptacaoLine}
+
+Conteúdo aprovado:
+${descricaoFolha || topic}
+
+Regras visuais obrigatórias:
+- fundo totalmente branco
+- cabecalho simples com Nome, Data e Turma
+- titulo grande no topo
+- texto curto ou instrucao breve somente se necessario
+- 3 a 5 questoes no maximo, cada questao em quadro proprio
+- bordas finas em azul/cinza ou verde suave
+- usar no maximo 2 cores principais
+- imagens pequenas, educativas e laterais; nao ocupar metade da folha
+- espacos claros para resposta do aluno
+- fonte grande e legivel
+- sem poluicao visual, sem excesso de elementos, sem blocos chamativos
+- sem degrades pesados
+- sem objetivo longo, metodologia, materiais, BNCC, observacoes do professor ou guia pedagogico na folha do aluno
+- sem sobrepor texto e imagens
+- sem cortar palavras nas bordas
+- sem reticencias, texto truncado ou frases incompletas
+- sem inventar texto diferente do conteúdo aprovado
+- sem alterar acentuação ou ortografia
+- sem repetir numeração
+- máximo ${maxPages} de conteúdo
+- todo texto visível em Português do Brasil correto
+
+Estilo: atividade impressa de escola brasileira, limpa, tradicional e premium.`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 const LegacyA4MarkdownRenderer: React.FC<{ content: string; studentName?: string }> = ({ content, studentName }) => {
   const lines = content.split('\n');
@@ -1127,7 +1281,7 @@ const ResultView: React.FC<{
   const hasActivity = !!result.activity;
   const hasText     = !!result.activity || !!result.content;
   const hasAnalysis = !!result.analysisText;
-  const hasGuide    = !!result.activity?.guia_pedagogico;
+  const hasGuide    = !!result.activity?.guia_pedagogico || !!result.guiaText;
   const saved       = !!result.savedId;
 
   type ResultTab = 'folha' | 'guia' | 'analise';
@@ -1222,8 +1376,46 @@ const ResultView: React.FC<{
       )}
 
       {/* Conteúdo: guia do professor */}
-      {activeTab === 'guia' && hasGuide && result.activity && (
-        <A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="guia" />
+      {activeTab === 'guia' && hasGuide && (
+        result.guiaText
+          ? (
+            <div style={{ maxWidth: 900, margin: '0 auto' }}>
+              <div style={{
+                background: '#fff', borderRadius: 14,
+                padding: '40px 44px',
+                boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
+                fontFamily: "'Segoe UI', Arial, sans-serif",
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28, paddingBottom: 18, borderBottom: `2px solid ${C.border}` }}>
+                  <div style={{ width: 42, height: 42, borderRadius: 11, background: C.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <GraduationCap size={20} color={C.petrol} />
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontSize: 10, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.08em' }}>IncluiLAB · Atividade Visual</p>
+                    <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: C.dark }}>Guia do Professor</h2>
+                  </div>
+                </div>
+                <div style={{ fontSize: 14, lineHeight: 1.75, color: '#2a2a2a' }}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                    h1: ({ children }: any) => <h1 style={{ fontSize: 20, fontWeight: 800, color: C.dark, margin: '24px 0 12px', borderBottom: `2px solid ${C.border}`, paddingBottom: 8 }}>{children}</h1>,
+                    h2: ({ children }: any) => <h2 style={{ fontSize: 16, fontWeight: 700, color: C.petrol, margin: '22px 0 10px', display: 'flex', alignItems: 'center', gap: 8 }}>{children}</h2>,
+                    h3: ({ children }: any) => <h3 style={{ fontSize: 14, fontWeight: 700, color: C.dark, margin: '16px 0 8px' }}>{children}</h3>,
+                    p: ({ children }: any) => <p style={{ margin: '0 0 12px', lineHeight: 1.75 }}>{children}</p>,
+                    ul: ({ children }: any) => <ul style={{ margin: '8px 0 16px', paddingLeft: 22, display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</ul>,
+                    ol: ({ children }: any) => <ol style={{ margin: '8px 0 16px', paddingLeft: 22, display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</ol>,
+                    li: ({ children }: any) => <li style={{ lineHeight: 1.65, color: '#2a2a2a' }}>{children}</li>,
+                    strong: ({ children }: any) => <strong style={{ fontWeight: 700, color: C.dark }}>{children}</strong>,
+                    hr: () => <hr style={{ border: 'none', borderTop: `1px solid ${C.border}`, margin: '20px 0' }} />,
+                  }}>
+                    {result.guiaText}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            </div>
+          )
+          : result.activity
+            ? <A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="guia" />
+            : null
       )}
 
       {/* Conteúdo: análise da adaptação */}
@@ -1316,6 +1508,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   const [inputText,   setInputText]   = useState('');
   const [pendingFile, setPendingFile] = useState<AttachedFile | null>(null);
   const [genMode,     setGenMode]     = useState<GenerationMode>('a4_economica');
+
+  // ── Tipo de público ───────────────────────────────────────────────────────
+  const [targetType, setTargetType] = useState<TargetType>('turma_geral');
+  const [anoSerie,   setAnoSerie]   = useState('');
 
   // ── Aluno ─────────────────────────────────────────────────────────────────
   const [studentId,   setStudentId]   = useState('');
@@ -1435,53 +1631,69 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
   }
 
-  // ── 2. A4 Visual (até 15 cr) — JSON + até 4 imagens IA ──────────────────
+  // ── 2. A4 Visual (15 cr) — Guia Pedagógico (texto) + Folha do Aluno (imagem OpenAI) ─
   async function generateA4Visual(topic: string) {
-    const baseCost = INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_BASE;
-    const maxCost  = INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX;
-    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= baseCost : await AIService.checkCredits(user, baseCost);
+    const cost = INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
     try {
-      const raw = await AIService.generateIncluiLabActivitySchema(buildActivitySchemaPrompt(topic, studentCtx), user);
-      const activity = validateActivitySchema(raw);
-      await safeDeductCredits(user, 'INCLUILAB_A4_VISUAL_BASE', baseCost);
-      let totalCost: number = baseCost;
-      // Tenta gerar até 4 imagens IA; falhas usam emoji fallback sem cobrança
-      const canAffordImages = creditsAvailable === undefined || (creditsAvailable - baseCost) >= INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_PER_IMAGE;
-      if (canAffordImages) {
-        const { updatedAssets, imagesGenerated } = await generateSmallImagesForAssets(
-          activity.visualAssets, user, INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_PER_IMAGE, 4,
-        );
-        activity.visualAssets = updatedAssets;
-        totalCost = Math.min(baseCost + imagesGenerated * INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_PER_IMAGE, maxCost);
-      }
-      setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), creditsUsed: totalCost, mode: 'a4_visual' });
+      // Passo 1: Gera guia pedagógico + descrição do conteúdo via Gemini
+      const raw = await AIService.generateIncluiLabActivitySchema(
+        buildGuiaEConteudoPrompt(topic, targetType, anoSerie, studentCtx, studentName), user,
+      );
+      const parsed = safeParseGuiaJson(raw);
+
+      // Passo 2: Gera imagem A4 via OpenAI
+      const { OpenAIActivityImageService } = await import('../services/openaiActivityImageService');
+      const imgResult = await OpenAIActivityImageService.generate(
+        buildOpenAIActivityImagePrompt(topic, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'visual'),
+        'visual',
+      );
+
+      // Só debita após ambos os passos com sucesso
+      await safeDeductCredits(user, 'INCLUILAB_A4_VISUAL', cost);
+      setResult({
+        id: uid(),
+        title: parsed.titulo_atividade || topic.slice(0, 60),
+        imageUrl: imgResult.base64DataUrl,
+        guiaText: parsed.guia_pedagogico,
+        creditsUsed: cost,
+        mode: 'a4_visual',
+      });
       setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+    } catch (err: any) { setErrorMsg(friendlyAIError(err)); setLabState('idle'); }
   }
 
-  // ── 3. A4 Premium Ilustrada (50 cr) — imagem estilo Canva, fallback texto ─
+  // ── 3. A4 Premium (50 cr) — Guia Pedagógico (texto) + Folha A4 premium (OpenAI) ─
   async function generateA4Premium(topic: string) {
     const cost = INCLUILAB_ACTIVITY_COSTS.A4_PREMIUM;
     const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
     try {
-      const { ImageGenerationService } = await import('../services/imageGenerationService');
-      const tenantId = (user as any).tenant_id ?? user.id;
-      try {
-        const imgResult = await ImageGenerationService.generate(buildImageActivityPrompt(topic, studentCtx), { tenantId, userId: user.id });
-        await safeDeductCredits(user, 'INCLUILAB_A4_PREMIUM', cost);
-        setResult({ id: uid(), title: `Atividade Premium: ${topic}`, imageUrl: imgResult.base64DataUrl, creditsUsed: cost, mode: 'a4_premium' });
-      } catch {
-        // Fallback se imagem falhar — cobra apenas texto
-        const textCost = INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA;
-        const raw = await AIService.generateIncluiLabActivitySchema(buildActivitySchemaPrompt(topic, studentCtx), user);
-        const activity = validateActivitySchema(raw);
-        await safeDeductCredits(user, 'INCLUILAB_A4_ECONOMICA', textCost);
-        setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), creditsUsed: textCost, mode: 'a4_economica' });
-      }
+      // Passo 1: Gera guia pedagógico + descrição do conteúdo via Gemini
+      const raw = await AIService.generateIncluiLabActivitySchema(
+        buildGuiaEConteudoPrompt(topic, targetType, anoSerie, studentCtx, studentName), user,
+      );
+      const parsed = safeParseGuiaJson(raw);
+
+      // Passo 2: Gera imagem A4 premium via OpenAI (retrato, qualidade HD)
+      const { OpenAIActivityImageService } = await import('../services/openaiActivityImageService');
+      const imgResult = await OpenAIActivityImageService.generate(
+        buildOpenAIActivityImagePrompt(topic, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'premium'),
+        'premium',
+      );
+
+      await safeDeductCredits(user, 'INCLUILAB_A4_PREMIUM', cost);
+      setResult({
+        id: uid(),
+        title: parsed.titulo_atividade || topic.slice(0, 60),
+        imageUrl: imgResult.base64DataUrl,
+        guiaText: parsed.guia_pedagogico,
+        creditsUsed: cost,
+        mode: 'a4_premium',
+      });
       setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+    } catch (err: any) { setErrorMsg(friendlyAIError(err)); setLabState('idle'); }
   }
 
   // ── 4. Adaptar — Econômico (5 cr) — analisa + JSON, sem imagem IA ────────
@@ -1499,54 +1711,84 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
   }
 
-  // ── 5. Adaptar — Visual (até 20 cr) — analisa + JSON + até 4 imagens IA ──
+  // ── 5. Adaptar — Visual (20 cr) — analisa + Guia (texto) + Folha A4 (OpenAI) ─
   async function generateAdaptarVisual(file: AttachedFile, extraInstructions: string) {
-    const baseCost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_BASE;
-    const maxCost  = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX;
-    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= baseCost : await AIService.checkCredits(user, baseCost);
+    const cost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
     try {
-      const analysisText = await AIService.generateFromPromptWithImage(buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user);
-      const raw = await AIService.generateIncluiLabActivitySchema(buildAdaptActivitySchemaPrompt(analysisText, studentCtx, extraInstructions), user);
-      const activity = validateActivitySchema(raw);
-      await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_VISUAL_BASE', baseCost);
-      let totalCost: number = baseCost;
-      const canAffordImages = creditsAvailable === undefined || (creditsAvailable - baseCost) >= INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_PER_IMAGE;
-      if (canAffordImages) {
-        const { updatedAssets, imagesGenerated } = await generateSmallImagesForAssets(
-          activity.visualAssets, user, INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_PER_IMAGE, 4,
-        );
-        activity.visualAssets = updatedAssets;
-        totalCost = Math.min(baseCost + imagesGenerated * INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_PER_IMAGE, maxCost);
-      }
-      setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), analysisText, creditsUsed: totalCost, mode: 'adaptar_visual' });
+      // Passo 1: Análise da atividade original via Gemini (visão)
+      const analysisText = await AIService.generateFromPromptWithImage(
+        buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user,
+      );
+
+      // Passo 2: Gera guia pedagógico + descrição do conteúdo adaptado via Gemini
+      const rawJson = await AIService.generateIncluiLabActivitySchema(
+        buildGuiaEConteudoAdaptarPrompt(analysisText, targetType, anoSerie, studentCtx, studentName, extraInstructions), user,
+      );
+      const parsed = safeParseGuiaJson(rawJson);
+
+      // Passo 3: Gera imagem A4 via OpenAI
+      const { OpenAIActivityImageService } = await import('../services/openaiActivityImageService');
+      const imgResult = await OpenAIActivityImageService.generate(
+        buildOpenAIActivityImagePrompt(
+          parsed.titulo_atividade || file.name, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'visual',
+        ),
+        'visual',
+      );
+
+      await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_VISUAL', cost);
+      setResult({
+        id: uid(),
+        title: parsed.titulo_atividade || `Atividade Adaptada: ${file.name}`,
+        imageUrl: imgResult.base64DataUrl,
+        guiaText: parsed.guia_pedagogico,
+        analysisText,
+        creditsUsed: cost,
+        mode: 'adaptar_visual',
+      });
       setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+    } catch (err: any) { setErrorMsg(friendlyAIError(err)); setLabState('idle'); }
   }
 
-  // ── 6. Adaptar — Premium (50 cr) — analisa + worksheet visual completo ────
+  // ── 6. Adaptar — Premium (50 cr) — analisa + Guia (texto) + Folha A4 premium (OpenAI) ─
   async function generateAdaptarPremium(file: AttachedFile, extraInstructions: string) {
     const cost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_PREMIUM;
     const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
     try {
-      const analysisText = await AIService.generateFromPromptWithImage(buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user);
-      const { ImageGenerationService } = await import('../services/imageGenerationService');
-      const tenantId = (user as any).tenant_id ?? user.id;
-      try {
-        const imgResult = await ImageGenerationService.generate(buildAdaptPremiumImagePrompt(analysisText, studentCtx), { tenantId, userId: user.id });
-        await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_PREMIUM', cost);
-        setResult({ id: uid(), title: `Atividade Adaptada Premium: ${file.name}`, imageUrl: imgResult.base64DataUrl, analysisText, creditsUsed: cost, mode: 'adaptar_premium' });
-      } catch {
-        // Fallback se imagem premium falhar — cobra apenas custo econômico
-        const textCost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO;
-        const raw = await AIService.generateIncluiLabActivitySchema(buildAdaptActivitySchemaPrompt(analysisText, studentCtx, extraInstructions), user);
-        const activity = validateActivitySchema(raw);
-        await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_ECONOMICO', textCost);
-        setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), analysisText, creditsUsed: textCost, mode: 'adaptar_economico' });
-      }
+      // Passo 1: Análise da atividade original
+      const analysisText = await AIService.generateFromPromptWithImage(
+        buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user,
+      );
+
+      // Passo 2: Gera guia + descrição do conteúdo
+      const rawJson = await AIService.generateIncluiLabActivitySchema(
+        buildGuiaEConteudoAdaptarPrompt(analysisText, targetType, anoSerie, studentCtx, studentName, extraInstructions), user,
+      );
+      const parsed = safeParseGuiaJson(rawJson);
+
+      // Passo 3: Gera imagem A4 premium via OpenAI
+      const { OpenAIActivityImageService } = await import('../services/openaiActivityImageService');
+      const imgResult = await OpenAIActivityImageService.generate(
+        buildOpenAIActivityImagePrompt(
+          parsed.titulo_atividade || file.name, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'premium',
+        ),
+        'premium',
+      );
+
+      await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_PREMIUM', cost);
+      setResult({
+        id: uid(),
+        title: parsed.titulo_atividade || `Atividade Adaptada Premium: ${file.name}`,
+        imageUrl: imgResult.base64DataUrl,
+        guiaText: parsed.guia_pedagogico,
+        analysisText,
+        creditsUsed: cost,
+        mode: 'adaptar_premium',
+      });
       setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+    } catch (err: any) { setErrorMsg(friendlyAIError(err)); setLabState('idle'); }
   }
 
   // ── Salvar resultado ──────────────────────────────────────────────────────
@@ -1561,7 +1803,8 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         title:       result.title,
         content:     result.content || `[Imagem gerada — ${new Date().toLocaleString('pt-BR')}]`,
         imageUrl:    result.imageUrl,
-        guidance:    result.analysisText,
+        // guiaText tem prioridade; analysisText como fallback para modos texto
+        guidance:    result.guiaText || result.analysisText,
         isAdapted:   result.mode.startsWith('adaptar_'),
         creditsUsed: result.creditsUsed,
         tags:        studentName ? [studentName] : [],
@@ -1592,6 +1835,8 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       ? createLegacyActivity(act.title || 'Atividade', act.content)
       : null;
     const activity = storedActivity || legacyActivity || undefined;
+    // Se a atividade tem imagem e não tem JSON parseável → guidance é o guia pedagógico (Visual/Premium)
+    const isImageMode = !!act.image_url && !storedActivity;
     setLibrarySelId(act.id);
     setResult({
       id:          act.id,
@@ -1599,7 +1844,8 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       activity,
       content:     act.content,
       imageUrl:    act.image_url,
-      analysisText: act.guidance || undefined,
+      guiaText:    isImageMode ? (act.guidance || undefined) : undefined,
+      analysisText: !isImageMode ? (act.guidance || undefined) : undefined,
       creditsUsed: act.credits_used ?? 0,
       mode:        act.is_adapted ? 'adaptar_economico' : 'a4_economica',
       savedId:     act.id,
@@ -1677,8 +1923,46 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
 
         <div style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }} />
 
+        {/* Toggle: Turma geral / Para aluno */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: C.bg, borderRadius: 22, padding: '3px', border: `1.5px solid ${C.border}`, flexShrink: 0 }}>
+          {(['turma_geral', 'adaptada'] as TargetType[]).map(t => (
+            <button
+              key={t}
+              onClick={() => {
+                setTargetType(t);
+                if (t === 'turma_geral') { setStudentId(''); setStudentCtx(''); setStudentName(''); }
+              }}
+              style={{
+                padding: '4px 12px', borderRadius: 18, border: 'none', cursor: 'pointer',
+                background: targetType === t ? C.petrol : 'transparent',
+                color: targetType === t ? '#fff' : C.sec,
+                fontWeight: 600, fontSize: 11, transition: 'all 0.15s', outline: 'none',
+              }}
+            >
+              {t === 'turma_geral' ? 'Turma geral' : 'Para aluno'}
+            </button>
+          ))}
+        </div>
+
+        {/* Seletor de aluno ou campo de Ano/Série */}
         <div style={{ flex: 1, minWidth: 180 }}>
-          <StudentSelector students={students} selectedId={studentId} onChange={handleStudentChange} />
+          {targetType === 'adaptada'
+            ? <StudentSelector students={students} selectedId={studentId} onChange={handleStudentChange} />
+            : (
+              <input
+                type="text"
+                value={anoSerie}
+                onChange={e => setAnoSerie(e.target.value)}
+                placeholder="Ano/Série (ex: 3º ano EF)"
+                style={{
+                  padding: '6px 14px', borderRadius: 20, fontSize: 13,
+                  border: `1.5px solid ${anoSerie ? C.petrol : C.border}`,
+                  background: anoSerie ? C.light : C.surface,
+                  color: C.dark, outline: 'none', width: '100%', boxSizing: 'border-box',
+                }}
+              />
+            )
+          }
         </div>
 
         {/* Nova atividade — aparece quando há resultado */}
