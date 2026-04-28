@@ -5,6 +5,7 @@ import {
   Clock, History, FileType, File, CheckCircle, FileOutput, Lock, AlertTriangle, FileInput, Info, Upload, Eye, Download,
   X, AlertCircle, ArrowUp, ArrowDown, GripVertical, Settings, Mic, Library, Star
 } from 'lucide-react';
+import { DocButton, DocIconButton, DocumentToolbar } from './ui/DocButton';
 import { DocumentType, DocumentData, DocSection, Student, User as UserType, Protocol, PlanTier, getPlanLimits, ProtocolStatus, DocField, UserDocumentTemplate, UserDocTemplateType } from '../types';
 import { UserTemplateService } from '../services/userTemplateService';
 import { DocumentTemplateEditor } from './DocumentTemplateEditor';
@@ -1851,69 +1852,75 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
         )}
 
         {/* Top Bar with Buttons */}
-        <div className="w-full bg-white border-b p-4 flex flex-col md:flex-row justify-between items-center sticky top-0 z-50 print:hidden gap-4 shadow-sm">
-            <div className="flex items-center gap-3 w-full md:w-auto">
-                <div>
-                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">{type}</p>
-                    <StudentSwitcher compact />
-                </div>
+        <DocumentToolbar
+          left={
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">{type}</p>
+              <StudentSwitcher compact />
             </div>
-            
-            <div className="flex flex-wrap gap-2 justify-end w-full md:w-auto">
-                
-                <button onClick={handlePrint} className="px-3 py-2 bg-gray-100 rounded hover:bg-gray-200 flex gap-2 text-sm font-medium" title="Imprimir documento atual"><Printer size={16}/> <span className="hidden sm:inline">Imprimir</span></button>
-                <button
-                  onClick={handleGeneratePDF}
-                  disabled={generatingPDF}
-                  className="px-3 py-2 border border-brand-200 text-brand-700 rounded hover:bg-brand-50 flex gap-2 text-sm font-medium disabled:opacity-60"
-                  title="Gerar arquivo PDF auditável"
-                >
-                  {generatingPDF
-                    ? <><span className="w-4 h-4 border-2 border-brand-300 border-t-brand-700 rounded-full animate-spin" /> <span className="hidden sm:inline">Gerando…</span></>
-                    : <><Download size={16}/> <span className="hidden sm:inline">Gerar PDF</span></>}
-                </button>
-                
-                {isEditing && (
-                    <>
-                        <button
-                            onClick={() => setIsReordering(!isReordering)}
-                            className={`px-3 py-2 border rounded flex gap-2 text-sm font-medium transition-colors ${isReordering ? 'bg-yellow-100 border-yellow-300 text-yellow-800' : 'hover:bg-gray-50'}`}
-                            title="Reordenar campos e seções"
-                        >
-                            {isReordering ? <CheckCircle size={16}/> : <Settings size={16}/>}
-                            <span className="hidden sm:inline">{isReordering ? 'Concluir' : 'Organizar'}</span>
-                        </button>
-                        <button onClick={handleAddSection} className="px-3 py-2 border border-dashed border-gray-400 rounded hover:bg-gray-50 flex gap-2 text-sm font-medium" title="Criar nova seção/bloco">
-                            <Plus size={16}/> <span className="hidden sm:inline">Add Seção</span>
-                        </button>
-                        {/* Botão "Salvar como meu modelo" — apenas PEI e Estudo de Caso */}
-                        {(type === DocumentType.PEI || type === DocumentType.ESTUDO_CASO) && (
-                            <button
-                                onClick={() => setShowTemplateEditor(true)}
-                                className="px-3 py-2 border rounded flex gap-2 text-sm font-medium hover:bg-amber-50"
-                                style={{ borderColor: '#C69214', color: '#92650a', background: '#fffbeb' }}
-                                title="Editar estrutura e salvar como meu modelo reutilizável"
-                            >
-                                <Star size={15} style={{ color: '#C69214' }} />
-                                <span className="hidden sm:inline">Salvar como meu modelo</span>
-                            </button>
-                        )}
-                    </>
-                )}
+          }
+          right={<>
+            <DocButton variant="outline" icon={<Printer size={15}/>} onClick={handlePrint} title="Imprimir documento atual">
+              <span className="hidden sm:inline">Imprimir</span>
+            </DocButton>
 
-                {isEditing ? (
-                    <>
-                        <button onClick={() => handleSaveWrapper('DRAFT')} className="px-3 py-2 border rounded hover:bg-gray-50 text-sm font-medium" title="Salvar como rascunho"><Save size={16}/> <span className="hidden sm:inline">Salvar</span></button>
-                        <button onClick={() => handleSaveWrapper('FINAL')} className="px-4 py-2 bg-green-600 text-white rounded font-bold hover:bg-green-700 flex gap-2 text-sm" title="Finalizar documento (gera código auditável)"><CheckCircle size={16}/> Concluir</button>
-                    </>
-                ) : (
-                    <button onClick={() => setIsEditing(true)} className="px-4 py-2 bg-brand-600 text-white rounded font-bold flex gap-2 text-sm hover:bg-brand-700" title="Editar documento"><Edit3 size={16}/> Editar</button>
+            <DocButton
+              variant="outline"
+              icon={<Download size={15}/>}
+              loading={generatingPDF}
+              onClick={handleGeneratePDF}
+              title="Gerar arquivo PDF auditável"
+            >
+              <span className="hidden sm:inline">{generatingPDF ? 'Gerando…' : 'Gerar PDF'}</span>
+            </DocButton>
+
+            {isEditing && (
+              <>
+                <DocButton
+                  variant={isReordering ? 'primary' : 'secondary'}
+                  icon={isReordering ? <CheckCircle size={15}/> : <Settings size={15}/>}
+                  onClick={() => setIsReordering(!isReordering)}
+                  title="Reordenar campos e seções"
+                >
+                  <span className="hidden sm:inline">{isReordering ? 'Concluir' : 'Organizar'}</span>
+                </DocButton>
+
+                <DocButton variant="ghost" icon={<Plus size={15}/>} onClick={handleAddSection} title="Criar nova seção/bloco">
+                  <span className="hidden sm:inline">Add Seção</span>
+                </DocButton>
+
+                {(type === DocumentType.PEI || type === DocumentType.ESTUDO_CASO) && (
+                  <DocButton
+                    variant="amber"
+                    icon={<Star size={14}/>}
+                    onClick={() => setShowTemplateEditor(true)}
+                    title="Editar estrutura e salvar como meu modelo reutilizável"
+                  >
+                    <span className="hidden sm:inline">Salvar como modelo</span>
+                  </DocButton>
                 )}
-                
-                <button onClick={handleDeleteWrapper} className="px-3 py-2 text-red-500 hover:bg-red-50 rounded" title="Excluir documento"><Trash2 size={16}/></button>
-                <button onClick={onCancel} className="px-3 py-2 text-gray-500 hover:text-gray-800 text-sm">Fechar</button>
-            </div>
-        </div>
+              </>
+            )}
+
+            {isEditing ? (
+              <>
+                <DocButton variant="secondary" icon={<Save size={15}/>} onClick={() => handleSaveWrapper('DRAFT')} title="Salvar como rascunho">
+                  <span className="hidden sm:inline">Salvar</span>
+                </DocButton>
+                <DocButton variant="primary" icon={<CheckCircle size={15}/>} onClick={() => handleSaveWrapper('FINAL')} title="Finalizar documento (gera código auditável)">
+                  Concluir
+                </DocButton>
+              </>
+            ) : (
+              <DocButton variant="primary" icon={<Edit3 size={15}/>} onClick={() => setIsEditing(true)} title="Editar documento">
+                Editar
+              </DocButton>
+            )}
+
+            <DocIconButton variant="destructive" icon={<Trash2 size={15}/>} label="Excluir documento" onClick={handleDeleteWrapper} />
+            <DocButton variant="ghost" onClick={onCancel}>Fechar</DocButton>
+          </>}
+        />
 
         {/* ── MODAL: Nova Seção Premium ── */}
         {showSectionModal && (() => {

@@ -3,7 +3,7 @@ import {
   ShieldCheck, FileText, ArrowRight,
   Lock, Phone,
   Zap, Star, ChevronDown, ChevronUp,
-  Clock, Users,
+  Clock, Users, CreditCard,
 } from 'lucide-react';
 import { SiteConfig } from '../types';
 import { AdminService } from '../services/adminService';
@@ -11,7 +11,6 @@ import { LandingService } from '../services/landingService';
 import { PricingSection } from '../components/PricingSection';
 import Hero from '../components/Hero';
 import { BrandLogo } from '../components/BrandLogo';
-import { BeforeAfterSlider } from '../components/BeforeAfterSlider';
 
 interface Props {
   onLogin: () => void;
@@ -61,25 +60,19 @@ const ActivityMockup: React.FC = () => (
         <feDropShadow dx="0" dy="10" stdDeviation="16" floodColor="#0F172A" floodOpacity="0.13"/>
       </filter>
     </defs>
-    {/* Paper */}
     <rect x="10" y="6" width="440" height="568" rx="14" fill="white" filter="url(#am-shadow)"/>
-    {/* Header bar */}
     <rect x="10" y="6" width="440" height="52" rx="14" fill="#1F4E5F"/>
     <rect x="10" y="32" width="440" height="26" fill="#1F4E5F"/>
     <text x="30" y="39" fill="white" fontSize="14" fontWeight="700" fontFamily="system-ui">IncluiAI</text>
-    <text x="432" y="39" fill="rgba(255,255,255,0.55)" fontSize="10" fontFamily="system-ui" textAnchor="end">Atividade Adaptada · PDF</text>
-    {/* Student chip */}
+    <text x="432" y="39" fill="rgba(255,255,255,0.55)" fontSize="10" fontFamily="system-ui" textAnchor="end">Protocolo de Aprendizagem · PDF</text>
     <rect x="30" y="72" width="380" height="40" rx="9" fill="#F8FAFC" stroke="#E2E8F0" strokeWidth="1"/>
     <text x="46" y="88" fill="#94A3B8" fontSize="9" fontWeight="700" fontFamily="system-ui" letterSpacing="0.08em">ALUNO</text>
     <text x="46" y="103" fill="#0F172A" fontSize="13" fontWeight="600" fontFamily="system-ui">Lucas M. · 3º ano · TEA nível 1</text>
-    {/* Title */}
     <text x="30" y="136" fill="#0F172A" fontSize="16" fontWeight="800" fontFamily="system-ui">Sequência Numérica com Pictogramas</text>
     <text x="30" y="153" fill="#64748B" fontSize="11" fontFamily="system-ui">Objetivo: Identificar sequências 1–10 · BNCC EF01MA01</text>
     <line x1="30" y1="166" x2="430" y2="166" stroke="#E2E8F0" strokeWidth="1"/>
-    {/* Exercise 1 */}
     <rect x="30" y="178" width="14" height="14" rx="3" fill="#EFF6FF" stroke="#2563EB" strokeWidth="1.5"/>
     <text x="52" y="190" fill="#1E293B" fontSize="12" fontFamily="system-ui">1. Complete a sequência:  1,  2,  ___,  4,  ___</text>
-    {/* Number row */}
     {[1,2,3,4,5].map((n, i) => (
       <g key={n}>
         <rect x={30 + i * 78} y={208} width="64" height="52" rx="10"
@@ -91,32 +84,25 @@ const ActivityMockup: React.FC = () => (
           fontSize="22" fontWeight="800" fontFamily="system-ui">{n}</text>
       </g>
     ))}
-    {/* Exercise 2 */}
     <rect x="30" y="276" width="14" height="14" rx="3" fill="#EFF6FF" stroke="#2563EB" strokeWidth="1.5"/>
     <text x="52" y="288" fill="#1E293B" fontSize="12" fontFamily="system-ui">2. Pinte os números pares de azul</text>
-    {/* Color swatches */}
     {[2,4,6,8].map((n, i) => (
       <g key={n}>
         <rect x={30 + i * 90} y={300} width="72" height="44" rx="9" fill="#EFF6FF" stroke="#BFDBFE" strokeWidth="1.5"/>
         <text x={30 + i * 90 + 36} y={328} textAnchor="middle" fill="#2563EB" fontSize="20" fontWeight="800" fontFamily="system-ui">{n}</text>
       </g>
     ))}
-    {/* Exercise 3 */}
     <rect x="30" y="358" width="14" height="14" rx="3" fill="#EFF6FF" stroke="#2563EB" strokeWidth="1.5"/>
     <text x="52" y="370" fill="#1E293B" fontSize="12" fontFamily="system-ui">3. Escreva o número que vem depois:</text>
     <rect x="30" y="380" width="380" height="32" rx="8" fill="#F8FAFC" stroke="#E2E8F0" strokeWidth="1"/>
     <text x="46" y="401" fill="#94A3B8" fontSize="12" fontFamily="system-ui">3 → ___   ·   7 → ___   ·   9 → ___</text>
-    {/* Guidance */}
     <rect x="30" y="428" width="380" height="60" rx="10" fill="#FFFBEB" stroke="#FDE68A" strokeWidth="1.5"/>
-    <text x="46" y="446" fill="#92400E" fontSize="9" fontWeight="700" fontFamily="system-ui" letterSpacing="0.08em">ORIENTAÇÕES PEDAGÓGICAS</text>
+    <text x="46" y="446" fill="#92400E" fontSize="9" fontWeight="700" fontFamily="system-ui" letterSpacing="0.08em">GUIA DO PROFESSOR · ORIENTAÇÕES PEDAGÓGICAS</text>
     <text x="46" y="462" fill="#78350F" fontSize="11" fontFamily="system-ui">• Use cartões visuais de apoio para facilitar a compreensão</text>
     <text x="46" y="479" fill="#78350F" fontSize="11" fontFamily="system-ui">• Permita pausas entre exercícios conforme necessário</text>
-    {/* Footer */}
     <line x1="30" y1="500" x2="430" y2="500" stroke="#E2E8F0" strokeWidth="1"/>
-    {/* Download button */}
     <rect x="280" y="514" width="150" height="38" rx="10" fill="#2563EB"/>
     <text x="355" y="537" textAnchor="middle" fill="white" fontSize="12" fontWeight="700" fontFamily="system-ui">⬇  Baixar PDF</text>
-    {/* SHA badge */}
     <rect x="30" y="516" width="188" height="34" rx="8" fill="#F0FDF4" stroke="#BBF7D0" strokeWidth="1"/>
     <text x="46" y="531" fill="#16A34A" fontSize="10" fontWeight="700" fontFamily="system-ui">✓ Assinado digitalmente</text>
     <text x="46" y="544" fill="#94A3B8" fontSize="9" fontFamily="system-ui">SHA-256 · LGPD conforme</text>
@@ -204,19 +190,29 @@ const CSS = `
   }
   .nav-link-lp:hover { color: #2563EB; }
 
-  .step-card {
-    background: white; border-radius: 20px; padding: 36px 28px;
-    border: 1.5px solid #E2E8F0;
-    transition: transform 0.25s cubic-bezier(.22,1,.36,1), box-shadow 0.25s;
+  .pain-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px;
+    padding: 30px 26px;
+    transition: background 0.2s, border-color 0.2s;
   }
-  .step-card:hover { transform: translateY(-5px); box-shadow: 0 20px 56px rgba(37,99,235,0.11); border-color: #BFDBFE; }
+  .pain-card:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.14); }
 
-  .diff-card {
+  .product-card {
+    background: white; border-radius: 22px; padding: 36px 32px;
+    border: 2px solid #E2E8F0;
+    transition: transform 0.25s cubic-bezier(.22,1,.36,1), box-shadow 0.25s, border-color 0.25s;
+  }
+  .product-card.featured { border-color: #2563EB; box-shadow: 0 8px 40px rgba(37,99,235,0.12); }
+  .product-card:hover { transform: translateY(-5px); box-shadow: 0 20px 56px rgba(0,0,0,0.10); }
+
+  .intel-pillar {
     background: white; border-radius: 18px; padding: 30px 26px;
     border: 1.5px solid #E2E8F0;
     transition: transform 0.22s, box-shadow 0.22s;
   }
-  .diff-card:hover { transform: translateY(-4px); box-shadow: 0 14px 44px rgba(0,0,0,0.08); }
+  .intel-pillar:hover { transform: translateY(-4px); box-shadow: 0 14px 44px rgba(0,0,0,0.08); }
 
   .testimonial-card {
     background: #F8FAFC; border: 1.5px solid #E2E8F0;
@@ -225,13 +221,18 @@ const CSS = `
   }
   .testimonial-card:hover { transform: translateY(-3px); box-shadow: 0 10px 32px rgba(0,0,0,0.07); }
 
+  .credits-card {
+    background: white; border-radius: 16px; padding: 28px 24px;
+    border: 1.5px solid #E2E8F0;
+    text-align: center;
+  }
+
   .mockup-float { animation: lp-float 5s ease-in-out infinite; }
 
   /* ── Responsive ── */
   @media (max-width: 960px) {
     .lp-nav { display: none !important; }
     .two-col { grid-template-columns: 1fr !important; gap: 48px !important; }
-    .ba-grid { grid-template-columns: 1fr !important; }
     .three-col { grid-template-columns: 1fr 1fr !important; }
     .two-col-diffs { grid-template-columns: 1fr !important; }
     .three-col-proof { grid-template-columns: 1fr 1fr !important; }
@@ -241,16 +242,33 @@ const CSS = `
     .three-col-proof { grid-template-columns: 1fr !important; }
     .cta-btns { flex-direction: column !important; align-items: stretch !important; }
     .cta-btns button, .cta-btns a { width: 100% !important; justify-content: center !important; }
+    .credits-grid { grid-template-columns: 1fr !important; }
+    .credits-table { display: none !important; }
   }
 `;
 
 // ─── FAQ defaults ─────────────────────────────────────────────────────────────
 const FAQ_DEFAULTS = [
-  { q: 'Para quem é o IncluiAI?', a: 'Para professores de AEE, psicopedagogos, fonoaudiólogos e demais profissionais de educação inclusiva que precisam de documentos rápidos, padronizados e auditáveis.' },
-  { q: 'Os dados dos alunos são seguros?', a: 'Sim. Armazenamos em conformidade com a LGPD, com criptografia e auditoria SHA-256 em cada documento gerado.' },
+  { q: 'Para quem é o IncluiAI?', a: 'Para professores de AEE, psicopedagogos, fonoaudiólogos e demais profissionais de educação inclusiva que precisam de documentos padronizados, profissionais e auditáveis — sem passar horas na burocracia.' },
+  { q: 'O que é o Protocolo de Aprendizagem?', a: 'É o nosso documento mais completo: inclui a atividade adaptada (folha do aluno), o guia de mediação (orientações individualizadas para o professor) e a adaptação individual (baseada no diagnóstico e perfil cognitivo do aluno). Tudo em um PDF profissional, pronto para imprimir.' },
+  { q: 'O que são créditos e como funcionam?', a: 'Créditos são a unidade de uso da IA. Cada documento ou atividade gerada consome uma quantidade de créditos (entre 10 e 50, dependendo do tipo). Atividades com imagem consomem mais. Cada plano inclui uma cota mensal — e você pode comprar pacotes avulsos a qualquer momento.' },
+  { q: 'Os dados dos alunos são seguros?', a: 'Sim. Armazenamos em conformidade com a LGPD, com criptografia e auditoria SHA-256 em cada documento gerado. Você pode validar qualquer documento via o código de autenticação no próprio PDF.' },
   { q: 'Posso cancelar a qualquer momento?', a: 'No plano mensal, sim — sem multas ou taxas de cancelamento. O plano anual tem carência de 12 meses.' },
-  { q: 'Qual a diferença entre os planos?', a: 'O FREE permite até 5 alunos. O PRO (R$ 59/mês no anual) expande para 30 alunos. O PREMIUM (R$ 99/mês no anual) é para escolas e clínicas — alunos ilimitados, fichas avançadas, análise de laudo com IA e relatórios para INSS.' },
+  { q: 'Qual a diferença entre os planos?', a: 'O FREE permite até 5 alunos com 60 créditos/mês — ideal para começar. O PRO (R$79/mês) expande para 30 alunos com 500 créditos/mês. O PREMIUM (R$99/mês) é para escolas e clínicas — alunos ilimitados, fichas avançadas, análise de laudo com IA e relatórios evolutivos completos.' },
 ];
+
+// ─── Pill label helper ────────────────────────────────────────────────────────
+const Pill: React.FC<{ label: string; color?: string; bg?: string }> = ({
+  label, color = P.blue, bg = P.blueLight,
+}) => (
+  <span style={{
+    display: 'inline-block', fontSize: 11, fontWeight: 700,
+    color, textTransform: 'uppercase', letterSpacing: '0.12em',
+    background: bg, padding: '5px 16px', borderRadius: 100, marginBottom: 18,
+  }}>
+    {label}
+  </span>
+);
 
 // ─── Component ───────────────────────────────────────────────────────────────
 export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister, onAudit, onUpgradeClick }) => {
@@ -271,12 +289,13 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
     }).catch(() => {});
   }, []);
 
-  const beforeAfter = useReveal<HTMLDivElement>();
-  const prova       = useReveal<HTMLDivElement>();
-  const steps       = useReveal<HTMLDivElement>();
-  const diffs       = useReveal<HTMLDivElement>();
-  const proof       = useReveal<HTMLDivElement>();
-  const cta         = useReveal<HTMLDivElement>();
+  const dor      = useReveal<HTMLDivElement>();
+  const proto    = useReveal<HTMLDivElement>();
+  const produto  = useReveal<HTMLDivElement>();
+  const intel    = useReveal<HTMLDivElement>();
+  const proof    = useReveal<HTMLDivElement>();
+  const creditos = useReveal<HTMLDivElement>();
+  const cta      = useReveal<HTMLDivElement>();
 
   return (
     <div style={{ fontFamily: "'Inter', 'Helvetica Neue', system-ui, sans-serif", background: P.surface, color: P.ink, minHeight: '100vh' }}>
@@ -292,9 +311,9 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
         <div style={{ maxWidth: 1200, margin: '0 auto', padding: '0 28px', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <BrandLogo fontSize={17} iconSize={17} theme="light" />
           <nav className="lp-nav" style={{ display: 'flex', gap: 28, alignItems: 'center' }}>
-            <a href="#como-funciona" onClick={e => { e.preventDefault(); document.getElementById('como-funciona')?.scrollIntoView({ behavior: 'smooth' }); }} className="nav-link-lp">Como funciona</a>
-            <a href="#diferenciais"  onClick={e => { e.preventDefault(); document.getElementById('diferenciais')?.scrollIntoView({ behavior: 'smooth' }); }} className="nav-link-lp">Por que IncluiAI</a>
-            <a href="#pricing"       onClick={e => { e.preventDefault(); document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' }); }} className="nav-link-lp">Planos</a>
+            <a href="#produto" onClick={e => { e.preventDefault(); document.getElementById('produto')?.scrollIntoView({ behavior: 'smooth' }); }} className="nav-link-lp">O que gera</a>
+            <a href="#diferenciais" onClick={e => { e.preventDefault(); document.getElementById('diferenciais')?.scrollIntoView({ behavior: 'smooth' }); }} className="nav-link-lp">Por que IncluiAI</a>
+            <a href="#pricing" onClick={e => { e.preventDefault(); document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' }); }} className="nav-link-lp">Planos</a>
             <button onClick={onAudit} className="nav-link-lp"><ShieldCheck size={14} /> Validar Doc</button>
           </nav>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -309,94 +328,114 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
         {/* ══════════════════════ HERO ══════════════════════ */}
         <Hero onRegister={_onRegister} />
 
-        {/* ══════════════════════ ANTES x DEPOIS ══════════════════════ */}
-        <section style={{ background: P.bg, padding: '96px 0' }}>
-          <div ref={beforeAfter.ref} style={{ maxWidth: 1100, margin: '0 auto', padding: '0 28px' }}>
+        {/* ══════════════════════ DOR ══════════════════════ */}
+        <section style={{ background: '#0F172A', padding: '96px 0' }}>
+          <div ref={dor.ref} style={{ maxWidth: 1100, margin: '0 auto', padding: '0 28px' }}>
 
-            <div className={`reveal ${beforeAfter.visible ? 'on' : ''}`} style={{ textAlign: 'center', marginBottom: 56 }}>
+            <div className={`reveal ${dor.visible ? 'on' : ''}`} style={{ textAlign: 'center', marginBottom: 56 }}>
               <span style={{
-                display: 'inline-block', fontSize: 11, fontWeight: 700, color: P.blue,
+                display: 'inline-block', fontSize: 11, fontWeight: 700, color: '#F87171',
                 textTransform: 'uppercase', letterSpacing: '0.12em',
-                background: P.blueLight, padding: '5px 16px', borderRadius: 100, marginBottom: 18,
-              }}>Antes vs Depois</span>
-              <h2 style={{ fontSize: 'clamp(28px, 4vw, 48px)', fontWeight: 800, color: P.ink, letterSpacing: '-0.03em', lineHeight: 1.1, marginBottom: 14 }}>
-                A diferença é real.
+                background: 'rgba(248,113,113,0.12)', padding: '5px 16px', borderRadius: 100, marginBottom: 18,
+              }}>
+                A realidade de quem faz AEE
+              </span>
+              <h2 style={{ fontSize: 'clamp(28px, 4vw, 52px)', fontWeight: 900, color: 'white', letterSpacing: '-0.04em', lineHeight: 1.08, marginBottom: 16 }}>
+                Você ainda está passando por isso?
               </h2>
-              <p style={{ fontSize: 17, color: P.muted, maxWidth: 480, margin: '0 auto' }}>
-                Veja o que muda quando você para de lutar contra a burocracia.
+              <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.5)', maxWidth: 480, margin: '0 auto' }}>
+                Nenhuma professora deveria gastar o domingo com papelada.
               </p>
             </div>
 
-            {/* Widget interativo Antes / Depois */}
-            <div className={`reveal rd1 ${beforeAfter.visible ? 'on' : ''}`}>
-              <BeforeAfterSlider imageSrc="/images/antes-depois-incluiai.jpg" />
+            <div className="two-col-diffs" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16, marginBottom: 48 }}>
+              {[
+                {
+                  emoji: '😩', delay: 'rd1',
+                  title: 'Domingo virou dia de trabalho',
+                  desc: 'Horas formatando PEI em tabela, digitando PAEE no Word, organizando laudos em pasta. Tempo que deveria ser seu — perdido em burocracia.',
+                },
+                {
+                  emoji: '📁', delay: 'rd2',
+                  title: 'Cada um faz do seu jeito',
+                  desc: 'Sem padrão, sem template, sem histórico. Cada profissional reinventa o processo a cada ano. E o aluno paga o preço.',
+                },
+                {
+                  emoji: '🔄', delay: 'rd3',
+                  title: 'Novo professor, começo do zero',
+                  desc: 'O histórico do aluno desaparece no fim do ano. Quem assume não encontra nada. Recomeça do zero. Como sempre.',
+                },
+                {
+                  emoji: '⏱️', delay: 'rd4',
+                  title: 'Tempo que poderia ser do aluno',
+                  desc: 'A burocracia consome as horas que deveriam ir para a sala de aula. Para o aluno que está esperando por você.',
+                },
+              ].map(item => (
+                <div key={item.title} className={`pain-card reveal ${item.delay} ${dor.visible ? 'on' : ''}`}>
+                  <div style={{ fontSize: 40, marginBottom: 18, lineHeight: 1 }}>{item.emoji}</div>
+                  <h3 style={{ fontSize: 18, fontWeight: 800, color: 'white', marginBottom: 10, lineHeight: 1.28 }}>{item.title}</h3>
+                  <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.48)', lineHeight: 1.75 }}>{item.desc}</p>
+                </div>
+              ))}
             </div>
 
-            {/* Mini CTA */}
-            <div className={`reveal rd3 ${beforeAfter.visible ? 'on' : ''}`} style={{
-              marginTop: 28, background: P.surface, border: `1.5px solid ${P.border}`,
-              borderRadius: 16, padding: '24px 32px',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              flexWrap: 'wrap', gap: 20,
-            }}>
-              <div>
-                <p style={{ fontSize: 17, fontWeight: 800, color: P.slate, marginBottom: 3 }}>Chega de perder tempo.</p>
-                <p style={{ fontSize: 14, color: P.muted }}>Comece hoje, grátis. Veja a diferença em minutos.</p>
+            <div className={`reveal rd4 ${dor.visible ? 'on' : ''}`} style={{ textAlign: 'center' }}>
+              <div style={{
+                display: 'inline-block',
+                background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.28)',
+                borderRadius: 18, padding: '22px 48px',
+              }}>
+                <p style={{ fontSize: 'clamp(16px, 2.5vw, 22px)', fontWeight: 800, color: '#4ADE80', lineHeight: 1.4, letterSpacing: '-0.02em', margin: 0 }}>
+                  E se você pudesse fazer tudo isso<br />em menos de 2 minutos?
+                </p>
               </div>
-              <button onClick={_onRegister} className="btn-cta-sm">
-                Começar agora <ArrowRight size={16} />
-              </button>
             </div>
           </div>
         </section>
 
-        {/* ══════════════════════ PROVA VISUAL ══════════════════════ */}
+        {/* ══════════════════════ PROTOCOLO DE APRENDIZAGEM ══════════════════════ */}
         <section style={{ background: P.surface, padding: '96px 0', overflow: 'hidden' }}>
-          <div ref={prova.ref} style={{ maxWidth: 1100, margin: '0 auto', padding: '0 28px' }}>
+          <div ref={proto.ref} style={{ maxWidth: 1100, margin: '0 auto', padding: '0 28px' }}>
             <div className="two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 72, alignItems: 'center' }}>
 
               {/* Copy */}
-              <div className={`reveal ${prova.visible ? 'on' : ''}`}>
-                <span style={{
-                  display: 'inline-block', fontSize: 11, fontWeight: 700, color: P.blue,
-                  textTransform: 'uppercase', letterSpacing: '0.12em',
-                  background: P.blueLight, padding: '5px 16px', borderRadius: 100, marginBottom: 24,
-                }}>Veja como fica na prática</span>
+              <div className={`reveal ${proto.visible ? 'on' : ''}`}>
+                <Pill label="Protocolo de Aprendizagem" color={P.blue} bg={P.blueLight} />
 
-                <h2 style={{ fontSize: 'clamp(26px, 3.8vw, 44px)', fontWeight: 800, color: P.ink, letterSpacing: '-0.03em', lineHeight: 1.13, marginBottom: 20 }}>
-                  Atividade pronta,<br />com qualidade<br />profissional.
+                <h2 style={{ fontSize: 'clamp(26px, 3.8vw, 44px)', fontWeight: 900, color: P.ink, letterSpacing: '-0.04em', lineHeight: 1.1, marginBottom: 18 }}>
+                  O documento que nenhuma<br />ferramenta genérica entrega.
                 </h2>
                 <p style={{ fontSize: 16, color: P.muted, lineHeight: 1.78, marginBottom: 32 }}>
-                  Cada atividade é gerada com objetivos pedagógicos, referência BNCC, orientações para o professor e pronta para imprimir — tudo em um PDF profissional.
+                  Não é uma atividade. É um pacote pedagógico completo — gerado com os dados reais do seu aluno.
                 </p>
 
                 {[
-                  { icon: '🎯', title: 'Personalizado por diagnóstico', desc: 'TEA, TDAH, Dislexia, DI — cada atividade respeita o perfil real do aluno.' },
-                  { icon: '📄', title: 'PDF pronto para imprimir', desc: 'Baixe e imprima na hora. Sem formatação, sem retrabalho.' },
-                  { icon: '📋', title: 'Aceito em relatórios INSS', desc: 'Estrutura técnica compatível com documentação oficial.' },
+                  { emoji: '📄', title: 'Folha do aluno', desc: 'Atividade adaptada com objetivos BNCC, linguagem acessível e exercícios individualizados. Pronta para imprimir.' },
+                  { emoji: '📋', title: 'Guia do professor', desc: 'Orientações pedagógicas para mediar cada exercício com esse aluno específico. Sem precisar improvisar.' },
+                  { emoji: '🎯', title: 'Adaptação individual', desc: 'Baseada no diagnóstico, perfil cognitivo e nível de suporte necessário. Não é genérico — é desse aluno.' },
                 ].map(item => (
-                  <div key={item.title} style={{ display: 'flex', gap: 14, marginBottom: 20 }}>
+                  <div key={item.title} style={{ display: 'flex', gap: 16, marginBottom: 22 }}>
                     <div style={{
-                      width: 42, height: 42, background: P.greenLight, border: '1.5px solid #BBF7D0',
-                      borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      flexShrink: 0, fontSize: 20,
+                      width: 46, height: 46, background: P.blueLight, border: `1.5px solid #BFDBFE`,
+                      borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0, fontSize: 22,
                     }}>
-                      {item.icon}
+                      {item.emoji}
                     </div>
                     <div>
-                      <p style={{ fontSize: 15, fontWeight: 700, color: P.ink, marginBottom: 3 }}>{item.title}</p>
-                      <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.62 }}>{item.desc}</p>
+                      <p style={{ fontSize: 15, fontWeight: 700, color: P.ink, marginBottom: 4 }}>{item.title}</p>
+                      <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.65 }}>{item.desc}</p>
                     </div>
                   </div>
                 ))}
 
-                <button onClick={_onRegister} className="btn-cta" style={{ marginTop: 12, fontSize: 15, padding: '16px 36px' }}>
-                  Gerar minha primeira atividade <ArrowRight size={16} />
+                <button onClick={_onRegister} className="btn-cta" style={{ marginTop: 8, fontSize: 15, padding: '16px 36px' }}>
+                  Gerar meu primeiro protocolo <ArrowRight size={16} />
                 </button>
               </div>
 
               {/* Mockup */}
-              <div className={`reveal rd2 ${prova.visible ? 'on' : ''} mockup-float`}>
+              <div className={`reveal rd2 ${proto.visible ? 'on' : ''} mockup-float`}>
                 <div style={{
                   borderRadius: 22, overflow: 'hidden',
                   boxShadow: '0 40px 100px rgba(15,23,42,0.15)',
@@ -409,114 +448,145 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
           </div>
         </section>
 
-        {/* ══════════════════════ COMO FUNCIONA ══════════════════════ */}
-        <section id="como-funciona" style={{ background: P.bg, padding: '96px 0' }}>
-          <div ref={steps.ref} style={{ maxWidth: 1100, margin: '0 auto', padding: '0 28px' }}>
+        {/* ══════════════════════ O PRODUTO ══════════════════════ */}
+        <section id="produto" style={{ background: P.bg, padding: '96px 0' }}>
+          <div ref={produto.ref} style={{ maxWidth: 1100, margin: '0 auto', padding: '0 28px' }}>
 
-            <div className={`reveal ${steps.visible ? 'on' : ''}`} style={{ textAlign: 'center', marginBottom: 64 }}>
-              <span style={{
-                display: 'inline-block', fontSize: 11, fontWeight: 700, color: P.blue,
-                textTransform: 'uppercase', letterSpacing: '0.12em',
-                background: P.blueLight, padding: '5px 16px', borderRadius: 100, marginBottom: 18,
-              }}>Como funciona</span>
-              <h2 style={{ fontSize: 'clamp(28px, 4vw, 48px)', fontWeight: 800, color: P.ink, letterSpacing: '-0.03em', lineHeight: 1.1, marginBottom: 14 }}>
-                3 passos. Pronto.<br />Sem complicação.
+            <div className={`reveal ${produto.visible ? 'on' : ''}`} style={{ textAlign: 'center', marginBottom: 64 }}>
+              <Pill label="O que o IncluiAI gera" color={P.blue} bg={P.blueLight} />
+              <h2 style={{ fontSize: 'clamp(28px, 4vw, 48px)', fontWeight: 900, color: P.ink, letterSpacing: '-0.04em', lineHeight: 1.08, marginBottom: 14 }}>
+                Documentos que levam horas.<br />Prontos em minutos.
               </h2>
-              <p style={{ fontSize: 17, color: P.muted, maxWidth: 460, margin: '0 auto' }}>
-                Sem treinamento, sem configuração. Você entra e já começa a gerar.
+              <p style={{ fontSize: 17, color: P.muted, maxWidth: 500, margin: '0 auto' }}>
+                Padrão técnico, dados do aluno, assinatura digital — em cada documento.
               </p>
             </div>
 
-            <div className="three-col" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24 }}>
+            <div className="three-col" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
               {[
                 {
-                  emoji: '📝', num: '01', color: P.blue, bg: P.blueLight, border: '#BFDBFE',
-                  title: 'Descreva a atividade',
-                  desc: 'Informe o aluno, o objetivo e o tipo de atividade. Leva menos de 30 segundos — sem formulários complexos.',
-                  delay: 'rd1',
+                  emoji: '🎯', delay: 'rd1', featured: true,
+                  badge: '⭐ Principal',
+                  color: P.blue, bg: P.blueLight, border: '#BFDBFE',
+                  title: 'Protocolo de Aprendizagem',
+                  desc: 'Atividade adaptada + guia do professor + adaptação individual. O documento completo que nenhuma outra ferramenta entrega.',
+                  tags: ['Folha do aluno', 'Guia pedagógico', 'Adaptação individual'],
                 },
                 {
-                  emoji: '⚡', num: '02', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE',
-                  title: 'A IA gera automaticamente',
-                  desc: 'Nossa IA cria a atividade adaptada com orientações pedagógicas, picto­gramas e referência BNCC inclusa.',
-                  delay: 'rd2',
+                  emoji: '📋', delay: 'rd2', featured: false,
+                  badge: null,
+                  color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE',
+                  title: 'PEI · PAEE · PDI',
+                  desc: 'Planos educacionais com metas SMART, critérios observáveis, histórico do aluno e assinatura digital SHA-256.',
+                  tags: ['3 tipos de plano', 'Metas observáveis', 'Assinatura digital'],
                 },
                 {
-                  emoji: '📄', num: '03', color: P.greenDark, bg: P.greenLight, border: '#BBF7D0',
-                  title: 'Baixe o PDF pronto',
-                  desc: 'Um clique. PDF profissional, assinado digitalmente, pronto para imprimir ou enviar para os pais.',
-                  delay: 'rd3',
+                  emoji: '🔍', delay: 'rd3', featured: false,
+                  badge: null,
+                  color: P.greenDark, bg: P.greenLight, border: '#BBF7D0',
+                  title: 'Estudo de Caso',
+                  desc: 'Análise pedagógica completa — histórico, diagnóstico, evolução, família e parecer técnico. Aceito em relatórios INSS.',
+                  tags: ['Análise completa', 'Parecer técnico', 'INSS'],
                 },
-              ].map(s => (
-                <div key={s.num} className={`step-card reveal ${s.delay} ${steps.visible ? 'on' : ''}`}>
+              ].map(card => (
+                <div
+                  key={card.title}
+                  className={`product-card${card.featured ? ' featured' : ''} reveal ${card.delay} ${produto.visible ? 'on' : ''}`}
+                >
+                  {card.badge && (
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      background: P.blueLight, color: P.blue,
+                      fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+                      letterSpacing: '0.08em', padding: '4px 12px', borderRadius: 100,
+                      marginBottom: 20,
+                    }}>
+                      {card.badge}
+                    </div>
+                  )}
                   <div style={{
-                    width: 60, height: 60, background: s.bg, border: `2px solid ${s.border}`,
-                    borderRadius: 18, display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', fontSize: 28, marginBottom: 22,
+                    width: 64, height: 64, background: card.bg, border: `2px solid ${card.border}`,
+                    borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 30, marginBottom: 20, marginTop: card.badge ? 0 : 0,
                   }}>
-                    {s.emoji}
+                    {card.emoji}
                   </div>
-                  <div style={{
-                    display: 'inline-block', background: s.bg, color: s.color,
-                    fontSize: 10, fontWeight: 800, textTransform: 'uppercase',
-                    letterSpacing: '0.10em', padding: '3px 10px', borderRadius: 6, marginBottom: 14,
-                  }}>
-                    Passo {s.num}
+                  <h3 style={{ fontSize: 20, fontWeight: 800, color: P.ink, marginBottom: 12, lineHeight: 1.25 }}>{card.title}</h3>
+                  <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.75, marginBottom: 22 }}>{card.desc}</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {card.tags.map(t => (
+                      <span key={t} style={{
+                        fontSize: 11, fontWeight: 600, color: card.color,
+                        background: card.bg, border: `1px solid ${card.border}`,
+                        padding: '4px 10px', borderRadius: 100,
+                      }}>{t}</span>
+                    ))}
                   </div>
-                  <h3 style={{ fontSize: 19, fontWeight: 800, color: P.ink, marginBottom: 12, lineHeight: 1.28 }}>{s.title}</h3>
-                  <p style={{ fontSize: 14, color: P.muted, lineHeight: 1.75 }}>{s.desc}</p>
                 </div>
               ))}
+            </div>
+
+            {/* Mini CTA */}
+            <div className={`reveal rd4 ${produto.visible ? 'on' : ''}`} style={{
+              marginTop: 28, background: P.surface, border: `1.5px solid ${P.border}`,
+              borderRadius: 16, padding: '24px 32px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              flexWrap: 'wrap', gap: 20,
+            }}>
+              <div>
+                <p style={{ fontSize: 17, fontWeight: 800, color: P.slate, marginBottom: 3 }}>Tudo isso, em menos de 2 minutos.</p>
+                <p style={{ fontSize: 14, color: P.muted }}>Sem instalação. Sem curva de aprendizado. Começa hoje, de graça.</p>
+              </div>
+              <button onClick={_onRegister} className="btn-cta-sm">
+                Começar grátis <ArrowRight size={16} />
+              </button>
             </div>
           </div>
         </section>
 
-        {/* ══════════════════════ DIFERENCIAIS ══════════════════════ */}
+        {/* ══════════════════════ SISTEMA DE INTELIGÊNCIA ══════════════════════ */}
         <section id="diferenciais" style={{ background: P.surface, padding: '96px 0' }}>
-          <div ref={diffs.ref} style={{ maxWidth: 1100, margin: '0 auto', padding: '0 28px' }}>
+          <div ref={intel.ref} style={{ maxWidth: 1100, margin: '0 auto', padding: '0 28px' }}>
 
-            <div className={`reveal ${diffs.visible ? 'on' : ''}`} style={{ textAlign: 'center', marginBottom: 56 }}>
-              <span style={{
-                display: 'inline-block', fontSize: 11, fontWeight: 700, color: '#7C3AED',
-                textTransform: 'uppercase', letterSpacing: '0.12em',
-                background: '#F5F3FF', padding: '5px 16px', borderRadius: 100, marginBottom: 18,
-              }}>Por que IncluiAI</span>
-              <h2 style={{ fontSize: 'clamp(28px, 4vw, 48px)', fontWeight: 800, color: P.ink, letterSpacing: '-0.03em', lineHeight: 1.1, marginBottom: 14 }}>
-                Pensado para quem faz AEE.
+            <div className={`reveal ${intel.visible ? 'on' : ''}`} style={{ textAlign: 'center', marginBottom: 56 }}>
+              <Pill label="Por que IncluiAI" color="#7C3AED" bg="#F5F3FF" />
+              <h2 style={{ fontSize: 'clamp(28px, 4vw, 52px)', fontWeight: 900, color: P.ink, letterSpacing: '-0.04em', lineHeight: 1.08, marginBottom: 16 }}>
+                Não é um gerador.<br />
+                <span style={{ color: '#7C3AED' }}>É um sistema de inteligência pedagógica.</span>
               </h2>
-              <p style={{ fontSize: 17, color: P.muted, maxWidth: 460, margin: '0 auto' }}>
-                Não é IA genérica. É específico para educação inclusiva.
+              <p style={{ fontSize: 17, color: P.muted, maxWidth: 560, margin: '0 auto', lineHeight: 1.72 }}>
+                Qualquer IA gera texto. O IncluiAI entende que cada aluno tem histórico, diagnóstico, família e trajetória — e gera documentos que refletem isso.
               </p>
             </div>
 
             <div className="two-col-diffs" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
               {[
                 {
-                  emoji: '🎯', color: P.blue, bg: P.blueLight, border: '#BFDBFE',
-                  title: 'Pensado para AEE',
-                  desc: 'Cada função foi criada pensando nas necessidades reais do professor de educação especial — não em IA genérica de uso geral.',
-                  delay: 'rd1',
+                  emoji: '🕐', delay: 'rd1',
+                  color: P.blue, bg: P.blueLight, border: '#BFDBFE',
+                  title: 'Continuidade do aluno',
+                  desc: 'O IncluiAI lembra de cada aluno. O próximo professor encontra o histórico completo — e continua de onde você parou.',
                 },
                 {
-                  emoji: '👦', color: P.greenDark, bg: P.greenLight, border: '#BBF7D0',
-                  title: 'Adaptado para alunos reais',
-                  desc: 'TEA, TDAH, Dislexia, DI, TOD — cada atividade e documento respeita o diagnóstico e o perfil cognitivo do aluno.',
-                  delay: 'rd2',
+                  emoji: '📊', delay: 'rd2',
+                  color: P.greenDark, bg: P.greenLight, border: '#BBF7D0',
+                  title: 'Dados organizados',
+                  desc: 'Laudos, fichas, atividades e atendimentos em um só lugar. Com histórico real, pesquisável e sempre acessível.',
                 },
                 {
-                  emoji: '📋', color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE',
-                  title: 'Gera relatórios profissionais',
-                  desc: 'PEI, PAEE, PDI, Estudo de Caso e relatórios para INSS — com padrão técnico, SHA-256 e assinatura digital.',
-                  delay: 'rd3',
+                  emoji: '🏛', delay: 'rd3',
+                  color: '#7C3AED', bg: '#F5F3FF', border: '#DDD6FE',
+                  title: 'Padrão profissional',
+                  desc: 'SHA-256, assinatura digital, conformidade LGPD. Todos os documentos com o mesmo nível técnico, sempre.',
                 },
                 {
-                  emoji: '⏰', color: '#B45309', bg: P.goldLight, border: '#FDE68A',
-                  title: 'Economiza horas toda semana',
-                  desc: 'Professoras relatam economizar 4 a 8 horas por semana — tempo que volta para os alunos e para a sua vida.',
-                  delay: 'rd4',
+                  emoji: '🔒', delay: 'rd4',
+                  color: '#B45309', bg: P.goldLight, border: '#FDE68A',
+                  title: 'Segurança pedagógica',
+                  desc: 'Você não precisa saber gerar um PEI de cabeça. O IncluiAI garante a qualidade técnica do documento.',
                 },
               ].map(item => (
-                <div key={item.title} className={`diff-card reveal ${item.delay} ${diffs.visible ? 'on' : ''}`}>
+                <div key={item.title} className={`intel-pillar reveal ${item.delay} ${intel.visible ? 'on' : ''}`}>
                   <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
                     <div style={{
                       width: 56, height: 56, background: item.bg,
@@ -536,7 +606,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
             </div>
 
             {/* Stats strip */}
-            <div className={`reveal rd4 ${diffs.visible ? 'on' : ''}`} style={{
+            <div className={`reveal rd4 ${intel.visible ? 'on' : ''}`} style={{
               marginTop: 48, background: 'linear-gradient(135deg, #1E3A5F 0%, #2563EB 100%)',
               borderRadius: 20, padding: '36px 40px',
               display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, textAlign: 'center',
@@ -544,7 +614,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
               {[
                 { val: '+1.800', label: 'Professores ativos', icon: Users },
                 { val: '+12.000', label: 'Documentos gerados', icon: FileText },
-                { val: '< 5 min', label: 'Para gerar um PEI', icon: Clock },
+                { val: '< 2 min', label: 'Para gerar um protocolo', icon: Clock },
                 { val: '100%', label: 'LGPD conforme', icon: ShieldCheck },
               ].map(stat => {
                 const Icon = stat.icon;
@@ -560,15 +630,12 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
           </div>
         </section>
 
-        {/* ══════════════════════ PLANOS ══════════════════════ */}
-        <PricingSection onLogin={onLogin} onRegister={_onRegister} onUpgradeClick={onUpgradeClick} />
-
         {/* ══════════════════════ PROVA SOCIAL ══════════════════════ */}
-        <section style={{ background: P.surface, padding: '80px 0' }}>
+        <section style={{ background: P.bg, padding: '80px 0' }}>
           <div ref={proof.ref} style={{ maxWidth: 1100, margin: '0 auto', padding: '0 28px' }}>
 
             <div className={`reveal ${proof.visible ? 'on' : ''}`} style={{ textAlign: 'center', marginBottom: 48 }}>
-              <h2 style={{ fontSize: 'clamp(24px, 3.5vw, 40px)', fontWeight: 800, color: P.ink, letterSpacing: '-0.03em', marginBottom: 10 }}>
+              <h2 style={{ fontSize: 'clamp(24px, 3.5vw, 40px)', fontWeight: 900, color: P.ink, letterSpacing: '-0.03em', marginBottom: 10 }}>
                 Quem já usa, não volta atrás.
               </h2>
               <p style={{ fontSize: 16, color: P.muted }}>Mais de 1.800 professores de todo o Brasil usando no dia a dia.</p>
@@ -581,7 +648,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
                   name: 'Ana Paula S.', role: 'Professora de AEE · São Paulo', delay: 'rd1',
                 },
                 {
-                  text: '"A escola inteira padronizou os documentos. Não tem mais aquela bagunça de cada um fazendo do seu jeito. O PREMIUM valeu cada centavo."',
+                  text: '"A escola inteira padronizou os documentos. Não tem mais aquela bagunça de cada um fazendo do seu jeito. Valeu cada centavo."',
                   name: 'Mariana T.', role: 'Coordenadora Inclusiva · Belo Horizonte', delay: 'rd2',
                 },
                 {
@@ -602,21 +669,95 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
           </div>
         </section>
 
+        {/* ══════════════════════ PLANOS ══════════════════════ */}
+        <PricingSection onLogin={onLogin} onRegister={_onRegister} onUpgradeClick={onUpgradeClick} />
+
+        {/* ══════════════════════ CRÉDITOS ══════════════════════ */}
+        <section style={{ background: P.surface, padding: '88px 0' }}>
+          <div ref={creditos.ref} style={{ maxWidth: 1000, margin: '0 auto', padding: '0 28px' }}>
+
+            <div className={`reveal ${creditos.visible ? 'on' : ''}`} style={{ textAlign: 'center', marginBottom: 56 }}>
+              <Pill label="Créditos de IA" color="#7C3AED" bg="#F5F3FF" />
+              <h2 style={{ fontSize: 'clamp(26px, 3.8vw, 42px)', fontWeight: 900, color: P.ink, letterSpacing: '-0.04em', lineHeight: 1.1, marginBottom: 14 }}>
+                Simples, transparente, sem surpresa.
+              </h2>
+              <p style={{ fontSize: 17, color: P.muted, maxWidth: 500, margin: '0 auto', lineHeight: 1.7 }}>
+                Créditos são a moeda de uso da IA. Cada plano inclui uma cota mensal. Você usa conforme a necessidade.
+              </p>
+            </div>
+
+            {/* 3 info cards */}
+            <div className="three-col credits-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 48 }}>
+              {[
+                {
+                  emoji: '💬', delay: 'rd1',
+                  title: 'Documentos de texto',
+                  desc: 'PEI, PAEE, PDI, Protocolo de Aprendizagem — entre 10 e 40 créditos por geração.',
+                },
+                {
+                  emoji: '🖼', delay: 'rd2',
+                  title: 'Atividades com imagem',
+                  desc: 'Quando a atividade inclui imagem ilustrativa gerada por IA, o consumo é maior — entre 30 e 50 créditos.',
+                },
+                {
+                  emoji: '🛍', delay: 'rd3',
+                  title: 'Pacotes avulsos',
+                  desc: 'Acabou? Sem problema. Compre créditos adicionais a qualquer momento, sem precisar trocar de plano.',
+                },
+              ].map(card => (
+                <div key={card.title} className={`credits-card reveal ${card.delay} ${creditos.visible ? 'on' : ''}`}>
+                  <div style={{ fontSize: 36, marginBottom: 14 }}>{card.emoji}</div>
+                  <h3 style={{ fontSize: 15, fontWeight: 800, color: P.ink, marginBottom: 8 }}>{card.title}</h3>
+                  <p style={{ fontSize: 13, color: P.muted, lineHeight: 1.65 }}>{card.desc}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Table */}
+            <div className={`reveal rd4 ${creditos.visible ? 'on' : ''} credits-table`} style={{
+              background: P.bg, border: `1.5px solid ${P.border}`, borderRadius: 18, overflow: 'hidden',
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', background: P.ink, padding: '14px 28px' }}>
+                {['Plano', 'Créditos / mês', 'Alunos'].map(h => (
+                  <span key={h} style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.10em' }}>{h}</span>
+                ))}
+              </div>
+              {[
+                { plan: 'FREE', credits: '60 créditos', students: 'Até 5 alunos', accent: P.muted },
+                { plan: 'PRO', credits: '500 créditos', students: 'Até 30 alunos', accent: P.blue },
+                { plan: 'PREMIUM', credits: '700 créditos', students: 'Ilimitados', accent: '#7C3AED' },
+              ].map((row, i) => (
+                <div key={row.plan} style={{
+                  display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+                  padding: '16px 28px',
+                  background: i % 2 === 0 ? P.surface : P.bg,
+                  borderBottom: i < 2 ? `1px solid ${P.border}` : 'none',
+                }}>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: row.accent }}>{row.plan}</span>
+                  <span style={{ fontSize: 14, color: P.slate, fontWeight: 600 }}>{row.credits}</span>
+                  <span style={{ fontSize: 14, color: P.muted }}>{row.students}</span>
+                </div>
+              ))}
+            </div>
+
+          </div>
+        </section>
+
         {/* ══════════════════════ CTA FINAL ══════════════════════ */}
         <section style={{
-          background: 'linear-gradient(135deg, #1E3A5F 0%, #2563EB 100%)',
+          background: 'linear-gradient(135deg, #0F172A 0%, #1E3A5F 50%, #2563EB 100%)',
           padding: '120px 0', position: 'relative', overflow: 'hidden',
         }}>
-          <div style={{ position: 'absolute', top: -80, right: -80, width: 360, height: 360, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
-          <div style={{ position: 'absolute', bottom: -60, left: -60, width: 280, height: 280, borderRadius: '50%', background: 'rgba(255,255,255,0.03)', pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', top: -80, right: -80, width: 400, height: 400, borderRadius: '50%', background: 'rgba(255,255,255,0.03)', pointerEvents: 'none' }} />
+          <div style={{ position: 'absolute', bottom: -60, left: -60, width: 300, height: 300, borderRadius: '50%', background: 'rgba(255,255,255,0.02)', pointerEvents: 'none' }} />
 
           <div ref={cta.ref} style={{ maxWidth: 760, margin: '0 auto', padding: '0 28px', textAlign: 'center' }}>
             <div className={`reveal ${cta.visible ? 'on' : ''}`}>
 
               <div style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)',
-                padding: '7px 20px', borderRadius: 100, marginBottom: 28,
+                background: 'rgba(255,255,255,0.10)', border: '1px solid rgba(255,255,255,0.18)',
+                padding: '7px 20px', borderRadius: 100, marginBottom: 32,
               }}>
                 <Zap size={13} color={P.gold} fill={P.gold} />
                 <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>
@@ -624,18 +765,18 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
                 </span>
               </div>
 
-              <h2 style={{ fontSize: 'clamp(30px, 5vw, 56px)', fontWeight: 900, color: 'white', letterSpacing: '-0.04em', lineHeight: 1.07, marginBottom: 18 }}>
-                Comece agora e economize<br />
-                <span style={{ color: P.gold }}>horas do seu tempo.</span>
+              <h2 style={{ fontSize: 'clamp(30px, 5vw, 58px)', fontWeight: 900, color: 'white', letterSpacing: '-0.045em', lineHeight: 1.05, marginBottom: 20 }}>
+                Cada semana que passa,<br />
+                <span style={{ color: P.gold }}>é mais um domingo perdido.</span>
               </h2>
 
-              <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.72)', lineHeight: 1.72, maxWidth: 480, margin: '0 auto 52px' }}>
-                Mais de 1.800 professores já pararam de perder tempo com papelório. Agora é a sua vez.
+              <p style={{ fontSize: 18, color: 'rgba(255,255,255,0.65)', lineHeight: 1.72, maxWidth: 500, margin: '0 auto 52px' }}>
+                Mais de 1.800 professoras pararam de levar trabalho para casa. Agora é a sua vez.
               </p>
 
               <div className="cta-btns" style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 24 }}>
                 <button onClick={_onRegister} className="btn-cta">
-                  COMEÇAR AGORA <ArrowRight size={18} />
+                  CRIAR MINHA CONTA GRÁTIS <ArrowRight size={18} />
                 </button>
                 <button
                   onClick={() => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })}
@@ -645,7 +786,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
                 </button>
               </div>
 
-              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.38)' }}>
+              <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>
                 Grátis para sempre no plano básico · Sem cartão · Sem pegadinha
               </p>
             </div>

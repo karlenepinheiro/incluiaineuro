@@ -71,6 +71,34 @@ export const INCLUILAB_MODEL_COSTS = {
   GPT_IMAGE:   50,  // ChatGPT Imagem / DALL-E 3 — alta qualidade
 } as const;
 
+/**
+ * CUSTOS POR MODO DE GERAÇÃO — IncluiLAB v6 (6 modos)
+ *
+ * Criar nova atividade:
+ *   A4_ECONOMICA        (3 cr)  — JSON + pictogramas/emoji internos, sem imagem IA
+ *   A4_VISUAL           (15 cr) — JSON + até 4 imagens IA pequenas (3 base + 3/img)
+ *   A4_PREMIUM          (50 cr) — Imagem completa estilo Canva/worksheet
+ *
+ * Adaptar atividade enviada:
+ *   ADAPTAR_ECONOMICO   (5 cr)  — Analisa + reconstrói A4 texto, sem imagem IA
+ *   ADAPTAR_VISUAL      (20 cr) — Analisa + reconstrói com até 4 imagens IA (5 base + 4/img × até 4)
+ *   ADAPTAR_PREMIUM     (50 cr) — Recria visualmente como worksheet premium
+ *
+ * Regra: imagem individual não é cobrada se a geração falhar (cai em emoji fallback).
+ */
+export const INCLUILAB_ACTIVITY_COSTS = {
+  A4_ECONOMICA:           3,
+  A4_VISUAL_BASE:         3,
+  A4_VISUAL_PER_IMAGE:    3,
+  A4_VISUAL_MAX:         15,
+  A4_PREMIUM:            50,
+  ADAPTAR_ECONOMICO:      5,
+  ADAPTAR_VISUAL_BASE:    5,
+  ADAPTAR_VISUAL_PER_IMAGE: 4,
+  ADAPTAR_VISUAL_MAX:    20,
+  ADAPTAR_PREMIUM:       50,
+} as const;
+
 /** Mensagem padrão exibida em TODAS as telas quando o saldo é insuficiente. */
 export const CREDIT_INSUFFICIENT_MSG = 'Você não tem créditos suficiente para esta ação.';
 

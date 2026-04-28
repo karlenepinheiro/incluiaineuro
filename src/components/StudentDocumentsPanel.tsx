@@ -3,6 +3,7 @@ import { DocumentService, PedagocicalDocument } from '../services/documentServic
 import { exportDocumentToPDF } from '../utils/pdfExport';
 import { FileText, Printer, Edit2, Trash2, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
+import { DocButton, DocIconButton } from './ui/DocButton';
 
 interface StudentDocumentsPanelProps {
   student: any;
@@ -63,9 +64,9 @@ export const StudentDocumentsPanel: React.FC<StudentDocumentsPanelProps> = ({ st
           <p className="text-xs text-gray-500">PAEE, PEI e Estudos de Caso gerados e salvos.</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => onRegenerateRequest('PEI')} className="flex items-center gap-2 bg-[#1F4E5F] text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-[#153846] transition">
-            <Sparkles size={14} /> Novo Documento
-          </button>
+          <DocButton variant="primary" size="sm" icon={<Sparkles size={13}/>} onClick={() => onRegenerateRequest('PEI')}>
+            Novo Documento
+          </DocButton>
         </div>
       </div>
 
@@ -90,17 +91,26 @@ export const StudentDocumentsPanel: React.FC<StudentDocumentsPanelProps> = ({ st
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button onClick={() => toast('Função de edição visual será aberta aqui (JSON Editor)')} title="Editar Documento" className="p-2 text-gray-500 hover:text-[#1F4E5F] hover:bg-gray-200 rounded-lg transition">
-                  <Edit2 size={16} />
-                </button>
-                <button onClick={() => handleExportPDF(doc)} title="Baixar PDF Oficial" className="p-2 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition">
-                  <Printer size={16} />
-                </button>
-                <div className="w-px h-6 bg-gray-200 mx-1"></div>
-                <button onClick={() => handleDelete(doc.id)} title="Excluir Documento" className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
-                  <Trash2 size={16} />
-                </button>
+              <div className="flex items-center gap-1">
+                <DocIconButton
+                  variant="ghost"
+                  icon={<Edit2 size={15}/>}
+                  label="Editar Documento"
+                  onClick={() => toast('Função de edição visual será aberta aqui (JSON Editor)')}
+                />
+                <DocIconButton
+                  variant="outline"
+                  icon={<Printer size={15}/>}
+                  label="Baixar PDF Oficial"
+                  onClick={() => handleExportPDF(doc)}
+                />
+                <div className="w-px h-5 bg-gray-200 mx-0.5" />
+                <DocIconButton
+                  variant="destructive"
+                  icon={<Trash2 size={15}/>}
+                  label="Excluir Documento"
+                  onClick={() => handleDelete(doc.id)}
+                />
               </div>
             </div>
           ))}

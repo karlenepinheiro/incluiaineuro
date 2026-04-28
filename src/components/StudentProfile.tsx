@@ -11,6 +11,7 @@ import {
   ClipboardCheck, Trash2, X, Download, Paperclip, BookOpen, BarChart2,
   TrendingUp, Users, Tag, Send, LogOut, Zap, Image, Copy, RefreshCw,
 } from 'lucide-react';
+import { DocButton, DocIconButton } from './ui/DocButton';
 import { SmartTextarea } from './SmartTextarea';
 import { AIService } from '../services/aiService';
 import { ExportService } from '../services/exportService';
@@ -1672,19 +1673,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                           <p className="text-xs text-gray-400">{doc.date} · <span className="font-semibold">{doc.type}</span></p>
                         </div>
                       </div>
-                      <div className="flex gap-2 flex-wrap">
-                        <button onClick={() => handleViewDoc(doc)} className="text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-bold hover:bg-gray-50 flex items-center gap-1"><Eye size={12}/> Ver</button>
-                        <button onClick={() => handleDownloadDoc(doc)} className="text-xs bg-white border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg font-bold hover:bg-gray-50 flex items-center gap-1"><Download size={12}/> Baixar</button>
+                      <div className="flex gap-1.5 flex-wrap items-center">
+                        <DocButton size="sm" variant="outline" icon={<Eye size={12}/>} onClick={() => handleViewDoc(doc)}>Ver</DocButton>
+                        <DocButton size="sm" variant="outline" icon={<Download size={12}/>} onClick={() => handleDownloadDoc(doc)}>Baixar</DocButton>
                         <button
                           onClick={() => handleAnalyzeDoc(doc, idx)}
                           disabled={!!analyzingDocId}
-                          className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-purple-700 flex items-center gap-1 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 text-xs bg-purple-600 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-purple-700 disabled:opacity-50 transition-colors"
                         >
                           {analyzingDocId === idx.toString()
-    ? 'Analisando...'
-    : <><FileSearch size={12}/><Sparkles size={11}/> Analisar com IA <span style={{ fontWeight: 700, opacity: 0.8 }}>· 2 créd.</span></>}
+                            ? 'Analisando...'
+                            : <><FileSearch size={12}/><Sparkles size={11}/> Analisar com IA <span style={{ fontWeight: 700, opacity: 0.8 }}>· 2 créd.</span></>}
                         </button>
-                        <button onClick={() => handleDeleteDoc(doc)} className="text-xs bg-white border border-red-100 text-red-400 px-2 py-1.5 rounded-lg font-bold hover:bg-red-50 flex items-center gap-1"><Trash2 size={12}/></button>
+                        <DocIconButton variant="destructive" icon={<Trash2 size={13}/>} label="Excluir documento" onClick={() => handleDeleteDoc(doc)} />
                       </div>
                     </div>
                     {/* IA analysis result — legado (student.documentAnalyses) */}
@@ -1908,13 +1909,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                       <td className="px-5 py-3 text-gray-500 text-xs">{new Date(p.createdAt).toLocaleDateString('pt-BR')}</td>
                       <td className="px-5 py-3">{getStatusBadge(p.status)}</td>
                       <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => onViewProtocol(p)} className="text-brand-600 hover:text-brand-800 text-xs font-bold border border-brand-200 px-3 py-1 rounded-lg">
-                            Abrir
-                          </button>
-                          <button onClick={() => handleDeleteProtocol(p.id)} className="text-red-400 hover:text-red-600 border border-red-100 hover:border-red-300 p-1 rounded-lg" title="Excluir documento">
-                            <Trash2 size={13}/>
-                          </button>
+                        <div className="flex items-center gap-1.5">
+                          <DocButton size="sm" variant="secondary" onClick={() => onViewProtocol(p)}>Abrir</DocButton>
+                          <DocIconButton variant="destructive" icon={<Trash2 size={13}/>} label="Excluir documento" onClick={() => handleDeleteProtocol(p.id)} />
                         </div>
                       </td>
                     </tr>

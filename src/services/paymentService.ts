@@ -46,6 +46,23 @@ const PLAN_CODE_MAP: Partial<Record<PlanTier, string>> = {
   [PlanTier.PREMIUM]: 'MASTER',
 };
 
+// Cupons aplicados automaticamente nos checkouts anuais
+const ANNUAL_COUPONS: Record<string, string> = {
+  PRO_ANNUAL:    'INCLUIAI59',
+  MASTER_ANNUAL: 'INCLUIAI99',
+};
+
+function injectCoupon(url: string, coupon: string): string {
+  if (!coupon || !url || url === '#') return url;
+  try {
+    const u = new URL(url);
+    if (!u.searchParams.has('coupon')) u.searchParams.set('coupon', coupon);
+    return u.toString();
+  } catch {
+    return url.includes('?') ? `${url}&coupon=${coupon}` : `${url}?coupon=${coupon}`;
+  }
+}
+
 // ── KiwifyProvider ────────────────────────────────────────────────────────────
 class KiwifyProvider implements PaymentProvider {
 
@@ -66,10 +83,10 @@ class KiwifyProvider implements PaymentProvider {
     const link = KIWIFY_LINKS[code];
     if (!link) {
       console.warn('[KiwifyProvider] Link anual não configurado para o plano:', code);
-      // Fallback para link mensal
       return this.createCheckout(plan, _user);
     }
-    return link;
+    const coupon = ANNUAL_COUPONS[code];
+    return coupon ? injectCoupon(link, coupon) : link;
   }
 
   async createAddOnCheckout(sku: string, _user: Partial<User>): Promise<string> {

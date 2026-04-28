@@ -172,8 +172,8 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
           background: colors.surface,
           fontFamily: fonts.body,
           margin: '0 auto',
-          boxShadow: shadows.lg,
-          borderRadius: radius.xl,
+          boxShadow: '0 10px 28px rgba(32,38,58,0.10)',
+          borderRadius: radius.md,
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
@@ -182,27 +182,28 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
 
         {/* ── Cabeçalho ── */}
         <div style={{
-          background: `linear-gradient(135deg, ${colors.petrol} 0%, #163A49 100%)`,
-          padding: `${spacing.lg}px ${spacing['3xl']}px`,
+          background: colors.surface,
+          padding: `${spacing.lg}px ${spacing['3xl']}px ${spacing.md}px`,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           gap: spacing.lg,
           flexShrink: 0,
+          borderBottom: `1px solid ${colors.border}`,
         }}>
           {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{
               width: 34, height: 34, borderRadius: radius.md,
-              background: `linear-gradient(135deg, ${colors.gold}, ${colors.goldM})`,
+              background: colors.petrolL,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
             }}>
-              <Shield size={18} color="white" />
+              <Shield size={18} color={colors.petrol} />
             </div>
             <div>
-              <div style={{ fontSize: fontSize.md, fontWeight: 800, color: 'white', lineHeight: 1.1 }}>
+              <div style={{ fontSize: fontSize.md, fontWeight: 800, color: colors.dark, lineHeight: 1.1 }}>
                 Inclui<span style={{ color: colors.gold }}>AI</span>
               </div>
-              <div style={{ fontSize: fontSize.xs, color: 'rgba(255,255,255,0.55)', marginTop: 1 }}>
+              <div style={{ fontSize: fontSize.xs, color: colors.gray2, marginTop: 1 }}>
                 Educação Inclusiva
               </div>
             </div>
@@ -212,16 +213,16 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
           <div style={{
             textAlign: 'right',
             fontSize: fontSize.sm,
-            color: 'rgba(255,255,255,0.75)',
+            color: colors.gray2,
             lineHeight: 1.8,
           }}>
             {schoolName && (
-              <div style={{ fontWeight: 600, color: 'white' }}>{schoolName}</div>
+              <div style={{ fontWeight: 600, color: colors.dark }}>{schoolName}</div>
             )}
             {teacherName && (
-              <div>Prof.: <strong style={{ color: 'white' }}>{teacherName}</strong></div>
+              <div>Prof.: <strong style={{ color: colors.dark }}>{teacherName}</strong></div>
             )}
-            <div>Data: <strong style={{ color: 'white' }}>{today}</strong></div>
+            <div>Data: <strong style={{ color: colors.dark }}>{today}</strong></div>
           </div>
         </div>
 
@@ -236,10 +237,11 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
 
           {/* Título do documento */}
           <div style={{
-            borderRadius: radius.xl,
-            border: `2px solid ${colors.orange}20`,
-            background: '#FFF8F5',
-            padding: `${spacing.lg}px ${spacing.xl}px`,
+            borderRadius: 0,
+            border: 'none',
+            background: colors.surface,
+            padding: `0 0 ${spacing.sm}px`,
+            borderBottom: `1px solid ${colors.border}`,
           }}>
             <DisciplinaPill label={disciplinaLabel} />
             <h1 style={{
@@ -248,21 +250,21 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
               fontWeight: 800,
               color: colors.dark,
               lineHeight: 1.15,
-              letterSpacing: '-0.3px',
+              letterSpacing: 0,
             }}>
               {atividade.titulo}
             </h1>
             {atividade.subtitulo && (
               <p style={{
                 margin: `${spacing.xs}px 0 0`,
-                fontSize: fontSize.md,
+                fontSize: fontSize.base,
                 color: colors.gray,
                 lineHeight: 1.5,
               }}>
                 {atividade.subtitulo}
               </p>
             )}
-            {atividade.nivel_dificuldade && (
+            {false && atividade.nivel_dificuldade && (
               <div style={{ marginTop: spacing.sm }}>
                 <span style={{
                   fontSize: fontSize['2xs'],
@@ -282,8 +284,9 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
           </div>
 
           {/* Objetivo + Instrução em duas colunas */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: spacing.md }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: spacing.md }}>
             <div style={{
+              display: 'none',
               borderRadius: radius.lg,
               border: `1px solid ${colors.petrol}20`,
               background: colors.petrolXL,
@@ -305,10 +308,10 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
             </div>
 
             <div style={{
-              borderRadius: radius.lg,
-              border: `1px solid ${colors.green}25`,
-              background: colors.greenL,
-              padding: `${spacing.md}px ${spacing.lg}px`,
+              borderRadius: radius.md,
+              border: `1px solid ${colors.border}`,
+              background: colors.surface,
+              padding: `${spacing.sm}px ${spacing.lg}px`,
             }}>
               <SectionLabel
                 icon={<BookOpen size={11} color="white" />}
@@ -333,7 +336,7 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
             gap: spacing.md,
             borderRadius: radius.lg,
             border: `1px solid ${colors.border}`,
-            background: colors.bg,
+            background: colors.surface,
             padding: `${spacing.sm}px ${spacing.lg}px`,
           }}>
             {[
@@ -366,8 +369,6 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
             ))}
           </div>
 
-          <Divider />
-
           {/* Questões */}
           <div>
             <div style={{
@@ -380,24 +381,24 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
               display: 'flex', alignItems: 'center', gap: 6,
             }}>
               <div style={{ width: 3, height: 14, background: colors.orange, borderRadius: 2 }} />
-              Atividades ({atividade.questoes.length} {atividade.questoes.length === 1 ? 'questão' : 'questões'})
+              Atividades ({Math.min(atividade.questoes.length, 5)} {Math.min(atividade.questoes.length, 5) === 1 ? 'questão' : 'questões'})
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.lg }}>
-              {atividade.questoes.map((q, i) => (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md }}>
+              {atividade.questoes.slice(0, 5).map((q, i) => (
                 <div key={i} style={{
-                  borderRadius: radius.lg,
+                  borderRadius: radius.md,
                   border: `1px solid ${colors.border}`,
                   background: colors.surface,
                   padding: `${spacing.md}px ${spacing.lg}px`,
-                  boxShadow: shadows.sm,
                   pageBreakInside: 'avoid',
                 }}>
                   {/* Número + enunciado */}
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: spacing.sm }}>
                     <div style={{
                       width: 24, height: 24, borderRadius: radius.full, flexShrink: 0,
-                      background: colors.petrol, color: 'white',
+                      border: `1.5px solid ${colors.petrol}`,
+                      background: colors.surface, color: colors.petrol,
                       fontWeight: 800, fontSize: fontSize.xs,
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       marginTop: 1,
@@ -423,10 +424,10 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
             </div>
           </div>
 
-          <Divider />
+          {false && <Divider />}
 
-          {/* Observação para o professor */}
-          {atividade.observacao_professor && (
+          {/* Bloco interno separado */}
+          {false && atividade.observacao_professor && (
             <div style={{
               borderRadius: radius.lg,
               border: `1px solid ${colors.gold}35`,
@@ -435,7 +436,7 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
             }}>
               <SectionLabel
                 icon={<MessageSquare size={11} color="white" />}
-                title="Observação para o Professor"
+                title="Apoio separado"
                 color={colors.gold}
               />
               <p style={{
@@ -452,7 +453,8 @@ export const FolhaSimples: React.FC<FolhaSimplesProps> = ({
 
           {/* Assinaturas */}
           <div style={{
-            display: 'grid', gridTemplateColumns: '1fr 1fr',
+            display: 'none',
+            gridTemplateColumns: '1fr 1fr',
             gap: spacing['3xl'],
             marginTop: spacing.sm,
           }}>

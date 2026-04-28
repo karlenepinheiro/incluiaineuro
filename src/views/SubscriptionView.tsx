@@ -464,7 +464,7 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
                           borderRadius: 6, padding: '4px 10px',
                         }}>
                           <span style={{ fontSize: 11, fontWeight: 800, color: '#15803D', letterSpacing: '0.04em' }}>
-                            🏷 Cupom: {plan.couponAnnual}
+                            🎉 Desconto aplicado automaticamente
                           </span>
                         </div>
                       </>

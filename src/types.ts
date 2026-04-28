@@ -763,6 +763,92 @@ export interface AtividadeJSON {
   nivel_dificuldade?: string;
 }
 
+export type ActivityBlockType =
+  | 'instructions'
+  | 'materials'
+  | 'visual'
+  | 'practice'
+  | 'teacher_note'
+  | 'accessibility';
+
+export type ActivityExerciseType =
+  | 'multiple_choice'
+  | 'short_answer'
+  | 'fill_blank'
+  | 'matching'
+  | 'drawing'
+  | 'ordering';
+
+export interface ActivityHeader {
+  title: string;
+  theme: string;
+  objective: string;
+  level?: string;
+  estimatedTime?: string;
+  instructions: string[];
+}
+
+export interface ActivityVisualAsset {
+  id: string;
+  type: 'image' | 'icon' | 'diagram' | 'symbol' | 'placeholder';
+  title: string;
+  description: string;
+  altText?: string;
+  url?: string;
+  imagePrompt?: string;
+  fallbackEmoji?: string;
+}
+
+export interface ActivityBlock {
+  id: string;
+  type: ActivityBlockType;
+  title: string;
+  content?: string;
+  items: string[];
+  visualAssetIds: string[];
+}
+
+export interface ActivityExercise {
+  id: string;
+  type: ActivityExerciseType;
+  title: string;
+  prompt: string;
+  options: string[];
+  answerLines: number;
+  supportHint?: string;
+  visualAssetId?: string;
+}
+
+export interface ActivityAccessibilityNotes {
+  supports: string[];
+  adaptations: string[];
+  teacherNotes: string[];
+}
+
+export interface GuiaPedagogico {
+  objetivo_da_aula: string;
+  metodologia_adaptada: string;
+  dicas_de_mediacao: string[];
+  criterios_de_avaliacao: string[];
+  materiais_necessarios: string[];
+  tempo_estimado: string;
+  adaptacoes_inclusivas: string[];
+}
+
+export interface ActivitySchema {
+  schemaVersion: '1.0';
+  header: ActivityHeader;
+  blocks: ActivityBlock[];
+  exercises: ActivityExercise[];
+  visualAssets: ActivityVisualAsset[];
+  accessibilityNotes: ActivityAccessibilityNotes;
+  guia_pedagogico?: GuiaPedagogico;
+  footer?: {
+    note?: string;
+    generatedBy?: string;
+  };
+}
+
 export function validateAtividadeJSON(obj: unknown): obj is AtividadeJSON {
   if (!obj || typeof obj !== 'object') return false;
   const a = obj as Record<string, unknown>;

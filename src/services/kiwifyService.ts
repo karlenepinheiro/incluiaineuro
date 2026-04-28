@@ -170,6 +170,12 @@ const OFFICIAL_LINKS = {
   credits_900:     'https://pay.kiwify.com.br/NqCj3Ks',
 };
 
+// Cupons aplicados automaticamente nos checkouts anuais
+const ANNUAL_COUPONS: Record<string, string> = {
+  PRO:    'INCLUIAI59',
+  MASTER: 'INCLUIAI99',
+};
+
 function buildEnvFallback(): KiwifyProduct[] {
   const env = (import.meta as any).env ?? {};
 
@@ -296,7 +302,16 @@ export async function getSubscriptionCheckoutUrl(
   }
 
   if (!product || product.checkout_url === '#') return '#';
-  return appendTrackingParam(product.checkout_url, tenantId);
+
+  let url = appendTrackingParam(product.checkout_url, tenantId);
+
+  // Aplica cupom automaticamente nos planos anuais
+  if (billingCycle === 'annual') {
+    const coupon = ANNUAL_COUPONS[planCode];
+    if (coupon) url = appendCouponParam(url, coupon);
+  }
+
+  return url;
 }
 
 /**
@@ -324,6 +339,18 @@ function appendTrackingParam(url: string, tenantId: string): string {
     return u.toString();
   } catch {
     return `${url}?sck=${encodeURIComponent(tenantId)}`;
+  }
+}
+
+/** Injeta ?coupon= na URL sem duplicar o parâmetro */
+function appendCouponParam(url: string, coupon: string): string {
+  if (!coupon || url === '#') return url;
+  try {
+    const u = new URL(url);
+    if (!u.searchParams.has('coupon')) u.searchParams.set('coupon', coupon);
+    return u.toString();
+  } catch {
+    return url.includes('?') ? `${url}&coupon=${coupon}` : `${url}?coupon=${coupon}`;
   }
 }
 

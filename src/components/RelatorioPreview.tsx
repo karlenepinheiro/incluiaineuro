@@ -3,6 +3,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Edit2, Printer, Download, Save, X, ChevronLeft, CheckCircle } from 'lucide-react';
+import { DocButton } from './ui/DocButton';
 import { RelatorioViewer } from './RelatorioViewer';
 import type {
   RelatorioResultado,
@@ -168,11 +169,11 @@ export const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowEdit(v => !v)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition border"
             style={{
-              background: showEdit ? 'rgba(198,146,20,0.25)' : 'rgba(255,255,255,0.15)',
-              color: showEdit ? '#C69214' : '#ffffff',
-              border: `1px solid ${showEdit ? '#C69214' : 'rgba(255,255,255,0.55)'}`,
+              background: showEdit ? 'rgba(198,146,20,0.18)' : 'rgba(255,255,255,0.12)',
+              color: showEdit ? '#C69214' : 'rgba(255,255,255,0.9)',
+              borderColor: showEdit ? '#C69214' : 'rgba(255,255,255,0.4)',
             }}
           >
             {showEdit ? <><X size={12} /> Fechar edição</> : <><Edit2 size={12} /> Editar</>}
@@ -180,11 +181,11 @@ export const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
 
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition border"
             style={{
-              background: 'rgba(255,255,255,0.15)',
-              color: '#ffffff',
-              border: '1px solid rgba(255,255,255,0.55)',
+              background: 'rgba(255,255,255,0.12)',
+              color: 'rgba(255,255,255,0.9)',
+              borderColor: 'rgba(255,255,255,0.4)',
             }}
           >
             <Printer size={13} /> Imprimir
@@ -192,7 +193,7 @@ export const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
 
           <button
             onClick={handlePrint}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition"
             style={{ background: '#C69214' }}
           >
             <Download size={13} /> Exportar PDF
@@ -210,18 +211,16 @@ export const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
             <p className="text-sm font-bold" style={{ color: '#1F4E5F' }}>
               Editar campos — as alterações ficam apenas neste relatório
             </p>
-            <button
+            <DocButton
+              variant="primary"
+              size="md"
+              loading={saving}
+              icon={saved ? <CheckCircle size={13}/> : <Save size={13}/>}
               onClick={handleSaveEdits}
               disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white transition hover:opacity-90 disabled:opacity-60"
-              style={{ background: '#1F4E5F' }}
             >
-              {saving
-                ? <><Save size={13} className="animate-pulse" /> Salvando…</>
-                : saved
-                  ? <><CheckCircle size={13} /> Salvo!</>
-                  : <><Save size={13} /> Salvar edições</>}
-            </button>
+              {saving ? 'Salvando…' : saved ? 'Salvo!' : 'Salvar edições'}
+            </DocButton>
           </div>
 
           <div

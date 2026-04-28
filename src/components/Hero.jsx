@@ -3,25 +3,23 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 // ─── Conteúdo por fase ────────────────────────────────────────────────────────
 const CONTENT = {
   dor: {
-    headline: 'Pare de perder horas fazendo atividades adaptadas.',
-    highlight: 'Com o IncluiAI você gera tudo pronto, em PDF, em segundos.',
-    sub: 'Atividades personalizadas para cada aluno — com padrão profissional.',
+    headline: 'Quando foi seu último fim de semana livre?',
+    highlight: 'Com o IncluiAI, você para de levar trabalho para casa.',
+    sub: 'Documentos pedagógicos gerados em minutos. Com padrão profissional. Sem retrabalho.',
     bullets: [
-      'Pronto para imprimir',
-      'Adaptado para cada aluno',
-      'Com padrão profissional (inclusive para relatórios INSS)',
+      'Pronto em menos de 2 minutos',
+      'PDF profissional, pronto para assinar',
     ],
     accentColor: '#2563EB',
     image: '/images/hero-dor.jpg',
   },
   leveza: {
-    headline: 'Chega de trabalhar no fim de semana.',
-    highlight: 'Agora você tem tempo para o que realmente importa.',
-    sub: 'Mais de 1.800 professoras já economizam horas toda semana.',
+    headline: 'Seus alunos merecem uma professora descansada.',
+    highlight: 'Você merece tempo de volta.',
+    sub: 'Mais de 1.800 professoras já economizam horas toda semana com o IncluiAI.',
     bullets: [
-      'Atividade pronta em segundos',
-      'Tudo organizado e centralizado',
-      'Fim de semana livre para você',
+      'Sem domingo de trabalho',
+      'Histórico real de cada aluno',
     ],
     accentColor: '#16A34A',
     image: '/images/hero-leveza.jpg',
@@ -493,9 +491,6 @@ const Hero = ({ onRegister }) => {
   const [mounted, setMounted]           = useState(false);
   const [parallaxY, setParallaxY]       = useState(0);
 
-  // Contador de tempo (segundos desde montagem)
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
   // Controle do pulso de atenção no botão
   const [btnAttract, setBtnAttract] = useState(false);
 
@@ -507,20 +502,11 @@ const Hero = ({ onRegister }) => {
   const sectionRef   = useRef(null);
   const cycleTimeout = useRef(null);
   const currentPhase = useRef('dor');
-  const counterRef   = useRef(null);
 
   // ─── Fade-in inicial ───────────────────────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 100);
     return () => clearTimeout(t);
-  }, []);
-
-  // ─── Contador de tempo ────────────────────────────────────────────────────
-  useEffect(() => {
-    counterRef.current = setInterval(() => {
-      setElapsedSeconds(s => s + 1);
-    }, 1000);
-    return () => clearInterval(counterRef.current);
   }, []);
 
   // ─── Pulso de atenção no botão após 3s ───────────────────────────────────
@@ -616,7 +602,7 @@ const Hero = ({ onRegister }) => {
       className={btnClass}
       onClick={handleRegister}
     >
-      Gerar minha atividade agora <ArrowIcon />
+      Começar grátis agora <ArrowIcon />
     </a>
   ) : (
     <a
@@ -625,20 +611,9 @@ const Hero = ({ onRegister }) => {
       target="_blank"
       rel="noopener noreferrer"
     >
-      Gerar minha atividade agora <ArrowIcon />
+      Começar grátis agora <ArrowIcon />
     </a>
   );
-
-  // ─── Contador: cor e texto mudam com a fase ───────────────────────────────
-  const isDor        = bgPhase === 'dor';
-  const counterColor = isDor ? '#F97316' : '#16A34A';
-  const counterLabel = isDor
-    ? <><span className="hr-counter-time" style={{ color: counterColor }}>{formatTime(elapsedSeconds)}</span><span className="hr-counter-suffix" style={{ color: counterColor }}> perdidos hoje</span></>
-    : <><span className="hr-counter-label">Tempo recuperado hoje: </span><span className="hr-counter-time" style={{ color: counterColor }}>{formatTime(elapsedSeconds)}</span></>;
-
-  const counterPrompt = isDor
-    ? <span className="hr-counter-label">Enquanto você está aqui, mais tempo está sendo perdido em papel.&nbsp;</span>
-    : null;
 
   // Parallax — desligado em mobile para evitar enquadramento errado da imagem
   const bgTransform = isMobile
@@ -709,14 +684,8 @@ const Hero = ({ onRegister }) => {
             {/* Prova social */}
             <div className="hr-social-proof">
               <CheckIcon />
-              Mais de 1.800 professoras já estão usando o IncluiAI
+              +1.800 professoras já usam o IncluiAI no dia a dia
             </div>
-          </div>
-
-          {/* Contador de tempo (fora do bloco animado para não piscar na troca) */}
-          <div className="hr-counter" aria-live="polite" aria-atomic="true">
-            {counterPrompt}
-            {counterLabel}
           </div>
 
           {/* Indicadores de fase (clicáveis) */}

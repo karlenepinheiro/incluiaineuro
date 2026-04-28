@@ -31,26 +31,30 @@ interface A4ActivityRendererProps {
 
 const C = {
   petrol: '#1F4E5F',
-  navy: '#1E3A5F',
-  gold: '#C69214',
-  orange: '#E85D04',
+  navy: '#2E5F72',
+  gold: '#B88912',
+  orange: '#D97706',
   green: '#16A34A',
   blue: '#2563EB',
-  bg: '#F7F4EE',
-  paper: '#FFFDF8',
+  bg: '#FFFFFF',
+  paper: '#FFFFFF',
   surface: '#FFFFFF',
-  border: '#E7E2D8',
+  border: '#D0D8DC',
   text: '#20263A',
   muted: '#667085',
-  softBlue: '#E8F2F5',
-  softGold: '#FFF8E7',
-  softGreen: '#EAF8EF',
-  softOrange: '#FFF0E6',
-  softLilac: '#F1EEFF',
-  softRose: '#FFF0F3',
-  softMint: '#E6FBF3',
+  softBlue: '#F3F8FA',
+  softGold: '#FFFBEB',
+  softGreen: '#F4FBF7',
+  softOrange: '#FFF7ED',
+  softLilac: '#F8F7FF',
+  softRose: '#FFF7F8',
+  softMint: '#F2FBF8',
+  // worksheet accent — único acento colorido das questões
+  accent: '#1F4E5F',
+  accentLight: '#E8F2F6',
 };
 
+// Mantido para uso no Guia Pedagógico
 const CARD_PALETTE = [
   C.softBlue,
   C.softGold,
@@ -61,16 +65,6 @@ const CARD_PALETTE = [
   C.softMint,
 ];
 
-const BORDER_PALETTE = [
-  '#C9DDE5',
-  '#EBD49A',
-  '#A7DFC0',
-  '#F6C0A0',
-  '#C9BFF5',
-  '#F5C0CB',
-  '#A0E8CF',
-];
-
 const pageStyle: React.CSSProperties = {
   width: '210mm',
   minHeight: '297mm',
@@ -79,16 +73,16 @@ const pageStyle: React.CSSProperties = {
   background: C.paper,
   color: C.text,
   fontFamily: "'Plus Jakarta Sans', 'Segoe UI', Arial, sans-serif",
-  boxShadow: '0 14px 40px rgba(31,78,95,0.16)',
-  borderRadius: 12,
+  boxShadow: '0 10px 28px rgba(32,38,58,0.10)',
+  borderRadius: 8,
   overflow: 'visible',
 };
 
 const contentStyle: React.CSSProperties = {
-  padding: '10mm 13mm 8mm',
+  padding: '0 13mm 8mm',
   display: 'flex',
   flexDirection: 'column',
-  gap: 10,
+  gap: 8,
 };
 
 const lineClamp = (lines: number): React.CSSProperties => ({
@@ -101,7 +95,11 @@ const lineClamp = (lines: number): React.CSSProperties => ({
 function shortText(text: string | undefined, max = 118): string {
   const clean = String(text || '').replace(/\s+/g, ' ').trim();
   if (clean.length <= max) return clean;
-  return `${clean.slice(0, max - 1).trim()}…`;
+  const sentence = clean.match(/^.{20,}?[.!?](\s|$)/)?.[0]?.trim();
+  if (sentence && sentence.length <= max) return sentence;
+  const clipped = clean.slice(0, max).trim();
+  const lastSpace = clipped.lastIndexOf(' ');
+  return (lastSpace > max * 0.65 ? clipped.slice(0, lastSpace) : clipped).trim();
 }
 
 function labelForExercise(type: ActivityExercise['type']): string {
@@ -184,24 +182,28 @@ function VisualFrame({
   fallbackText: string;
   large?: boolean;
 }) {
+  if (!asset) return null;
+  const boxSize = large ? 88 : 58;
+
   if (asset?.url) {
     return (
       <div style={{
-        borderRadius: 16,
-        background: `linear-gradient(135deg, ${C.softBlue}, ${C.softGold})`,
-        border: `2px solid ${C.surface}`,
-        boxShadow: 'inset 0 0 0 1px rgba(31,78,95,0.08)',
-        minHeight: large ? 174 : 138,
+        width: boxSize,
+        height: boxSize,
+        borderRadius: 8,
+        background: C.surface,
+        border: `1px solid ${C.border}`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: 10,
+        padding: 5,
         overflow: 'hidden',
+        flexShrink: 0,
       }}>
         <img
           src={asset.url}
           alt={asset.altText || asset.title}
-          style={{ width: '100%', height: large ? 152 : 116, objectFit: 'contain', borderRadius: 12 }}
+          style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: 6 }}
         />
       </div>
     );
@@ -213,13 +215,22 @@ function VisualFrame({
   const pic = fallbackEmoji ? null : findPictogramByText(lookupText);
   const emoji = fallbackEmoji ?? pic?.fallbackEmoji ?? '🖼️';
 
+  if (!emoji) return null;
+
   return (
-    <EmojiCard
-      emoji={emoji}
-      label={pic?.label}
-      size={large ? 'large' : 'medium'}
-      paletteKey={lookupText}
-    />
+    <div style={{
+      width: boxSize,
+      height: boxSize,
+      borderRadius: 8,
+      border: `1px solid ${C.border}`,
+      background: C.surface,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexShrink: 0,
+    }}>
+      <span style={{ fontSize: large ? 42 : 28, lineHeight: 1 }}>{emoji}</span>
+    </div>
   );
 }
 
@@ -295,23 +306,23 @@ function OptionGrid({ options }: { options: string[] }) {
   const visible = options.slice(0, 4);
   const cols = visible.length > 2 ? '1fr 1fr' : '1fr';
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 10, marginTop: 10 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 7, marginTop: 8 }}>
       {visible.map((option, i) => (
         <div key={i} style={{
-          display: 'grid', gridTemplateColumns: '46px 1fr', gap: 10,
-          alignItems: 'center', minHeight: 62, padding: '10px 14px',
-          border: `2.5px solid ${C.border}`, borderRadius: 16, background: '#fff',
+          display: 'grid', gridTemplateColumns: '26px 1fr', gap: 8,
+          alignItems: 'center', minHeight: 36, padding: '6px 8px',
+          border: `1px solid ${C.border}`, borderRadius: 6, background: '#fff',
         }}>
           <div style={{
-            width: 38, height: 38, borderRadius: 999,
-            border: `3px solid ${C.petrol}`, background: '#fff',
+            width: 20, height: 20, borderRadius: 4,
+            background: C.petrol, color: '#fff',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 15, fontWeight: 900, color: C.petrol, flexShrink: 0,
+            fontSize: 10, fontWeight: 900, flexShrink: 0,
           }}>
             {String.fromCharCode(65 + i)}
           </div>
-          <span style={{ fontSize: 15, lineHeight: 1.35, fontWeight: 800, color: C.text }}>
-            {shortText(option, 46)}
+          <span style={{ fontSize: 13, lineHeight: 1.35, fontWeight: 600, color: C.text }}>
+            {shortText(option, 62)}
           </span>
         </div>
       ))}
@@ -328,25 +339,22 @@ function AnswerArea({ exercise }: { exercise: ActivityExercise }) {
 
   if (exercise.type === 'drawing') {
     return (
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginTop: 8 }}>
         <div style={{
-          height: 130,
-          border: `2.5px dashed ${C.petrol}44`,
-          borderRadius: 18,
+          height: 88,
+          border: `1.5px dashed ${C.border}`,
+          borderRadius: 6,
           background: '#fff',
-          backgroundImage: `linear-gradient(to right, rgba(31,78,95,.06) 1px, transparent 1px),
-                            linear-gradient(to bottom, rgba(31,78,95,.06) 1px, transparent 1px)`,
-          backgroundSize: '20px 20px',
           display: 'flex',
           alignItems: 'flex-end',
           justifyContent: 'center',
-          paddingBottom: 10,
+          paddingBottom: 6,
         }}>
           <span style={{
-            fontSize: 10, color: C.muted, fontWeight: 750, letterSpacing: '0.05em',
-            background: 'rgba(255,255,255,0.9)', padding: '3px 10px', borderRadius: 6,
+            fontSize: 9, color: C.muted, fontWeight: 700,
+            background: '#fff', padding: '2px 8px',
           }}>
-            ✏️ Desenhe aqui
+            Desenhe aqui
           </span>
         </div>
       </div>
@@ -355,40 +363,20 @@ function AnswerArea({ exercise }: { exercise: ActivityExercise }) {
 
   if (exercise.type === 'matching') {
     const items = (exercise.options.length ? exercise.options : ['Item 1', 'Item 2', 'Item 3']).slice(0, 4);
-    const letters = ['A', 'B', 'C', 'D'];
     return (
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px', gap: 8, marginTop: 10 }}>
-        <div style={{ display: 'grid', gap: 8 }}>
-          {items.map((item, i) => (
-            <div key={i} style={{
-              display: 'grid', gridTemplateColumns: '28px 1fr', gap: 7,
-              alignItems: 'center', padding: '9px 10px',
-              border: `2px solid ${C.border}`, borderRadius: 12, background: '#fff', minHeight: 42,
-            }}>
-              <span style={{
-                width: 24, height: 24, borderRadius: 8,
-                background: C.petrol, color: '#fff',
-                fontSize: 11, fontWeight: 900,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-              }}>{i + 1}</span>
-              <span style={{ fontSize: 12, fontWeight: 800, ...lineClamp(2) }}>
-                {shortText(item, 36)}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'grid', gap: 8 }}>
-          {items.map((_, i) => (
-            <div key={i} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              border: `2px dashed ${C.petrol}44`, borderRadius: 12,
-              background: C.softBlue, minHeight: 42,
-              fontSize: 13, fontWeight: 900, color: `${C.petrol}55`,
-            }}>
-              {letters[i]}
-            </div>
-          ))}
-        </div>
+      <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+        {items.map((item, i) => (
+          <div key={i} style={{
+            display: 'grid', gridTemplateColumns: '24px 1fr 70px', gap: 8,
+            alignItems: 'center', minHeight: 34,
+          }}>
+            <span style={{ fontSize: 12, fontWeight: 800, color: C.petrol }}>{i + 1}.</span>
+            <span style={{ fontSize: 12.5, lineHeight: 1.35, color: C.text }}>
+              {shortText(item, 58)}
+            </span>
+            <span style={{ height: 24, borderBottom: `1.5px solid ${C.border}` }} />
+          </div>
+        ))}
       </div>
     );
   }
@@ -396,17 +384,17 @@ function AnswerArea({ exercise }: { exercise: ActivityExercise }) {
   if (exercise.type === 'ordering') {
     const items = (exercise.options.length ? exercise.options : ['Primeiro', 'Depois', 'Por fim']).slice(0, 4);
     return (
-      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+      <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
         {items.map((item, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '36px 1fr', gap: 8, alignItems: 'center' }}>
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '34px 1fr', gap: 8, alignItems: 'center' }}>
             <span style={{
-              width: 32, height: 32, borderRadius: 9,
-              border: `2.5px solid ${C.petrol}`, background: '#fff',
+              width: 26, height: 26, borderRadius: 4,
+              border: `1.5px solid ${C.border}`, background: '#fff',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 11, color: C.muted, fontWeight: 700,
             }}>__</span>
-            <span style={{ padding: '9px 12px', borderRadius: 12, border: `2px solid ${C.border}`, background: '#fff', fontSize: 13, fontWeight: 800 }}>
-              {shortText(item, 54)}
+            <span style={{ padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: '#fff', fontSize: 12.5, lineHeight: 1.35 }}>
+              {shortText(item, 68)}
             </span>
           </div>
         ))}
@@ -415,13 +403,13 @@ function AnswerArea({ exercise }: { exercise: ActivityExercise }) {
   }
 
   // short_answer | fill_blank
-  const lines = Math.min(Math.max(exercise.answerLines, 1), 2);
+  const lines = Math.min(Math.max(exercise.answerLines, 2), 4);
   return (
-    <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+    <div style={{ display: 'grid', gap: 9, marginTop: 10 }}>
       {Array.from({ length: lines }).map((_, i) => (
         <div key={i} style={{
-          height: 38, borderRadius: 12,
-          border: `2px solid ${C.border}`, background: '#fff',
+          height: 28,
+          borderBottom: `1.5px solid ${C.petrol}50`,
         }} />
       ))}
     </div>
@@ -462,53 +450,50 @@ function WorksheetBlock({
     ? subjects.join(' ')
     : `${block?.title ?? ''} ${exercise.title ?? ''} ${cleanPrompt}`;
 
-  const title = block?.title || exercise.title || `Exercício ${index + 1}`;
-  const borderColor = BORDER_PALETTE[index % BORDER_PALETTE.length];
-  const cardBg = CARD_PALETTE[index % CARD_PALETTE.length];
+  const title = exercise.title || `Questao ${index + 1}`;
 
   return (
     <section
-      className={`incluilab-worksheet-block incluilab-avoid-break${(index + 1) % 2 === 0 ? ' incluilab-print-break' : ''}`}
+      className="incluilab-worksheet-block incluilab-avoid-break"
       style={{
-        border: `2.5px solid ${borderColor}`,
-        borderRadius: 22,
-        background: cardBg,
-        padding: '12px 14px 14px',
-        boxShadow: '0 3px 10px rgba(31,78,95,0.06)',
+        border: `1px solid ${C.border}`,
+        borderLeft: `3.5px solid ${C.petrol}`,
+        borderRadius: 6,
+        background: '#FFFFFF',
+        padding: '9px 12px 11px',
       }}
     >
-      {/* Number + type badge */}
+      {/* Número preenchido + label do tipo */}
       <div style={{
-        display: 'inline-flex', alignItems: 'center', gap: 7,
-        padding: '5px 12px', marginBottom: 12,
-        borderRadius: 999, background: C.petrol, color: '#fff',
+        display: 'flex', alignItems: 'center', gap: 8,
+        marginBottom: 7,
       }}>
-        <span style={{ fontSize: 15, fontWeight: 950 }}>{index + 1}</span>
-        <span style={{ fontSize: 10, fontWeight: 800, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+        <span style={{
+          width: 24, height: 24, borderRadius: 999,
+          background: C.petrol, color: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 12, fontWeight: 900, flexShrink: 0,
+          letterSpacing: '-0.02em',
+        }}>{index + 1}</span>
+        <span style={{
+          fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase',
+          letterSpacing: '0.05em', color: C.petrol,
+        }}>
           {labelForExercise(exercise.type)}
         </span>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '168px 1fr', gap: 14, alignItems: 'start' }}>
-        {/* Visual column — emoji/image grande */}
-        <VisualFrame asset={asset} fallbackText={derivedText} large />
-
-        {/* Content column */}
+      <div style={{ display: 'grid', gridTemplateColumns: asset ? '1fr 68px' : '1fr', gap: 10, alignItems: 'start' }}>
         <div style={{ minWidth: 0 }}>
-          <h2 style={{ margin: '0 0 8px', fontSize: 20, lineHeight: 1.15, fontWeight: 950, color: C.text }}>
-            {shortText(title, 50)}
-          </h2>
-          {cleanPrompt && (
-            <p style={{ margin: '0 0 10px', fontSize: 15, lineHeight: 1.4, fontWeight: 800, color: C.text }}>
-              {shortText(cleanPrompt, 90)}
-            </p>
-          )}
+          <p style={{ margin: '0 0 6px', fontSize: 14, lineHeight: 1.4, fontWeight: 700, color: C.text }}>
+            {shortText(cleanPrompt || title, 200)}
+          </p>
           {exercise.type === 'multiple_choice' && exercise.options.length > 0 && (
             <OptionGrid options={exercise.options} />
           )}
           <AnswerArea exercise={exercise} />
-          <SupportHint text={exercise.supportHint} />
         </div>
+        {asset && <VisualFrame asset={asset} fallbackText={derivedText} />}
       </div>
     </section>
   );
@@ -768,7 +753,7 @@ function findAssetForExercise(activity: ActivitySchema, exercise: ActivityExerci
     const a = activity.visualAssets.find(a => a.id === linked.visualAssetIds[0]);
     if (a) return a;
   }
-  return activity.visualAssets[index] ?? activity.visualAssets[0];
+  return undefined;
 }
 
 function findBlockForExercise(activity: ActivitySchema, exercise: ActivityExercise, index: number): ActivityBlock | undefined {
@@ -809,8 +794,11 @@ function deriveEmoji(text: string): string {
 }
 
 function repairActivity(activity: ActivitySchema): ActivitySchema {
-  // 1. Preserve all generated exercises; validation/generation controls size upstream.
-  let exercises = activity.exercises;
+  // 1. Student worksheet must stay compact and printable.
+  let exercises = activity.exercises.slice(0, 5).map(ex => ({
+    ...ex,
+    answerLines: Math.min(Math.max(ex.answerLines || 3, 2), ex.type === 'drawing' ? 1 : 4),
+  }));
   const assets = activity.visualAssets.map(a => ({ ...a }));
 
   // 2. Fix exercises with visual triggers but no visual asset
@@ -896,57 +884,70 @@ export const A4ActivityRenderer: React.FC<A4ActivityRendererProps> = ({
     <div id={printId} style={pageStyle}>
       {/* ── Header ── */}
       <header style={{
-        background: `linear-gradient(135deg, ${C.petrol} 0%, ${C.navy} 72%)`,
-        color: '#fff',
-        padding: '12mm 13mm 10mm',
-        borderRadius: '12px 12px 0 0',
+        background: C.surface,
+        color: C.text,
+        padding: '8mm 13mm 5mm',
+        borderRadius: '8px 8px 0 0',
+        borderBottom: `2px solid ${C.petrol}`,
       }}>
-        {/* Top bar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: 14,
-              background: `linear-gradient(135deg, ${C.gold}, ${C.orange})`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 6px 16px rgba(0,0,0,0.18)',
-            }}>
-              <Sparkles size={22} />
+        {/* Cabeçalho Nome / Data / Turma */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '2fr 1fr 1fr',
+          gap: 12,
+          alignItems: 'end',
+        }}>
+          {[
+            ['Nome', studentName || ''],
+            ['Data', today],
+            ['Turma', header.level || ''],
+          ].map(([label, value]) => (
+            <div key={label} style={{ minWidth: 0 }}>
+              <div style={{
+                fontSize: 8.5, fontWeight: 900, color: C.petrol,
+                textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3,
+              }}>
+                {label}:
+              </div>
+              <div style={{
+                minHeight: 24,
+                borderBottom: `2px solid ${C.petrol}`,
+                fontSize: 13,
+                fontWeight: value ? 700 : 400,
+                paddingBottom: 3,
+                color: C.text,
+              }}>
+                {value}
+              </div>
             </div>
-            <div>
-              <p style={{ margin: 0, fontSize: 9, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 850 }}>
-                IncluiLAB
-              </p>
-              <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 900 }}>
-                Folha de atividade
-              </p>
-            </div>
-          </div>
-          <div style={{ textAlign: 'right', fontSize: 10, lineHeight: 1.7, opacity: 0.85 }}>
-            {studentName && <div><strong>Aluno(a):</strong> {studentName}</div>}
-            <div><strong>Data:</strong> {today}</div>
-            {header.estimatedTime && <div><strong>Tempo:</strong> {shortText(header.estimatedTime, 24)}</div>}
-          </div>
+          ))}
         </div>
 
-        {/* Title area */}
-        <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: '1fr 128px', gap: 16, alignItems: 'end' }}>
+        {/* Divisor */}
+        <div style={{ height: 1, background: C.border, margin: '10px 0' }} />
+
+        {/* Título principal + visual */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: activity.visualAssets[0] ? '1fr 84px' : '1fr',
+          gap: 14, alignItems: 'center',
+        }}>
           <div>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '5px 11px', borderRadius: 999,
-              background: 'rgba(255,255,255,0.13)', border: '1px solid rgba(255,255,255,0.18)',
-              fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.06em',
-            }}>
-              <BookOpen size={10} /> {shortText(header.theme, 52)}
-            </div>
-            <h1 style={{ margin: '10px 0 0', maxWidth: 610, fontSize: 36, fontWeight: 950, lineHeight: 1.05 }}>
-              {shortText(header.title, 64)}
-            </h1>
-            {header.level && (
-              <p style={{ margin: '8px 0 0', fontSize: 12, opacity: 0.72, fontWeight: 750 }}>
-                {shortText(header.level, 72)}
-              </p>
+            {header.theme && (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase',
+                letterSpacing: '0.06em', color: C.muted, marginBottom: 5,
+              }}>
+                <BookOpen size={9} /> {shortText(header.theme, 56)}
+              </div>
             )}
+            <h1 style={{
+              margin: 0, fontSize: 36, fontWeight: 900, lineHeight: 1.05,
+              color: C.text, letterSpacing: '-0.01em',
+            }}>
+              {shortText(header.title, 60)}
+            </h1>
           </div>
           <VisualFrame asset={activity.visualAssets[0]} fallbackText={`${header.title} ${header.theme}`} large />
         </div>
@@ -954,20 +955,22 @@ export const A4ActivityRenderer: React.FC<A4ActivityRendererProps> = ({
 
       {/* ── Body ── */}
       <main style={contentStyle}>
-        {/* Objective + Instructions */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 11 }}>
-          <IntroCard title="Objetivo" icon={<Target size={14} />} tone={C.softBlue} color={C.petrol}>
-            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.4, fontWeight: 850, color: C.text, ...lineClamp(3) }}>
-              {shortText(header.objective, 120)}
-            </p>
-          </IntroCard>
-          <IntroCard title="Instrução" icon={<ListChecks size={14} />} tone={C.softGold} color={C.gold}>
-            <InstructionSteps items={steps} />
-          </IntroCard>
+        <div style={{
+          marginTop: 8,
+          padding: '8px 12px',
+          background: C.accentLight,
+          border: `1px solid ${C.petrol}30`,
+          borderLeft: `4px solid ${C.petrol}`,
+          borderRadius: 6,
+          display: 'flex', alignItems: 'center', gap: 8,
+          fontSize: 13, lineHeight: 1.4, fontWeight: 700, color: C.petrol,
+        }}>
+          <span style={{ fontSize: 15, flexShrink: 0 }}>📌</span>
+          {shortText(steps[0] || 'Leia com atencao e responda as questoes.', 140)}
         </div>
 
         {/* Exercises */}
-        <section style={{ display: 'grid', gap: 10 }}>
+        <section style={{ display: 'grid', gap: 8 }}>
           {activity.exercises.map((exercise, index) => (
             <WorksheetBlock
               key={exercise.id}
@@ -979,33 +982,6 @@ export const A4ActivityRenderer: React.FC<A4ActivityRendererProps> = ({
           ))}
         </section>
 
-        {/* Accessibility strip */}
-        <AccessibilityStrip activity={activity} />
-
-        {/* Teacher notes */}
-        {activity.accessibilityNotes.teacherNotes.length > 0 && (
-          <section className="incluilab-avoid-break" style={{
-            display: 'grid', gridTemplateColumns: '34px 1fr', gap: 10,
-            padding: 12, borderRadius: 16,
-            background: C.softOrange, border: `1px solid ${C.orange}25`,
-          }}>
-            <div style={{
-              width: 34, height: 34, borderRadius: 12,
-              background: C.orange, color: '#fff',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <HelpCircle size={17} />
-            </div>
-            <div>
-              <p style={{ margin: '0 0 4px', fontSize: 10, fontWeight: 900, color: C.orange, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Para o professor
-              </p>
-              <p style={{ margin: 0, fontSize: 12, lineHeight: 1.4, color: C.text, fontWeight: 700, ...lineClamp(3) }}>
-                {shortText(activity.accessibilityNotes.teacherNotes.join(' '), 180)}
-              </p>
-            </div>
-          </section>
-        )}
       </main>
 
       {/* ── Footer ── */}

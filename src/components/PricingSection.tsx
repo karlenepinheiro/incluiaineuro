@@ -59,26 +59,26 @@ const PLAN_STYLE = {
 
 const DEFAULTS = {
   planos: {
-    title: 'Invista onde o impacto é real.',
-    subtitle: 'Chega de levar o planejamento para o domingo.',
-    free_tagline: 'Para começar sem custo',
-    free_features: ['Até 5 alunos', '60 créditos IA/mês', 'PEI e PAEE básico', 'Exportação PDF'],
+    title: 'Escolha o seu plano.',
+    subtitle: 'Sem domingo de trabalho. Sem retrabalho. Sem papelada.',
+    free_tagline: 'Para começar agora, sem custo',
+    free_features: ['Até 5 alunos', '60 créditos IA/mês', 'PEI e PAEE básico', 'Protocolo de Aprendizagem', 'Exportação PDF'],
     pro_full_price: 79, pro_discount_price: 79, pro_annual_price: 59,
     pro_tagline: 'Para professores e especialistas',
-    pro_features: ['Até 30 alunos', 'PEI, PAEE, PDI e relatórios', 'Atividades com BNCC', 'Histórico do aluno', 'Suporte padrão'],
+    pro_features: ['Até 30 alunos', '500 créditos IA/mês', 'PEI, PAEE, PDI completos', 'Protocolo de Aprendizagem', 'Estudo de Caso', 'Histórico do aluno', 'Suporte padrão'],
     premium_full_price: 147, premium_discount_price: 147, premium_annual_price: 99,
     premium_tagline: 'Para escolas e clínicas',
-    premium_features: ['Alunos ilimitados', 'Tudo do plano Pro', 'Análise de laudos com IA', 'Geração avançada de atividades', 'Relatórios evolutivos completos', 'Prioridade em novos recursos'],
+    premium_features: ['Alunos ilimitados', '700 créditos IA/mês', 'Tudo do plano Pro', 'Fichas complementares avançadas', 'Análise de laudos com IA', 'Relatórios evolutivos completos', 'Prioridade em novos recursos'],
   },
   descontos: {
     pro_coupon: 'INCLUIAI59', pro_coupon_active: true,
     premium_coupon: 'INCLUIAI99', premium_coupon_active: true,
-    badge_label: 'Valores promocionais por tempo limitado',
-    urgency_label: 'Oferta válida por 48 horas',
+    badge_label: '🔥 Oferta Genesis · Para os primeiros assinantes',
+    urgency_label: 'Preço de lançamento — pode mudar a qualquer momento',
   },
   avisos: {
-    urgency_badge: 'Valores promocionais por tempo limitado',
-    urgency_clock: 'Oferta válida por 48 horas',
+    urgency_badge: '🔥 Oferta Genesis · Para os primeiros assinantes',
+    urgency_clock: 'Preço de lançamento — pode mudar a qualquer momento',
     installment_title: 'Parcelamento inteligente que facilita a aprovação',
     installment_items: ['Mais leve no limite do cartão', 'Sem necessidade de limite alto disponível', 'Parcele em até 12x'],
     trust_items: ['Cancele quando quiser', 'Sem taxa de instalação', 'LGPD conforme', 'Suporte incluído'],
@@ -478,26 +478,16 @@ export const PricingSection: React.FC<Props> = ({
                 <p style={{ fontSize: 13, color: '#64748B', marginTop: 2 }}>{plan.tagline}</p>
               </div>
 
-              {/* Coupon box */}
+              {/* Desconto automático — anual */}
               {plan.couponActive && billingCycle === 'annual' && (
-                <div className={`ps-coupon-box${plan.featured ? ' ps-coupon-box-premium' : ''}`}>
-                  <Tag size={14} color={plan.featured ? '#7C3AED' : '#16A34A'} />
-                  <div style={{ flex: 1 }}>
-                    <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>Cupom de desconto: </span>
-                    <span style={{
-                      fontFamily: 'monospace', fontSize: 14, fontWeight: 800,
-                      color: plan.featured ? '#7C3AED' : '#16A34A',
-                      letterSpacing: '0.06em',
-                    }}>
-                      {plan.coupon}
-                    </span>
-                  </div>
-                  <span style={{
-                    fontSize: 11, fontWeight: 700, color: 'white',
-                    background: plan.featured ? '#7C3AED' : '#16A34A',
-                    padding: '3px 8px', borderRadius: 6,
-                  }}>
-                    ATIVO
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: '#F0FDF4', border: '1.5px solid #BBF7D0',
+                  borderRadius: 8, padding: '9px 14px', marginTop: 0,
+                }}>
+                  <span style={{ fontSize: 16 }}>🎉</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#15803D' }}>
+                    Desconto aplicado automaticamente
                   </span>
                 </div>
               )}

@@ -1090,7 +1090,7 @@ ${pkBlockStructured}
 
 TEMA: ${topic}
 
-REGRAS: Idioma SOMENTE português do Brasil. Mínimo 4 questões, máximo 8.
+REGRAS: Idioma SOMENTE portugues do Brasil. Gere 3 a 5 questoes no maximo, com comandos curtos. A folha do aluno deve ser limpa e imprimivel; nao misture metodologia, materiais ou observacoes do professor nela.
 
 RETORNE SOMENTE o JSON:
 {
@@ -1212,6 +1212,15 @@ Retorne JSON com: resumo, achados, recomendações, sinais de alerta, e sugestõ
 
   async generateFromPromptWithImage(prompt: string, imageBase64: string, _user: User): Promise<string> {
     const { result } = await callAIGateway({ task: 'text', prompt, imageBase64 });
+    return result;
+  },
+
+  async generateIncluiLabActivitySchema(prompt: string, _user: User): Promise<string> {
+    const { result } = await callAIGateway({
+      task: 'json',
+      prompt,
+      requestType: 'incluilab_activity_schema',
+    });
     return result;
   },
 

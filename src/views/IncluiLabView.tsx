@@ -253,7 +253,7 @@ function createLegacyActivity(title: string, content: string): ActivitySchema {
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 
 const IMAGE_STYLE_PROMPT = 'imagem pequena educativa para apoiar atividade escolar, fundo branco, cores suaves, traco limpo, sem texto na imagem';
-const A4_WORKSHEET_STYLE_PROMPT = 'folha de atividade escolar A4, fundo branco, titulo grande, quadros simples, bordas discretas, poucas cores, imagens pequenas e educativas, texto legivel, organizacao limpa, estilo atividade impressa de escola brasileira, sem poluicao visual, sem excesso de elementos, sem degrades pesados, no maximo 5 questoes';
+const A4_WORKSHEET_STYLE_PROMPT = 'Gerar imagem A4 vertical de atividade escolar brasileira, fundo branco, estilo worksheet didatico premium, titulo grande no topo, cabecalho Nome/Data/Turma, questoes em quadros separados, imagens pequenas e educativas, bordas finas, poucas cores, texto legivel, linhas para resposta, sem poluicao visual, sem texto cortado, sem sobreposicao, sem repetir numeracao, no maximo 5 questoes, aparencia de material pronto para imprimir e vender';
 
 function buildImageActivityPrompt(topic: string, studentCtx: string): string {
   const studentHint = studentCtx
@@ -565,39 +565,35 @@ function buildOpenAIActivityImagePrompt(
 
   return `${A4_WORKSHEET_STYLE_PROMPT}.
 
-Contexto:
-Tipo de atividade: ${tipoAtividade}
-Tema: ${topic}
-Ano/série: ${anoSerie || 'Ensino Fundamental'}
-Público-alvo: ${publicoAlvo}${adaptacaoLine}
+Contexto da atividade:
+- Tipo: ${tipoAtividade}
+- Tema: ${topic}
+- Ano/série: ${anoSerie || 'Ensino Fundamental'}
+- Público-alvo: ${publicoAlvo}${adaptacaoLine}
 
-Conteúdo aprovado:
+Conteúdo aprovado para a folha:
 ${descricaoFolha || topic}
 
 Regras visuais obrigatórias:
-- fundo totalmente branco
-- cabecalho simples com Nome, Data e Turma
-- titulo grande no topo
-- texto curto ou instrucao breve somente se necessario
-- 3 a 5 questoes no maximo, cada questao em quadro proprio
-- bordas finas em azul/cinza ou verde suave
-- usar no maximo 2 cores principais
-- imagens pequenas, educativas e laterais; nao ocupar metade da folha
-- espacos claros para resposta do aluno
-- fonte grande e legivel
-- sem poluicao visual, sem excesso de elementos, sem blocos chamativos
-- sem degrades pesados
-- sem objetivo longo, metodologia, materiais, BNCC, observacoes do professor ou guia pedagogico na folha do aluno
-- sem sobrepor texto e imagens
-- sem cortar palavras nas bordas
-- sem reticencias, texto truncado ou frases incompletas
-- sem inventar texto diferente do conteúdo aprovado
-- sem alterar acentuação ou ortografia
-- sem repetir numeração
-- máximo ${maxPages} de conteúdo
-- todo texto visível em Português do Brasil correto
+- Fundo totalmente branco
+- Cabeçalho topo: campos Nome / Data / Turma com linha para preenchimento manual
+- Título grande e chamativo logo abaixo do cabeçalho
+- 3 a 5 questões numeradas, cada uma em quadro próprio com borda fina cinza ou petróleo
+- No máximo 3 cores em toda a folha
+- Imagens pequenas e educativas apenas ao lado de questões que precisam de apoio visual
+- Linhas horizontais claras para resposta do aluno em cada questão
+- Fonte grande, legível e de alto contraste
+- Rodapé discreto com "IncluiLAB"
+- Máximo ${maxPages}
+- Aparência de material didático pronto para imprimir e vender
 
-Estilo: atividade impressa de escola brasileira, limpa, tradicional e premium.`;
+Proibido na folha do aluno:
+- Objetivo pedagógico, metodologia, materiais ou guia do professor
+- Blocos coloridos enormes ou degradês
+- Texto sobreposto a imagens
+- Texto cortado nas bordas ou reticências
+- Numeração repetida
+- Qualquer idioma diferente do Português do Brasil`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

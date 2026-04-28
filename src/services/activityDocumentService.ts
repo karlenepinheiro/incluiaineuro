@@ -183,25 +183,26 @@ ${cfg.promptHint}
 REGRAS ABSOLUTAS:
 1. Idioma: SOMENTE português do Brasil (exceto questões de inglês quando disciplina=ingles).
 2. Linguagem simples, clara e pedagógica.
-3. Mínimo 4 questões, máximo 8 questões.
-4. Questões práticas, concretas e adaptadas ao diagnóstico do aluno.
-5. NÃO invente termos médicos ou palavras inexistentes.
-6. O campo "disciplina" deve ser EXATAMENTE um destes valores: matematica | portugues | ciencias | ingles | geografia | geral
+3. Gere 3 a 5 questoes no maximo; atividades simples devem ter 3 questoes.
+4. Questoes praticas, concretas e adaptadas ao diagnostico do aluno, com comandos curtos.
+5. Nao inclua metodologia, materiais, observacoes do professor ou guia pedagogico na folha do aluno.
+6. Nao invente termos medicos ou palavras inexistentes.
+7. O campo "disciplina" deve ser EXATAMENTE um destes valores: matematica | portugues | ciencias | ingles | geografia | geral
 
 RETORNE SOMENTE o JSON abaixo, sem markdown, sem explicações adicionais:
 {
   "disciplina": "${disciplina}",
   "titulo": "Título claro da atividade em português",
-  "subtitulo": "Breve descrição: ex. Atividade adaptada de ${cfg.label}",
-  "instrucao": "Instrução curta e direta para o aluno",
-  "objetivo": "Objetivo de aprendizagem em 1-2 frases, focado na habilidade desenvolvida",
+  "subtitulo": "Texto curto opcional, sem explicacao pedagogica",
+  "instrucao": "Instrucao curta e direta para o aluno",
+  "objetivo": "Frase curta para referencia interna; nao deve virar bloco longo na folha",
   "questoes": [
     "Enunciado completo da questão 1",
     "Enunciado completo da questão 2",
     "Enunciado completo da questão 3",
     "Enunciado completo da questão 4"
   ],
-  "observacao_professor": "Orientação prática para o professor: como mediar, apoiar e avaliar",
+  "observacao_professor": "Orientacao separada para o professor; nao misturar na folha do aluno",
   "nivel_dificuldade": "Fácil | Médio | Difícil"
 }`;
 }
