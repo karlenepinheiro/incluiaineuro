@@ -22,7 +22,7 @@ import { GeneratedActivityService } from '../services/persistenceService';
 import { WorkflowCanvas as AtivaIACanvas } from '../components/ativaIA/WorkflowCanvas';
 import { A4ActivityRenderer } from '../components/incluilab/A4ActivityRenderer';
 import { ActivityA4Premium, ActivityVisualStyle } from '../components/incluilab/ActivityA4Premium';
-import { downloadElementAsA4Pdf } from '../utils/incluilabPdf';
+import { exportAsPDF, exportAsPNG } from '../utils/incluilabExport';
 import {
   getStoredContentJson,
   IncluiLabActivityContent,
@@ -1651,29 +1651,34 @@ const ResultView: React.FC<{
   onSave:       () => void;
   saving:       boolean;
   onExportJson: () => void;
-  onDownloadImg:() => void;
-}> = ({ result, studentName, visualStyle = 'fundamental', onSave, saving, onExportJson, onDownloadImg }) => {
+}> = ({ result, studentName, visualStyle = 'fundamental', onSave, saving, onExportJson }) => {
   const hasImage    = !!result.imageUrl;
   const hasActivity = !!result.contentJson || !!result.activity;
   const hasText     = !!result.contentJson || !!result.activity || !!result.content;
   const hasAnalysis = !!result.analysisText;
-  const hasGuide    = !!result.activity?.guia_pedagogico || !!result.guiaText;
+  const hasGuide    = !!result.guiaText || !!(result.activity as any)?.guia_pedagogico;
   const saved       = !!result.savedId;
-  const pdfTargetRef = useRef<HTMLDivElement | null>(null);
-  const [pdfBusy, setPdfBusy] = useState(false);
+  const folhaAlunoRef    = useRef<HTMLDivElement | null>(null);
+  const guiaProfessorRef = useRef<HTMLDivElement | null>(null);
+  const [exportBusy, setExportBusy] = useState<'pdf' | 'png' | null>(null);
 
   type ResultTab = 'folha' | 'guia' | 'analise';
   const [activeTab, setActiveTab] = useState<ResultTab>('folha');
 
   const hasTabs = hasGuide || hasAnalysis;
 
-  const handleDownloadPdf = async () => {
-    if (!pdfTargetRef.current) return;
-    setPdfBusy(true);
+  const handleExport = async (format: 'pdf' | 'png') => {
+    const ref = activeTab === 'guia' ? guiaProfessorRef : folhaAlunoRef;
+    if (!ref.current) return;
+    setExportBusy(format);
+    const baseName = sanitizePdfFilename(result.title || 'atividade-incluilab').replace(/\.pdf$/, '');
     try {
-      await downloadElementAsA4Pdf(pdfTargetRef.current, sanitizePdfFilename(result.title || 'atividade-incluilab'));
+      const exportPromise = format === 'pdf'
+        ? exportAsPDF(ref.current, `${baseName}.pdf`)
+        : exportAsPNG(ref.current, `${baseName}.png`);
+      await Promise.all([exportPromise, new Promise(r => setTimeout(r, 1000))]);
     } finally {
-      setPdfBusy(false);
+      setExportBusy(null);
     }
   };
 
@@ -1693,7 +1698,7 @@ const ResultView: React.FC<{
     </button>
   );
 
-  const PreviewStage: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  const PreviewStage: React.FC<{ children: React.ReactNode; innerRef?: React.RefObject<HTMLDivElement | null> }> = ({ children, innerRef }) => (
     <div style={{
       maxWidth: 1100,
       margin: '0 auto',
@@ -1702,7 +1707,7 @@ const ResultView: React.FC<{
       justifyContent: 'center',
       alignItems: 'flex-start',
     }}>
-      <div ref={pdfTargetRef} style={{ display: 'inline-block' }}>
+      <div ref={innerRef} style={{ display: 'inline-block' }}>
         {children}
       </div>
     </div>
@@ -1710,6 +1715,43 @@ const ResultView: React.FC<{
 
   return (
     <div style={{ padding: '20px 28px 32px' }}>
+
+      {/* Overlay de exportação premium */}
+      {exportBusy && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(246,244,239,0.88)',
+          backdropFilter: 'blur(6px)',
+          WebkitBackdropFilter: 'blur(6px)',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 22,
+        }}>
+          <div style={{
+            width: 76, height: 76, borderRadius: 22,
+            background: `linear-gradient(135deg, #1F4E5F, #2a6880)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 10px 36px rgba(31,78,95,0.38)',
+            animation: 'incluilab-export-pulse 2s ease-in-out infinite',
+          }}>
+            <Sparkles size={34} color="#fff" />
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ margin: '0 0 7px', fontSize: 19, fontWeight: 800, color: '#2E3A59', letterSpacing: '-0.3px' }}>
+              Gerando seu material...
+            </p>
+            <p style={{ margin: 0, fontSize: 13, color: '#7B8BAF' }}>
+              {exportBusy === 'pdf' ? 'Preparando o PDF para download' : 'Preparando a imagem PNG'}
+            </p>
+          </div>
+          <style>{`
+            @keyframes incluilab-export-pulse {
+              0%,100%{transform:scale(1);box-shadow:0 10px 36px rgba(31,78,95,0.38)}
+              50%{transform:scale(1.07);box-shadow:0 16px 48px rgba(31,78,95,0.55)}
+            }
+          `}</style>
+        </div>
+      )}
+
       {/* Toolbar sticky */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
@@ -1745,21 +1787,16 @@ const ResultView: React.FC<{
 
         {/* Ações */}
         <div style={{ display: 'flex', gap: 5, flexShrink: 0, marginLeft: hasTabs ? 0 : 'auto' }}>
-          {hasActivity && !hasImage && activeTab === 'folha' && (
+          {activeTab !== 'analise' && (
             <>
-              <Btn size="sm" icon={Download} onClick={onExportJson}>JSON</Btn>
-              <Btn size="sm" icon={Download} onClick={handleDownloadPdf} disabled={pdfBusy}>
-                {pdfBusy ? 'Gerando PDF...' : 'Baixar PDF'}
+              <Btn size="sm" icon={Download} onClick={() => void handleExport('pdf')} disabled={!!exportBusy}>
+                {exportBusy === 'pdf' ? 'Gerando...' : 'Baixar PDF'}
+              </Btn>
+              <Btn size="sm" icon={Download} onClick={() => void handleExport('png')} disabled={!!exportBusy}>
+                {exportBusy === 'png' ? 'Gerando...' : 'Baixar PNG'}
               </Btn>
             </>
           )}
-          {hasActivity && activeTab === 'guia' && (
-            <Btn size="sm" icon={Download} onClick={handleDownloadPdf} disabled={pdfBusy}>
-              {pdfBusy ? 'Gerando PDF...' : 'Baixar PDF'}
-            </Btn>
-          )}
-          {hasImage && activeTab === 'folha' && <Btn size="sm" icon={Download} onClick={handleDownloadPdf} disabled={pdfBusy}>{pdfBusy ? 'Gerando PDF...' : 'Baixar PDF'}</Btn>}
-          {hasImage && activeTab === 'folha' && <Btn size="sm" icon={Download} onClick={onDownloadImg}>PNG</Btn>}
           <Btn size="sm" icon={saved ? CheckCircle : Bookmark} variant={saved ? 'success' : 'primary'} onClick={onSave} disabled={saving || saved}>
             {saving ? 'Salvando…' : saved ? 'Salvo!' : 'Salvar'}
           </Btn>
@@ -1770,7 +1807,7 @@ const ResultView: React.FC<{
       {activeTab === 'folha' && (
         <>
           {hasImage && (
-            <PreviewStage>
+            <PreviewStage innerRef={folhaAlunoRef}>
               <div data-incluilab-pdf-page="true" style={{
                 width: 794,
                 minHeight: 1123,
@@ -1788,12 +1825,12 @@ const ResultView: React.FC<{
             </PreviewStage>
           )}
           {(result.contentJson || result.activity) && !hasImage && (
-            <PreviewStage>
+            <PreviewStage innerRef={folhaAlunoRef}>
               <ActivityA4Premium contentJson={result.contentJson || result.activity} studentName={studentName || undefined} visualStyle={visualStyle} />
             </PreviewStage>
           )}
           {!result.contentJson && !result.activity && hasText && !hasImage && result.content && (
-            <PreviewStage>
+            <PreviewStage innerRef={folhaAlunoRef}>
               <ActivityA4Premium contentJson={normalizeIncluiLabActivity(result.content, { title: result.title })} studentName={studentName || undefined} visualStyle={visualStyle} />
             </PreviewStage>
           )}
@@ -1804,7 +1841,7 @@ const ResultView: React.FC<{
       {activeTab === 'guia' && hasGuide && (
         result.guiaText
           ? (
-            <PreviewStage>
+            <PreviewStage innerRef={guiaProfessorRef}>
               <div data-incluilab-pdf-page="true" style={{
                 width: 794,
                 minHeight: 1123,
@@ -1841,7 +1878,7 @@ const ResultView: React.FC<{
             </PreviewStage>
           )
           : result.activity
-            ? <PreviewStage><A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="guia" /></PreviewStage>
+            ? <PreviewStage innerRef={guiaProfessorRef}><A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="guia" /></PreviewStage>
             : null
       )}
 
@@ -2456,7 +2493,6 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
                 onSave={handleSave}
                 saving={savingResult}
                 onExportJson={() => exportActivityJson(result.contentJson || result.activity || result.content || {}, `${exportTitle}.json`)}
-                onDownloadImg={() => downloadImage(result.imageUrl ?? '', `${exportTitle}.png`)}
               />
             ) : (
               <div style={{ minHeight: 420, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32, color: C.sec, textAlign: 'center' }}>
@@ -2617,7 +2653,6 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
                 onSave={handleSave}
                 saving={savingResult}
                 onExportJson={() => exportActivityJson(result.contentJson || result.activity || result.content || {}, `${exportTitle}.json`)}
-                onDownloadImg={() => downloadImage(result.imageUrl ?? '', `${exportTitle}.png`)}
               />
             )}
           </div>
