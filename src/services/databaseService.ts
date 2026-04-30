@@ -356,6 +356,10 @@ export const databaseService = {
       'missing_required_fields', 'is_pre_registered',
       // prior knowledge (schema_v12_prior_knowledge.sql):
       'prior_knowledge',
+      // sociofamily data (schema_v_sociofamily.sql):
+      'sociofamily_data',
+      'primary_contact_name', 'primary_contact_phone',
+      'emergency_contact_name', 'emergency_contact_phone',
     ]);
 
     // 2. dbPayload: mapeamento camelCase/legado → nomes reais das colunas
@@ -468,6 +472,15 @@ export const databaseService = {
       dbPayload.prior_knowledge = student.priorKnowledge ?? null;
     }
 
+    // Dados sociofamiliares (schema_v_sociofamily.sql) — LGPD: uso interno escolar
+    if (student?.sociofamilyData !== undefined) {
+      dbPayload.sociofamily_data = student.sociofamilyData ?? null;
+    }
+    if (student?.primaryContactName  !== undefined) dbPayload.primary_contact_name   = student.primaryContactName   ?? null;
+    if (student?.primaryContactPhone !== undefined) dbPayload.primary_contact_phone  = student.primaryContactPhone  ?? null;
+    if (student?.emergencyContactName  !== undefined) dbPayload.emergency_contact_name  = student.emergencyContactName  ?? null;
+    if (student?.emergencyContactPhone !== undefined) dbPayload.emergency_contact_phone = student.emergencyContactPhone ?? null;
+
     if (student?.id) dbPayload.id = student.id;
     // created_by é NOT NULL — usa o ID do usuário autenticado como fallback
     dbPayload.created_by = student?.created_by ?? uid;
@@ -506,6 +519,9 @@ export const databaseService = {
         'missing_required_fields','is_pre_registered',
         // prior knowledge (schema_v12):
         'prior_knowledge',
+        // sociofamily (schema_v_sociofamily):
+        'sociofamily_data','primary_contact_name','primary_contact_phone',
+        'emergency_contact_name','emergency_contact_phone',
       ]);
       const corePayload = Object.fromEntries(
         Object.entries(dbPayload).filter(([k]) => !EXTRA_COLUMNS.has(k))
@@ -749,7 +765,13 @@ export const databaseService = {
       importSource:         r.import_source           ?? r.importSource,
       isPreRegistered:      !!(r.is_pre_registered    ?? r.isPreRegistered ?? false),
       missingRequiredFields: r.missing_required_fields ?? r.missingRequiredFields ?? [],
-      priorKnowledge:       r.prior_knowledge          ?? r.priorKnowledge          ?? undefined,
+      priorKnowledge:         r.prior_knowledge          ?? r.priorKnowledge          ?? undefined,
+      // Dados sociofamiliares (schema_v_sociofamily.sql)
+      sociofamilyData:        r.sociofamily_data         ?? r.sociofamilyData         ?? undefined,
+      primaryContactName:     r.primary_contact_name     ?? r.primaryContactName      ?? undefined,
+      primaryContactPhone:    r.primary_contact_phone    ?? r.primaryContactPhone     ?? undefined,
+      emergencyContactName:   r.emergency_contact_name   ?? r.emergencyContactName    ?? undefined,
+      emergencyContactPhone:  r.emergency_contact_phone  ?? r.emergencyContactPhone   ?? undefined,
     });
 
     return [...(ownedData ?? []), ...linkedRows].map(normalize) as any;

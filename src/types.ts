@@ -401,6 +401,95 @@ export interface TimelineEvent {
   author?: string;
 }
 
+// =====================
+// SOCIOFAMILY DATA
+// =====================
+
+export interface SociofamilyAddress {
+  cep: string;
+  street: string;
+  number: string;
+  complement: string;
+  district: string;
+  city: string;
+  state: string;
+}
+
+export type TriState = 'yes' | 'no' | 'unknown';
+
+export interface SociofamilyGuardian {
+  relationship: string;
+  fullName: string;
+  birthDate: string;
+  cpf: string;
+  phone: string;
+  isEmergencyContact: boolean;
+  address: SociofamilyAddress;
+}
+
+export interface SociofamilyGuardian2 extends SociofamilyGuardian {
+  sameAddressAsGuardian1: boolean;
+}
+
+export interface SociofamilyData {
+  benefits: {
+    receivesBenefit: TriState;
+    bolsaFamilia: TriState;
+    bpcLoas: TriState;
+    otherBenefit: string;
+    notes: string;
+  };
+  familyStatus: {
+    guardiansMarriedOrSameAddress: TriState;
+    studentLivesWith: string;
+    mainGuardianName: string;
+    schoolPrimaryPhone: string;
+    emergencyContactName: string;
+    emergencyContactPhone: string;
+    notes: string;
+  };
+  guardian1: SociofamilyGuardian;
+  guardian2: SociofamilyGuardian2;
+}
+
+export const DEFAULT_SOCIOFAMILY_DATA: SociofamilyData = {
+  benefits: {
+    receivesBenefit: 'unknown',
+    bolsaFamilia: 'unknown',
+    bpcLoas: 'unknown',
+    otherBenefit: '',
+    notes: '',
+  },
+  familyStatus: {
+    guardiansMarriedOrSameAddress: 'unknown',
+    studentLivesWith: '',
+    mainGuardianName: '',
+    schoolPrimaryPhone: '',
+    emergencyContactName: '',
+    emergencyContactPhone: '',
+    notes: '',
+  },
+  guardian1: {
+    relationship: '',
+    fullName: '',
+    birthDate: '',
+    cpf: '',
+    phone: '',
+    isEmergencyContact: false,
+    address: { cep: '', street: '', number: '', complement: '', district: '', city: '', state: '' },
+  },
+  guardian2: {
+    relationship: '',
+    fullName: '',
+    birthDate: '',
+    cpf: '',
+    phone: '',
+    isEmergencyContact: false,
+    sameAddressAsGuardian1: false,
+    address: { cep: '', street: '', number: '', complement: '', district: '', city: '', state: '' },
+  },
+};
+
 export interface Student {
   id: string;
   tenant_id?: string;
@@ -477,6 +566,14 @@ export interface Student {
   evolutions?: StudentEvolution[];
   fichasComplementares?: FichaComplementar[];
   priorKnowledge?: PriorKnowledgeProfile;
+
+  // ── Dados Sociofamiliares (LGPD: uso interno escolar) ──────────────────────
+  sociofamilyData?: SociofamilyData;
+  /** Espelha familyStatus.mainGuardianName — coluna indexável no banco */
+  primaryContactName?: string;
+  primaryContactPhone?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
 }
 
 export interface ServiceDailyChecklist {
@@ -752,6 +849,29 @@ export type DisciplinaKey =
   | 'geografia'
   | 'geral';
 
+export type AtividadeBlockType =
+  | 'question'
+  | 'multiple_choice'
+  | 'fill_blank'
+  | 'matching'
+  | 'drawing'
+  | 'info'
+  | 'tip';
+
+export interface AtividadeBlock {
+  id: string;
+  type: AtividadeBlockType;
+  title?: string;
+  question?: string;
+  content?: string;
+  options?: string[];
+  items?: string[];
+  matchItems?: string[];
+  fillText?: string;
+  answerLines?: number;
+  emoji?: string;
+}
+
 export interface AtividadeJSON {
   disciplina?: DisciplinaKey | string;
   titulo: string;
@@ -759,6 +879,8 @@ export interface AtividadeJSON {
   instrucao: string;
   objetivo: string;
   questoes: string[];
+  blocks?: AtividadeBlock[];
+  visualStyle?: 'colorful' | 'clean' | 'bw';
   observacao_professor: string;
   nivel_dificuldade?: string;
 }

@@ -1075,28 +1075,52 @@ Se BNCC estiver vazio, sugira **1–2** códigos plausíveis marcados como "Suge
     const pkBlockStructured = buildPKBlock(student);
 
     const prompt = `Você é uma pedagoga especialista em AEE e educação inclusiva brasileira.
+Crie uma atividade pedagógica adaptada para o aluno abaixo. Siga as regras com rigor.
 
-Crie uma atividade pedagógica adaptada para o aluno descrito abaixo.
+DISCIPLINA: ${discipline}
+TEMA: ${topic}
+ANO/SÉRIE: ${grade}
+${period ? `PERÍODO: ${period}` : ''}
+${bncc ? `BNCC: ${bncc}` : ''}
 
 DADOS DO ALUNO:
 - Nome: ${student.name}
 - Diagnóstico(s): ${diagnosis}
 - Nível de suporte: ${student.supportLevel || 'Não informado'}
-- Ano/Série: ${grade}
-- Disciplina: ${discipline}
-${period ? `- Período/Unidade: ${period}` : ''}
-${bncc ? `- BNCC: ${bncc}` : ''}
 ${pkBlockStructured}
 
-TEMA: ${topic}
+REGRAS ABSOLUTAS:
+1. Idioma: SOMENTE português do Brasil.
+2. Título: máx. 8 palavras; direto ao ponto.
+3. Subtítulo: máx. 1 linha de contexto (opcional).
+4. Instrução: 1 linha de comando curto para o aluno (ex: "Leia e responda.").
+5. Questoes (campo legado): lista plana de 3-5 enunciados, sem explicações longas.
+6. Blocks (campo rico): exatamente os mesmos conteúdos, mas com tipo detalhado.
+   - Varie os tipos: use "question" para discursivas (answerLines 2-4),
+     "multiple_choice" para escolha (4 opções cada), "fill_blank" com _____ no texto,
+     "drawing" quando pedir para ilustrar, "info" para texto introdutório.
+   - Máx. 5 blocos ao total.
+7. visualStyle: use "colorful" para Educação Infantil/1º-3º ano; "clean" para 4º-9º ano; "bw" só se solicitado.
+8. Nenhum bloco deve ter texto de orientação ao professor; isso vai em observacao_professor.
+9. Não invente termos médicos ou diagnósticos.
+10. Campo "disciplina" deve ser EXATAMENTE: matematica | portugues | ciencias | ingles | geografia | geral
 
-REGRAS: Idioma SOMENTE portugues do Brasil. Gere 3 a 5 questoes no maximo, com comandos curtos. A folha do aluno deve ser limpa e imprimivel; nao misture metodologia, materiais ou observacoes do professor nela.
-
-RETORNE SOMENTE o JSON:
+RETORNE SOMENTE o JSON (sem markdown, sem explicações):
 {
-  "titulo": "...", "subtitulo": "...", "instrucao": "...", "objetivo": "...",
-  "questoes": ["questão 1", "questão 2"],
-  "observacao_professor": "...", "nivel_dificuldade": "Fácil | Médio | Difícil"
+  "disciplina": "${(discipline || 'geral').toLowerCase().replace(/\s+/g,'_').replace('língua_portuguesa','portugues').replace('ciências','ciencias').replace('inglês','ingles').replace('matemática','matematica').replace('geografia','geografia')}",
+  "titulo": "Título curto da atividade",
+  "subtitulo": "Contexto em 1 linha opcional",
+  "instrucao": "Comando direto em 1 linha para o aluno",
+  "objetivo": "Objetivo interno (não aparece na folha do aluno)",
+  "questoes": ["enunciado 1", "enunciado 2", "enunciado 3"],
+  "blocks": [
+    {"id":"b1","type":"question","question":"Enunciado discursivo...","answerLines":3},
+    {"id":"b2","type":"multiple_choice","question":"Pergunta...","options":["A) Opção","B) Opção","C) Opção","D) Opção"]},
+    {"id":"b3","type":"fill_blank","fillText":"Complete: O resultado de 2 + 3 é _____."}
+  ],
+  "observacao_professor": "Orientação para o professor (separada da folha do aluno)",
+  "nivel_dificuldade": "Fácil",
+  "visualStyle": "colorful"
 }`;
 
     const t0 = Date.now();

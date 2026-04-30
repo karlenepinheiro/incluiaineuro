@@ -237,6 +237,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ? <NavItem viewId="incluilab" icon={FlaskConical} label="Laboratório de Adaptações" />
               : <LockedNavItemPro icon={FlaskConical} label="Laboratório de Adaptações" />
             }
+            {isPaid
+              ? <NavItem viewId="incluilab_library" icon={FileText} label="Biblioteca IncluiLAB" />
+              : <LockedNavItemPro icon={FileText} label="Biblioteca IncluiLAB" />
+            }
 
             {/* Avaliação & Histórico */}
             <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">

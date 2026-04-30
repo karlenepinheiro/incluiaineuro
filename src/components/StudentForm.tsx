@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Student, SchoolConfig, PlanTier, getPlanLimits, PriorKnowledgeProfile } from '../types';
+import { Student, SchoolConfig, PlanTier, getPlanLimits, PriorKnowledgeProfile, SociofamilyData, DEFAULT_SOCIOFAMILY_DATA } from '../types';
 import { Save, ArrowLeft, Upload, FileText, Trash2, Plus, AlertCircle, Lock, Stethoscope, BookOpen, Users, HelpCircle, X, Paperclip, Sparkles } from 'lucide-react';
+import { SociofamilySection } from './SociofamilySection';
 import { MultiSelect } from './MultiSelect';
 import { SmartTextarea } from './SmartTextarea'; 
 import { PedagogicalProfileSection, PedagogicalProfileSuggestionKey } from './PedagogicalProfileSection';
@@ -131,7 +132,12 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
     city: initialData?.city || '',
     state: initialData?.state || '',
     priorKnowledge: initialData?.priorKnowledge ?? undefined,
+    sociofamilyData: initialData?.sociofamilyData ?? undefined,
   });
+
+  const [sociofamilyData, setSociofamilyData] = useState<SociofamilyData>(
+    initialData?.sociofamilyData ?? DEFAULT_SOCIOFAMILY_DATA
+  );
 
   const [cidInput, setCidInput] = useState('');
   const [cidList, setCidList] = useState<string[]>([]);
@@ -236,6 +242,9 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         cid: normalizedCid,
         priorKnowledge: initialData.priorKnowledge ?? undefined,
       }));
+      if (initialData.sociofamilyData) {
+        setSociofamilyData(initialData.sociofamilyData);
+      }
     }
   }, [initialData]);
 
@@ -381,7 +390,23 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
       ? (formData.externalSchoolName || '')
       : (schoolNameInput.trim() || matchedSchool?.schoolName || '');
     const resolvedSchoolId = matchedSchool?.id || formData.schoolId || '';
-    onSave({ ...formData, schoolId: resolvedSchoolId, schoolName: resolvedSchoolName });
+    // Espelha contatos principais para campos indexáveis
+    const sf = sociofamilyData;
+    const primaryContactName  = sf.familyStatus.mainGuardianName  || sf.guardian1.fullName  || undefined;
+    const primaryContactPhone = sf.familyStatus.schoolPrimaryPhone || sf.guardian1.phone     || undefined;
+    const emergencyContactName  = sf.familyStatus.emergencyContactName  || undefined;
+    const emergencyContactPhone = sf.familyStatus.emergencyContactPhone || undefined;
+
+    onSave({
+      ...formData,
+      schoolId: resolvedSchoolId,
+      schoolName: resolvedSchoolName,
+      sociofamilyData: sf,
+      primaryContactName,
+      primaryContactPhone,
+      emergencyContactName,
+      emergencyContactPhone,
+    });
   };
 
   const Tooltip = ({text}: {text: string}) => (
@@ -920,6 +945,12 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
           onChange={(pk) => setFormData(prev => ({ ...prev, priorKnowledge: pk }))}
           onSuggestAI={handleSuggestAI}
           generatingAreas={generatingAI}
+        />
+
+        {/* Dados Sociofamiliares */}
+        <SociofamilySection
+          value={sociofamilyData}
+          onChange={setSociofamilyData}
         />
 
         <div className="flex justify-end gap-3 pt-6 border-t border-gray-200">

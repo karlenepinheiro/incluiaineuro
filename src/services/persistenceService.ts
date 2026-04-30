@@ -462,7 +462,10 @@ export const GeneratedActivityService = {
     userId:      string;
     studentId?:  string;
     title:       string;
+    prompt?:      string;
     content?:    string;
+    contentJson?: unknown;
+    contentHtml?: string;
     imageUrl?:   string;
     bnccCodes?:  string[];
     discipline?: string;
@@ -470,26 +473,53 @@ export const GeneratedActivityService = {
     tags?:       string[];
     isAdapted?:  boolean;
     creditsUsed?: number;
+    costCredits?: number;
+    mode?:        string;
+    style?:       string;
   }): Promise<string | null> {
     try {
-      const { data, error } = await supabase
+      const legacyPayload = {
+        tenant_id:   params.tenantId,
+        user_id:     params.userId,
+        student_id:  params.studentId ?? null,
+        title:       params.title,
+        content:     params.content ? params.content.slice(0, 10000) : null,
+        image_url:   params.imageUrl ?? null,
+        bncc_codes:  params.bnccCodes ?? [],
+        discipline:  params.discipline ?? null,
+        guidance:    params.guidance ?? null,
+        tags:        params.tags ?? [],
+        is_adapted:  params.isAdapted ?? false,
+        credits_used: params.creditsUsed ?? 0,
+      };
+
+      const enrichedPayload = {
+        ...legacyPayload,
+        prompt:       params.prompt ?? null,
+        content_json: params.contentJson ?? {},
+        content_html: params.contentHtml ?? null,
+        style:        params.style ?? null,
+        mode:         params.mode ?? null,
+        cost_credits: params.costCredits ?? params.creditsUsed ?? 0,
+        updated_at:   new Date().toISOString(),
+      };
+
+      let { data, error } = await supabase
         .from('generated_activities')
-        .insert({
-          tenant_id:   params.tenantId,
-          user_id:     params.userId,
-          student_id:  params.studentId ?? null,
-          title:       params.title,
-          content:     params.content ? params.content.slice(0, 10000) : null,
-          image_url:   params.imageUrl ?? null,
-          bncc_codes:  params.bnccCodes ?? [],
-          discipline:  params.discipline ?? null,
-          guidance:    params.guidance ?? null,
-          tags:        params.tags ?? [],
-          is_adapted:  params.isAdapted ?? false,
-          credits_used: params.creditsUsed ?? 0,
-        })
+        .insert(enrichedPayload)
         .select('id')
         .single();
+
+      if (error && /content_json|content_html|cost_credits|prompt|updated_at|style|mode/i.test(error.message ?? '')) {
+        const retry = await supabase
+          .from('generated_activities')
+          .insert(legacyPayload)
+          .select('id')
+          .single();
+        data = retry.data;
+        error = retry.error;
+      }
+
       if (error) throw error;
       return data?.id ?? null;
     } catch (e) {
@@ -515,12 +545,27 @@ export const GeneratedActivityService = {
     }
   },
 
+  async getById(id: string): Promise<any | null> {
+    try {
+      const { data, error } = await supabase
+        .from('generated_activities')
+        .select('*')
+        .eq('id', id)
+        .single();
+      if (error) throw error;
+      return data ?? null;
+    } catch (e) {
+      console.error('[GeneratedActivityService.getById]', e);
+      return null;
+    }
+  },
+
   /** Carrega atividades geradas vinculadas a um aluno específico */
   async getForStudent(studentId: string): Promise<any[]> {
     try {
       const { data, error } = await supabase
         .from('generated_activities')
-        .select('id, title, content, image_url, bncc_codes, discipline, guidance, tags, credits_used, model_used, output_type, is_adapted, created_at')
+        .select('*')
         .eq('student_id', studentId)
         .order('created_at', { ascending: false })
         .limit(200);

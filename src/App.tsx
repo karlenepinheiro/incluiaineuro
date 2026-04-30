@@ -1178,7 +1178,7 @@ const App: React.FC = () => {
     <ErrorBoundary>
       {showLGPD && <LGPDModal onAccept={handleLGPDAccept} />}
 
-      <div className={`${view === 'incluilab' ? 'h-screen overflow-hidden' : 'min-h-screen'} flex bg-[#f8fafc] font-sans print:bg-white relative`}>
+      <div className={`${view === 'incluilab' || view === 'incluilab_library' ? 'h-screen overflow-hidden' : 'min-h-screen'} flex bg-[#f8fafc] font-sans print:bg-white relative`}>
         {isSidebarOpen && (
           <div
             className="fixed inset-0 bg-black/50 z-30 lg:hidden"
@@ -1241,7 +1241,7 @@ const App: React.FC = () => {
             )}
           </header>
 
-          <main className={view === 'incluilab' ? 'flex-1 overflow-hidden flex flex-col min-h-0' : 'flex-1 overflow-y-auto'}>
+          <main className={view === 'incluilab' || view === 'incluilab_library' ? 'flex-1 overflow-hidden flex flex-col min-h-0' : 'flex-1 overflow-y-auto'}>
             {/* Banner de configuração da escola — aparece enquanto os dados estiverem incompletos */}
             {!user.isAdmin && (
               <SchoolSetupBanner
@@ -1250,7 +1250,7 @@ const App: React.FC = () => {
               />
             )}
 
-            <div className={view === 'incluilab' ? 'flex-1 min-h-0 overflow-hidden' : 'p-4 lg:p-8'}>
+            <div className={view === 'incluilab' || view === 'incluilab_library' ? 'flex-1 min-h-0 overflow-hidden' : 'p-4 lg:p-8'}>
             {view === 'dashboard' && (
               <DashboardView
                 userName={user.name}
@@ -1521,6 +1521,21 @@ const App: React.FC = () => {
                 user={user}
                 students={students}
                 creditsAvailable={creditsAvailable}
+                creditsUsed={creditsConsumedCycle}
+                creditsTotal={planMonthlyCredits + creditsPurchased}
+                onNavigate={handleSetView}
+              />
+            )}
+
+            {view === 'incluilab_library' && (
+              <IncluiLabView
+                user={user}
+                students={students}
+                defaultTab="library"
+                creditsAvailable={creditsAvailable}
+                creditsUsed={creditsConsumedCycle}
+                creditsTotal={planMonthlyCredits + creditsPurchased}
+                onNavigate={handleSetView}
               />
             )}
 

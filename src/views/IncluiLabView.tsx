@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
   Brain, Zap, Sparkles, Loader, Download,
-  Printer, BookOpen, Coins, X, CheckCircle,
+  BookOpen, Coins, X, CheckCircle,
   FileText, Bookmark,
   Trash2, BookMarked, FileImage, Type, Paperclip,
   RefreshCw, User as UserIcon, ChevronDown, ChevronRight,
@@ -15,11 +15,20 @@ import {
 } from 'lucide-react';
 import { User, Student, ActivitySchema, ActivityVisualAsset } from '../types';
 import { AIService, friendlyAIError, cleanJsonString } from '../services/aiService';
+import { callAIGateway } from '../services/aiGatewayService';
 import { INCLUILAB_ACTIVITY_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { StudentContextService } from '../services/studentContextService';
 import { GeneratedActivityService } from '../services/persistenceService';
 import { WorkflowCanvas as AtivaIACanvas } from '../components/ativaIA/WorkflowCanvas';
 import { A4ActivityRenderer } from '../components/incluilab/A4ActivityRenderer';
+import { ActivityA4Premium, ActivityVisualStyle } from '../components/incluilab/ActivityA4Premium';
+import { downloadElementAsA4Pdf } from '../utils/incluilabPdf';
+import {
+  getStoredContentJson,
+  IncluiLabActivityContent,
+  normalizeIncluiLabActivity,
+  sanitizePdfFilename,
+} from '../utils/incluilabActivity';
 import {
   isActivitySchemaValidationError,
   validateActivitySchema,
@@ -28,13 +37,13 @@ import {
 // ─── Paleta ───────────────────────────────────────────────────────────────────
 const C = {
   petrol:  '#1F4E5F',
-  dark:    '#2E3A59',
+  dark:    '#111827',
   gold:    '#C69214',
-  bg:      '#F6F4EF',
+  bg:      '#FFFFFF',
   surface: '#FFFFFF',
-  border:  '#E7E2D8',
-  sec:     '#667085',
-  light:   '#F0F7FA',
+  border:  '#E5E7EB',
+  sec:     '#6B7280',
+  light:   '#F3F4F6',
   green:   '#16A34A',
   greenBg: '#DCFCE7',
   greenBorder: '#BBF7D0',
@@ -111,6 +120,8 @@ interface AttachedFile {
 interface GeneratedResult {
   id:           string;
   title:        string;
+  prompt?:      string;
+  contentJson?: IncluiLabActivityContent;
   activity?:    ActivitySchema;
   content?:     string;
   imageUrl?:    string;
@@ -121,7 +132,7 @@ interface GeneratedResult {
   savedId?:     string;
 }
 
-type LabState = 'idle' | 'preflight' | 'generating' | 'result';
+type LabState = 'idle' | 'generating' | 'result';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -135,20 +146,16 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-function activityToJson(activity: ActivitySchema): string {
+function activityToJson(activity: unknown): string {
   return JSON.stringify(activity, null, 2);
 }
 
-function exportActivityJson(activity: ActivitySchema, filename: string) {
+function exportActivityJson(activity: unknown, filename: string) {
   const blob = new Blob([activityToJson(activity)], { type: 'application/json;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
-}
-
-function printActivity() {
-  window.print();
 }
 
 function downloadImage(dataUrl: string, filename = 'atividade.png') {
@@ -250,6 +257,65 @@ function createLegacyActivity(title: string, content: string): ActivitySchema {
   };
 }
 
+// ─── Helpers de guia pedagógico ───────────────────────────────────────────────
+
+function buildFallbackGuide(topic: string): string {
+  return `# Guia do Professor
+
+## Objetivo da Aula
+Desenvolver competências relacionadas ao tema: **${topic}**.
+
+## Tempo Estimado
+30 a 45 minutos
+
+## Materiais Necessários
+- Folha de atividade impressa
+- Lápis e borracha
+- Materiais visuais de apoio (opcional)
+
+## Metodologia Adaptada
+Apresente o tema com exemplos concretos e linguagem simples. Leia os enunciados em voz alta para alunos com dificuldades de leitura. Permita o uso de recursos de apoio visual.
+
+## Dicas de Mediação
+- Explique cada questão individualmente antes de pedir a resposta
+- Ofereça pistas visuais ou verbais quando necessário
+- Divida tarefas maiores em etapas menores
+- Valorize o processo e o esforço, não apenas o resultado
+
+## Adaptações Inclusivas
+- **TEA**: mantenha rotina e antecipe as etapas da atividade
+- **DI**: simplifique enunciados oralmente e use exemplos concretos
+- **TDAH**: divida a atividade em blocos curtos com pausas
+- **Motoras**: aceite respostas verbais ou com apontamento
+
+## Critérios de Avaliação
+- Participação ativa na proposta
+- Compreensão do tema central
+- Realização das atividades com autonomia ou com apoio adequado
+- Progresso em relação ao ponto de partida individual`;
+}
+
+function extractGuiaText(parsedJson: any, topic: string): string {
+  const g = parsedJson?.guia_pedagogico;
+  if (typeof g === 'string' && g.trim().length > 30) return g;
+  if (g && typeof g === 'object') {
+    const lines: string[] = ['# Guia do Professor'];
+    if (g.objetivo_da_aula) lines.push(`\n## Objetivo da Aula\n${g.objetivo_da_aula}`);
+    if (g.tempo_estimado) lines.push(`\n## Tempo Estimado\n${g.tempo_estimado}`);
+    if (Array.isArray(g.materiais_necessarios) && g.materiais_necessarios.length)
+      lines.push(`\n## Materiais Necessários\n${(g.materiais_necessarios as string[]).map(m => `- ${m}`).join('\n')}`);
+    if (g.metodologia_adaptada) lines.push(`\n## Metodologia Adaptada\n${g.metodologia_adaptada}`);
+    if (Array.isArray(g.dicas_de_mediacao) && g.dicas_de_mediacao.length)
+      lines.push(`\n## Dicas de Mediação\n${(g.dicas_de_mediacao as string[]).map(d => `- ${d}`).join('\n')}`);
+    if (Array.isArray(g.adaptacoes_inclusivas) && g.adaptacoes_inclusivas.length)
+      lines.push(`\n## Adaptações Inclusivas\n${(g.adaptacoes_inclusivas as string[]).map(a => `- ${a}`).join('\n')}`);
+    if (Array.isArray(g.criterios_de_avaliacao) && g.criterios_de_avaliacao.length)
+      lines.push(`\n## Critérios de Avaliação\n${(g.criterios_de_avaliacao as string[]).map(c => `- ${c}`).join('\n')}`);
+    if (lines.length > 1) return lines.join('');
+  }
+  return buildFallbackGuide(topic);
+}
+
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 
 const IMAGE_STYLE_PROMPT = 'imagem pequena educativa para apoiar atividade escolar, fundo branco, cores suaves, traco limpo, sem texto na imagem';
@@ -344,6 +410,84 @@ Regras pedagogicas:
 - Linguagem direta, frases curtas — e para o aluno, nao para o professor.
 - Guia do professor deve ser separado e detalhado.
 - Nao retorne texto livre fora do JSON.`;
+}
+
+function buildPremiumActivityPrompt(topic: string, studentCtx: string): string {
+  const studentBlock = studentCtx
+    ? `\n\nCONTEXTO DO ALUNO:\n${studentCtx}\n\nCrie especificamente para este aluno.`
+    : '';
+
+  return `Voce e especialista em educacao inclusiva e design de atividades escolares para impressao.${studentBlock}
+
+Crie uma atividade visual em folha escolar A4 sobre: "${topic}".
+
+RETORNE APENAS JSON valido. Nao use Markdown. Nao escreva texto antes ou depois do JSON.
+
+Use exatamente este contrato:
+{
+  "title": "Titulo grande e claro",
+  "subtitle": "Subtitulo curto opcional",
+  "subject": "Disciplina",
+  "grade": "Ano/Serie",
+  "studentFields": ["Nome", "Turma", "Data"],
+  "introText": "Instrucao curta para o aluno",
+  "sections": [
+    {
+      "type": "text",
+      "title": "Leitura",
+      "content": "Texto curto, revisado e adequado ao ano/serie."
+    },
+    {
+      "type": "questions",
+      "title": "Questoes",
+      "items": [
+        {
+          "number": 1,
+          "kind": "multiple_choice",
+          "statement": "Enunciado curto e claro.",
+          "options": ["A) Opcao", "B) Opcao", "C) Opcao", "D) Opcao"],
+          "answerLines": 0
+        },
+        {
+          "number": 2,
+          "kind": "short_answer",
+          "statement": "Pergunta com espaco para resposta.",
+          "options": [],
+          "answerLines": 3
+        }
+      ]
+    }
+  ],
+  "visualStyle": {
+    "theme": "school_clean",
+    "background": "white",
+    "border": "discreet",
+    "illustrations": "small_colored",
+    "density": "balanced"
+  }
+}
+
+Tipos validos de sections: text | info_box | vocabulary | questions | match | fill_blank | coloring | table | steps.
+Tipos validos de question.kind: multiple_choice | short_answer | fill_blank | match | coloring | table | steps.
+
+Regras obrigatorias:
+- Folha escolar A4, fundo branco, titulo grande e campos Nome/Turma/Data.
+- Atividade visual para impressao, com questoes em quadros.
+- Texto revisado, linguagem adequada ao ano/serie e frases curtas.
+- Elementos ilustrativos pequenos apenas quando ajudam; pouca poluicao visual.
+- Nao gerar texto corrido longo, metodologia, BNCC ou guia do professor na folha.
+- Nao repetir numeracao; use numbers apenas sequenciais.
+- Use 3 a 6 questoes no maximo, com enunciados curtos.
+- Quando usar table, match, fill_blank, coloring ou steps, preencha os campos necessarios para renderizacao.
+- Retorne somente JSON.`;
+}
+
+function buildPremiumAdaptActivityPrompt(analysis: string, studentCtx: string, extraInstructions: string): string {
+  const extra = extraInstructions ? `\n\nINSTRUCAO EXTRA DO PROFESSOR:\n${extraInstructions}` : '';
+  return buildPremiumActivityPrompt(
+    `Adaptar a atividade original mantendo o objetivo pedagogico. Conteudo extraido: ${analysis.slice(0, 1200)}${extra}`,
+    studentCtx,
+  );
 }
 
 function buildAdaptImagePrompt(studentCtx: string, extraInstructions: string): string {
@@ -803,7 +947,33 @@ const StudentSelector: React.FC<{
   );
 };
 
+// ─── Componente: Créditos discreto ────────────────────────────────────────────
+const CreditsChip: React.FC<{
+  available?: number;
+  onNavigate?: (view: string) => void;
+}> = ({ available, onNavigate }) => {
+  const safeAvail = Math.max(0, Number(available ?? 0));
+  return (
+    <button
+      onClick={() => onNavigate?.('subscription')}
+      title="Gerenciar créditos"
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        padding: '4px 9px', borderRadius: 999, cursor: 'pointer',
+        background: C.bg,
+        border: `1px solid ${C.border}`,
+        color: C.dark,
+        fontWeight: 800, fontSize: 12, lineHeight: 1, outline: 'none',
+        transition: 'all 0.15s', flexShrink: 0,
+      }}
+    >
+      {available !== undefined ? safeAvail : '0'} cr
+    </button>
+  );
+};
+
 // ─── Componente: Sidebar Biblioteca ───────────────────────────────────────────
+
 const LibrarySidebar: React.FC<{
   activities:  any[];
   loading:     boolean;
@@ -1035,6 +1205,163 @@ const PreflightPanel: React.FC<{
   );
 };
 
+// ─── Componente: Preview fake (mock) ─────────────────────────────────────────
+const MockActivityPreview: React.FC = () => (
+  <div style={{
+    position: 'relative',
+    width: 430,
+    maxWidth: 'min(88vw, 430px)',
+    pointerEvents: 'none',
+    userSelect: 'none',
+  }}>
+    <div style={{
+      position: 'absolute',
+      inset: '18px -16px -18px 18px',
+      borderRadius: 18,
+      background: '#EEF2F7',
+      border: `1px solid ${C.border}`,
+      transform: 'rotate(2deg)',
+    }} />
+    <div style={{
+      position: 'absolute',
+      inset: '8px -8px -8px 10px',
+      borderRadius: 18,
+      background: '#fff',
+      border: `1px solid ${C.border}`,
+      transform: 'rotate(0.8deg)',
+      boxShadow: '0 16px 40px rgba(15,23,42,0.08)',
+    }} />
+    <div style={{
+      position: 'relative',
+      background: '#fff',
+      borderRadius: 18,
+      boxShadow: '0 24px 70px rgba(15,23,42,0.16)',
+      border: `1px solid ${C.border}`,
+      overflow: 'hidden',
+      transform: 'rotate(-0.35deg)',
+    }}>
+      <div style={{ padding: '18px 20px 14px', background: '#F8FAFC', borderBottom: `1px solid ${C.border}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+          <span style={{
+            fontSize: 9, fontWeight: 900, color: C.petrol,
+            textTransform: 'uppercase', letterSpacing: '0.12em',
+          }}>
+            Preview premium
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 900, color: '#64748B' }}>IncluiLAB</span>
+        </div>
+        <div style={{ fontSize: 19, fontWeight: 900, color: C.dark, lineHeight: 1.15 }}>
+          Fracoes com apoio visual
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+          {['3o ano EF', 'TEA nivel 1', 'A4 acessivel'].map(item => (
+            <span key={item} style={{
+              fontSize: 10, fontWeight: 800, color: '#334155',
+              background: '#fff', border: `1px solid ${C.border}`,
+              borderRadius: 999, padding: '4px 8px',
+            }}>
+              {item}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: 18 }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1.1fr 0.9fr',
+          gap: 12,
+          marginBottom: 12,
+        }}>
+          <div style={{
+            minHeight: 118,
+            borderRadius: 14,
+            background: '#FFF7ED',
+            border: '1px solid #FED7AA',
+            padding: 14,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 900, color: '#9A3412', marginBottom: 10 }}>
+              1. Pinte metade da pizza
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <svg width="74" height="74" viewBox="0 0 74 74" aria-hidden="true">
+                <circle cx="37" cy="37" r="32" fill="#FEF3C7" stroke="#F59E0B" strokeWidth="2" />
+                <path d="M37 37 L37 5 A32 32 0 0 1 37 69 Z" fill="#FCD34D" stroke="#D97706" strokeWidth="1.5" />
+                <line x1="37" y1="5" x2="37" y2="69" stroke="#B45309" strokeWidth="2" />
+                <circle cx="26" cy="24" r="3" fill="#DC2626" />
+                <circle cx="45" cy="48" r="3" fill="#DC2626" />
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ height: 8, borderRadius: 999, background: '#FDBA74', width: '88%', marginBottom: 8 }} />
+                <div style={{ height: 8, borderRadius: 999, background: '#FED7AA', width: '64%', marginBottom: 14 }} />
+                <div style={{ height: 1, background: '#FDBA74', marginBottom: 9 }} />
+                <div style={{ height: 1, background: '#FDBA74' }} />
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            minHeight: 118,
+            borderRadius: 14,
+            background: '#ECFDF5',
+            border: '1px solid #BBF7D0',
+            padding: 14,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 900, color: '#166534', marginBottom: 10 }}>
+              Rotina visual
+            </div>
+            {['Observe', 'Escolha', 'Responda'].map((step, idx) => (
+              <div key={step} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: idx === 2 ? 0 : 9 }}>
+                <span style={{
+                  width: 22, height: 22, borderRadius: 7,
+                  background: '#16A34A', color: '#fff',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 11, fontWeight: 900,
+                }}>
+                  {idx + 1}
+                </span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#14532D' }}>{step}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{
+          borderRadius: 14,
+          border: `1px solid ${C.border}`,
+          padding: '13px 14px',
+          background: '#FFFFFF',
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 900, color: C.dark, marginBottom: 10 }}>
+            2. Marque a resposta correta
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {['1/2', '1/3', '1/4'].map((item, idx) => (
+              <div key={item} style={{
+                flex: 1,
+                height: 38,
+                borderRadius: 10,
+                border: `1px solid ${idx === 0 ? C.petrol : C.border}`,
+                background: idx === 0 ? '#EAF4F7' : '#F8FAFC',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: idx === 0 ? C.petrol : '#475569',
+                fontSize: 14, fontWeight: 900,
+              }}>
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 18px', background: '#F8FAFC', borderTop: `1px solid ${C.border}` }}>
+        <span style={{ fontSize: 10, color: '#64748B', fontWeight: 750 }}>Nome: __________________</span>
+        <span style={{ fontSize: 10, color: C.petrol, fontWeight: 900 }}>pronto para PDF</span>
+      </div>
+    </div>
+  </div>
+);
+
 // ─── Componente: Estado vazio ─────────────────────────────────────────────────
 const EmptyState: React.FC<{
   studentCtx:   string;
@@ -1042,52 +1369,52 @@ const EmptyState: React.FC<{
   onSuggestion: (text: string) => void;
 }> = ({ studentCtx, studentName, onSuggestion }) => {
   const SUGGESTIONS = [
-    { label: 'Atividade de frações', detail: 'com material concreto para Anos Iniciais' },
-    { label: 'Leitura e interpretação', detail: 'sobre animais para aluno com TEA' },
-    { label: 'Matemática lúdica', detail: 'contagem com objetos do dia a dia' },
-    { label: 'Produção de texto', detail: 'com apoio visual e figuras sequenciais' },
+    'Atividade de frações para 3º ano',
+    'Leitura e interpretação sobre animais',
+    'Matemática lúdica com contagem',
+    'Produção de texto com apoio visual',
+    'Sequência lógica para TEA',
+    'Reconhecimento de letras e sílabas',
   ];
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
       alignItems: 'center', justifyContent: 'center',
-      minHeight: 420, padding: '48px 40px',
+      minHeight: '100%',
+      padding: '28px 32px 20px', gap: 18,
+      boxSizing: 'border-box',
     }}>
-      <div style={{ textAlign: 'center', marginBottom: 36, maxWidth: 620 }}>
-        <div style={{
-          width: 72, height: 72, borderRadius: 22,
-          background: `linear-gradient(135deg, ${C.petrol}, #2a6880)`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          margin: '0 auto 20px',
-          boxShadow: `0 10px 32px rgba(31,78,95,0.28)`,
-        }}>
-          <Sparkles size={34} color="#fff" />
-        </div>
-        <h2 style={{ margin: '0 0 10px', fontSize: 26, fontWeight: 800, color: C.dark, lineHeight: 1.2 }}>
-          O que você quer criar hoje?
-        </h2>
-        <p style={{ margin: 0, fontSize: 15, color: C.sec, lineHeight: 1.6 }}>
+      {/* Mock preview */}
+      <div style={{ position: 'relative', display: 'flex', justifyContent: 'center' }}>
+        <MockActivityPreview />
+      </div>
+
+      {/* Texto contextual */}
+      <div style={{ textAlign: 'center', maxWidth: 620 }}>
+        <p style={{ margin: 0, fontSize: 13, color: C.sec, lineHeight: 1.6 }}>
           {studentCtx
-            ? <>Contexto de <strong style={{ color: C.petrol }}>{studentName}</strong> carregado. Atividades serão personalizadas.</>
-            : 'Descreva o tema no campo abaixo e gere a atividade inclusiva pronta para imprimir.'
+            ? <>Contexto de <strong style={{ color: C.petrol }}>{studentName}</strong> carregado — atividade será personalizada para este aluno.</>
+            : 'Descreva o tema no campo abaixo e receba uma atividade inclusiva pronta para imprimir.'
           }
         </p>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: '100%', maxWidth: 680 }}>
+
+      {/* Sugestões como chips */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', maxWidth: 560 }}>
         {SUGGESTIONS.map(s => (
           <button
-            key={s.label}
-            onClick={() => onSuggestion(`${s.label} ${s.detail}`)}
+            key={s}
+            onClick={() => onSuggestion(s)}
             style={{
-              padding: '16px 20px', borderRadius: 14, cursor: 'pointer',
-              background: C.surface, border: `1.5px solid ${C.border}`,
-              textAlign: 'left', transition: 'all 0.15s',
+              padding: '7px 14px', borderRadius: 20, cursor: 'pointer',
+              background: '#fff', border: `1px solid ${C.border}`,
+              color: '#374151', fontSize: 12, fontWeight: 500,
+              transition: 'all 0.15s', outline: 'none',
             }}
             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = C.petrol; (e.currentTarget as HTMLElement).style.background = C.light; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = C.border; (e.currentTarget as HTMLElement).style.background = C.surface; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = C.border; (e.currentTarget as HTMLElement).style.background = '#fff'; }}
           >
-            <p style={{ margin: '0 0 3px', fontSize: 13, fontWeight: 700, color: C.dark }}>{s.label}</p>
-            <p style={{ margin: 0, fontSize: 11, color: C.sec }}>{s.detail}</p>
+            {s}
           </button>
         ))}
       </div>
@@ -1095,22 +1422,30 @@ const EmptyState: React.FC<{
   );
 };
 
+const VISUAL_STYLE_OPTIONS: { id: ActivityVisualStyle; label: string; emoji: string }[] = [
+  { id: 'fundamental', label: 'Clean', emoji: '📄' },
+  { id: 'infantil',    label: 'Colorido', emoji: '🎨' },
+  { id: 'pb',          label: 'P&B', emoji: '🖨️' },
+];
+
 // ─── Componente: Composer (entrada fixa sempre visível) ───────────────────────
 const Composer: React.FC<{
   inputText:    string;
   genMode:      GenerationMode;
   pendingFile:  AttachedFile | null;
   isGenerating: boolean;
+  visualStyle:  ActivityVisualStyle;
   onInput:      (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown:    (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onModeChange: (m: GenerationMode) => void;
+  onStyleChange:(s: ActivityVisualStyle) => void;
   onSend:       () => void;
   onFileClick:  () => void;
   onRemoveFile: () => void;
   textAreaRef:  React.RefObject<HTMLTextAreaElement | null>;
 }> = ({
-  inputText, genMode, pendingFile, isGenerating,
-  onInput, onKeyDown, onModeChange, onSend, onFileClick, onRemoveFile, textAreaRef,
+  inputText, genMode, pendingFile, isGenerating, visualStyle,
+  onInput, onKeyDown, onModeChange, onStyleChange, onSend, onFileClick, onRemoveFile, textAreaRef,
 }) => {
   const adaptarAtivo = isAdaptarMode(genMode);
   const canSend = !isGenerating && (adaptarAtivo ? !!pendingFile : !!inputText.trim());
@@ -1119,6 +1454,48 @@ const Composer: React.FC<{
     : genMode === 'a4_premium'
     ? 'Ex: "Folha sobre formas geométricas, colorida e lúdica para 1º ano"'
     : 'Peça uma atividade adaptada… Ex: "frações para aluno com TEA, 3º ano"';
+  const currentMode = getModeConfig(genMode);
+
+  const CompactSelect: React.FC<{
+    label: string;
+    accent: string;
+    value: string;
+    title?: string;
+    minWidth?: number;
+    onChange: (value: string) => void;
+    children: React.ReactNode;
+  }> = ({ label, accent, value, title, minWidth = 150, onChange, children }) => (
+    <label
+      title={title}
+      style={{
+        position: 'relative',
+        display: 'inline-flex', alignItems: 'center', gap: 7,
+        height: 32, padding: '0 30px 0 10px', borderRadius: 10,
+        border: `1px solid ${C.border}`, background: '#fff',
+        boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+        boxSizing: 'border-box', flexShrink: 0,
+      }}
+    >
+      <span style={{ fontSize: 10, fontWeight: 900, color: accent, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        {label}
+      </span>
+      <select
+        value={value}
+        disabled={isGenerating}
+        onChange={e => onChange(e.target.value)}
+        style={{
+          minWidth, maxWidth: 210,
+          border: 'none', outline: 'none', background: 'transparent',
+          color: C.dark, fontSize: 12, fontWeight: 750,
+          fontFamily: 'inherit', cursor: isGenerating ? 'default' : 'pointer',
+          appearance: 'none', padding: 0,
+        }}
+      >
+        {children}
+      </select>
+      <ChevronDown size={13} color={C.sec} style={{ position: 'absolute', right: 10, pointerEvents: 'none' }} />
+    </label>
+  );
 
   return (
     <div style={{
@@ -1128,82 +1505,58 @@ const Composer: React.FC<{
       zIndex: 20,
       borderTop: `1px solid ${C.border}`,
       background: C.surface,
-      padding: '10px 20px 16px',
+      padding: '8px 20px 12px',
     }}>
-      {/* Seletor de modo — dois grupos: Criar / Adaptar */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span style={{ fontSize: 9, fontWeight: 700, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Criar:</span>
-        {MODES_CRIAR.map(m => {
-          const active = genMode === m.id;
-          const Icon = m.icon;
-          return (
-            <button key={m.id} onClick={() => onModeChange(m.id)} disabled={isGenerating}
-              title={`${m.desc} · máx. ${m.maxCost} créditos`}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '5px 10px', borderRadius: 20, cursor: 'pointer',
-                background: active ? C.petrol : 'transparent',
-                color: active ? '#fff' : C.sec,
-                border: `1.5px solid ${active ? C.petrol : C.border}`,
-                fontWeight: 600, fontSize: 11, transition: 'all 0.15s', outline: 'none',
-              }}>
-              <Icon size={11} />
-              {m.label}
-              <span style={{ fontSize: 9, fontWeight: 700, background: active ? 'rgba(255,255,255,0.25)' : C.bg, color: active ? 'rgba(255,255,255,0.9)' : C.sec, borderRadius: 20, padding: '1px 5px', marginLeft: 1 }}>{m.maxCost}cr</span>
-            </button>
-          );
-        })}
-        <div style={{ width: 1, height: 20, background: C.border, flexShrink: 0 }} />
-        <span style={{ fontSize: 9, fontWeight: 700, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Adaptar:</span>
-        {MODES_ADAPTAR.map(m => {
-          const active = genMode === m.id;
-          const Icon = m.icon;
-          return (
-            <button key={m.id} onClick={() => onModeChange(m.id)} disabled={isGenerating}
-              title={`${m.desc} · máx. ${m.maxCost} créditos`}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '5px 10px', borderRadius: 20, cursor: 'pointer',
-                background: active ? C.petrol : 'transparent',
-                color: active ? '#fff' : C.sec,
-                border: `1.5px solid ${active ? C.petrol : C.border}`,
-                fontWeight: 600, fontSize: 11, transition: 'all 0.15s', outline: 'none',
-              }}>
-              <Icon size={11} />
-              {m.label}
-              <span style={{ fontSize: 9, fontWeight: 700, background: active ? 'rgba(255,255,255,0.25)' : C.bg, color: active ? 'rgba(255,255,255,0.9)' : C.sec, borderRadius: 20, padding: '1px 5px', marginLeft: 1 }}>{m.maxCost}cr</span>
-            </button>
-          );
-        })}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 7, flexWrap: 'wrap', alignItems: 'center' }}>
+        <CompactSelect
+          label="Criar"
+          accent={C.petrol}
+          value={adaptarAtivo ? '' : genMode}
+          minWidth={156}
+          title={!adaptarAtivo ? `${currentMode.desc} · máx. ${currentMode.maxCost} créditos` : 'Modos para criar uma atividade nova'}
+          onChange={value => value && onModeChange(value as GenerationMode)}
+        >
+          <option value="" disabled>Escolher</option>
+          {MODES_CRIAR.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+        </CompactSelect>
+
+        <CompactSelect
+          label="Adaptar"
+          accent="#8A5D00"
+          value={adaptarAtivo ? genMode : ''}
+          minWidth={162}
+          title={adaptarAtivo ? `${currentMode.desc} · máx. ${currentMode.maxCost} créditos` : 'Modos para adaptar uma atividade enviada'}
+          onChange={value => value && onModeChange(value as GenerationMode)}
+        >
+          <option value="" disabled>Escolher</option>
+          {MODES_ADAPTAR.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+        </CompactSelect>
+
+        <CompactSelect
+          label="Layout"
+          accent="#2E3A59"
+          value={visualStyle}
+          minWidth={108}
+          title="Estilo visual da folha"
+          onChange={value => onStyleChange(value as ActivityVisualStyle)}
+        >
+          {VISUAL_STYLE_OPTIONS.map(opt => <option key={opt.id} value={opt.id}>{opt.label}</option>)}
+        </CompactSelect>
       </div>
 
       {/* Input box */}
       <div style={{
-        background: C.bg,
-        border: `2px solid ${isGenerating ? C.border : C.petrol}`,
-        borderRadius: 16, overflow: 'hidden',
-        boxShadow: isGenerating ? 'none' : `0 4px 20px rgba(31,78,95,0.12)`,
+        height: 80,
+        minHeight: 80,
+        display: 'flex',
+        flexDirection: 'column',
+        background: '#fff',
+        border: `1px solid ${isGenerating ? C.border : '#CBD5E1'}`,
+        borderRadius: 14, overflow: 'hidden',
+        boxShadow: isGenerating ? 'none' : '0 8px 22px rgba(15,23,42,0.07)',
         transition: 'all 0.2s',
+        boxSizing: 'border-box',
       }}>
-        {pendingFile && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '8px 14px', borderBottom: `1px solid ${C.border}`,
-            background: C.light,
-          }}>
-            {pendingFile.type.startsWith('image/') && pendingFile.previewUrl
-              ? <img src={pendingFile.previewUrl} alt="" style={{ width: 30, height: 30, objectFit: 'cover', borderRadius: 5 }} />
-              : <FileText size={16} color={C.petrol} />
-            }
-            <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {pendingFile.name}
-            </span>
-            <button onClick={onRemoveFile} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sec, padding: 2, borderRadius: 5 }}>
-              <X size={13} />
-            </button>
-          </div>
-        )}
-
         <textarea
           ref={textAreaRef}
           value={inputText}
@@ -1211,45 +1564,72 @@ const Composer: React.FC<{
           onKeyDown={onKeyDown}
           placeholder={isGenerating ? 'Aguarde, gerando atividade…' : placeholder}
           disabled={isGenerating}
-          rows={2}
+          rows={1}
           style={{
-            width: '100%', border: 'none', outline: 'none', resize: 'none',
-            padding: '14px 16px 8px',
-            fontSize: 14, lineHeight: 1.6, fontFamily: 'inherit',
+            flex: '1 1 auto',
+            width: '100%', height: 42, minHeight: 0, maxHeight: 42,
+            border: 'none', outline: 'none', resize: 'none',
+            padding: '10px 14px 0',
+            fontSize: 13, lineHeight: 1.35, fontFamily: 'inherit',
             background: 'transparent', color: C.dark, boxSizing: 'border-box',
-            minHeight: 68,
+            overflowY: 'auto',
           }}
         />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 14px 10px' }}>
+        <div style={{ height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 7, padding: '0 8px 8px 10px', boxSizing: 'border-box' }}>
           <button
             onClick={onFileClick}
             disabled={isGenerating}
             title="Anexar imagem"
             style={{
-              background: 'none', border: `1.5px solid ${C.border}`,
-              borderRadius: 8, padding: '6px 12px', cursor: isGenerating ? 'default' : 'pointer',
+              height: 28,
+              background: C.bg, border: `1px solid ${C.border}`,
+              borderRadius: 8, padding: '0 10px', cursor: isGenerating ? 'default' : 'pointer',
               color: pendingFile ? C.petrol : C.sec,
-              display: 'flex', alignItems: 'center', gap: 4,
-              fontSize: 12, fontWeight: 600,
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              fontSize: 11, fontWeight: 750,
             }}
           >
-            <Paperclip size={13} /> Anexar
+            <Paperclip size={13} /> {pendingFile ? 'Trocar' : 'Anexar'}
           </button>
-          <span style={{ flex: 1, fontSize: 10, color: C.sec, textAlign: 'center' }}>
-            Enter para enviar · Shift+Enter nova linha
-          </span>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center' }}>
+            {pendingFile ? (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                minWidth: 0, maxWidth: 300, height: 26,
+                background: C.light, border: `1px solid ${C.border}`,
+                borderRadius: 8, padding: '0 7px', boxSizing: 'border-box',
+              }}>
+                {pendingFile.type.startsWith('image/') && pendingFile.previewUrl
+                  ? <img src={pendingFile.previewUrl} alt="" style={{ width: 17, height: 17, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+                  : <FileText size={13} color={C.petrol} style={{ flexShrink: 0 }} />
+                }
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontWeight: 700, color: C.dark }}>
+                  {pendingFile.name}
+                </span>
+                <button onClick={onRemoveFile} title="Remover anexo" style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sec, padding: 1, borderRadius: 5, display: 'flex', flexShrink: 0 }}>
+                  <X size={12} />
+                </button>
+              </div>
+            ) : (
+              <span style={{ fontSize: 10, color: C.sec, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                Enter para enviar · Shift+Enter nova linha
+              </span>
+            )}
+          </div>
           <button
             onClick={onSend}
             disabled={!canSend}
             style={{
-              display: 'flex', alignItems: 'center', gap: 7,
-              padding: '9px 24px', borderRadius: 12, border: 'none',
+              height: 30,
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '0 16px', borderRadius: 10, border: 'none',
               background: canSend ? C.petrol : C.border,
               color: '#fff', fontWeight: 800, fontSize: 14,
               cursor: canSend ? 'pointer' : 'default',
               transition: 'all 0.15s',
-              boxShadow: canSend ? `0 4px 14px rgba(31,78,95,0.28)` : 'none',
+              boxShadow: canSend ? '0 5px 14px rgba(31,78,95,0.22)' : 'none',
+              flexShrink: 0,
             }}
           >
             {isGenerating
@@ -1267,23 +1647,35 @@ const Composer: React.FC<{
 const ResultView: React.FC<{
   result:       GeneratedResult;
   studentName:  string;
+  visualStyle?: ActivityVisualStyle;
   onSave:       () => void;
   saving:       boolean;
   onExportJson: () => void;
-  onPrint:      () => void;
   onDownloadImg:() => void;
-}> = ({ result, studentName, onSave, saving, onExportJson, onPrint, onDownloadImg }) => {
+}> = ({ result, studentName, visualStyle = 'fundamental', onSave, saving, onExportJson, onDownloadImg }) => {
   const hasImage    = !!result.imageUrl;
-  const hasActivity = !!result.activity;
-  const hasText     = !!result.activity || !!result.content;
+  const hasActivity = !!result.contentJson || !!result.activity;
+  const hasText     = !!result.contentJson || !!result.activity || !!result.content;
   const hasAnalysis = !!result.analysisText;
   const hasGuide    = !!result.activity?.guia_pedagogico || !!result.guiaText;
   const saved       = !!result.savedId;
+  const pdfTargetRef = useRef<HTMLDivElement | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   type ResultTab = 'folha' | 'guia' | 'analise';
   const [activeTab, setActiveTab] = useState<ResultTab>('folha');
 
   const hasTabs = hasGuide || hasAnalysis;
+
+  const handleDownloadPdf = async () => {
+    if (!pdfTargetRef.current) return;
+    setPdfBusy(true);
+    try {
+      await downloadElementAsA4Pdf(pdfTargetRef.current, sanitizePdfFilename(result.title || 'atividade-incluilab'));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   const TabBtn: React.FC<{ id: ResultTab; label: string; icon: React.ElementType }> = ({ id, label, icon: Icon }) => (
     <button
@@ -1299,6 +1691,21 @@ const ResultView: React.FC<{
     >
       <Icon size={12} />&nbsp;{label}
     </button>
+  );
+
+  const PreviewStage: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <div style={{
+      maxWidth: 1100,
+      margin: '0 auto',
+      padding: 24,
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'flex-start',
+    }}>
+      <div ref={pdfTargetRef} style={{ display: 'inline-block' }}>
+        {children}
+      </div>
+    </div>
   );
 
   return (
@@ -1338,15 +1745,20 @@ const ResultView: React.FC<{
 
         {/* Ações */}
         <div style={{ display: 'flex', gap: 5, flexShrink: 0, marginLeft: hasTabs ? 0 : 'auto' }}>
-          {hasActivity && activeTab === 'folha' && (
+          {hasActivity && !hasImage && activeTab === 'folha' && (
             <>
               <Btn size="sm" icon={Download} onClick={onExportJson}>JSON</Btn>
-              <Btn size="sm" icon={Printer} onClick={onPrint}>Imprimir Folha</Btn>
+              <Btn size="sm" icon={Download} onClick={handleDownloadPdf} disabled={pdfBusy}>
+                {pdfBusy ? 'Gerando PDF...' : 'Baixar PDF'}
+              </Btn>
             </>
           )}
           {hasActivity && activeTab === 'guia' && (
-            <Btn size="sm" icon={Printer} onClick={onPrint}>Imprimir Guia</Btn>
+            <Btn size="sm" icon={Download} onClick={handleDownloadPdf} disabled={pdfBusy}>
+              {pdfBusy ? 'Gerando PDF...' : 'Baixar PDF'}
+            </Btn>
           )}
+          {hasImage && activeTab === 'folha' && <Btn size="sm" icon={Download} onClick={handleDownloadPdf} disabled={pdfBusy}>{pdfBusy ? 'Gerando PDF...' : 'Baixar PDF'}</Btn>}
           {hasImage && activeTab === 'folha' && <Btn size="sm" icon={Download} onClick={onDownloadImg}>PNG</Btn>}
           <Btn size="sm" icon={saved ? CheckCircle : Bookmark} variant={saved ? 'success' : 'primary'} onClick={onSave} disabled={saving || saved}>
             {saving ? 'Salvando…' : saved ? 'Salvo!' : 'Salvar'}
@@ -1358,15 +1770,32 @@ const ResultView: React.FC<{
       {activeTab === 'folha' && (
         <>
           {hasImage && (
-            <div style={{ maxWidth: 900, margin: '0 auto' }}>
-              <img src={result.imageUrl} alt="Atividade gerada" style={{ width: '100%', borderRadius: 12, boxShadow: '0 4px 24px rgba(0,0,0,0.15)' }} />
-            </div>
+            <PreviewStage>
+              <div data-incluilab-pdf-page="true" style={{
+                width: 794,
+                minHeight: 1123,
+                background: '#fff',
+                boxShadow: '0 10px 30px rgba(0,0,0,0.12)',
+                borderRadius: 12,
+                padding: 0,
+                overflow: 'hidden',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <img src={result.imageUrl} alt="Atividade gerada" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+              </div>
+            </PreviewStage>
           )}
-          {result.activity && !hasImage && (
-            <A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="folha" />
+          {(result.contentJson || result.activity) && !hasImage && (
+            <PreviewStage>
+              <ActivityA4Premium contentJson={result.contentJson || result.activity} studentName={studentName || undefined} visualStyle={visualStyle} />
+            </PreviewStage>
           )}
-          {!result.activity && hasText && !hasImage && result.content && (
-            <LegacyA4MarkdownRenderer content={result.content} studentName={studentName || undefined} />
+          {!result.contentJson && !result.activity && hasText && !hasImage && result.content && (
+            <PreviewStage>
+              <ActivityA4Premium contentJson={normalizeIncluiLabActivity(result.content, { title: result.title })} studentName={studentName || undefined} visualStyle={visualStyle} />
+            </PreviewStage>
           )}
         </>
       )}
@@ -1375,9 +1804,11 @@ const ResultView: React.FC<{
       {activeTab === 'guia' && hasGuide && (
         result.guiaText
           ? (
-            <div style={{ maxWidth: 900, margin: '0 auto' }}>
-              <div style={{
-                background: '#fff', borderRadius: 14,
+            <PreviewStage>
+              <div data-incluilab-pdf-page="true" style={{
+                width: 794,
+                minHeight: 1123,
+                background: '#fff', borderRadius: 12,
                 padding: '40px 44px',
                 boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
                 fontFamily: "'Segoe UI', Arial, sans-serif",
@@ -1407,10 +1838,10 @@ const ResultView: React.FC<{
                   </ReactMarkdown>
                 </div>
               </div>
-            </div>
+            </PreviewStage>
           )
           : result.activity
-            ? <A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="guia" />
+            ? <PreviewStage><A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="guia" /></PreviewStage>
             : null
       )}
 
@@ -1484,15 +1915,19 @@ interface IncluiLabViewProps {
   sidebarOpen?:           boolean;
   onWorkflowNodesChange?: (nodeIds: string[]) => void;
   creditsAvailable?:      number;
+  creditsUsed?:           number;
+  creditsTotal?:          number;
+  onNavigate?:            (view: string) => void;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════════════════
 export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
-  user, students, defaultTab, sidebarOpen = true, onWorkflowNodesChange, creditsAvailable,
+  user, students, defaultTab, sidebarOpen = true, onWorkflowNodesChange, creditsAvailable, creditsUsed, creditsTotal, onNavigate,
 }) => {
   const [showWorkflow, setShowWorkflow] = useState(defaultTab === 'workflow');
+  const isLibraryMode = defaultTab === 'library';
 
   // ── Estado do studio ──────────────────────────────────────────────────────
   const [labState,    setLabState]    = useState<LabState>('idle');
@@ -1501,9 +1936,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   const [errorMsg,    setErrorMsg]    = useState('');
 
   // ── Input ─────────────────────────────────────────────────────────────────
-  const [inputText,   setInputText]   = useState('');
-  const [pendingFile, setPendingFile] = useState<AttachedFile | null>(null);
-  const [genMode,     setGenMode]     = useState<GenerationMode>('a4_economica');
+  const [inputText,    setInputText]    = useState('');
+  const [pendingFile,  setPendingFile]  = useState<AttachedFile | null>(null);
+  const [genMode,      setGenMode]      = useState<GenerationMode>('a4_economica');
+  const [visualStyle,  setVisualStyle]  = useState<ActivityVisualStyle>('fundamental');
 
   // ── Tipo de público ───────────────────────────────────────────────────────
   const [targetType, setTargetType] = useState<TargetType>('turma_geral');
@@ -1520,13 +1956,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   const [librarySelId,   setLibrarySelId]   = useState<string | null>(null);
   const [savingResult,   setSavingResult]   = useState(false);
 
-  // ── Preflight ─────────────────────────────────────────────────────────────
-  const [preflightData, setPreflightData] = useState<{
-    mode: GenerationMode; maxCost: number; topic: string; fileName?: string;
-  } | null>(null);
-
   const textAreaRef  = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // creditsAvailable é a fonte canônica do saldo real (ex: 774)
+  const creditsAvailableSafe = Math.max(0, Number(creditsAvailable ?? 0));
 
   // ── Carrega biblioteca ─────────────────────────────────────────────────────
   useEffect(() => { loadLibrary(); }, []);
@@ -1570,14 +2003,14 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     setInputText(e.target.value);
     const ta = e.target;
     ta.style.height = 'auto';
-    ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
+    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
-  // ── Enviar → mostra preflight de créditos ─────────────────────────────────
+  // ── Enviar ────────────────────────────────────────────────────────────────
   const handleSend = () => {
     const text = inputText.trim();
     if (labState === 'generating') return;
@@ -1592,16 +2025,17 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     setErrorMsg('');
     const topic = text || (pendingFile?.name ?? '');
     setCurrentTopic(topic);
-    setPreflightData({ mode: genMode, maxCost: getModeConfig(genMode).maxCost, topic, fileName: pendingFile?.name });
-    setLabState('preflight');
+    const requiredCredits = getModeConfig(genMode).maxCost;
+    if (creditsAvailable !== undefined && creditsAvailable < requiredCredits) {
+      setErrorMsg(CREDIT_INSUFFICIENT_MSG);
+      return;
+    }
+    void runGeneration(genMode, topic);
   };
 
-  // ── Confirmar geração após preflight ──────────────────────────────────────
-  const handleConfirmGenerate = async () => {
-    if (!preflightData) return;
-    const { mode, topic } = preflightData;
+  // ── Geração ───────────────────────────────────────────────────────────────
+  const runGeneration = async (mode: GenerationMode, topic: string) => {
     setLabState('generating');
-    setPreflightData(null);
     const extras = inputText.trim();
     switch (mode) {
       case 'a4_economica':      await generateA4Economica(topic); break;
@@ -1619,10 +2053,23 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
     try {
-      const raw = await AIService.generateIncluiLabActivitySchema(buildActivitySchemaPrompt(topic, studentCtx), user);
-      const activity = validateActivitySchema(raw);
+      const raw = await AIService.generateIncluiLabActivitySchema(buildPremiumActivityPrompt(topic, studentCtx), user);
+      const cleaned = cleanJsonString(raw);
+      let parsedForGuia: any = {};
+      try { parsedForGuia = JSON.parse(cleaned); } catch {}
+      const guiaText = extractGuiaText(parsedForGuia, topic);
+      const contentJson = normalizeIncluiLabActivity(cleaned, { title: topic, prompt: topic, grade: anoSerie });
       await safeDeductCredits(user, 'INCLUILAB_A4_ECONOMICA', cost);
-      setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), creditsUsed: cost, mode: 'a4_economica' });
+      setResult({
+        id: uid(),
+        title: contentJson.title,
+        prompt: topic,
+        contentJson,
+        content: activityToJson(contentJson),
+        guiaText,
+        creditsUsed: cost,
+        mode: 'a4_economica',
+      });
       setLabState('result'); setInputText(''); setPendingFile(null);
     } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
   }
@@ -1639,19 +2086,33 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       );
       const parsed = safeParseGuiaJson(raw);
 
-      // Passo 2: Gera imagem A4 via OpenAI
-      const { OpenAIActivityImageService } = await import('../services/openaiActivityImageService');
-      const imgResult = await OpenAIActivityImageService.generate(
-        buildOpenAIActivityImagePrompt(topic, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'visual'),
-        'visual',
-      );
+      // Passo 2: Gera imagem A4 via ai-gateway Supabase (Vertex AI Imagen)
+      const { result: imageUrlVisual } = await callAIGateway({
+        task: 'image',
+        prompt: buildOpenAIActivityImagePrompt(topic, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'visual'),
+        creditsRequired: 0,
+        requestType: 'incluilab_activity_image',
+      });
 
       // Só debita após ambos os passos com sucesso
       await safeDeductCredits(user, 'INCLUILAB_A4_VISUAL', cost);
+      const contentJson = normalizeIncluiLabActivity({
+        title: parsed.titulo_atividade || topic.slice(0, 60),
+        subtitle: 'Atividade visual gerada pelo IncluiLAB',
+        subject: '',
+        grade: anoSerie,
+        studentFields: ['Nome', 'Turma', 'Data'],
+        introText: parsed.descricao_folha || topic,
+        sections: [{ type: 'info_box', title: 'Descricao da folha', content: parsed.descricao_folha || topic }],
+        visualStyle: { theme: 'school_clean', background: 'white', border: 'discreet', illustrations: 'small_colored', density: 'balanced' },
+      }, { title: topic });
       setResult({
         id: uid(),
-        title: parsed.titulo_atividade || topic.slice(0, 60),
-        imageUrl: imgResult.base64DataUrl,
+        title: contentJson.title,
+        prompt: topic,
+        contentJson,
+        content: activityToJson(contentJson),
+        imageUrl: imageUrlVisual,
         guiaText: parsed.guia_pedagogico,
         creditsUsed: cost,
         mode: 'a4_visual',
@@ -1672,18 +2133,32 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       );
       const parsed = safeParseGuiaJson(raw);
 
-      // Passo 2: Gera imagem A4 premium via OpenAI (retrato, qualidade HD)
-      const { OpenAIActivityImageService } = await import('../services/openaiActivityImageService');
-      const imgResult = await OpenAIActivityImageService.generate(
-        buildOpenAIActivityImagePrompt(topic, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'premium'),
-        'premium',
-      );
+      // Passo 2: Gera imagem A4 premium via ai-gateway Supabase (Vertex AI Imagen)
+      const { result: imageUrlPremium } = await callAIGateway({
+        task: 'image',
+        prompt: buildOpenAIActivityImagePrompt(topic, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'premium'),
+        creditsRequired: 0,
+        requestType: 'incluilab_activity_image',
+      });
 
       await safeDeductCredits(user, 'INCLUILAB_A4_PREMIUM', cost);
+      const contentJson = normalizeIncluiLabActivity({
+        title: parsed.titulo_atividade || topic.slice(0, 60),
+        subtitle: 'Atividade premium gerada pelo IncluiLAB',
+        subject: '',
+        grade: anoSerie,
+        studentFields: ['Nome', 'Turma', 'Data'],
+        introText: parsed.descricao_folha || topic,
+        sections: [{ type: 'info_box', title: 'Descricao da folha', content: parsed.descricao_folha || topic }],
+        visualStyle: { theme: 'school_clean', background: 'white', border: 'discreet', illustrations: 'small_colored', density: 'balanced' },
+      }, { title: topic });
       setResult({
         id: uid(),
-        title: parsed.titulo_atividade || topic.slice(0, 60),
-        imageUrl: imgResult.base64DataUrl,
+        title: contentJson.title,
+        prompt: topic,
+        contentJson,
+        content: activityToJson(contentJson),
+        imageUrl: imageUrlPremium,
         guiaText: parsed.guia_pedagogico,
         creditsUsed: cost,
         mode: 'a4_premium',
@@ -1699,10 +2174,24 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
     try {
       const analysisText = await AIService.generateFromPromptWithImage(buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user);
-      const raw = await AIService.generateIncluiLabActivitySchema(buildAdaptActivitySchemaPrompt(analysisText, studentCtx, extraInstructions), user);
-      const activity = validateActivitySchema(raw);
+      const raw = await AIService.generateIncluiLabActivitySchema(buildPremiumAdaptActivityPrompt(analysisText, studentCtx, extraInstructions), user);
+      const cleanedAdapt = cleanJsonString(raw);
+      let parsedAdaptForGuia: any = {};
+      try { parsedAdaptForGuia = JSON.parse(cleanedAdapt); } catch {}
+      const guiaTextAdapt = extractGuiaText(parsedAdaptForGuia, extraInstructions || file.name);
+      const contentJson = normalizeIncluiLabActivity(cleanedAdapt, { title: `Atividade Adaptada: ${file.name}`, prompt: extraInstructions, grade: anoSerie });
       await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_ECONOMICO', cost);
-      setResult({ id: uid(), title: activity.header.title, activity, content: activityToJson(activity), analysisText, creditsUsed: cost, mode: 'adaptar_economico' });
+      setResult({
+        id: uid(),
+        title: contentJson.title,
+        prompt: extraInstructions,
+        contentJson,
+        content: activityToJson(contentJson),
+        analysisText,
+        guiaText: guiaTextAdapt,
+        creditsUsed: cost,
+        mode: 'adaptar_economico',
+      });
       setLabState('result'); setInputText(''); setPendingFile(null);
     } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
   }
@@ -1724,20 +2213,34 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       );
       const parsed = safeParseGuiaJson(rawJson);
 
-      // Passo 3: Gera imagem A4 via OpenAI
-      const { OpenAIActivityImageService } = await import('../services/openaiActivityImageService');
-      const imgResult = await OpenAIActivityImageService.generate(
-        buildOpenAIActivityImagePrompt(
+      // Passo 3: Gera imagem A4 via ai-gateway Supabase (Vertex AI Imagen)
+      const { result: imageUrlAdaptVisual } = await callAIGateway({
+        task: 'image',
+        prompt: buildOpenAIActivityImagePrompt(
           parsed.titulo_atividade || file.name, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'visual',
         ),
-        'visual',
-      );
+        creditsRequired: 0,
+        requestType: 'incluilab_activity_image',
+      });
 
       await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_VISUAL', cost);
+      const contentJson = normalizeIncluiLabActivity({
+        title: parsed.titulo_atividade || `Atividade Adaptada: ${file.name}`,
+        subtitle: 'Atividade visual adaptada pelo IncluiLAB',
+        subject: '',
+        grade: anoSerie,
+        studentFields: ['Nome', 'Turma', 'Data'],
+        introText: parsed.descricao_folha || extraInstructions || file.name,
+        sections: [{ type: 'info_box', title: 'Descricao da folha', content: parsed.descricao_folha || analysisText }],
+        visualStyle: { theme: 'school_clean', background: 'white', border: 'discreet', illustrations: 'small_colored', density: 'balanced' },
+      }, { title: file.name });
       setResult({
         id: uid(),
-        title: parsed.titulo_atividade || `Atividade Adaptada: ${file.name}`,
-        imageUrl: imgResult.base64DataUrl,
+        title: contentJson.title,
+        prompt: extraInstructions,
+        contentJson,
+        content: activityToJson(contentJson),
+        imageUrl: imageUrlAdaptVisual,
         guiaText: parsed.guia_pedagogico,
         analysisText,
         creditsUsed: cost,
@@ -1764,20 +2267,34 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       );
       const parsed = safeParseGuiaJson(rawJson);
 
-      // Passo 3: Gera imagem A4 premium via OpenAI
-      const { OpenAIActivityImageService } = await import('../services/openaiActivityImageService');
-      const imgResult = await OpenAIActivityImageService.generate(
-        buildOpenAIActivityImagePrompt(
+      // Passo 3: Gera imagem A4 premium via ai-gateway Supabase (Vertex AI Imagen)
+      const { result: imageUrlAdaptPremium } = await callAIGateway({
+        task: 'image',
+        prompt: buildOpenAIActivityImagePrompt(
           parsed.titulo_atividade || file.name, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'premium',
         ),
-        'premium',
-      );
+        creditsRequired: 0,
+        requestType: 'incluilab_activity_image',
+      });
 
       await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_PREMIUM', cost);
+      const contentJson = normalizeIncluiLabActivity({
+        title: parsed.titulo_atividade || `Atividade Adaptada Premium: ${file.name}`,
+        subtitle: 'Atividade premium adaptada pelo IncluiLAB',
+        subject: '',
+        grade: anoSerie,
+        studentFields: ['Nome', 'Turma', 'Data'],
+        introText: parsed.descricao_folha || extraInstructions || file.name,
+        sections: [{ type: 'info_box', title: 'Descricao da folha', content: parsed.descricao_folha || analysisText }],
+        visualStyle: { theme: 'school_clean', background: 'white', border: 'discreet', illustrations: 'small_colored', density: 'balanced' },
+      }, { title: file.name });
       setResult({
         id: uid(),
-        title: parsed.titulo_atividade || `Atividade Adaptada Premium: ${file.name}`,
-        imageUrl: imgResult.base64DataUrl,
+        title: contentJson.title,
+        prompt: extraInstructions,
+        contentJson,
+        content: activityToJson(contentJson),
+        imageUrl: imageUrlAdaptPremium,
         guiaText: parsed.guia_pedagogico,
         analysisText,
         creditsUsed: cost,
@@ -1797,12 +2314,17 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         userId:      user.id,
         studentId:   studentId || undefined,
         title:       result.title,
-        content:     result.content || `[Imagem gerada — ${new Date().toLocaleString('pt-BR')}]`,
+        prompt:      result.prompt || inputText || currentTopic,
+        content:     result.content || (result.contentJson ? activityToJson(result.contentJson) : `[Imagem gerada — ${new Date().toLocaleString('pt-BR')}]`),
+        contentJson: result.contentJson || (result.activity ? normalizeIncluiLabActivity(result.activity) : {}),
         imageUrl:    result.imageUrl,
         // guiaText tem prioridade; analysisText como fallback para modos texto
         guidance:    result.guiaText || result.analysisText,
         isAdapted:   result.mode.startsWith('adaptar_'),
         creditsUsed: result.creditsUsed,
+        costCredits: result.creditsUsed,
+        mode:        result.mode,
+        style:       result.contentJson?.visualStyle?.theme,
         tags:        studentName ? [studentName] : [],
       });
       if (id) {
@@ -1825,36 +2347,44 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   };
 
   // ── Selecionar da biblioteca ──────────────────────────────────────────────
-  const handleLibSelect = (act: any) => {
-    const storedActivity = parseStoredActivity(act.content);
-    const legacyActivity = !storedActivity && act.content && !act.image_url
-      ? createLegacyActivity(act.title || 'Atividade', act.content)
+  const handleLibSelect = async (act: any) => {
+    setLibrarySelId(act.id);
+    const fullAct = await GeneratedActivityService.getById(act.id);
+    const row = fullAct || act;
+    const storedActivity = parseStoredActivity(row.content);
+    const legacyActivity = !storedActivity && row.content && !row.image_url
+      ? createLegacyActivity(row.title || 'Atividade', row.content)
       : null;
     const activity = storedActivity || legacyActivity || undefined;
+    const contentJson = normalizeIncluiLabActivity(getStoredContentJson(row), {
+      title: row.title || 'Atividade',
+      prompt: row.prompt || row.content || '',
+      subject: row.discipline || '',
+    });
     // Se a atividade tem imagem e não tem JSON parseável → guidance é o guia pedagógico (Visual/Premium)
-    const isImageMode = !!act.image_url && !storedActivity;
-    setLibrarySelId(act.id);
+    const isImageMode = !!row.image_url && !storedActivity;
     setResult({
-      id:          act.id,
-      title:       activity?.header.title || act.title || 'Atividade',
+      id:          row.id,
+      title:       contentJson.title || activity?.header.title || row.title || 'Atividade',
+      prompt:      row.prompt || undefined,
+      contentJson,
       activity,
-      content:     act.content,
-      imageUrl:    act.image_url,
-      guiaText:    isImageMode ? (act.guidance || undefined) : undefined,
-      analysisText: !isImageMode ? (act.guidance || undefined) : undefined,
-      creditsUsed: act.credits_used ?? 0,
-      mode:        act.is_adapted ? 'adaptar_economico' : 'a4_economica',
-      savedId:     act.id,
+      content:     row.content,
+      imageUrl:    row.image_url,
+      guiaText:    isImageMode ? (row.guidance || undefined) : undefined,
+      analysisText: !isImageMode ? (row.guidance || undefined) : undefined,
+      creditsUsed: row.cost_credits ?? row.credits_used ?? 0,
+      mode:        row.mode || (row.is_adapted ? 'adaptar_economico' : 'a4_economica'),
+      savedId:     row.id,
     });
     setLabState('result');
   };
 
-  // ── Regenerar / cancelar preflight ───────────────────────────────────────
+  // ── Regenerar ────────────────────────────────────────────────────────────
   const handleRegenerate = () => {
     setLabState('idle');
     setResult(null);
     setLibrarySelId(null);
-    setPreflightData(null);
     setTimeout(() => textAreaRef.current?.focus(), 100);
   };
 
@@ -1892,6 +2422,57 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  if (isLibraryMode) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', maxHeight: '100%', minHeight: 0, overflow: 'hidden', background: C.bg }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 20px', background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: C.petrol, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <BookMarked size={18} color="#fff" />
+          </div>
+          <div>
+            <p style={{ margin: 0, fontSize: 15, fontWeight: 850, color: C.dark }}>Biblioteca IncluiLAB</p>
+            <p style={{ margin: 0, fontSize: 11, color: C.sec }}>Atividades salvas para revisar, baixar ou reutilizar</p>
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Btn icon={RefreshCw} onClick={loadLibrary}>Atualizar</Btn>
+            <Btn variant="primary" onClick={() => onNavigate?.('incluilab')}>Nova atividade</Btn>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', overflow: 'hidden' }}>
+          <LibrarySidebar
+            activities={library}
+            loading={libraryLoading}
+            selectedId={librarySelId ?? undefined}
+            onSelect={handleLibSelect}
+            onDelete={handleDeleteLib}
+          />
+          <div style={{ minWidth: 0, overflowY: 'auto', background: C.bg }}>
+            {result ? (
+              <ResultView
+                result={result}
+                studentName={studentName}
+                visualStyle={visualStyle}
+                onSave={handleSave}
+                saving={savingResult}
+                onExportJson={() => exportActivityJson(result.contentJson || result.activity || result.content || {}, `${exportTitle}.json`)}
+                onDownloadImg={() => downloadImage(result.imageUrl ?? '', `${exportTitle}.png`)}
+              />
+            ) : (
+              <div style={{ minHeight: 420, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32, color: C.sec, textAlign: 'center' }}>
+                <div>
+                  <BookMarked size={42} color={C.border} style={{ margin: '0 auto 12px' }} />
+                  <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: C.dark }}>Selecione uma atividade salva</p>
+                  <p style={{ margin: '6px 0 0', fontSize: 13 }}>O preview A4 aparece aqui, centralizado e pronto para baixar em PDF.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // RENDER PRINCIPAL
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -1961,6 +2542,12 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
           }
         </div>
 
+        <CreditsChip available={creditsAvailableSafe} onNavigate={onNavigate} />
+
+        <Btn size="sm" icon={BookMarked} onClick={() => onNavigate?.('incluilab_library')}>
+          Biblioteca
+        </Btn>
+
         {/* Nova atividade — aparece quando há resultado */}
         {labState !== 'idle' && (
           <button onClick={handleRegenerate} style={{
@@ -1988,15 +2575,6 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
 
       {/* ── Body: sidebar + workspace ─────────────────────────────────────────── */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-
-        {/* Sidebar biblioteca */}
-        <LibrarySidebar
-          activities={library}
-          loading={libraryLoading}
-          selectedId={librarySelId ?? undefined}
-          onSelect={handleLibSelect}
-          onDelete={handleDeleteLib}
-        />
 
         {/* Workspace + Composer */}
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
@@ -2028,17 +2606,6 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
                 }}
               />
             )}
-            {labState === 'preflight' && preflightData && (
-              <PreflightPanel
-                mode={preflightData.mode}
-                maxCost={preflightData.maxCost}
-                creditsAvailable={creditsAvailable}
-                topic={preflightData.topic}
-                fileName={preflightData.fileName}
-                onConfirm={handleConfirmGenerate}
-                onCancel={handleRegenerate}
-              />
-            )}
             {labState === 'generating' && (
               <GeneratingState mode={genMode} topic={currentTopic} />
             )}
@@ -2046,10 +2613,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
               <ResultView
                 result={result}
                 studentName={studentName}
+                visualStyle={visualStyle}
                 onSave={handleSave}
                 saving={savingResult}
-                onExportJson={() => result.activity && exportActivityJson(result.activity, `${exportTitle}.json`)}
-                onPrint={printActivity}
+                onExportJson={() => exportActivityJson(result.contentJson || result.activity || result.content || {}, `${exportTitle}.json`)}
                 onDownloadImg={() => downloadImage(result.imageUrl ?? '', `${exportTitle}.png`)}
               />
             )}
@@ -2061,9 +2628,11 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
             genMode={genMode}
             pendingFile={pendingFile}
             isGenerating={labState === 'generating'}
+            visualStyle={visualStyle}
             onInput={handleInput}
             onKeyDown={handleKeyDown}
             onModeChange={handleModeChange}
+            onStyleChange={setVisualStyle}
             onSend={handleSend}
             onFileClick={() => fileInputRef.current?.click()}
             onRemoveFile={() => setPendingFile(null)}
