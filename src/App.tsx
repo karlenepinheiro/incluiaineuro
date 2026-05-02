@@ -298,14 +298,12 @@ const App: React.FC = () => {
   }, [tenantSummary?.planCreditsMonthly, planEff?.monthly_credits, planEff?.credits_monthly, user.plan]);
 
   const creditsAvailable = useMemo(() => {
-    const planDefault = planMonthlyCredits > 0 ? planMonthlyCredits : (getPlanLimits(user.plan) as any).ai_credits ?? 0;
     // Enquanto tenantSummary não carregou, usa créditos do plano como fallback
-    if (tenantSummary === null) return planDefault;
-    // Calcula saldo pelo ledger: plano + comprados − consumidos
-    // Garante: 70 − 13 = 57 (e não o saldo da carteira que pode estar desatualizado)
-    const consumed  = Math.max(0, Number(tenantSummary?.creditsConsumedCycle ?? 0));
-    const purchased = Math.max(0, Number(tenantSummary?.creditsPurchased    ?? 0));
-    return Math.max(0, planDefault + purchased - consumed);
+    if (tenantSummary === null) {
+      return planMonthlyCredits > 0 ? planMonthlyCredits : (getPlanLimits(user.plan) as any).ai_credits ?? 0;
+    }
+    // Fonte única de verdade: credits_wallet.balance (via aiCreditsRemaining)
+    return Math.max(0, Number(tenantSummary.aiCreditsRemaining ?? 0));
   }, [tenantSummary, planMonthlyCredits, user.plan]);
 
   // Créditos comprados e consumidos (do ledger, via tenantSummary)

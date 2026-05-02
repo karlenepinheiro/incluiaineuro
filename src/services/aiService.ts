@@ -1403,6 +1403,236 @@ Retorne SOMENTE a atividade adaptada, pronta para uso, em português brasileiro.
     return { id: data.id };
   },
 
+  // ── Perfil Inteligente do Aluno ─────────────────────────────────────────────
+
+  async generateIntelligentProfile(
+    student: Student,
+    user: User,
+    versionNumber: number,
+  ): Promise<import('./intelligentProfileService').IntelligentProfileJSON> {
+    const cost = AI_CREDIT_COSTS.PERFIL_INTELIGENTE;
+    if (!(await this.checkCredits(user, cost))) {
+      throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
+    }
+
+    const diagnosis    = (student.diagnosis || []).join(', ') || 'Não informado';
+    const cid          = Array.isArray(student.cid) ? student.cid.join(', ') : (student.cid || '');
+    const abilities    = (student.abilities || []).join('; ') || '';
+    const difficulties = (student.difficulties || []).join('; ') || '';
+    const strategies   = (student.strategies || []).join('; ') || '';
+
+    let ctxBlock = '';
+    try {
+      const canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
+      if (CanonicalStudentContextService.hasData(canonicalCtx)) {
+        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'ficha_aluno');
+      }
+    } catch {
+      try {
+        const autoCtx = await StudentContextService.buildContext(student.id);
+        if (StudentContextService.hasData(autoCtx)) ctxBlock = StudentContextService.toPromptText(autoCtx);
+      } catch { /* contexto é opcional */ }
+    }
+
+    const pkBlock = buildPKBlock(student);
+    const familyBlock = buildFamilyBlock(student);
+
+    const prompt = `Você é uma psicopedagoga especialista em educação inclusiva, neuroeducação e atendimento educacional especializado (AEE).
+
+Sua tarefa é criar o PERFIL INTELIGENTE do aluno abaixo — um documento pedagógico humanizado que ajuda o professor a planejar intervenções, adaptar atividades e fortalecer o vínculo com o aluno.
+
+═══════════════════════════════════════════════════
+DADOS DO ALUNO
+═══════════════════════════════════════════════════
+Nome: ${student.name}
+Diagnóstico(s): ${diagnosis}${cid ? ` (CID: ${cid})` : ''}
+Nível de Suporte: ${student.supportLevel || 'Não informado'}
+Série/Turno: ${student.grade || '—'} / ${student.shift || '—'}
+Professor Regente: ${student.regentTeacher || '—'}
+Professor AEE: ${student.aeeTeacher || '—'}
+Habilidades observadas: ${abilities || 'Não informado'}
+Dificuldades observadas: ${difficulties || 'Não informado'}
+Estratégias que funcionam: ${strategies || 'Não informado'}
+Comunicação: ${(student.communication || []).join('; ') || 'Não informado'}
+Histórico escolar: ${student.schoolHistory || 'Não informado'}
+Observações gerais: ${student.observations || ''}
+${pkBlock}
+${familyBlock}
+${ctxBlock}
+
+═══════════════════════════════════════════════════
+REGRAS OBRIGATÓRIAS
+═══════════════════════════════════════════════════
+1. NUNCA invente dados que não foram fornecidos. Se houver poucos dados, diga explicitamente no campo humanizedIntroduction.text: "As informações disponíveis ainda são limitadas. Este perfil deve ser complementado com observações diretas do professor."
+2. NUNCA faça diagnóstico médico. NUNCA afirme transtornos além dos listados.
+3. Use linguagem humana, acolhedora, respeitosa — sem rótulos, sem termos frios, sem capacitismo.
+4. Não reduza o aluno ao diagnóstico. Fale da PESSOA.
+5. Os checklists devem refletir APENAS o que pode ser inferido dos dados reais — não invente.
+6. Para os status dos checklists: "presente" se claramente observado nos dados; "em_desenvolvimento" se parcialmente evidenciado; "nao_observado" se não há dados suficientes.
+7. As atividades recomendadas devem ser práticas, aplicáveis e conectadas ao perfil real.
+8. O campo incluiLabPrompt deve ser um prompt pronto para usar no IncluiLAB — específico, com o nome do aluno e suas características.
+9. Português brasileiro formal. Sem markdown no interior dos textos (sem asteriscos, sem #).
+10. RETORNE SOMENTE o JSON válido abaixo. Sem markdown, sem \`\`\`json, sem texto antes ou depois.
+
+═══════════════════════════════════════════════════
+ESTRUTURA JSON OBRIGATÓRIA
+═══════════════════════════════════════════════════
+{
+  "studentName": "${student.name}",
+  "generatedAt": "${new Date().toISOString()}",
+  "generatedBy": "${user.name || ''}",
+  "version": ${versionNumber},
+  "firstPersonLetter": "Carta curta (3-5 frases) escrita em 1ª pessoa, como se fosse o próprio aluno falando ao professor — acolhedora, honesta, baseada nas características reais do aluno. Reflita seus desafios, seus interesses e seu pedido implícito de compreensão. Ex: 'Oi, professor(a)! Eu sou o ${student.name}...'",
+  "humanizedIntroduction": {
+    "title": "Conhecendo ${student.name}",
+    "text": "3 a 5 parágrafos narrativos sobre quem é o aluno — características, interesses, potencialidades, vínculo, autonomia e participação. Linguagem humana, sem rótulos."
+  },
+  "neuropsychologicalReport": {
+    "text": "Parágrafo sobre o perfil neuropsicológico pedagógico — processamento sensorial, funções executivas, reatividade. Linguagem pedagógica, nunca clínica. Nunca afirme diagnóstico além do informado.",
+    "checklist": [
+      "Ação terapêutica/adaptação concreta 1 (ex: Reduzir estímulos visuais concorrentes na mesa)",
+      "Ação concreta 2 (ex: Usar abafador de ruído em atividades coletivas)",
+      "Ação concreta 3 (ex: Aplicar pausa motora de 3 min a cada 20 min)",
+      "Ação concreta 4 (ex: Antecipar quebra de rotina com suporte visual)"
+    ]
+  },
+  "pedagogicalReport": {
+    "text": "Parágrafo sobre o perfil pedagógico atual — o que já foi consolidado, o que está em desenvolvimento, como o professor pode mediar.",
+    "checklist": [
+      { "label": "Autonomia nas atividades", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Resposta a comandos simples", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Compreensão de instruções", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Participação em atividades individuais", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Participação em atividades coletivas", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Necessidade de mediação", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Uso de apoio visual", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Ritmo de aprendizagem compatível com a turma", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Habilidades pedagógicas consolidadas", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Habilidades pedagógicas em desenvolvimento", "status": "presente|em_desenvolvimento|nao_observado" }
+    ]
+  },
+  "neuroPedagogicalReport": {
+    "text": "Parágrafo sobre a intersecção entre funcionamento cerebral e aprendizagem — como o aluno processa, organiza, regula e responde. Use linguagem pedagógica.",
+    "checklist": [
+      { "label": "Atenção sustentada", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Memória de trabalho", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Organização da rotina", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Tolerância a mudanças", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Autorregulação emocional", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Processamento de instruções verbais", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Resposta a estímulos visuais", "status": "presente|em_desenvolvimento|nao_observado" },
+      { "label": "Tempo de resposta adequado ao contexto", "status": "presente|em_desenvolvimento|nao_observado" }
+    ]
+  },
+  "learningProfile": {
+    "text": "2 parágrafos sobre o estilo de aprendizagem predominante (visual, cinestésico, auditivo ou combinado) e como isso se manifesta em sala.",
+    "attentionSpan": "X a Y minutos (informe o tempo estimado de atenção sustentada)"
+  },
+  "bestLearningStrategies": {
+    "text": "Parágrafo curto sobre como este aluno aprende melhor.",
+    "items": [
+      "Estratégia concreta 1 (ex: Rotina visual clara antes da atividade)",
+      "Estratégia concreta 2",
+      "Estratégia concreta 3",
+      "Estratégia concreta 4"
+    ]
+  },
+  "recommendedActivities": [
+    {
+      "title": "Título da atividade 1",
+      "objective": "Objetivo pedagógico",
+      "howToApply": "Como aplicar em 2-3 frases.",
+      "whyItHelps": "Por que beneficia este aluno.",
+      "supportLevel": "Baixo|Médio|Alto",
+      "incluiLabPrompt": "Crie uma atividade de [tipo] para ${student.name}, aluno com [diagnóstico], série [série]. A atividade deve [objetivo]. Use [recursos]. Nível: adaptado."
+    },
+    { "title": "Atividade 2", "objective": "", "howToApply": "", "whyItHelps": "", "supportLevel": "Médio", "incluiLabPrompt": "" },
+    { "title": "Atividade 3", "objective": "", "howToApply": "", "whyItHelps": "", "supportLevel": "Alto", "incluiLabPrompt": "" },
+    { "title": "Atividade 4", "objective": "", "howToApply": "", "whyItHelps": "", "supportLevel": "Baixo", "incluiLabPrompt": "" }
+  ],
+  "strengths": [
+    "Potencialidade concreta 1 (ex: Excelente memória visual e espacial)",
+    "Potencialidade 2",
+    "Potencialidade 3",
+    "Potencialidade 4"
+  ],
+  "challenges": [
+    {
+      "title": "Nome do desafio 1 (ex: Regulação Emocional)",
+      "description": "Descrição específica do desafio em 1-2 frases, com manifestação observável."
+    },
+    {
+      "title": "Nome do desafio 2 (ex: Sobrecarga Sensorial)",
+      "description": "Descrição."
+    },
+    {
+      "title": "Nome do desafio 3 (ex: Grafomotricidade)",
+      "description": "Descrição."
+    }
+  ],
+  "observationPoints": {
+    "text": "Parágrafo orientando o professor sobre o que observar nas próximas semanas para calibrar intervenções.",
+    "checklist": [
+      "Aumento de autonomia nas tarefas propostas",
+      "Engajamento nas atividades recomendadas",
+      "Resposta ao apoio visual oferecido",
+      "Qualidade da interação com colegas",
+      "Tolerância a mudanças na rotina",
+      "Sinais de cansaço ou sobrecarga"
+    ]
+  },
+  "carePoints": [
+    "Ponto de cuidado 1",
+    "Ponto de cuidado 2",
+    "Ponto de cuidado 3"
+  ],
+  "nextSteps": [
+    "Próximo passo pedagógico 1",
+    "Próximo passo 2",
+    "Próximo passo 3"
+  ]
+}`;
+
+    const t0 = Date.now();
+    const auditId = await AiAuditService.logRequest({
+      tenantId: (user as any).tenant_id ?? '', userId: user.id,
+      requestType: 'perfil_inteligente', model: 'gemini-2.5-flash',
+      creditsConsumed: cost,
+      inputData: { studentId: student.id, studentName: student.name, versionNumber },
+    });
+
+    let raw: string;
+    let serverDebited = false;
+    try {
+      const { result, creditsRemaining } = await callAIGateway({
+        task: 'json', prompt,
+        creditsRequired: cost,
+        requestType: 'perfil_inteligente',
+      });
+      raw = result;
+      serverDebited = creditsRemaining !== undefined;
+    } catch (e) {
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: String(e) });
+      throw e;
+    }
+
+    const cleaned = cleanJsonString(raw);
+
+    let parsed: import('./intelligentProfileService').IntelligentProfileJSON;
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: 'parse_error' });
+      if (!serverDebited) await this.deductCredits(user, 'PERFIL_INTELIGENTE', Math.floor(cost / 2));
+      throw new Error('A IA retornou um formato inesperado. Tente novamente.');
+    }
+
+    if (!serverDebited) await this.deductCredits(user, 'PERFIL_INTELIGENTE', cost);
+    if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'json', content: JSON.stringify(parsed).slice(0, 500) });
+
+    return parsed;
+  },
+
   // ── Relatório de aluno ──────────────────────────────────────────────────────
 
   async generateStudentReport(

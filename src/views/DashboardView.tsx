@@ -532,10 +532,12 @@ export function DashboardView({
   const monthlyCredits = Number.isFinite(planMonthlyCredits as number) ? (planMonthlyCredits as number) : 0;
   const available      = Number.isFinite(creditsAvailable as number) ? (creditsAvailable as number) : 0;
   const purchased      = Number.isFinite(creditsPurchased) ? creditsPurchased : 0;
-  const creditsUsed    = Number.isFinite(creditsConsumedCycle as number) && (creditsConsumedCycle as number) >= 0
+  // Consumo: apenas do ciclo atual (ledger confiável por ciclo)
+  const creditsUsed       = Number.isFinite(creditsConsumedCycle as number) && (creditsConsumedCycle as number) >= 0
     ? (creditsConsumedCycle as number)
-    : monthlyCredits > 0 ? Math.max(0, monthlyCredits - available) : 0;
-  const totalCreditsBase  = monthlyCredits + purchased;
+    : 0;
+  // Base = somente créditos mensais do plano (purchased é all-time, distorceria %)
+  const totalCreditsBase  = monthlyCredits > 0 ? monthlyCredits : 0;
   const creditsPct        = totalCreditsBase > 0 ? Math.min(100, (creditsUsed / totalCreditsBase) * 100) : 0;
   const creditsLevel: MeterLevel = creditsPct >= 85 ? 'danger' : creditsPct >= 60 ? 'warning' : 'normal';
   const studentsPct       = maxStudents > 0 && maxStudents < 9999 ? (students.length / maxStudents) * 100 : 0;
@@ -813,7 +815,7 @@ export function DashboardView({
           icon={Zap}
           label="Créditos IA disponíveis"
           value={available}
-          sub={totalCreditsBase > 0 ? `${Math.round(creditsPct)}% utilizado neste ciclo` : 'Sem créditos no plano'}
+          sub={resetBR ? `Renova em ${resetBR}` : 'Créditos disponíveis'}
           color={creditsLevel === 'danger' ? C.rose : creditsLevel === 'warning' ? C.amber : C.petrol}
           pct={creditsPct}
           onClick={() => onNavigate?.('subscription')}

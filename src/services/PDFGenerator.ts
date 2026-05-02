@@ -3,6 +3,7 @@
 // Reference: PAEE/PEI/Estudo de Caso mockup PDFs
 import { Student, User, SchoolConfig } from '../types';
 import type { DynChecklistSection } from '../components/DynamicChecklist';
+import type { IntelligentProfileJSON, ChecklistItem as SIPChecklistItem } from './intelligentProfileService';
 import QRCode from 'qrcode';
 
 // ─── jsPDF CDN ────────────────────────────────────────────────────────────────
@@ -1718,6 +1719,360 @@ Declaro ainda ter recebido orientações claras sobre o funcionamento do AEE e s
     return doc.output('blob') as Blob;
   },
 };
+
+// ─── PERFIL INTELIGENTE PDF ───────────────────────────────────────────────────
+
+export async function generateIntelligentProfilePDF(params: {
+  profile: IntelligentProfileJSON;
+  student: Student;
+  versionNumber: number;
+  generatedAt: string;
+  generatedByName: string;
+  school?: SchoolConfig | null;
+}): Promise<void> {
+  const { profile, student, versionNumber, generatedAt, generatedByName, school } = params;
+
+  const jsPDF  = await loadJsPDF();
+  const doc    = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  await ensureNotoSans(doc);
+
+  const W      = doc.internal.pageSize.getWidth();
+  const H      = doc.internal.pageSize.getHeight();
+  const maxW   = W - ML - MR;
+
+  // Metadados do documento
+  const auditCode = `PI-${student.id.slice(-8).toUpperCase()}-V${versionNumber}`;
+  _currentAuditCode = auditCode;
+  _currentUserName  = generatedByName;
+  _currentSchool    = school ?? null;
+
+  const genDate = new Date(generatedAt).toLocaleDateString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+  });
+  const genTime = new Date(generatedAt).toLocaleTimeString('pt-BR', {
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  // Foto do aluno
+  let circularPhoto: string | undefined;
+  if (student.photoUrl) {
+    try { circularPhoto = await cropToCircle(student.photoUrl); } catch {}
+  }
+
+  // QR
+  const qrUrl = await buildQr(auditCode);
+
+  // ── HELPERS LOCAIS ────────────────────────────────────────────────────────────
+
+  function newPage(): number {
+    doc.addPage();
+    return addRunningHeader(doc, auditCode, school) + 2;
+  }
+
+  function sectionTitle(text: string, y: number): number {
+    return sectionBanner(doc, text, ML, y, maxW);
+  }
+
+  function bodyText(text: string, x: number, y: number, w: number): number {
+    if (!text?.trim()) return y;
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(BODY_SIZE);
+    sc(doc, DARK);
+    const paragraphs = text.split('\n').filter(Boolean);
+    for (const para of paragraphs) {
+      const lines: string[] = doc.splitTextToSize(para, w);
+      for (const ln of lines) {
+        if (y > cBot(H) - 6) { y = newPage(); }
+        doc.text(ln, x, y);
+        y += LINE_H;
+      }
+      y += 2;
+    }
+    return y + 2;
+  }
+
+  // Status indicator for checklist items
+  const STATUS_COLORS: Record<SIPChecklistItem['status'], [number,number,number]> = {
+    presente:          [22, 163, 74],   // green-600
+    em_desenvolvimento:[198, 146, 20],  // gold
+    nao_observado:     [156, 163, 175], // gray
+  };
+  const STATUS_LABELS: Record<SIPChecklistItem['status'], string> = {
+    presente:          'Presente',
+    em_desenvolvimento:'Em desenvolvimento',
+    nao_observado:     'Não observado',
+  };
+
+  function renderProfileChecklist(items: SIPChecklistItem[], x: number, y: number, w: number): number {
+    for (const item of items) {
+      if (y > cBot(H) - 8) { y = newPage(); }
+      const col = STATUS_COLORS[item.status];
+      // Status dot
+      sf(doc, col);
+      sd(doc, col);
+      doc.circle(x + 2, y - 1.5, 2, 'F');
+      // Label
+      doc.setFont(_docFont, 'normal');
+      doc.setFontSize(TABLE_SIZE);
+      sc(doc, DARK);
+      doc.text(item.label, x + 7, y);
+      // Status text (right-aligned)
+      doc.setFont(_docFont, 'italic');
+      doc.setFontSize(TINY_SIZE);
+      sc(doc, GRAY);
+      doc.text(STATUS_LABELS[item.status], x + w, y, { align: 'right' });
+      // Thin divider
+      sd(doc, [230, 231, 232] as any);
+      doc.setLineWidth(0.15);
+      doc.line(x, y + 2, x + w, y + 2);
+      y += 6;
+    }
+    return y + 4;
+  }
+
+  function renderBulletItems(items: string[], x: number, y: number, w: number): number {
+    for (const item of items) {
+      if (y > cBot(H) - 8) { y = newPage(); }
+      sf(doc, PETROL);
+      doc.circle(x + 1.5, y - 1.5, 1.2, 'F');
+      doc.setFont(_docFont, 'normal');
+      doc.setFontSize(BODY_SIZE);
+      sc(doc, DARK);
+      const ls: string[] = doc.splitTextToSize(item, w - 8);
+      doc.text(ls, x + 6, y);
+      y += ls.length * LINE_H + 1;
+    }
+    return y + 3;
+  }
+
+  function renderStringChecklist(items: string[], x: number, y: number, w: number): number {
+    for (const item of items) {
+      if (y > cBot(H) - 8) { y = newPage(); }
+      // Empty checkbox
+      sd(doc, PETROL as any);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y - 3.5, 4, 4, 0.5, 0.5, 'D');
+      doc.setFont(_docFont, 'normal');
+      doc.setFontSize(BODY_SIZE);
+      sc(doc, DARK);
+      const ls: string[] = doc.splitTextToSize(item, w - 8);
+      doc.text(ls, x + 7, y);
+      y += ls.length * LINE_H + 1;
+    }
+    return y + 3;
+  }
+
+  // ── PÁGINA 1 — CAPA ─────────────────────────────────────────────────────────
+  addCoverBlock(
+    doc,
+    'Perfil Inteligente do Aluno',
+    `LEITURA PEDAGÓGICA E NEUROPEDAGÓGICA — VERSÃO ${versionNumber}`,
+    auditCode, qrUrl,
+    school?.schoolName ?? 'Sistema IncluiAI',
+  );
+
+  // Bloco do aluno abaixo da capa
+  let y = 55; // após banner
+  y = buildStudentBlock(doc, student, circularPhoto, ML, y, maxW, [
+    ['Professor(a) Regente:', student.regentTeacher || ''],
+    ['Professor(a) AEE:',    student.aeeTeacher    || ''],
+    ['Gerado em:',           `${genDate} às ${genTime}`],
+    ['Gerado por:',          generatedByName],
+    ['Versão:',              `${versionNumber}`],
+  ]);
+
+  // ── SEÇÃO 1 — CONHECENDO O ALUNO ────────────────────────────────────────────
+  y += 4;
+  if (y > cBot(H) - 40) { y = newPage(); }
+  y = sectionTitle(profile.humanizedIntroduction.title, y);
+  y = bodyText(profile.humanizedIntroduction.text, ML, y, maxW);
+
+  // ── SEÇÃO 2 — PARECER PEDAGÓGICO ────────────────────────────────────────────
+  if (y > cBot(H) - 40) { y = newPage(); }
+  y = sectionTitle('Parecer Pedagógico', y);
+  y = bodyText(profile.pedagogicalReport.text, ML, y, maxW);
+
+  // Legenda
+  doc.setFont(_docFont, 'italic');
+  doc.setFontSize(TINY_SIZE);
+  sc(doc, GRAY);
+  doc.text('● Verde: Presente  ● Dourado: Em desenvolvimento  ● Cinza: Não observado', ML, y);
+  y += 6;
+
+  y = renderProfileChecklist(profile.pedagogicalReport.checklist, ML, y, maxW);
+
+  // ── SEÇÃO 3 — PARECER NEUROPEDAGÓGICO ───────────────────────────────────────
+  if (y > cBot(H) - 40) { y = newPage(); }
+  y = sectionTitle('Parecer Neuropedagógico', y);
+
+  // Aviso
+  const aviso = 'Este parecer reflete observações pedagógicas. Não constitui diagnóstico médico nem substitui avaliação clínica especializada.';
+  const avisoLines: string[] = doc.splitTextToSize(aviso, maxW);
+  sf(doc, [255, 251, 235] as any);
+  sd(doc, [253, 230, 138] as any);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(ML, y, maxW, avisoLines.length * LINE_H + 6, 2, 2, 'FD');
+  doc.setFont(_docFont, 'italic');
+  doc.setFontSize(TINY_SIZE);
+  sc(doc, [146, 64, 14] as any);
+  doc.text(avisoLines, ML + 4, y + 4.5);
+  y += avisoLines.length * LINE_H + 10;
+
+  y = bodyText(profile.neuroPedagogicalReport.text, ML, y, maxW);
+  y = renderProfileChecklist(profile.neuroPedagogicalReport.checklist, ML, y, maxW);
+
+  // ── SEÇÃO 4 — COMO APRENDE MELHOR ───────────────────────────────────────────
+  if (y > cBot(H) - 30) { y = newPage(); }
+  y = sectionTitle('Como Aprende Melhor', y);
+  y = bodyText(profile.bestLearningStrategies.text, ML, y, maxW);
+  y = renderBulletItems(profile.bestLearningStrategies.items, ML, y, maxW);
+
+  // ── SEÇÃO 5 — ATIVIDADES INDICADAS ──────────────────────────────────────────
+  if (y > cBot(H) - 30) { y = newPage(); }
+  y = sectionTitle('Atividades Indicadas', y);
+
+  for (const act of profile.recommendedActivities) {
+    if (y > cBot(H) - 30) { y = newPage(); }
+
+    // Activity header
+    sf(doc, [236, 244, 247] as any);
+    sd(doc, BORDER);
+    doc.setLineWidth(0.2);
+    const actTitleLines: string[] = doc.splitTextToSize(act.title, maxW - 30);
+    const actBoxH = actTitleLines.length * LINE_H + 8;
+    doc.roundedRect(ML, y, maxW, actBoxH, 2, 2, 'FD');
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(BODY_SIZE);
+    sc(doc, PETROL);
+    doc.text(actTitleLines, ML + 4, y + 5);
+    // Support level badge (right)
+    const lvlColor = act.supportLevel === 'Baixo' ? [21, 128, 61] as [number,number,number]
+      : act.supportLevel === 'Alto' ? [190, 18, 60] as [number,number,number]
+      : [161, 98, 7] as [number,number,number];
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(TINY_SIZE);
+    sc(doc, lvlColor);
+    doc.text(`Apoio ${act.supportLevel}`, W - MR, y + 5, { align: 'right' });
+    y += actBoxH + 2;
+
+    // Objective
+    if (act.objective) {
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(LABEL_SIZE);
+      sc(doc, PETROL);
+      doc.text('Objetivo:', ML, y);
+      y += 5;
+      y = bodyText(act.objective, ML + 2, y, maxW - 2);
+    }
+
+    // How to apply
+    if (act.howToApply) {
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(LABEL_SIZE);
+      sc(doc, PETROL);
+      doc.text('Como aplicar:', ML, y);
+      y += 5;
+      y = bodyText(act.howToApply, ML + 2, y, maxW - 2);
+    }
+
+    // Why it helps
+    if (act.whyItHelps) {
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(LABEL_SIZE);
+      sc(doc, PETROL);
+      doc.text('Por que ajuda:', ML, y);
+      y += 5;
+      y = bodyText(act.whyItHelps, ML + 2, y, maxW - 2);
+    }
+
+    y += 4;
+    sd(doc, BORDER);
+    doc.setLineWidth(0.3);
+    doc.line(ML, y, W - MR, y);
+    y += 6;
+  }
+
+  // ── SEÇÃO 6 — PONTOS DE OBSERVAÇÃO ──────────────────────────────────────────
+  if (y > cBot(H) - 30) { y = newPage(); }
+  y = sectionTitle('Pontos de Observação para os Próximos Dias', y);
+  y = bodyText(profile.observationPoints.text, ML, y, maxW);
+  y = renderStringChecklist(profile.observationPoints.checklist, ML, y, maxW);
+
+  // ── SEÇÃO 7 — CUIDADOS E PRÓXIMOS PASSOS ────────────────────────────────────
+  if (y > cBot(H) - 30) { y = newPage(); }
+
+  const halfW = (maxW - 8) / 2;
+
+  // Pontos de cuidado (esquerda)
+  y = sectionTitle('Pontos de Cuidado', y);
+  y = renderBulletItems(profile.carePoints, ML, y, halfW);
+
+  // Próximos passos
+  if (y > cBot(H) - 30) { y = newPage(); }
+  y = sectionTitle('Próximos Passos', y);
+  y = renderBulletItems(profile.nextSteps, ML, y, maxW);
+
+  // ── ASSINATURAS ──────────────────────────────────────────────────────────────
+  if (y > cBot(H) - 70) { y = newPage(); }
+
+  y += 8;
+  doc.setFont(_docFont, 'bold');
+  doc.setFontSize(SECTION_SIZE + 1);
+  sc(doc, PETROL);
+  doc.text('Assinaturas', ML, y);
+  y += 2;
+  sd(doc, GOLD);
+  doc.setLineWidth(0.5);
+  doc.line(ML, y, ML + 30, y);
+  y += 10;
+
+  const school2 = school?.schoolName ?? 'Sistema IncluiAI';
+  doc.setFont(_docFont, 'normal');
+  doc.setFontSize(BODY_SIZE - 0.5);
+  sc(doc, DARK);
+  doc.text(`${school2}, ${genDate}`, ML, y);
+  y += 14;
+
+  const sigCols = 3;
+  const sigW    = (maxW - 10) / sigCols;
+  const signers = [
+    'Professor(a) Regente',
+    'Professor(a) do AEE',
+    'Coordenação Pedagógica',
+  ];
+
+  signers.forEach((role, i) => {
+    const sx = ML + i * (sigW + 5);
+    sd(doc, DARK);
+    doc.setLineWidth(0.2);
+    doc.line(sx, y, sx + sigW, y);
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(TINY_SIZE);
+    sc(doc, DARK);
+    doc.text(role, sx + sigW / 2, y + 4, { align: 'center' });
+    doc.setFont(_docFont, 'normal');
+    sc(doc, GRAY);
+    doc.text('Matrícula: _______________', sx + sigW / 2, y + 8, { align: 'center' });
+  });
+
+  y += 20;
+
+  // Gerado por
+  doc.setFont(_docFont, 'italic');
+  doc.setFontSize(TINY_SIZE);
+  sc(doc, GRAY);
+  doc.text(
+    `Documento gerado pelo IncluiAI em ${genDate} às ${genTime} por ${generatedByName}. Versão ${versionNumber}. Cód. ${auditCode}.`,
+    ML, y,
+  );
+
+  // ── RODAPÉS ──────────────────────────────────────────────────────────────────
+  addFooterAllPages(doc);
+
+  // ── SALVAR ───────────────────────────────────────────────────────────────────
+  const fileName = `PerfilInteligente_${student.name.replace(/\s+/g, '_')}_V${versionNumber}.pdf`;
+  doc.save(fileName);
+}
 
 // ─── Public helpers ───────────────────────────────────────────────────────────
 export function getDocTitle(docType: string): string {

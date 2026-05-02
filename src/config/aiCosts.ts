@@ -20,6 +20,9 @@ export const AI_CREDIT_COSTS = {
   PAEE: 3,
   PDI: 3,
   
+  // Perfil Inteligente do Aluno
+  PERFIL_INTELIGENTE: 5,
+
   // Processamento e OCR
   ANALISE_DOCUMENTO: 5,
   UPLOAD_MODELO: 5,

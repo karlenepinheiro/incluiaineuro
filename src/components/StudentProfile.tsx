@@ -28,6 +28,7 @@ import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
 import { RelatorioPreview } from './RelatorioPreview';
 import type { RelatorioResultado } from '../services/reportService';
 import { DocumentService } from '../services/documentService';
+import { IntelligentProfileTab } from './IntelligentProfileTab';
 
 // ── Critérios do perfil evolutivo (10 dimensões) ─────────────────────────────
 const CRITERIA = [
@@ -323,7 +324,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   onNavigateTo,
   onRefreshProtocols,
 }) => {
-  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades' | 'relatorio';
+  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades' | 'relatorio' | 'perfil_inteligente';
   const [activeTab, setActiveTab] = useState<Tab>('ficha');
   const [fichas, setFichas] = useState<FichaComplementar[]>(student.fichasComplementares || []);
   const [quickDocType, setQuickDocType] = useState<QuickDocType | null>(null);
@@ -852,6 +853,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: 'perfil_inteligente', label: 'Perfil Inteligente', icon: <Brain size={13}/> },
     { id: 'ficha',      label: 'Ficha do Aluno',      icon: <User size={13}/> },
     { id: 'evolucao',   label: 'Evolução',             icon: <TrendingUp size={13}/> },
     { id: 'agenda',     label: 'Agenda',               icon: <Calendar size={13}/> },
@@ -2377,6 +2379,20 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          TAB 8 — PERFIL INTELIGENTE
+         ══════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'perfil_inteligente' && (
+        <IntelligentProfileTab
+          student={student}
+          user={user as any}
+          onNavigateToIncluiLab={onNavigateTo ? (prompt) => {
+            navigator.clipboard.writeText(prompt).catch(() => {});
+            onNavigateTo('incluilab');
+          } : undefined}
+        />
       )}
 
       {/* ── Modal: Documento Complementar (Sprint 5B) ── */}

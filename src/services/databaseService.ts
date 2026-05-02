@@ -1024,28 +1024,15 @@ export const databaseService = {
       // ledger opcional — não bloqueia
     }
 
-    // ── Sincroniza credits_wallet.balance com o saldo calculado via ledger ────
-    // Garante que checkCredits() (que lê credits_wallet diretamente) enxergue
-    // o mesmo valor que a UI exibe. Fonte de verdade = ledger.
-    const computedBalance = Math.max(0, planCreditsMonthly + creditsPurchased - creditsConsumedCycle);
-    try {
-      if (walletAvail !== null) {
-        // Wallet existe — atualiza para refletir a verdade do ledger
-        await supabase
-          .from('credits_wallet')
-          .update({ balance: computedBalance, updated_at: new Date().toISOString() })
-          .eq('tenant_id', tenantId);
-      } else {
-        // Wallet não existia — cria com saldo correto
-        await supabase.from('credits_wallet').insert({
-          tenant_id: tenantId,
-          balance: computedBalance,
-        });
-      }
-      walletAvail = computedBalance;
-    } catch {
-      // não crítico — próxima chamada vai corrigir
-    }
+    // DEBUG temporário — comparar wallet real vs cálculo do ledger
+    const ledgerComputed = planCreditsMonthly + creditsPurchased - creditsConsumedCycle;
+    console.log('CREDITS DEBUG', {
+      wallet: walletAvail,
+      ledger: ledgerComputed,
+      planCreditsMonthly,
+      creditsPurchased,
+      creditsConsumedCycle,
+    });
 
     const billingCycle: 'monthly' | 'annual' =
       (sub as any)?.billing_cycle === 'annual' ? 'annual' : 'monthly';
