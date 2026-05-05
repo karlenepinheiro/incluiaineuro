@@ -215,7 +215,7 @@ export const FichaConfigModal: React.FC<FichaConfigModalProps> = ({ studentName,
             <p style={{ margin: 0, fontSize: 10, color: '#166534', fontWeight: 600 }}>Documento para uso interno</p>
             <p style={{ margin: '3px 0 0 0', fontSize: 10, color: '#166534' }}>
               A Ficha do Aluno não contém link público de validação nem QR code. Apenas documentos oficiais
-              (PEI, PAEE, PDI, Estudo de Caso) possuem código de validação público.
+              (PEI, PAEE e Estudo de Caso) possuem código de validação público.
             </p>
           </div>
         </div>

@@ -51,7 +51,7 @@ export const DocumentService = {
   async listByStudent(studentId: string): Promise<PedagocicalDocument[]> {
     const { data, error } = await supabase
       .from('documents')
-      .select('id, student_id, doc_type, status, structured_data, created_at, updated_at')
+      .select('id, student_id, tenant_id, created_by, doc_type, title, status, structured_data, audit_code, created_at, updated_at')
       .eq('student_id', studentId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });

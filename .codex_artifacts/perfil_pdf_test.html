@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>Perfil Inteligente PDF Test</title>
+  </head>
+  <body>
+    <pre id="status">Gerando PDF...</pre>
+    <script type="module">
+      import { generateIntelligentProfilePDF } from '/src/services/PDFGenerator.ts';
+
+      const profile = {
+        studentName: 'Emanuel Marinho Vieira',
+        generatedAt: '2026-05-02T12:30:00.000Z',
+        generatedBy: 'Kariene Sousa Pinheiro',
+        version: 1,
+        firstPersonLetter: '"Oi, professores! Eu sou o Emanuel. Eu sou um menino vibrante e cheio de energia, mas as vezes minha cabecinha fica uma bagunca por conta do TDAH e do TOD. Eu tenho uma memoria visual incrivel, e se voce me ensinar usando figuras e coisas que eu possa tocar, eu consigo prestar atencao por um tempao! Eu quero muito aprender a ler, sou muito curioso, mas as letrinhas ainda dao um no na minha cabeca. Quando eu nao conseguir falar direito o que sinto, tenha paciencia, estou aprendendo a me acalmar no AEE. Prometo que com rotina, elogios e atividades claras, eu vou brilhar na sua aula!"',
+        humanizedIntroduction: {
+          title: 'Quem sou eu?',
+          text: 'Aluno curioso, visual e responsivo a rotinas claras.',
+        },
+        pedagogicalReport: {
+          text: 'Emanuel tem demonstrado evolucao consistente com o suporte adequado. Metas como identificacao de cores e comunicacao de necessidades basicas foram atingidas. Permanece em sala de forma integral. Ainda enfrenta grandes desafios em leitura/decodificacao e raciocinio logico-matematico em niveis iniciais. A autonomia exige mediacao constante. Responde bem ao fracionamento de tarefas e reducao de estimulos visuais na mesa.',
+          checklist: [
+            { label: 'Resposta a comandos simples', status: 'presente' },
+            { label: 'Participacao individual e habilidades consolidadas', status: 'presente' },
+            { label: 'Autonomia nas atividades e compreensao de instrucoes', status: 'em_desenvolvimento' },
+            { label: 'Participacao em atividades coletivas', status: 'em_desenvolvimento' },
+            { label: 'Ritmo de aprendizagem compativel', status: 'nao_observado' },
+          ],
+        },
+        neuroPedagogicalReport: {
+          text: 'O processamento de informacoes e significativamente superior quando apresentado de forma visual e concreta, o que mitiga dificuldades da DI e Dislexia. Apresenta notavel atencao sustentada em contextos do seu interesse. A organizacao da rotina e tolerancia a mudancas sao desafios centrais. Dificuldade severa em processar instrucoes verbais complexas, especialmente em situacoes de transicao.',
+          checklist: [
+            { label: 'Atencao sustentada e autorregulacao emocional', status: 'presente' },
+            { label: 'Resposta a estimulos visuais', status: 'presente' },
+            { label: 'Memoria de trabalho', status: 'em_desenvolvimento' },
+            { label: 'Tolerancia a mudancas e organizacao da rotina', status: 'em_desenvolvimento' },
+            { label: 'Processamento de instrucoes verbais', status: 'em_desenvolvimento' },
+          ],
+        },
+        bestLearningStrategies: {
+          text: 'Aprende melhor com rotina e material concreto.',
+          items: [
+            'Rotina visual clara e consistente para antecipar atividades e transicoes.',
+            'Instrucoes objetivas e simplificadas, acompanhadas de apoio visual ou gestual.',
+            'Adaptacao de materiais, oferecendo intervalos menores e tempo ampliado.',
+            'Uso de reforco positivo e economia de fichas para incentivar participacao.',
+          ],
+        },
+        strengths: [
+          'Memoria visual forte e excelente resposta a pistas visuais.',
+          'Boa vinculacao com adultos de referencia.',
+          'Curiosidade e interesse por atividades multissensoriais.',
+        ],
+        challenges: [
+          { title: 'Manejo comportamental (TOD)', description: 'Antecipe e previna desafios gerenciando ansiedade com reforcos claros e evitando quebras repentinas de rotina.' },
+          { title: 'Atencao ao PEI', description: 'Revisar metas. Ha forte indicativo da necessidade de transicao para Nivel de Suporte 2 no proximo bimestre.' },
+          { title: 'Equipe externa', description: 'Manter colaboracao com avaliacao neuropsicologica e psicologo externo iniciados em marco/2026.' },
+        ],
+        recommendedActivities: [
+          { title: 'Explorando as Letras e Sons com Sentidos', objective: 'Consciencia fonologica e decodificacao usando forca visual.', howToApply: 'Use cartoes com letras e figuras. Associe som a letra com massinha/lixa. Leia 2-3 palavras com figuras.', whyItHelps: 'Multissensorial. Fortalece relacao grafema-fonema usando memoria visual.', supportLevel: 'Alto', incluiLabPrompt: '' },
+          { title: 'Construindo Historias Visuais', objective: 'Aprimorar comunicacao expressiva e interacao com sequencia visual.', howToApply: 'Imagens de historias/rotina. Aluno ordena imagens e descreve com apoio da CAA.', whyItHelps: 'Usa suporte visual para organizar pensamento funcional.', supportLevel: 'Medio', incluiLabPrompt: '' },
+          { title: 'Desafios Ludicos de Motricidade', objective: 'Desenvolver coordenacao fina e grossa evitando frustracao.', howToApply: 'Fina: alinhavo e massinha. Grossa: circuitos leves. Use timer visual do AEE.', whyItHelps: 'Aborda vulnerabilidade motora e mantem autorregulacao.', supportLevel: 'Alto', incluiLabPrompt: '' },
+          { title: 'Matematica Concreta (Rotina)', objective: 'Raciocinio logico e numerico com situacoes do cotidiano.', howToApply: 'Problemas da rotina com material concreto, tampinhas, blocos e cartoes.', whyItHelps: 'Conecta abstracao a realidade e evita saltos cognitivos.', supportLevel: 'Medio', incluiLabPrompt: '' },
+        ],
+        observationPoints: {
+          text: 'Nas proximas semanas, monitore o engajamento e a resposta ao apoio visual. Registre sinais de ansiedade nas transicoes. Lembre-se: o comite estuda a necessidade de Nivel 2 de Suporte, seus registros farao a diferenca.',
+          checklist: [
+            'Aumento de autonomia nas tarefas propostas',
+            'Engajamento nas atividades multissensoriais',
+            'Resposta ao apoio visual e tablet de CAA',
+            'Sinais de cansaco ou sobrecarga nas transicoes',
+            'Tolerancia a mudancas na rotina',
+            'Qualidade da interacao com colegas',
+          ],
+        },
+        carePoints: [],
+        nextSteps: [],
+      };
+
+      const student = {
+        id: 'student-117b99d4b',
+        name: 'Emanuel Marinho Vieira',
+        birthDate: '2019-05-12',
+        grade: '3º Ano',
+        shift: 'Matutino',
+        supportLevel: 'Nivel 1 (Possivel transicao Nivel 2)',
+        diagnosis: ['TDAH', 'TEA', 'Dislexia', 'TOD', 'Ansiedade', 'DI'],
+        cid: [],
+        regentTeacher: 'Joana',
+        aeeTeacher: 'Sandra',
+        medication: 'Nao',
+        unique_code: '117B99D4B',
+      };
+
+      try {
+        await generateIntelligentProfilePDF({
+          profile,
+          student,
+          versionNumber: 1,
+          generatedAt: '2026-05-02T12:30:00.000Z',
+          generatedByName: 'Kariene Sousa Pinheiro',
+          school: {
+            schoolName: 'Escola Municipal Tocantins',
+            city: 'Palmas',
+            state: 'TO',
+          },
+        });
+        document.getElementById('status').textContent = 'PDF gerado.';
+      } catch (error) {
+        console.error(error);
+        document.getElementById('status').textContent = String(error?.stack || error);
+      }
+    </script>
+  </body>
+</html>

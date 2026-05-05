@@ -23,6 +23,9 @@ export const AI_CREDIT_COSTS = {
   // Perfil Inteligente do Aluno
   PERFIL_INTELIGENTE: 5,
 
+  // Plano de Ação do Professor Regente
+  PLANO_ACAO: 8,
+
   // Processamento e OCR
   ANALISE_DOCUMENTO: 5,
   UPLOAD_MODELO: 5,

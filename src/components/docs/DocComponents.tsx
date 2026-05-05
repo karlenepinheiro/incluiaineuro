@@ -89,6 +89,11 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
 }) => {
   const accent = docAccents[docType];
   const label  = docLabel ?? accent.label;
+  const documentStatusLabel = docCode?.startsWith('VAL-')
+    ? 'Documento Validado'
+    : docCode?.startsWith('REG-')
+      ? 'Documento Registrado'
+      : 'Documento';
   return (
     <div style={{
       background: `linear-gradient(135deg, ${colors.petrol} 0%, ${colors.navy} 100%)`,
@@ -125,7 +130,7 @@ export const DocumentHeader: React.FC<DocumentHeaderProps> = ({
           </p>
         )}
         <p style={{ fontSize: fontSize.xs, color: 'rgba(255,255,255,0.40)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
-          Documento Oficial
+          {documentStatusLabel}
         </p>
         {/* Título do tipo de documento — slot para DocumentHero completar */}
         <div style={{ marginTop: 2, height: 3, width: 40, borderRadius: radius.full, background: colors.gold }} />
@@ -451,6 +456,7 @@ export const DocumentFooter: React.FC<DocumentFooterProps> = ({
       <p style={{ margin: 0, fontSize: fontSize.sm, fontWeight: 700, color: colors.dark }}>
         Documento gerado pelo IncluiAI
       </p>
+      <p style={{ margin: '2px 0 0', fontSize: fontSize.xs, color: colors.gray }}>www.incluiai.app.br</p>
       {schoolName && <p style={{ margin: '2px 0 0', fontSize: fontSize.xs, color: colors.gray }}>{schoolName}</p>}
       {date && <p style={{ margin: '2px 0 0', fontSize: fontSize.xs, color: colors.gray }}>Emissão: <strong style={{ color: colors.dark }}>{date}</strong></p>}
       {emittedBy && <p style={{ margin: '2px 0 0', fontSize: fontSize.xs, color: colors.gray }}>Profissional: <strong style={{ color: colors.dark }}>{emittedBy}</strong></p>}
@@ -462,7 +468,7 @@ export const DocumentFooter: React.FC<DocumentFooterProps> = ({
         }}>
           <Shield size={10} color={colors.petrol} />
           <span style={{ fontSize: fontSize['2xs'], fontWeight: 700, color: colors.petrol, fontFamily: fonts.mono }}>
-            {docCode}
+            {docCode.startsWith('VAL-') ? 'Código de Validação' : 'Código de Registro'} {docCode}
           </span>
         </div>
       )}

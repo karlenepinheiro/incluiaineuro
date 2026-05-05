@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>IncluiLAB export smoke test</title>
+    <style>
+      body {
+        margin: 0;
+        background: #e5e7eb;
+        font-family: Arial, sans-serif;
+      }
+
+      .stage {
+        display: grid;
+        gap: 24px;
+        padding: 32px;
+      }
+
+      .page {
+        width: 794px;
+        min-height: 1123px;
+        background: #fff;
+        box-sizing: border-box;
+        padding: 56px;
+        color: #0f172a;
+      }
+
+      .card {
+        border: 1px solid #dbe4ee;
+        border-radius: 12px;
+        padding: 20px;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div id="html-page" class="page" data-incluilab-pdf-page="true">
+        <h1>Atividade IncluiLAB</h1>
+        <p>Teste de exportacao HTML A4 com blocos preservados.</p>
+        <section class="card incluilab-avoid-break">
+          <h2>Objetivo</h2>
+          <p>Confirmar que a captura via html2canvas e jsPDF gera PDF sem cortar o bloco principal.</p>
+        </section>
+        <section class="card incluilab-avoid-break">
+          <h2>Questao</h2>
+          <p>Leia, marque e responda com calma.</p>
+        </section>
+      </div>
+
+      <div id="image-page" class="page" data-incluilab-pdf-page="true" data-incluilab-image-page="true">
+        <img id="generated-image" alt="Atividade em imagem" style="display:block; width:100%; height:auto;" />
+      </div>
+    </div>
+
+    <script type="module">
+      import { exportAsPDF, exportAsPNG } from '/src/utils/incluilabExport.ts';
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 1200;
+      canvas.height = 1600;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#1f4e5f';
+      ctx.fillRect(80, 80, 1040, 170);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 58px Arial';
+      ctx.fillText('Atividade em imagem', 140, 180);
+      ctx.fillStyle = '#111827';
+      ctx.font = '38px Arial';
+      ctx.fillText('Teste PDF A4 centralizado, fundo branco, sem corte.', 120, 360);
+      ctx.strokeStyle = '#c69214';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(120, 480, 960, 720);
+      ctx.font = '42px Arial';
+      ctx.fillText('1. Complete a sequencia:', 160, 580);
+      ctx.fillText('A  B  C  ____', 160, 680);
+
+      document.querySelector('#generated-image').src = canvas.toDataURL('image/png');
+
+      const htmlPage = document.querySelector('#html-page');
+      const imagePage = document.querySelector('#image-page');
+
+      try {
+        await exportAsPDF(htmlPage, 'incluilab-html-test.pdf');
+        await exportAsPNG(htmlPage, 'incluilab-html-test.png');
+        await exportAsPDF(imagePage, 'incluilab-image-test.pdf');
+        window.__incluilabExportDone = true;
+      } catch (error) {
+        console.error(error);
+        window.__incluilabExportError = error?.message || String(error);
+      }
+    </script>
+  </body>
+</html>

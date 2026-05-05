@@ -587,7 +587,7 @@ const PedagogicalGuide: React.FC<{ guide: GuiaPedagogico; activityTitle: string;
   guide, activityTitle, printId,
 }) => {
   return (
-    <div id={printId} style={{ ...pageStyle }}>
+    <div id={printId} data-incluilab-pdf-page="true" style={{ ...pageStyle }}>
       {/* Header institucional */}
       <header style={{
         background: `linear-gradient(135deg, ${C.petrol} 0%, #1a3f50 100%)`,
@@ -881,7 +881,7 @@ export const A4ActivityRenderer: React.FC<A4ActivityRendererProps> = ({
     : ['Leia com calma.', 'Resolva uma etapa por vez.', 'Peça ajuda quando precisar.'];
 
   return (
-    <div id={printId} style={pageStyle}>
+    <div id={printId} data-incluilab-pdf-page="true" style={pageStyle}>
       {/* ── Header ── */}
       <header style={{
         background: C.surface,

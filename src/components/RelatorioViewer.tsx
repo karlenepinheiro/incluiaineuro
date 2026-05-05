@@ -430,7 +430,7 @@ export const RelatorioViewer: React.FC<Props> = ({
             emittedBy={resultado.geradoPor}
             date={dateStr}
             schoolName={schoolName}
-            showQR
+            showQR={false}
           />
         </div>
       </DocumentPage>
@@ -671,7 +671,7 @@ export const RelatorioViewer: React.FC<Props> = ({
 
         {/* Assinaturas */}
         <DocumentSignatureBlock
-          title="Validação e Assinaturas"
+          title="Registro e Assinaturas"
           date={dateStr}
           location={school?.city || student.city}
           signatures={[
@@ -687,7 +687,7 @@ export const RelatorioViewer: React.FC<Props> = ({
           emittedBy={resultado.geradoPor}
           date={dateStr}
           schoolName={schoolName}
-          showQR
+          showQR={false}
         />
 
       </div>

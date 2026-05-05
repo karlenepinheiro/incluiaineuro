@@ -860,7 +860,7 @@ export function DashboardView({
           <StatCard icon={FileText} label="PAEEs gerados"      value={docKpis.paee}       color={C.blue}    onClick={() => onNavigate?.('paee')} />
           <StatCard icon={FileText} label="PDIs gerados"       value={docKpis.pdi}        color={C.emerald} onClick={() => onNavigate?.('protocols')} />
           <StatCard icon={FileText} label="Estudos de Caso"    value={docKpis.estudo}     color={C.gold}    onClick={() => onNavigate?.('estudo_caso')} />
-          <StatCard icon={BarChart3} label="Relatórios"        value={docKpis.relatorios} color={C.petrol}  onClick={() => onNavigate?.('reports')} />
+          <StatCard icon={BarChart3} label="Relatórios"        value={docKpis.relatorios} color={C.petrol}  onClick={() => onNavigate?.('fichas')} />
         </div>
       </div>
 

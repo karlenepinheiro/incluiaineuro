@@ -9,7 +9,7 @@ import {
   ShieldCheck, Clock, Edit, ArrowLeft, Eye,
   Printer, CheckCircle, FilePlus, AlertCircle, Save, Sparkles, FileSearch,
   ClipboardCheck, Trash2, X, Download, Paperclip, BookOpen, BarChart2,
-  TrendingUp, Users, Tag, Send, LogOut, Zap, Image, Copy, RefreshCw,
+  TrendingUp, Users, Tag, Send, LogOut, Zap, Image, Copy, RefreshCw, ClipboardList,
 } from 'lucide-react';
 import { DocButton, DocIconButton } from './ui/DocButton';
 import { SmartTextarea } from './SmartTextarea';
@@ -25,10 +25,9 @@ import { DEMO_MODE } from '../services/supabase';
 import { formatDateBR, calculateAge } from '../utils/dateUtils';
 import { QuickDocModal, QuickDocType } from './QuickDocModal';
 import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
-import { RelatorioPreview } from './RelatorioPreview';
-import type { RelatorioResultado } from '../services/reportService';
 import { DocumentService } from '../services/documentService';
 import { IntelligentProfileTab } from './IntelligentProfileTab';
+import { ActionPlanTab } from './ActionPlanTab';
 
 // ── Critérios do perfil evolutivo (10 dimensões) ─────────────────────────────
 const CRITERIA = [
@@ -324,7 +323,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   onNavigateTo,
   onRefreshProtocols,
 }) => {
-  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades' | 'relatorio' | 'perfil_inteligente';
+  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades' | 'perfil_inteligente' | 'plano_acao';
   const [activeTab, setActiveTab] = useState<Tab>('ficha');
   const [fichas, setFichas] = useState<FichaComplementar[]>(student.fichasComplementares || []);
   const [quickDocType, setQuickDocType] = useState<QuickDocType | null>(null);
@@ -759,6 +758,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   // Mantém índice válido quando lista muda
   const safeEvoIndex = Math.min(selectedEvoIndex, Math.max(0, sortedEvolutions.length - 1));
 
+  const [showEvoCharts, setShowEvoCharts] = useState(false);
+  const [showEvoTechText, setShowEvoTechText] = useState(false);
+
   // ── Estado fichas complementares (ações: expandir, excluir) ─────────────────
   const [expandedObsFormId, setExpandedObsFormId] = useState<string | null>(null);
 
@@ -772,95 +774,18 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     }
   };
 
-  // ── Estado da aba Relatório ───────────────────────────────────────────────────
-  const [reportType, setReportType]           = useState<'simple' | 'full' | null>(null);
-  const [reportResultado, setReportResultado] = useState<RelatorioResultado | null>(null);
-  const [reportLoading, setReportLoading]     = useState(false);
-  const [reportError, setReportError]         = useState<string>('');
-  const [showRelatorioViewer, setShowRelatorioViewer] = useState(false);
-  const [reportDocId, setReportDocId]         = useState<string | null>(null);
-
-  // Relatórios salvos no banco (carregados ao entrar na aba)
-  const [dbReports, setDbReports]             = useState<any[]>([]);
-  const [loadingReports, setLoadingReports]   = useState(false);
-
-  useEffect(() => {
-    if (activeTab !== 'relatorio' || !student.id) return;
-    setLoadingReports(true);
-    DocumentService.listByStudent(student.id)
-      .then(docs => setDbReports(
-        docs.filter(d =>
-          d.doc_type === 'RELATORIO_SIMPLES' ||
-          d.doc_type === 'RELATORIO_COMPLETO' ||
-          d.doc_type === 'RELATORIO_TECNICO'
-        )
-      ))
-      .catch(() => {})
-      .finally(() => setLoadingReports(false));
-  }, [activeTab, student.id]);
-
-  const reportScores: number[] = sortedEvolutions[0]?.scores ?? [];
-  const reportSchool = (user as any)?.schoolConfigs?.[0] ?? null;
-
-  const handleGenerateReport = async (type: 'simple' | 'full') => {
-    setReportType(type);
-    setReportResultado(null);
-    setReportError('');
-    setReportDocId(null);
-    setReportLoading(true);
-    try {
-      const resultado = await AIService.generateStudentReport(student, user as any, type, {
-        scores: reportScores,
-        school: reportSchool,
-      });
-      setReportResultado(resultado);
-
-      // Persiste imediatamente no banco — falha silenciosa para não bloquear o usuário
-      try {
-        const tenantId = (user as any)?.tenantId ?? (user as any)?.tenant_id ?? '';
-        const createdBy = (user as any)?.id ?? '';
-        if (tenantId && createdBy) {
-          const saved = await DocumentService.saveDocument({
-            student_id:      student.id,
-            tenant_id:       tenantId,
-            created_by:      createdBy,
-            doc_type:        type === 'full' ? 'RELATORIO_COMPLETO' : 'RELATORIO_SIMPLES',
-            title:           `Relatório — ${student.name}`,
-            structured_data: resultado,
-            status:          'APPROVED',
-          });
-          setReportDocId(saved.id);
-        }
-      } catch (saveErr) {
-        console.warn('[StudentProfile] Falha ao persistir relatório:', saveErr);
-      }
-    } catch (e: any) {
-      setReportError(e?.message || 'Erro ao gerar relatório.');
-    } finally {
-      setReportLoading(false);
-    }
-  };
-
-  const handleSaveReportEdits = async (edited: RelatorioResultado) => {
-    setReportResultado(edited);
-    if (!reportDocId) return;
-    try {
-      await DocumentService.updateDocument(reportDocId, edited, 'APPROVED');
-    } catch (err) {
-      console.warn('[StudentProfile] Falha ao salvar edições do relatório:', err);
-    }
-  };
 
 
-  const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+
+  const TABS: { id: Tab; label: string; icon: React.ReactNode; highlight?: boolean }[] = [
     { id: 'perfil_inteligente', label: 'Perfil Inteligente', icon: <Brain size={13}/> },
-    { id: 'ficha',      label: 'Ficha do Aluno',      icon: <User size={13}/> },
-    { id: 'evolucao',   label: 'Evolução',             icon: <TrendingUp size={13}/> },
-    { id: 'agenda',     label: 'Agenda',               icon: <Calendar size={13}/> },
-    { id: 'documentos', label: 'Documentos',           icon: <FileText size={13}/> },
-    { id: 'atividades', label: 'Atividades Geradas',   icon: <Zap size={13}/> },
-    { id: 'timeline',   label: 'Linha do Tempo',       icon: <Activity size={13}/> },
-    { id: 'relatorio',  label: 'Relatório',            icon: <BarChart2 size={13}/> },
+    { id: 'plano_acao',   label: 'Plano de Ação',      icon: <ClipboardList size={13}/>, highlight: true },
+    { id: 'ficha',        label: 'Ficha do Aluno',      icon: <User size={13}/> },
+    { id: 'evolucao',     label: 'Evolução',             icon: <TrendingUp size={13}/> },
+    { id: 'agenda',       label: 'Agenda',               icon: <Calendar size={13}/> },
+    { id: 'documentos',   label: 'Documentos',           icon: <FileText size={13}/> },
+    { id: 'atividades',   label: 'Atividades Geradas',   icon: <Zap size={13}/> },
+    { id: 'timeline',     label: 'Linha do Tempo',       icon: <Activity size={13}/> },
   ];
 
   return (
@@ -1008,11 +933,18 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               onClick={() => setActiveTab(t.id)}
               className={`flex items-center gap-1.5 px-5 py-3 text-xs font-bold whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === t.id
-                  ? 'border-brand-600 text-brand-700 bg-brand-50'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  ? t.highlight
+                    ? 'border-amber-500 text-amber-700 bg-amber-50'
+                    : 'border-brand-600 text-brand-700 bg-brand-50'
+                  : t.highlight
+                    ? 'border-transparent text-amber-600 hover:text-amber-700 hover:bg-amber-50'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
               }`}
             >
               {t.icon}{t.label}
+              {t.highlight && (
+                <span className="ml-1 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">NOVO</span>
+              )}
               {t.id === 'documentos' && dbDocs.length + studentProtocols.length + (dbObsForms.length || fichas.length) > 0 && (
                 <span className="ml-1 text-[9px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full font-bold">
                   {dbDocs.length + studentProtocols.length + (dbObsForms.length || fichas.length)}
@@ -1279,183 +1211,357 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           TAB 2 — EVOLUÇÃO
           Gráficos REAIS de student.evolutions[] + editor de histórico
          ══════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'evolucao' && (
-        <div className="space-y-5">
-          {/* Origem dos dados */}
-          {dbEvolutions.length > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-50 border border-green-100 text-xs text-green-700 font-semibold">
-              <CheckCircle size={13} className="text-green-500"/>
-              {dbEvolutions.length} avaliação{dbEvolutions.length !== 1 ? 'ões' : ''} carregada{dbEvolutions.length !== 1 ? 's' : ''} com sucesso
-            </div>
-          )}
-          {/* Charts */}
-          {sortedEvolutions.length > 0 && selectedEvolution ? (
-            <>
-              {/* Selected evaluation header */}
-              <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-                <div className="flex items-start justify-between mb-4">
-                  <SectionHeader
-                    icon={<BarChart2 size={16} style={{ color: '#7c3aed' }}/>}
-                    title="Gráficos Evolutivos"
-                    subtitle={`Avaliação de ${new Date(selectedEvolution.date).toLocaleDateString('pt-BR')} · por ${selectedEvolution.author || 'Profissional'}`}
-                  />
-                  {safeEvoIndex > 0 && (
-                    <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-2 py-1 rounded-full border border-amber-200 shrink-0">
-                      Registro anterior
+      {activeTab === 'evolucao' && (() => {
+        const latest   = sortedEvolutions[0] ?? null;
+        const previous = sortedEvolutions[1] ?? null;
+
+        const avgOf = (evo: any) =>
+          evo ? evo.scores.reduce((a: number, b: number) => a + b, 0) / evo.scores.length : 0;
+
+        const delta = latest && previous ? avgOf(latest) - avgOf(previous) : null;
+        const hasRegression = !!(latest && previous &&
+          CRITERIA.some((_, i) => (latest.scores[i] ?? 0) - (previous.scores[i] ?? 0) <= -1.5));
+
+        type EvoStatus = 'evoluiu' | 'manteve' | 'regrediu' | 'atenção';
+        const overallStatus: EvoStatus =
+          delta === null     ? 'manteve' :
+          hasRegression      ? 'atenção'  :
+          delta > 0.3        ? 'evoluiu'  :
+          delta < -0.3       ? 'regrediu' : 'manteve';
+
+        const statusCfg: Record<EvoStatus, { bg: string; border: string; color: string; label: string }> = {
+          evoluiu:  { bg: '#dcfce7', border: '#86efac', color: '#15803d', label: '✓ Evoluiu'  },
+          manteve:  { bg: '#f3f4f6', border: '#d1d5db', color: '#374151', label: '= Manteve'  },
+          regrediu: { bg: '#fee2e2', border: '#fca5a5', color: '#dc2626', label: '↓ Regrediu' },
+          atenção:  { bg: '#fef3c7', border: '#fcd34d', color: '#b45309', label: '⚠ Atenção'  },
+        };
+
+        const scoreTag = (s: number) =>
+          s >= 4 ? { label: 'Avanço',    bg: '#dcfce7', border: '#86efac', color: '#15803d' } :
+          s >= 3 ? { label: 'Estável',   bg: '#f3f4f6', border: '#d1d5db', color: '#374151' } :
+          s >= 2 ? { label: 'Atenção',   bg: '#fef3c7', border: '#fcd34d', color: '#b45309' } :
+                   { label: 'Regressão', bg: '#fee2e2', border: '#fca5a5', color: '#dc2626' };
+
+        const deltaTag = (d: number) =>
+          d > 0 ? { label: `+${d}`, bg: '#dcfce7', border: '#86efac', color: '#15803d' } :
+          d < 0 ? { label: `${d}`,  bg: '#fee2e2', border: '#fca5a5', color: '#dc2626' } :
+                  { label: '=',     bg: '#f3f4f6', border: '#d1d5db', color: '#374151' };
+
+        const sc = statusCfg[overallStatus];
+
+        return (
+          <div className="space-y-3">
+
+            {/* badge banco */}
+            {dbEvolutions.length > 0 && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-green-50 border border-green-100 text-xs text-green-700 font-semibold">
+                <CheckCircle size={12} className="text-green-500"/>
+                {dbEvolutions.length} avaliação{dbEvolutions.length !== 1 ? 'ões' : ''} carregada{dbEvolutions.length !== 1 ? 's' : ''} do banco
+              </div>
+            )}
+
+            {sortedEvolutions.length === 0 ? (
+              <div className="bg-white rounded-2xl shadow-sm border border-dashed border-gray-200 p-10 text-center">
+                <BarChart2 size={36} className="mx-auto mb-3 text-gray-200"/>
+                <p className="text-gray-500 font-semibold mb-1">Nenhum registro evolutivo</p>
+                <p className="text-xs text-gray-400 max-w-xs mx-auto">
+                  Use <strong>Perfil Cognitivo</strong> no menu lateral para registrar avaliações periódicas.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* ── 1. Resumo da evolução ─────────────────────────────────── */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: '#F5F0FF' }}>
+                        <TrendingUp size={14} style={{ color: '#7c3aed' }}/>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">Resumo da Evolução</p>
+                        <p className="text-xs text-gray-400">Visão geral da última avaliação</p>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-bold px-2.5 py-1 rounded-full border shrink-0" style={{
+                      background: sc.bg, borderColor: sc.border, color: sc.color,
+                    }}>
+                      {sc.label}
                     </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <p className="text-[10px] text-gray-400 uppercase font-bold mb-0.5">Última avaliação</p>
+                      <p className="text-xs font-bold text-gray-800">
+                        {new Date(latest.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
+                      </p>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-3">
+                      <p className="text-[10px] text-gray-400 uppercase font-bold mb-0.5">Responsável</p>
+                      <p className="text-xs font-bold text-gray-800">{latest.author || 'Profissional'}</p>
+                    </div>
+                  </div>
+                  {latest.observation && (
+                    <div className="rounded-xl p-3 border border-purple-100" style={{ background: '#FAF5FF' }}>
+                      <p className="text-[10px] font-bold uppercase text-purple-500 mb-1">Observação</p>
+                      <p className="text-xs text-gray-700" style={{ display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        {latest.observation}
+                      </p>
+                    </div>
                   )}
                 </div>
 
-                {/* Radar + Bars side by side */}
-                <div className="grid md:grid-cols-2 gap-8 items-start">
-                  <div className="flex flex-col items-center">
-                    <p className="text-xs font-bold text-gray-500 uppercase mb-3">Perfil Radar</p>
-                    <RadarChart scores={selectedEvolution.scores} />
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-gray-500 uppercase mb-3">Por Dimensão</p>
-                    <EvoBarChart scores={selectedEvolution.scores} labels={CRITERIA.map(c => c.name)} />
-                    <div className="mt-4 space-y-1">
-                      {CRITERIA.map((c, i) => {
-                        const score = selectedEvolution.scores[i] ?? 0;
-                        const color = score >= 4 ? '#16a34a' : score >= 3 ? '#7c3aed' : score >= 2 ? '#d97706' : '#dc2626';
-                        return (
-                          <div key={i} className="flex items-center justify-between text-xs">
-                            <span className="text-gray-600">{c.name}</span>
-                            <span className="font-bold" style={{ color }}>{score}/5</span>
-                          </div>
-                        );
-                      })}
+                {/* ── 2. Checklist de observação ────────────────────────────── */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+                  <div className="flex items-center gap-2 mb-3 pb-3 border-b border-gray-100">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: '#EFF9FF' }}>
+                      <ClipboardCheck size={14} style={{ color: '#0369a1' }}/>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-gray-800">Checklist de Observação</p>
+                      <p className="text-xs text-gray-400">Avaliação por área de desenvolvimento</p>
                     </div>
                   </div>
-                </div>
-
-                {selectedEvolution.observation && (
-                  <div className="mt-5 bg-purple-50 rounded-lg p-3 border border-purple-100">
-                    <p className="text-[10px] font-bold uppercase text-purple-600 mb-1">Observação da avaliação</p>
-                    <p className="text-sm text-gray-700 italic">{selectedEvolution.observation}</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Comparação de Evolução — última vs anterior */}
-              {sortedEvolutions.length >= 2 && safeEvoIndex === 0 && (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-                  <SectionHeader
-                    icon={<TrendingUp size={16} style={{ color: '#16a34a' }}/>}
-                    title="Comparação de Evolução"
-                    subtitle="Última avaliação vs. avaliação anterior"
-                  />
-                  <div className="space-y-2">
+                  <div className="space-y-0">
                     {CRITERIA.map((c, i) => {
-                      const curr = sortedEvolutions[0].scores[i] ?? 0;
-                      const prev = sortedEvolutions[1].scores[i] ?? 0;
-                      const delta = curr - prev;
-                      const deltaColor = delta > 0 ? '#16a34a' : delta < 0 ? '#dc2626' : '#6b7280';
-                      const deltaIcon = delta > 0 ? '▲' : delta < 0 ? '▼' : '—';
-                      const barColor = curr >= 4 ? '#16a34a' : curr >= 3 ? '#7c3aed' : curr >= 2 ? '#d97706' : '#dc2626';
+                      const score = latest.scores[i] ?? 0;
+                      const st    = scoreTag(score);
                       return (
-                        <div key={i} className="flex items-center gap-3 py-1.5 border-b border-gray-50 last:border-0">
-                          <span className="text-xs text-gray-600 w-40 shrink-0">{c.name}</span>
-                          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${(curr / 5) * 100}%`, background: barColor }}/>
+                        <div key={i} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+                          <div className="w-5 h-5 rounded flex items-center justify-center shrink-0 border-2" style={{
+                            background: score >= 3 ? st.bg : 'white',
+                            borderColor: st.border,
+                          }}>
+                            {score >= 3 && <CheckCircle size={11} style={{ color: st.color }}/>}
                           </div>
-                          <span className="text-xs font-bold text-gray-700 w-8 text-right">{curr}/5</span>
-                          <span className="text-xs font-bold w-8 text-right" style={{ color: deltaColor }}>
-                            {deltaIcon}{delta !== 0 ? Math.abs(delta) : ''}
+                          <span className="text-xs text-gray-700 flex-1 min-w-0">{c.name}</span>
+                          <span className="text-[10px] font-semibold text-gray-400 shrink-0">{score}/5</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0" style={{
+                            background: st.bg, borderColor: st.border, color: st.color,
+                          }}>
+                            {st.label}
                           </span>
                         </div>
                       );
                     })}
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-3">
-                    Comparado com: {new Date(sortedEvolutions[1].date).toLocaleDateString('pt-BR')} · por {sortedEvolutions[1].author || 'Profissional'}
-                  </p>
                 </div>
-              )}
 
-              {/* Histórico de Avaliações — todos os registros, clicáveis */}
-              {sortedEvolutions.length > 0 && (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-                  <SectionHeader
-                    icon={<TrendingUp size={16} style={{ color: '#1F4E5F' }}/>}
-                    title="Histórico de Avaliações"
-                    subtitle={`${sortedEvolutions.length} registro${sortedEvolutions.length !== 1 ? 's' : ''} — clique para visualizar`}
-                  />
+                {/* ── 3. Comparação por dimensão ────────────────────────────── */}
+                {sortedEvolutions.length >= 2 && (
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+                    <div className="flex items-center gap-2 mb-3 pb-3 border-b border-gray-100">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: '#F0FDF4' }}>
+                        <TrendingUp size={14} style={{ color: '#16a34a' }}/>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-gray-800">Comparação por Dimensão</p>
+                        <p className="text-xs text-gray-400">
+                          {new Date(sortedEvolutions[0].date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                          {' vs '}
+                          {new Date(sortedEvolutions[1].date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {CRITERIA.map((c, i) => {
+                        const curr  = sortedEvolutions[0].scores[i] ?? 0;
+                        const prev  = sortedEvolutions[1].scores[i] ?? 0;
+                        const d     = curr - prev;
+                        const dSt   = deltaTag(d);
+                        const cSt   = scoreTag(curr);
+                        return (
+                          <div key={i} className="rounded-xl border border-gray-100 p-3 bg-gray-50">
+                            <p className="text-[10px] font-bold text-gray-500 truncate mb-2">{c.name}</p>
+                            <div className="flex items-end justify-between gap-1">
+                              <div>
+                                <p className="text-[10px] text-gray-400 mb-1">
+                                  <span className="mr-1">Ant: <strong>{prev}/5</strong></span>
+                                  <span className="font-bold text-gray-800">Atual: {curr}/5</span>
+                                </p>
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border" style={{
+                                  background: cSt.bg, borderColor: cSt.border, color: cSt.color,
+                                }}>
+                                  {cSt.label}
+                                </span>
+                              </div>
+                              <span className="text-xs font-bold px-2 py-1 rounded-full border shrink-0" style={{
+                                background: dSt.bg, borderColor: dSt.border, color: dSt.color,
+                              }}>
+                                {dSt.label}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── 4. Gráficos recolhíveis ───────────────────────────────── */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                  <button
+                    onClick={() => setShowEvoCharts(v => !v)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <BarChart2 size={14} style={{ color: '#7c3aed' }}/>
+                      <span className="text-sm font-bold text-gray-800">Ver gráficos</span>
+                      <span className="text-[10px] text-gray-400">(Radar + Barras)</span>
+                    </div>
+                    <span className="text-xs text-gray-400 shrink-0">{showEvoCharts ? '▲ Ocultar' : '▼ Mostrar'}</span>
+                  </button>
+                  {showEvoCharts && (
+                    <div className="px-4 pb-4 border-t border-gray-100">
+                      <div className="flex items-center gap-2 py-2 mb-2 text-xs text-gray-500">
+                        <span>Avaliação de</span>
+                        <strong className="text-gray-700">{new Date(selectedEvolution.date).toLocaleDateString('pt-BR')}</strong>
+                        <span>· {selectedEvolution.author || 'Profissional'}</span>
+                        {safeEvoIndex > 0 && (
+                          <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-2 py-0.5 rounded-full border border-amber-200 ml-1">
+                            Anterior
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid md:grid-cols-2 gap-6 items-start">
+                        <div className="flex flex-col items-center">
+                          <p className="text-xs font-bold text-gray-400 uppercase mb-2">Radar</p>
+                          <RadarChart scores={selectedEvolution.scores} />
+                        </div>
+                        <div>
+                          <p className="text-xs font-bold text-gray-400 uppercase mb-2">Por dimensão</p>
+                          <EvoBarChart scores={selectedEvolution.scores} labels={CRITERIA.map(c => c.name)} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── 5. Análise técnica detalhada (recolhível) ─────────────── */}
+                {selectedEvolution.observation && (
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <button
+                      onClick={() => setShowEvoTechText(v => !v)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition text-left"
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileText size={14} style={{ color: '#1F4E5F' }}/>
+                        <span className="text-sm font-bold text-gray-800">Análise técnica detalhada</span>
+                      </div>
+                      <span className="text-xs text-gray-400 shrink-0">{showEvoTechText ? '▲ Fechar' : '▼ Abrir'}</span>
+                    </button>
+                    {showEvoTechText && (
+                      <div className="px-4 pb-4 border-t border-gray-100 pt-3">
+                        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                          {selectedEvolution.observation}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── 6. Histórico de avaliações ────────────────────────────── */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+                  <div className="flex items-center gap-2 mb-3 pb-3 border-b border-gray-100">
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: '#F5F5F5' }}>
+                      <Clock size={14} style={{ color: '#1F4E5F' }}/>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-gray-800">Histórico de Avaliações</p>
+                      <p className="text-xs text-gray-400">{sortedEvolutions.length} registro{sortedEvolutions.length !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     {sortedEvolutions.map((evo, i) => {
-                      const avg = (evo.scores.reduce((a: number, b: number) => a + b, 0) / evo.scores.length).toFixed(1);
-                      const isSelected = i === safeEvoIndex;
+                      const avg      = evo.scores.reduce((a: number, b: number) => a + b, 0) / evo.scores.length;
+                      const avgStr   = avg.toFixed(1);
+                      const isSelEvо = i === safeEvoIndex;
+                      const prevEvo  = sortedEvolutions[i + 1];
+                      const evoDelta = prevEvo
+                        ? avg - prevEvo.scores.reduce((a: number, b: number) => a + b, 0) / prevEvo.scores.length
+                        : null;
+                      const evoStatus: EvoStatus =
+                        evoDelta === null  ? 'manteve' :
+                        evoDelta > 0.3     ? 'evoluiu'  :
+                        evoDelta < -0.3    ? 'regrediu' : 'manteve';
+                      const evoSc = statusCfg[evoStatus];
                       return (
-                        <button
-                          key={evo.id ?? i}
-                          onClick={() => setSelectedEvoIndex(i)}
-                          className={`w-full flex items-center gap-4 p-3 rounded-xl border transition text-left ${
-                            isSelected
-                              ? 'bg-purple-50 border-purple-200 shadow-sm'
-                              : 'bg-gray-50 border-gray-100 hover:bg-gray-100'
-                          }`}
-                        >
-                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isSelected ? 'bg-purple-600' : 'bg-purple-100'}`}>
-                            <TrendingUp size={16} className={isSelected ? 'text-white' : 'text-purple-600'}/>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-bold text-gray-800">
-                                {new Date(evo.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}
-                              </p>
-                              {i === 0 && <span className="text-[9px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded-full">Mais recente</span>}
+                        <div key={evo.id ?? i} className={`rounded-xl border transition ${
+                          isSelEvо ? 'border-purple-200 bg-purple-50' : 'border-gray-100 bg-gray-50 hover:bg-gray-100'
+                        }`}>
+                          <div className="flex items-center gap-3 px-3 py-2.5">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                              isSelEvо ? 'bg-purple-600' : 'bg-purple-100'
+                            }`}>
+                              <TrendingUp size={13} className={isSelEvо ? 'text-white' : 'text-purple-600'}/>
                             </div>
-                            <p className="text-xs text-gray-500">por {evo.author} · Média: {avg}/5</p>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-xs font-bold text-gray-800">
+                                  {new Date(evo.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </p>
+                                {i === 0 && (
+                                  <span className="text-[9px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded-full">Recente</span>
+                                )}
+                                {evoDelta !== null && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border" style={{
+                                    background: evoSc.bg, borderColor: evoSc.border, color: evoSc.color,
+                                  }}>
+                                    {evoSc.label}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-gray-400">{evo.author} · Média: {avgStr}/5</p>
+                            </div>
+                            <button
+                              onClick={() => setSelectedEvoIndex(i)}
+                              className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border transition shrink-0 ${
+                                isSelEvо
+                                  ? 'bg-purple-600 text-white border-purple-600'
+                                  : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-700'
+                              }`}
+                            >
+                              {isSelEvо ? 'Exibindo' : 'Abrir'}
+                            </button>
                           </div>
-                          {evo.observation && (
-                            <p className="text-xs text-gray-400 italic max-w-[180px] truncate hidden md:block">{evo.observation}</p>
-                          )}
-                          {isSelected && <span className="text-[10px] text-purple-600 font-bold shrink-0">Exibindo ▶</span>}
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
                 </div>
-              )}
-            </>
-          ) : (
-            /* Empty state */
-            <div className="bg-white rounded-2xl shadow-sm border border-dashed border-gray-200 p-12 text-center">
-              <BarChart2 size={40} className="mx-auto mb-4 text-gray-200"/>
-              <p className="text-gray-500 font-semibold mb-1">Nenhum registro evolutivo encontrado</p>
-              <p className="text-xs text-gray-400 max-w-sm mx-auto">
-                Use <strong>Perfil Cognitivo</strong> no menu lateral (ícone 🧠) para registrar avaliações periódicas.
-                Os gráficos aqui exibirão somente dados reais inseridos pelo profissional — nenhum valor inventado.
-              </p>
-            </div>
-          )}
+              </>
+            )}
 
-          {/* Histórico escolar editável */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <SectionHeader
-                icon={<Clock size={16} style={{ color: '#1F4E5F' }}/>}
-                title="Histórico Evolutivo e Anotações"
-                subtitle="Registro livre de observações e progresso"
+            {/* ── Histórico e Anotações livres ─────────────────────────────── */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: '#F6F4EF' }}>
+                    <Edit size={14} style={{ color: '#1F4E5F' }}/>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">Histórico e Anotações</p>
+                    <p className="text-xs text-gray-400">Registro livre de observações e progresso</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleSaveHistory}
+                  disabled={isSavingHistory}
+                  className="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-brand-700 flex items-center gap-1 disabled:opacity-50 shrink-0"
+                >
+                  {isSavingHistory ? 'Salvando...' : <><Save size={12}/> Salvar</>}
+                </button>
+              </div>
+              <SmartTextarea
+                value={historyText}
+                onChange={setHistoryText}
+                placeholder="Registre aqui o histórico evolutivo do aluno, observações diárias e anotações importantes..."
+                rows={6}
               />
-              <button
-                onClick={handleSaveHistory}
-                disabled={isSavingHistory}
-                className="text-xs bg-brand-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-brand-700 flex items-center gap-1 disabled:opacity-50 shrink-0"
-              >
-                {isSavingHistory ? 'Salvando...' : <><Save size={13}/> Salvar</>}
-              </button>
             </div>
-            <SmartTextarea
-              value={historyText}
-              onChange={setHistoryText}
-              placeholder="Registre aqui o histórico evolutivo do aluno, observações diárias e anotações importantes..."
-              rows={8}
-            />
+
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ══════════════════════════════════════════════════════════════════════
           TAB 3 — AGENDA
@@ -2099,287 +2205,6 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         />
       )}
 
-      {/* ══════════════════════════════════════════════════════════════════════
-          TAB 7 — RELATÓRIO DO ALUNO
-          Simples (resumido, institucional) e Completo (técnico, com gráficos)
-         ══════════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'relatorio' && (
-        <div className="space-y-5">
-          {/* Cabeçalho */}
-          <div className="bg-white rounded-2xl border border-gray-200 p-6">
-            <div className="flex items-center gap-3 mb-1">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: '#EFF9FF' }}>
-                <BarChart2 size={18} style={{ color: '#1F4E5F' }}/>
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-800">Relatório do Aluno</h3>
-                <p className="text-xs text-gray-500">
-                  Gerado com IA a partir dos dados reais da ficha, evoluções, documentos e histórico.
-                  Adequado para apresentação institucional (INSS, saúde, assistência social).
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Relatórios salvos no banco */}
-          {(loadingReports || dbReports.length > 0) && (
-            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50">
-                <div className="flex items-center gap-2">
-                  <FileText size={14} className="text-brand-600"/>
-                  <span className="text-sm font-bold text-gray-800">Relatórios Salvos</span>
-                  {!loadingReports && (
-                    <span className="text-xs text-gray-400 font-normal">{dbReports.length} documento(s)</span>
-                  )}
-                </div>
-                <button
-                  onClick={() => {
-                    if (!student.id) return;
-                    setLoadingReports(true);
-                    DocumentService.listByStudent(student.id)
-                      .then(docs => setDbReports(docs.filter(d =>
-                        d.doc_type === 'RELATORIO_SIMPLES' || d.doc_type === 'RELATORIO_COMPLETO' || d.doc_type === 'RELATORIO_TECNICO'
-                      )))
-                      .catch(() => {})
-                      .finally(() => setLoadingReports(false));
-                  }}
-                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-brand-600 transition"
-                >
-                  <RefreshCw size={12}/> Atualizar
-                </button>
-              </div>
-              {loadingReports ? (
-                <div className="px-5 py-4 text-xs text-gray-400 flex items-center gap-2">
-                  <RefreshCw size={13} className="animate-spin"/> Carregando…
-                </div>
-              ) : (
-                <div className="divide-y divide-gray-50">
-                  {dbReports.map((r: any) => {
-                    const label = r.doc_type === 'RELATORIO_COMPLETO' ? 'Relatório Completo'
-                      : r.doc_type === 'RELATORIO_TECNICO' ? 'Relatório Técnico'
-                      : 'Relatório Simples';
-                    const date = r.created_at ? new Date(r.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
-                    return (
-                      <div key={r.id} className="flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: '#EFF9FF' }}>
-                            <BarChart2 size={14} style={{ color: '#1F4E5F' }}/>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-gray-800 truncate">{r.title || label}</p>
-                            <p className="text-xs text-gray-400">{date} · {label}</p>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            if (r.structured_data) {
-                              setReportResultado(r.structured_data as RelatorioResultado);
-                              setReportDocId(r.id);
-                              setReportType(r.doc_type === 'RELATORIO_COMPLETO' ? 'full' : 'simple');
-                              setShowRelatorioViewer(true);
-                            }
-                          }}
-                          className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg text-white shrink-0 transition hover:opacity-90"
-                          style={{ background: '#1F4E5F' }}
-                        >
-                          <Eye size={12}/> Abrir
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Botões de geração */}
-          {!reportLoading && !reportResultado && (
-            <div className="grid md:grid-cols-2 gap-4">
-              {/* Relatório Simples */}
-              <button
-                onClick={() => handleGenerateReport('simple')}
-                className="flex flex-col gap-3 rounded-2xl p-6 text-left transition hover:shadow-md"
-                style={{ background: '#F0FDF4', border: '1.5px solid #86EFAC' }}
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#16A34A20' }}>
-                    <FileText size={16} style={{ color: '#16A34A' }}/>
-                  </div>
-                  <span className="font-bold text-green-800 text-sm">Relatório Simples</span>
-                  <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#16A34A20', color: '#16A34A' }}>
-                    5 créditos
-                  </span>
-                </div>
-                <ul className="text-xs text-green-700 space-y-1 list-none">
-                  <li>✓ Texto claro e objetivo</li>
-                  <li>✓ Identificação, situação pedagógica, dificuldades</li>
-                  <li>✓ Conclusão e observações</li>
-                  <li>✓ 1–2 páginas A4</li>
-                  <li>✓ Pronto para INSS, saúde e assistência social</li>
-                </ul>
-              </button>
-
-              {/* Relatório Completo */}
-              <button
-                onClick={() => handleGenerateReport('full')}
-                className="flex flex-col gap-3 rounded-2xl p-6 text-left transition hover:shadow-md"
-                style={{ background: '#EFF6FF', border: '1.5px solid #93C5FD' }}
-              >
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: '#0369A120' }}>
-                    <BarChart2 size={16} style={{ color: '#0369A1' }}/>
-                  </div>
-                  <span className="font-bold text-blue-800 text-sm">Relatório Completo</span>
-                  <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: '#0369A120', color: '#0369A1' }}>
-                    10 créditos
-                  </span>
-                </div>
-                <ul className="text-xs text-blue-700 space-y-1 list-none">
-                  <li>✓ Perfil cognitivo com análise das 10 dimensões</li>
-                  <li>✓ Checklist de dificuldades e limitações</li>
-                  <li>✓ Histórico, evolução e recomendações multidisciplinares</li>
-                  <li>✓ Estrutura técnica completa, 3–5 páginas A4</li>
-                  <li>✓ Pronto para impressão e arquivo institucional</li>
-                </ul>
-              </button>
-            </div>
-          )}
-
-          {/* Loading */}
-          {reportLoading && (
-            <div className="bg-white rounded-2xl border border-gray-200 p-12 flex flex-col items-center gap-4">
-              <div className="w-14 h-14 rounded-full flex items-center justify-center animate-pulse" style={{ background: '#EFF9FF' }}>
-                <Sparkles size={24} style={{ color: '#1F4E5F' }}/>
-              </div>
-              <p className="font-semibold text-gray-700">Gerando relatório com IA…</p>
-              <p className="text-xs text-gray-400 text-center max-w-xs">
-                A IA está analisando todos os dados do aluno para produzir um documento profissional.
-                Isso pode levar alguns segundos.
-              </p>
-            </div>
-          )}
-
-          {/* Erro */}
-          {reportError && !reportLoading && (
-            <div className="bg-red-50 border border-red-200 rounded-2xl p-5 flex items-start gap-3">
-              <AlertCircle size={18} className="text-red-500 shrink-0 mt-0.5"/>
-              <div className="flex-1">
-                <p className="font-bold text-red-700 text-sm">Erro ao gerar relatório</p>
-                <p className="text-xs text-red-600 mt-1">{reportError}</p>
-              </div>
-              <button
-                onClick={() => { setReportError(''); setReportType(null); }}
-                className="text-xs font-bold text-red-500 hover:text-red-700"
-              >
-                Tentar novamente
-              </button>
-            </div>
-          )}
-
-          {/* Card do relatório gerado */}
-          {reportResultado && !reportLoading && (
-            <div
-              className="bg-white rounded-2xl border overflow-hidden"
-              style={{ borderColor: '#1F4E5F30' }}
-            >
-              {/* Cabeçalho do card */}
-              <div
-                className="flex items-center justify-between px-5 py-4"
-                style={{ background: 'linear-gradient(135deg, #1F4E5F08, #1F4E5F18)', borderBottom: '1px solid #1F4E5F20' }}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                    style={{ background: '#1F4E5F', color: '#fff' }}
-                  >
-                    {reportType === 'full' ? <BarChart2 size={18}/> : <FileText size={18}/>}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-gray-800">
-                        {reportType === 'full' ? 'Relatório Completo' : 'Relatório Simples'}
-                      </span>
-                      <span
-                        className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                        style={{ background: '#1F4E5F15', color: '#1F4E5F' }}
-                      >
-                        Gerado com IA
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {student.name} · {new Date(reportResultado.geradoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                    </p>
-                    <p className="text-[10px] font-mono text-gray-400 mt-0.5">{reportResultado.codigoDoc}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setShowRelatorioViewer(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white"
-                    style={{ background: '#1F4E5F' }}
-                  >
-                    <Eye size={13}/> Visualizar / Editar / PDF
-                  </button>
-                  <button
-                    onClick={() => { setReportResultado(null); setReportType(null); setReportError(''); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-500 hover:text-gray-700"
-                  >
-                    <RefreshCw size={13}/> Gerar novo
-                  </button>
-                </div>
-              </div>
-
-              {/* Resumo rápido do conteúdo */}
-              <div className="px-5 py-4 grid grid-cols-3 gap-3">
-                {reportResultado.data.tipo === 'completo' && (reportResultado.data as any).resumoExecutivo && (
-                  <div className="col-span-3 rounded-xl p-3" style={{ background: '#F0F7FA', border: '1px solid #1F4E5F20' }}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide mb-1" style={{ color: '#1F4E5F' }}>Resumo Executivo</p>
-                    <p className="text-xs text-gray-700 leading-relaxed line-clamp-3">{(reportResultado.data as any).resumoExecutivo}</p>
-                  </div>
-                )}
-                {(reportResultado.data as any).dificuldades?.length > 0 && (
-                  <div className="rounded-xl p-3" style={{ background: '#FEF2F2', border: '1px solid #FCA5A520' }}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide mb-1 text-red-600">Dificuldades</p>
-                    <p className="text-xs font-bold text-red-700">{(reportResultado.data as any).dificuldades.length} identificadas</p>
-                  </div>
-                )}
-                {(reportResultado.data as any).potencialidades?.length > 0 && (
-                  <div className="rounded-xl p-3" style={{ background: '#F0FDF4', border: '1px solid #86EFAC20' }}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide mb-1 text-green-700">Potencialidades</p>
-                    <p className="text-xs font-bold text-green-700">{(reportResultado.data as any).potencialidades.length} mapeadas</p>
-                  </div>
-                )}
-                {(reportResultado.data as any).recomendacoesPedagogicas?.length > 0 && (
-                  <div className="rounded-xl p-3" style={{ background: '#F5F3FF', border: '1px solid #C4B5FD20' }}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide mb-1 text-purple-700">Recomendações</p>
-                    <p className="text-xs font-bold text-purple-700">{(reportResultado.data as any).recomendacoesPedagogicas.length} pedagógicas</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Modal: visualizador + editor do relatório */}
-          {showRelatorioViewer && reportResultado && (
-            <div
-              className="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto"
-              style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', padding: '24px 16px' }}
-            >
-              <div className="w-full max-w-5xl">
-                <RelatorioPreview
-                  resultado={reportResultado}
-                  student={student}
-                  scores={reportScores}
-                  school={reportSchool}
-                  onUpdate={r => setReportResultado(r)}
-                  onSaveEdits={handleSaveReportEdits}
-                  onClose={() => setShowRelatorioViewer(false)}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ══════════════════════════════════════════════════════════════════════
           TAB 8 — PERFIL INTELIGENTE
@@ -2393,6 +2218,13 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             onNavigateTo('incluilab');
           } : undefined}
         />
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          TAB — PLANO DE AÇÃO DO PROFESSOR REGENTE
+         ══════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'plano_acao' && (
+        <ActionPlanTab student={student} user={user as any} />
       )}
 
       {/* ── Modal: Documento Complementar (Sprint 5B) ── */}
@@ -2504,31 +2336,38 @@ interface TimelineProps {
 }
 
 const TYPE_COLORS: Record<string, { bg: string; border: string; color: string }> = {
-  protocolo:   { bg: '#EFF9FF', border: '#BAE6FD', color: '#1F4E5F' },
-  atendimento: { bg: '#F0FDF4', border: '#BBF7D0', color: '#166534' },
-  laudo:       { bg: '#FDF6E3', border: '#FDE68A', color: '#92400E' },
-  matricula:   { bg: '#F3F4F6', border: '#E5E7EB', color: '#374151' },
-  ficha:       { bg: '#F5F3FF', border: '#DDD6FE', color: '#5B21B6' },
-  evolucao:    { bg: '#FDF4FF', border: '#E9D5FF', color: '#7C3AED' },
-  documento:   { bg: '#F0F9FF', border: '#BAE6FD', color: '#0369A1' },
+  protocolo:        { bg: '#EFF9FF', border: '#BAE6FD', color: '#1F4E5F' },
+  atendimento:      { bg: '#F0FDF4', border: '#BBF7D0', color: '#166534' },
+  laudo:            { bg: '#FDF6E3', border: '#FDE68A', color: '#92400E' },
+  matricula:        { bg: '#F3F4F6', border: '#E5E7EB', color: '#374151' },
+  ficha:            { bg: '#F5F3FF', border: '#DDD6FE', color: '#5B21B6' },
+  evolucao:         { bg: '#FDF4FF', border: '#E9D5FF', color: '#7C3AED' },
+  documento:        { bg: '#F0F9FF', border: '#BAE6FD', color: '#0369A1' },
+  plano_acao:       { bg: '#FFF7ED', border: '#FED7AA', color: '#C2410C' },
+  atividade:        { bg: '#FDF4FF', border: '#DDD6FE', color: '#6D28D9' },
+  atividade_gerada: { bg: '#FDF4FF', border: '#DDD6FE', color: '#6D28D9' },
+  relatorio:        { bg: '#F0FDF4', border: '#A7F3D0', color: '#065F46' },
 };
 
 function StudentTimeline({ student, protocols, serviceRecords, docs, dbEvents = [] }: TimelineProps) {
-  type EventType = {
+  type EventItem = {
     id: string;
     date: string;
     type: string;
     title: string;
     subtitle?: string;
+    author?: string;
     fromDb?: boolean;
   };
 
-  // Eventos locais (protocolos, atendimentos, documentos, cadastro)
-  const localEvents: EventType[] = [
+  const [activeFilter, setActiveFilter] = useState('todos');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const localEvents: EventItem[] = [
     ...(student.registrationDate
       ? [{ id: 'reg', date: student.registrationDate, type: 'matricula',
            title: 'Aluno cadastrado no sistema',
-           subtitle: student.tipo_aluno === 'em_triagem' ? 'Modo Triagem' : 'Com Laudo' }]
+           subtitle: (student as any).tipo_aluno === 'em_triagem' ? 'Modo Triagem' : 'Com Laudo' }]
       : []),
     ...protocols.map(p => ({
       id: p.id, date: p.createdAt, type: 'protocolo',
@@ -2541,99 +2380,251 @@ function StudentTimeline({ student, protocols, serviceRecords, docs, dbEvents = 
     })),
     ...serviceRecords.map(r => ({
       id: r.id, date: r.date, type: 'atendimento',
-      title: `${r.type} — ${r.professional}`, subtitle: r.attendance,
+      title: r.type, author: r.professional, subtitle: r.attendance,
     })),
   ];
 
-  // Eventos do banco (student_timeline) — convertidos para o mesmo formato
-  const bankEvents: EventType[] = dbEvents.map((e: any) => ({
-    id:       e.id,
-    date:     e.event_date ? `${e.event_date}T00:00:00` : e.created_at,
-    type:     e.event_type ?? 'documento',
-    title:    e.title,
-    subtitle: e.description ?? (e.author ? `por ${e.author}` : undefined),
-    fromDb:   true,
+  const bankEvents: EventItem[] = dbEvents.map((e: any) => ({
+    id:      e.id,
+    date:    e.event_date ? `${e.event_date}T00:00:00` : e.created_at,
+    type:    e.event_type ?? 'documento',
+    title:   e.title,
+    author:  e.author ?? undefined,
+    subtitle: e.description ?? undefined,
+    fromDb:  true,
   }));
 
-  // Mescla: se há eventos do banco, usa somente eles (são mais completos);
-  // senão, usa eventos locais. Evita duplicação.
-  const events: EventType[] = (bankEvents.length > 0 ? bankEvents : localEvents)
+  const allEvents: EventItem[] = (bankEvents.length > 0 ? bankEvents : localEvents)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  const fmtDate = (iso: string) => {
-    try { return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }); }
+  const FILTERS: { id: string; label: string; types: string[] }[] = [
+    { id: 'todos',       label: 'Todos',          types: [] },
+    { id: 'documento',   label: 'Documentos',     types: ['protocolo', 'documento', 'ficha', 'matricula'] },
+    { id: 'laudo',       label: 'Laudos',         types: ['laudo'] },
+    { id: 'plano_acao',  label: 'Planos de Ação', types: ['plano_acao'] },
+    { id: 'evolucao',    label: 'Evoluções',      types: ['evolucao'] },
+    { id: 'atendimento', label: 'Atendimentos',   types: ['atendimento'] },
+    { id: 'atividade',   label: 'Atividades',     types: ['atividade', 'atividade_gerada'] },
+    { id: 'relatorio',   label: 'Relatórios',     types: ['relatorio'] },
+  ];
+
+  const filteredEvents = activeFilter === 'todos'
+    ? allEvents
+    : allEvents.filter(e => {
+        const f = FILTERS.find(fi => fi.id === activeFilter);
+        return f ? f.types.includes(e.type) : true;
+      });
+
+  // Group by month
+  type MonthGroup = { key: string; label: string; ts: number; events: EventItem[] };
+  const groupMap: Record<string, MonthGroup> = {};
+  filteredEvents.forEach(ev => {
+    const d   = new Date(ev.date);
+    const ts  = d.getFullYear() * 100 + d.getMonth();
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    const label = d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }).toUpperCase();
+    if (!groupMap[key]) groupMap[key] = { key, label, ts, events: [] };
+    groupMap[key].events.push(ev);
+  });
+  const groups = Object.values(groupMap).sort((a, b) => b.ts - a.ts);
+
+  const toggleId    = (id: string) =>
+    setExpandedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const expandAll   = () => setExpandedIds(new Set(filteredEvents.map(e => e.id)));
+  const collapseAll = () => setExpandedIds(new Set());
+
+  const fmtShort = (iso: string) => {
+    try { return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }); }
     catch { return iso; }
   };
-
-  const typeLabel: Record<string, string> = {
-    protocolo: 'Documento', atendimento: 'Atendimento', laudo: 'Laudo/Relatório',
-    matricula: 'Cadastro', ficha: 'Ficha', evolucao: 'Evolução', documento: 'Documento',
+  const fmtFull = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      return `${d.toLocaleDateString('pt-BR')}${time !== '00:00' ? ' às ' + time : ''}`;
+    } catch { return iso; }
   };
 
+  const TYPE_LABEL: Record<string, string> = {
+    protocolo: 'Documento', atendimento: 'Atendimento', laudo: 'Laudo',
+    matricula: 'Cadastro',  ficha: 'Ficha',             evolucao: 'Evolução',
+    documento: 'Documento', plano_acao: 'Plano de Ação',
+    atividade: 'Atividade', atividade_gerada: 'Atividade', relatorio: 'Relatório',
+  };
+
+  const evIcon = (type: string, color: string) => {
+    switch (type) {
+      case 'protocolo':  case 'documento':           return <FileText size={12} style={{ color }}/>;
+      case 'atendimento':                             return <CheckCircle size={12} style={{ color }}/>;
+      case 'laudo':                                   return <Paperclip size={12} style={{ color }}/>;
+      case 'ficha':                                   return <ClipboardCheck size={12} style={{ color }}/>;
+      case 'evolucao':                                return <TrendingUp size={12} style={{ color }}/>;
+      case 'plano_acao':                              return <ClipboardList size={12} style={{ color }}/>;
+      case 'atividade':  case 'atividade_gerada':     return <Zap size={12} style={{ color }}/>;
+      case 'relatorio':                               return <BarChart2 size={12} style={{ color }}/>;
+      default:                                        return <User size={12} style={{ color }}/>;
+    }
+  };
+
+  const hasDocLink = (type: string) => ['protocolo', 'laudo', 'documento'].includes(type);
+
   return (
-    <div className="mt-5 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4">
+
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h3 className="font-bold text-gray-800 text-lg flex items-center gap-2">
-            <Activity size={18} className="text-brand-600"/> Linha do Tempo
+          <h3 className="font-bold text-gray-800 flex items-center gap-2">
+            <Activity size={15} style={{ color: '#1F4E5F' }}/> Linha do Tempo
           </h3>
-          <p className="text-xs text-gray-500 mt-0.5">Histórico completo de {student.name}</p>
+          <p className="text-xs text-gray-400">{allEvents.length} evento{allEvents.length !== 1 ? 's' : ''} · {student.name}</p>
         </div>
-        <div className="flex items-center gap-2">
-          {bankEvents.length > 0 && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-bold">
-              banco · {bankEvents.length} eventos
-            </span>
-          )}
-          <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-600 font-bold">{events.length} eventos</span>
-        </div>
+        {filteredEvents.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={expandAll}
+              className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 font-semibold transition"
+            >
+              Expandir todos
+            </button>
+            <button
+              onClick={collapseAll}
+              className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 font-semibold transition"
+            >
+              Recolher todos
+            </button>
+          </div>
+        )}
       </div>
 
-      {events.length === 0 && (
+      {/* Filter chips */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
+        {FILTERS.map(f => {
+          const count = f.id === 'todos'
+            ? allEvents.length
+            : allEvents.filter(e => f.types.includes(e.type)).length;
+          const active = activeFilter === f.id;
+          return (
+            <button
+              key={f.id}
+              onClick={() => { setActiveFilter(f.id); setExpandedIds(new Set()); }}
+              className={`text-[11px] font-bold px-3 py-1.5 rounded-full border whitespace-nowrap flex items-center gap-1 transition shrink-0 ${
+                active
+                  ? 'bg-brand-700 text-white border-brand-700'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {f.label}
+              {count > 0 && (
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                  active ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Empty state */}
+      {filteredEvents.length === 0 && (
         <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-10 text-center">
-          <Activity size={32} className="mx-auto mb-3 text-gray-200"/>
-          <p className="text-gray-400 text-sm">Nenhum evento registrado ainda.</p>
+          <Activity size={30} className="mx-auto mb-3 text-gray-200"/>
+          <p className="text-gray-400 text-sm">
+            Nenhum evento {activeFilter !== 'todos' ? 'nesta categoria' : 'registrado ainda'}.
+          </p>
         </div>
       )}
 
-      <div className="relative">
-        <div className="absolute left-5 top-2 bottom-2 w-0.5 bg-gray-100"/>
-        <div className="space-y-3">
-          {events.map((ev, i) => {
-            const cfg = TYPE_COLORS[ev.type] ?? TYPE_COLORS.matricula;
-            const icon = (() => {
-              switch (ev.type) {
-                case 'protocolo':   case 'documento': return <FileText size={14} style={{ color: cfg.color }}/>;
-                case 'atendimento':                   return <CheckCircle size={14} style={{ color: cfg.color }}/>;
-                case 'laudo':                         return <Paperclip size={14} style={{ color: cfg.color }}/>;
-                case 'ficha':                         return <ClipboardCheck size={14} style={{ color: cfg.color }}/>;
-                case 'evolucao':                      return <TrendingUp size={14} style={{ color: cfg.color }}/>;
-                default:                              return <User size={14} style={{ color: cfg.color }}/>;
-              }
-            })();
-            return (
-              <div key={`${ev.id}_${i}`} className="flex gap-4">
-                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10 border-2"
-                  style={{ background: cfg.bg, borderColor: cfg.border }}>
-                  {icon}
-                </div>
-                <div className="flex-1 rounded-xl p-3 mb-1" style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                        style={{ background: cfg.border, color: cfg.color }}>
-                        {typeLabel[ev.type] ?? ev.type}
-                      </span>
-                      <p className="text-sm font-bold mt-1 text-gray-800">{ev.title}</p>
-                      {ev.subtitle && <p className="text-xs mt-0.5 text-gray-500">{ev.subtitle}</p>}
-                    </div>
-                    <span className="text-[10px] whitespace-nowrap text-gray-400">{fmtDate(ev.date)}</span>
+      {/* Groups */}
+      <div className="space-y-5">
+        {groups.map(group => (
+          <div key={group.key}>
+            {/* Month separator */}
+            <div className="flex items-center gap-3 mb-2.5">
+              <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">
+                {group.label}
+              </span>
+              <div className="flex-1 h-px bg-gray-100"/>
+              <span className="text-[10px] text-gray-400 font-semibold shrink-0">
+                {group.events.length} evento{group.events.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* Events */}
+            <div className="space-y-1.5 pl-3 border-l-2 border-gray-100">
+              {group.events.map(ev => {
+                const cfg        = TYPE_COLORS[ev.type] ?? TYPE_COLORS.matricula;
+                const isExpanded = expandedIds.has(ev.id);
+                const label      = TYPE_LABEL[ev.type] ?? ev.type;
+                return (
+                  <div key={ev.id} className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                    {/* Collapsed row */}
+                    <button
+                      onClick={() => toggleId(ev.id)}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-gray-50 transition"
+                    >
+                      <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 border" style={{
+                        background: cfg.bg, borderColor: cfg.border,
+                      }}>
+                        {evIcon(ev.type, cfg.color)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border" style={{
+                            background: cfg.bg, borderColor: cfg.border, color: cfg.color,
+                          }}>
+                            {label}
+                          </span>
+                          <p className="text-xs font-semibold text-gray-800 truncate">{ev.title}</p>
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          {fmtShort(ev.date)}{ev.author ? ` · ${ev.author}` : ''}
+                        </p>
+                      </div>
+                      <span className="text-[10px] text-gray-300 shrink-0">{isExpanded ? '▲' : '▼'}</span>
+                    </button>
+
+                    {/* Expanded */}
+                    {isExpanded && (
+                      <div className="px-3 pb-3 border-t border-gray-50 bg-gray-50/60">
+                        <div className="flex flex-wrap gap-4 pt-2.5 mb-2">
+                          <div>
+                            <p className="text-[10px] text-gray-400 uppercase font-bold mb-0.5">Data</p>
+                            <p className="text-xs font-semibold text-gray-700">{fmtFull(ev.date)}</p>
+                          </div>
+                          {ev.author && (
+                            <div>
+                              <p className="text-[10px] text-gray-400 uppercase font-bold mb-0.5">Responsável</p>
+                              <p className="text-xs font-semibold text-gray-700">{ev.author}</p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-[10px] text-gray-400 uppercase font-bold mb-0.5">Tipo</p>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full border" style={{
+                              background: cfg.bg, borderColor: cfg.border, color: cfg.color,
+                            }}>
+                              {label}
+                            </span>
+                          </div>
+                        </div>
+                        {ev.subtitle && (
+                          <p className="text-xs text-gray-600 leading-relaxed mb-2">{ev.subtitle}</p>
+                        )}
+                        {hasDocLink(ev.type) && (
+                          <button className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 flex items-center gap-1 transition">
+                            <FileText size={11}/> Ver documento
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

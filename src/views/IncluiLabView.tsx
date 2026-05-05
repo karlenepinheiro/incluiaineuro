@@ -1661,6 +1661,7 @@ const ResultView: React.FC<{
   const folhaAlunoRef    = useRef<HTMLDivElement | null>(null);
   const guiaProfessorRef = useRef<HTMLDivElement | null>(null);
   const [exportBusy, setExportBusy] = useState<'pdf' | 'png' | null>(null);
+  const [exportError, setExportError] = useState('');
 
   type ResultTab = 'folha' | 'guia' | 'analise';
   const [activeTab, setActiveTab] = useState<ResultTab>('folha');
@@ -1669,14 +1670,41 @@ const ResultView: React.FC<{
 
   const handleExport = async (format: 'pdf' | 'png') => {
     const ref = activeTab === 'guia' ? guiaProfessorRef : folhaAlunoRef;
-    if (!ref.current) return;
+    const element = ref.current;
+
+    console.log('[IncluiLAB PDF]', {
+      activeTab,
+      hasFolhaRef: !!folhaAlunoRef.current,
+      hasGuiaRef: !!guiaProfessorRef.current,
+      selectedRefTag: element?.tagName,
+      elementSize: element?.getBoundingClientRect?.(),
+      format,
+    });
+
+    if (!element) {
+      const message = 'Nao foi possivel localizar o conteudo visivel para exportar.';
+      console.error('[IncluiLAB PDF] Ref nula no clique de exportacao', {
+        activeTab,
+        hasFolhaRef: !!folhaAlunoRef.current,
+        hasGuiaRef: !!guiaProfessorRef.current,
+        format,
+      });
+      setExportError(message);
+      return;
+    }
+
     setExportBusy(format);
+    setExportError('');
     const baseName = sanitizePdfFilename(result.title || 'atividade-incluilab').replace(/\.pdf$/, '');
     try {
       const exportPromise = format === 'pdf'
-        ? exportAsPDF(ref.current, `${baseName}.pdf`)
-        : exportAsPNG(ref.current, `${baseName}.png`);
+        ? exportAsPDF(element, `${baseName}.pdf`)
+        : exportAsPNG(element, `${baseName}.png`);
       await Promise.all([exportPromise, new Promise(r => setTimeout(r, 1000))]);
+    } catch (err: any) {
+      const message = err?.message || String(err || 'Erro desconhecido');
+      console.error('[IncluiLAB PDF] Falha ao exportar arquivo', err);
+      setExportError(`Nao foi possivel baixar o ${format.toUpperCase()}. ${message}`);
     } finally {
       setExportBusy(null);
     }
@@ -1752,6 +1780,22 @@ const ResultView: React.FC<{
         </div>
       )}
 
+      {exportError && (
+        <div role="alert" style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          marginBottom: 14, padding: '10px 14px',
+          borderRadius: 10, border: '1px solid #FECACA',
+          background: '#FEF2F2', color: '#991B1B',
+          fontSize: 13, fontWeight: 650,
+        }}>
+          <AlertCircle size={15} />
+          <span style={{ flex: 1 }}>{exportError}</span>
+          <button onClick={() => setExportError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991B1B', padding: 2 }}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Toolbar sticky */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 10,
@@ -1808,7 +1852,7 @@ const ResultView: React.FC<{
         <>
           {hasImage && (
             <PreviewStage innerRef={folhaAlunoRef}>
-              <div data-incluilab-pdf-page="true" style={{
+              <div data-incluilab-pdf-page="true" data-incluilab-image-page="true" style={{
                 width: 794,
                 minHeight: 1123,
                 background: '#fff',
@@ -2399,6 +2443,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       subject: row.discipline || '',
     });
     // Se a atividade tem imagem e não tem JSON parseável → guidance é o guia pedagógico (Visual/Premium)
+    const storedGuidance = typeof row.guidance === 'string' && row.guidance.trim()
+      ? row.guidance
+      : undefined;
+    const guidanceLooksLikeGuide = !!storedGuidance && /guia|objetivo|metodologia|materiais|mediacao|mediação|avaliacao|avaliação|adaptac/i.test(storedGuidance);
     const isImageMode = !!row.image_url && !storedActivity;
     setResult({
       id:          row.id,
@@ -2408,8 +2456,8 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       activity,
       content:     row.content,
       imageUrl:    row.image_url,
-      guiaText:    isImageMode ? (row.guidance || undefined) : undefined,
-      analysisText: !isImageMode ? (row.guidance || undefined) : undefined,
+      guiaText:    storedGuidance && (isImageMode || guidanceLooksLikeGuide) ? storedGuidance : undefined,
+      analysisText: storedGuidance && !guidanceLooksLikeGuide && !isImageMode ? storedGuidance : undefined,
       creditsUsed: row.cost_credits ?? row.credits_used ?? 0,
       mode:        row.mode || (row.is_adapted ? 'adaptar_economico' : 'a4_economica'),
       savedId:     row.id,

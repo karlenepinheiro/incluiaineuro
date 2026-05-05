@@ -1,12 +1,14 @@
 // views/FichasComplementaresView.tsx
 // Fichas de Observação (processo) + Documentos para Responsáveis (pais)
 // v2 — PDF real, checklist dinâmico, áudio, versionamento, UI cards
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Student, User } from '../types';
 import {
   ClipboardCheck, FileText, Save, ShieldCheck, History,
   FilePlus, Download, Upload, PenLine, HandMetal,
   ChevronDown, ChevronUp, Trash2, Eye, RotateCcw,
+  BarChart2, Clock, Hash, Archive, RefreshCw, Sparkles,
+  ClipboardList, BookOpen, UserRound,
 } from 'lucide-react';
 import { AudioEnhancedTextarea } from '../components/AudioEnhancedTextarea';
 import { DynamicChecklist, DynChecklistSection } from '../components/DynamicChecklist';
@@ -16,6 +18,14 @@ import { DocumentHistory, DocVersion } from '../components/DocumentHistory';
 import { PDFGenerator, getDocTitle } from '../services/PDFGenerator';
 import { ObservationFormService, TimelineService } from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
+import { AIService } from '../services/aiService';
+import { DocumentService, PedagocicalDocument } from '../services/documentService';
+import { ExportService } from '../services/exportService';
+import { ActionPlanService } from '../services/actionPlanService';
+import { RelatorioPreview } from '../components/RelatorioPreview';
+import type { RelatorioResultado } from '../services/reportService';
+import type { ActionPlanRecord } from '../types';
+import { generateDocumentCode } from '../utils/documentCodes';
 
 interface Props {
   students: Student[];
@@ -295,16 +305,74 @@ const STATUS_COLORS: Record<ParentDocStatus, string> = {
 };
 
 // ─── Audit code ───────────────────────────────────────────────────────────────
-function makeAuditCode(seed: string): string {
-  let h = 0;
-  const s = seed + Date.now().toString();
-  for (let i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i); h |= 0; }
-  return `DOC-${Math.abs(h).toString(16).toUpperCase().slice(0, 8)}`;
+function makeAuditCode(_seed: string): string {
+  return generateDocumentCode('registration');
+}
+
+type MainTab = 'historicos' | 'fichas' | 'documentos';
+type HistorySource = 'report' | 'ficha' | 'action_plan';
+type HistoryKind =
+  | 'report_simple'
+  | 'report_full'
+  | 'ficha_generic'
+  | 'obs_regente'
+  | 'analise_aee'
+  | 'escuta_familia'
+  | 'plano_acao';
+
+interface HistoryCardData {
+  id: HistoryKind;
+  title: string;
+  description: string;
+  typeLabel: string;
+  source: HistorySource;
+  studentName: string;
+  dateTime: string;
+  createdBy: string;
+  registerNumber: string;
+  statusLabel: string;
+  accent: string;
+  bg: string;
+  icon: React.ReactNode;
+  record?: any;
+  formType?: string;
+  reportMode?: 'simple' | 'full';
+}
+
+const REPORT_TYPES = ['RELATORIO_SIMPLES', 'RELATORIO_COMPLETO', 'RELATORIO_TECNICO'];
+
+function formatDateTimeBR(value?: string | null): string {
+  if (!value) return 'Sem registro';
+  try {
+    return new Date(value).toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch {
+    return value;
+  }
+}
+
+function planPeriodLabel(record?: ActionPlanRecord): string {
+  const period = record?.plan_json?.period;
+  if (period === 'semanal') return 'Plano semanal';
+  if (period === 'bimestral') return 'Plano bimestral';
+  if (period === 'macro') return 'Plano macro';
+  return 'Plano mensal';
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 // ─── COMPONENTE PRINCIPAL ─────────────────────────────────────────────────────
 export const FichasComplementaresView: React.FC<Props> = ({ students, user }) => {
-  const [activeTab, setActiveTab] = useState<'fichas' | 'documentos'>('fichas');
+  const [activeTab, setActiveTab] = useState<MainTab>('historicos');
   const [selectedStudentId, setSelectedStudentId] = useState('');
 
   // Tab 1: Fichas de Observação
@@ -320,6 +388,20 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
   const [parentDocs, setParentDocs] = useState<Record<string, ParentDocState>>({});
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
   const [generating, setGenerating] = useState<string | null>(null);
+
+  // HistÃ³ricos gerais: relatÃ³rios, fichas e planos exportÃ¡veis
+  const [historyReports, setHistoryReports] = useState<PedagocicalDocument[]>([]);
+  const [historyActionPlans, setHistoryActionPlans] = useState<ActionPlanRecord[]>([]);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [expandedHistoryCard, setExpandedHistoryCard] = useState<HistoryKind | null>(null);
+  const [generatingReport, setGeneratingReport] = useState<'simple' | 'full' | null>(null);
+  const [selectedReport, setSelectedReport] = useState<{
+    docId?: string;
+    resultado: RelatorioResultado;
+    mode: 'simple' | 'full';
+  } | null>(null);
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const pendingUploadDocType = useRef<string | null>(null);
@@ -393,6 +475,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
     if (!selectedStudentId || DEMO_MODE) {
       setFichaValues({});
       setSavedFichas({});
+      setAllFichaRecords([]);
       return;
     }
     ObservationFormService.getForStudent(selectedStudentId).then(forms => {
@@ -414,6 +497,40 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudentId]);
+
+  useEffect(() => {
+    if (!selectedStudentId || DEMO_MODE) {
+      setHistoryReports([]);
+      setHistoryActionPlans([]);
+      setHistoryError('');
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingHistory(true);
+    setHistoryError('');
+
+    Promise.all([
+      DocumentService.listByStudent(selectedStudentId),
+      ActionPlanService.listByStudentFull(selectedStudentId),
+    ])
+      .then(([docs, plans]) => {
+        if (cancelled) return;
+        setHistoryReports(docs.filter(d => REPORT_TYPES.includes(d.doc_type)));
+        setHistoryActionPlans(plans);
+      })
+      .catch((e: any) => {
+        if (cancelled) return;
+        setHistoryReports([]);
+        setHistoryActionPlans([]);
+        setHistoryError(e?.message || 'NÃ£o foi possÃ­vel carregar os histÃ³ricos.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingHistory(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedStudentId, historyRefreshKey]);
 
   // ─── Fichas helpers ─────────────────────────────────────────────────────────
   const updateFichaField = (fichaId: string, fieldId: string, value: string) => {
@@ -546,7 +663,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
     const ficha = FICHAS.find(f => f.id === record.form_type);
     if (!selectedStudent || !ficha) return;
     const vals = record.fields_data ?? {};
-    const auditCode = record.audit_code ?? `FICHA-${record.id.substring(0, 8).toUpperCase()}`;
+    const auditCode = record.audit_code ?? makeAuditCode(record.id);
     setGeneratingFicha(`hist_${record.id}`);
     try {
       const fields = ficha.fields.map(f => ({ label: f.label, value: vals[f.id] || '', isScale: f.type === 'scale' }));
@@ -554,6 +671,296 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
       PDFGenerator.download(blob, `${ficha.title}_${selectedStudent.name}_${auditCode}.pdf`);
     } catch { alert('Erro ao gerar PDF.'); }
     finally { setGeneratingFicha(null); }
+  };
+
+  const reportScores = useMemo(() => {
+    const evos = [...(selectedStudent?.evolutions ?? [])].sort((a: any, b: any) => {
+      const ad = new Date(a.createdAt ?? a.date ?? 0).getTime();
+      const bd = new Date(b.createdAt ?? b.date ?? 0).getTime();
+      return bd - ad;
+    });
+    return (evos[0] as any)?.scores ?? [];
+  }, [selectedStudent]);
+
+  const readReportData = (record?: any): RelatorioResultado | null => {
+    if (!record?.structured_data) return null;
+    if (typeof record.structured_data === 'string') {
+      try { return JSON.parse(record.structured_data) as RelatorioResultado; }
+      catch { return null; }
+    }
+    return record.structured_data as RelatorioResultado;
+  };
+
+  const latestFichaRecord = (formType?: string) =>
+    allFichaRecords.find((r: any) => !formType || r.form_type === formType);
+
+  const latestReportRecord = (docType: 'RELATORIO_SIMPLES' | 'RELATORIO_COMPLETO') =>
+    historyReports.find((r: any) => r.doc_type === docType);
+
+  const historyCards = useMemo<HistoryCardData[]>(() => {
+    if (!selectedStudent) return [];
+
+    const fichaCard = (
+      id: HistoryKind,
+      title: string,
+      typeLabel: string,
+      description: string,
+      formType: string | undefined,
+      accent: string,
+      bg: string,
+      icon: React.ReactNode,
+    ): HistoryCardData => {
+      const rec = latestFichaRecord(formType);
+      return {
+        id,
+        title,
+        description,
+        typeLabel,
+        source: 'ficha',
+        studentName: selectedStudent.name,
+        dateTime: formatDateTimeBR(rec?.created_at),
+        createdBy: rec?.created_by ?? user.name ?? 'Sistema',
+        registerNumber: rec?.audit_code ?? (rec?.id ? `FICHA-${rec.id.substring(0, 8).toUpperCase()}` : 'Sem registro'),
+        statusLabel: rec ? 'Registrado' : 'Não gerado',
+        accent,
+        bg,
+        icon,
+        record: rec,
+        formType,
+      };
+    };
+
+    const reportCard = (
+      id: HistoryKind,
+      title: string,
+      docType: 'RELATORIO_SIMPLES' | 'RELATORIO_COMPLETO',
+      mode: 'simple' | 'full',
+      accent: string,
+      bg: string,
+      icon: React.ReactNode,
+    ): HistoryCardData => {
+      const rec = latestReportRecord(docType);
+      const data = readReportData(rec);
+      return {
+        id,
+        title,
+        description: mode === 'full'
+          ? 'Relatório técnico completo com análise pedagógica e recomendações.'
+          : 'Relatório objetivo para registro pedagógico e encaminhamentos.',
+        typeLabel: 'Relatório',
+        source: 'report',
+        studentName: selectedStudent.name,
+        dateTime: formatDateTimeBR(rec?.created_at ?? data?.geradoEm),
+        createdBy: rec?.created_by === user.id ? user.name : (rec?.created_by ?? user.name ?? 'Sistema'),
+        registerNumber: rec?.audit_code ?? data?.codigoDoc ?? 'Sem registro',
+        statusLabel: rec ? 'Gerado' : 'Não gerado',
+        accent,
+        bg,
+        icon,
+        record: rec,
+        reportMode: mode,
+      };
+    };
+
+    const latestPlan = historyActionPlans[0];
+    const cards: HistoryCardData[] = [
+      reportCard('report_simple', 'Relatório Simples', 'RELATORIO_SIMPLES', 'simple', '#16A34A', '#F0FDF4', <FileText size={18} />),
+      reportCard('report_full', 'Relatório Completo', 'RELATORIO_COMPLETO', 'full', '#2563EB', '#EFF6FF', <BarChart2 size={18} />),
+      fichaCard('ficha_generic', 'Ficha Complementar', 'Ficha complementar', 'Registro complementar vinculado ao aluno.', undefined, '#C69214', '#FFFBEB', <ClipboardCheck size={18} />),
+      fichaCard('obs_regente', 'Observação do Professor', 'Registro pedagógico', 'Observações do professor da sala comum.', 'obs_regente', '#7C3AED', '#F5F3FF', <BookOpen size={18} />),
+      fichaCard('analise_aee', 'Análise de AEE', 'Registro pedagógico exportável', 'Parecer do atendimento educacional especializado.', 'analise_aee', '#0891B2', '#ECFEFF', <ClipboardList size={18} />),
+      fichaCard('escuta_familia', 'Escuta da Família', 'Registro de escuta', 'Registro de conversa com responsável ou família.', 'escuta_familia', '#0D9488', '#F0FDFA', <UserRound size={18} />),
+    ];
+
+    if (latestPlan) {
+      cards.push({
+        id: 'plano_acao',
+        title: 'Plano de Ação',
+        description: 'Plano pedagógico gerado para acompanhamento geral.',
+        typeLabel: planPeriodLabel(latestPlan),
+        source: 'action_plan',
+        studentName: selectedStudent.name,
+        dateTime: formatDateTimeBR(latestPlan.plan_json?.generatedAt ?? latestPlan.created_at),
+        createdBy: latestPlan.plan_json?.generatedByName ?? user.name ?? 'Sistema',
+        registerNumber: latestPlan.plan_json?.registrationNumber ?? 'Sem registro',
+        statusLabel: 'Gerado',
+        accent: '#DB2777',
+        bg: '#FDF2F8',
+        icon: <Sparkles size={18} />,
+        record: latestPlan,
+      });
+    }
+
+    return cards;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStudent, allFichaRecords, historyReports, historyActionPlans, user.id, user.name]);
+
+  const handleGenerateHistoryReport = async (mode: 'simple' | 'full') => {
+    if (!selectedStudent) { alert('Selecione um aluno antes de gerar o relatório.'); return; }
+    setGeneratingReport(mode);
+    setHistoryError('');
+
+    try {
+      const school = user.schoolConfigs?.[0] ?? null;
+      const resultado = await AIService.generateStudentReport(selectedStudent, user as any, mode, {
+        scores: reportScores,
+        school,
+      });
+
+      const docType = mode === 'full' ? 'RELATORIO_COMPLETO' : 'RELATORIO_SIMPLES';
+      let savedDoc: PedagocicalDocument | null = null;
+      const tenantId = user.tenant_id ?? (user as any).tenantId ?? '';
+
+      if (!DEMO_MODE && tenantId && user.id) {
+        savedDoc = await DocumentService.saveDocument({
+          student_id: selectedStudent.id,
+          tenant_id: tenantId,
+          created_by: user.id,
+          doc_type: docType,
+          title: `${mode === 'full' ? 'Relatório Completo' : 'Relatório Simples'} — ${selectedStudent.name}`,
+          structured_data: resultado,
+          status: 'APPROVED',
+          audit_code: resultado.codigoDoc,
+        });
+      }
+
+      const localDoc = savedDoc ?? ({
+        id: `local_${Date.now()}`,
+        student_id: selectedStudent.id,
+        created_by: user.name,
+        type: docType,
+        doc_type: docType,
+        title: `${mode === 'full' ? 'Relatório Completo' : 'Relatório Simples'} — ${selectedStudent.name}`,
+        status: 'APPROVED',
+        structured_data: resultado,
+        audit_code: resultado.codigoDoc,
+        created_at: new Date().toISOString(),
+      } as PedagocicalDocument);
+
+      setHistoryReports(prev => [localDoc, ...prev]);
+      setSelectedReport({ docId: savedDoc?.id, resultado, mode });
+      setExpandedHistoryCard(null);
+    } catch (e: any) {
+      setHistoryError(e?.message || 'Erro ao gerar relatório.');
+    } finally {
+      setGeneratingReport(null);
+    }
+  };
+
+  const handleSaveHistoryReportEdits = async (updated: RelatorioResultado) => {
+    setSelectedReport(prev => prev ? { ...prev, resultado: updated } : prev);
+    if (!selectedReport?.docId) return;
+    try {
+      await DocumentService.updateDocument(selectedReport.docId, updated, 'APPROVED');
+      setHistoryReports(prev => prev.map(doc => (
+        doc.id === selectedReport.docId
+          ? { ...doc, structured_data: updated, audit_code: updated.codigoDoc, updated_at: new Date().toISOString() }
+          : doc
+      )));
+    } catch (e) {
+      console.warn('[FichasComplementaresView] erro ao salvar relatório:', e);
+    }
+  };
+
+  const handleOpenHistoryCard = (card: HistoryCardData) => {
+    if (card.source === 'report') {
+      const data = readReportData(card.record);
+      if (data && card.reportMode) {
+        setSelectedReport({ docId: card.record?.id, resultado: data, mode: card.reportMode });
+      } else {
+        setExpandedHistoryCard(card.id);
+      }
+      return;
+    }
+
+    if (card.source === 'ficha') {
+      if (card.record) handleReopenFichaRecord(card.record);
+      setActiveTab('fichas');
+      if (card.formType) setExpandedFicha(card.formType);
+      return;
+    }
+
+    setExpandedHistoryCard(card.id);
+  };
+
+  const printActionPlanRecord = (record: ActionPlanRecord) => {
+    const plan = record.plan_json;
+    const sections = [
+      plan.beforeClass,
+      plan.duringClass,
+      plan.activitiesStrategies,
+      plan.assessment,
+      plan.attentionObservations,
+      plan.communicationTeam,
+    ].filter(Boolean);
+    const htmlSections = sections.map(section => `
+      <section>
+        <h2>${escapeHtml(section.title)}</h2>
+        <ul>${section.items.map(item => `<li>${escapeHtml(item.text)}</li>`).join('')}</ul>
+      </section>
+    `).join('');
+
+    const win = window.open('', '_blank', 'width=900,height=700');
+    if (!win) { alert('Não foi possível abrir a janela de impressão.'); return; }
+    win.document.write(`
+      <html>
+        <head>
+          <title>Plano de Ação — ${escapeHtml(selectedStudent?.name ?? 'Aluno')}</title>
+          <style>
+            * { box-sizing: border-box; font-family: Inter, Arial, sans-serif; }
+            body { margin: 0; padding: 28px; color: #1f2937; background: #fff; }
+            header { border-bottom: 3px solid #C69214; padding-bottom: 14px; margin-bottom: 18px; }
+            h1 { color: #1F4E5F; font-size: 22px; margin: 0 0 6px; }
+            .meta { color: #64748b; font-size: 11px; line-height: 1.6; }
+            section { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; margin: 12px 0; break-inside: avoid; }
+            h2 { color: #1F4E5F; font-size: 13px; margin: 0 0 8px; }
+            li { margin: 6px 0; font-size: 12px; line-height: 1.45; }
+            @media print { body { padding: 16px; } }
+          </style>
+        </head>
+        <body>
+          <header>
+            <h1>Plano de Ação — ${escapeHtml(selectedStudent?.name ?? 'Aluno')}</h1>
+            <div class="meta">
+              ${escapeHtml(planPeriodLabel(record))} · Gerado por ${escapeHtml(plan.generatedByName || user.name || 'Sistema')}<br/>
+              ${escapeHtml(formatDateTimeBR(plan.generatedAt))} · Nº ${escapeHtml(plan.registrationNumber || 'Sem registro')}
+            </div>
+          </header>
+          ${htmlSections}
+          <script>window.print();</script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  };
+
+  const handlePdfHistoryCard = async (card: HistoryCardData) => {
+    if (!selectedStudent) { alert('Selecione um aluno primeiro.'); return; }
+
+    if (card.source === 'report') {
+      const data = readReportData(card.record);
+      if (!data) { alert('Gere ou abra um relatório antes de exportar em PDF.'); return; }
+      try {
+        await ExportService.exportRelatorioAlunoPDF({
+          student: selectedStudent,
+          resultado: data,
+          scores: reportScores,
+          school: user.schoolConfigs?.[0] ?? null,
+          createdBy: user.name || 'Sistema',
+        });
+      } catch {
+        alert('Erro ao exportar relatório em PDF.');
+      }
+      return;
+    }
+
+    if (card.source === 'ficha') {
+      if (!card.record) { alert('Preencha e salve esta ficha antes de gerar o PDF.'); return; }
+      await handlePdfFichaRecord(card.record);
+      return;
+    }
+
+    if (card.record) printActionPlanRecord(card.record);
   };
 
   // ─── Documentos helpers ─────────────────────────────────────────────────────
@@ -672,31 +1079,46 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
 
   // ─── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="max-w-5xl mx-auto px-4 py-8">
       {/* Header */}
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-          <ClipboardCheck className="text-[#1F4E5F]" size={26} />
-          Fichas & Documentos
-        </h2>
-        <p className="text-gray-500 text-sm mt-1">
-          Fichas de observação de processo e documentos para responsáveis (PDF real).
-        </p>
+      <div className="mb-6 rounded-2xl p-6 overflow-hidden relative" style={{ background: 'linear-gradient(135deg, #1F4E5F 0%, #2E3A59 100%)' }}>
+        <div className="absolute inset-x-0 top-0 h-1" style={{ background: 'linear-gradient(90deg, #C69214, #16A34A, #2563EB)' }} />
+        <div className="relative flex items-start gap-4">
+          <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0" style={{ background: 'rgba(198,146,20,0.18)', color: '#C69214' }}>
+            <Archive size={22} />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+              Fichas e Históricos
+            </h2>
+            <p className="text-blue-100 text-sm mt-1 max-w-2xl">
+              Relatórios, fichas complementares, históricos gerados, documentos não formais e registros pedagógicos exportáveis.
+            </p>
+            <p className="text-[11px] text-blue-200 mt-3">
+              Documentos formais validados continuam separados na área Documentação. Esta tela não mistura PEI, PAEE, PDI ou Estudo de Caso com registros complementares.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 p-1 rounded-xl" style={{ background: '#F6F4EF' }}>
-        {(['fichas', 'documentos'] as const).map(tab => (
+        {([
+          { id: 'historicos', label: 'Históricos Gerados', icon: <History size={15} /> },
+          { id: 'fichas', label: 'Fichas Complementares', icon: <ClipboardCheck size={15} /> },
+          { id: 'documentos', label: 'Documentos não formais', icon: <FileText size={15} /> },
+        ] as const).map(tab => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
             className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-bold transition ${
-              activeTab === tab
+              activeTab === tab.id
                 ? 'bg-white shadow text-[#1F4E5F]'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {tab === 'fichas' ? <><ClipboardCheck size={15} /> Fichas de Observação</> : <><FileText size={15} /> Documentos para Responsáveis</>}
+            {tab.icon}
+            {tab.label}
           </button>
         ))}
       </div>
@@ -724,6 +1146,202 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
       </div>
 
       {/* ─── TAB 1: FICHAS DE OBSERVAÇÃO ─────────────────────────────── */}
+      {activeTab === 'historicos' && (
+        <div className="space-y-4">
+          {!selectedStudent ? (
+            <div className="text-center py-14 text-gray-400 rounded-2xl border-2 border-dashed border-[#E7E2D8] bg-white">
+              <Archive size={42} className="mx-auto mb-3 opacity-40" />
+              <p className="text-sm font-semibold">Selecione um aluno para listar fichas, relatórios e históricos gerados.</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-[#E7E2D8] bg-white px-5 py-4">
+                <div>
+                  <p className="text-sm font-bold text-gray-800">Registros pedagógicos exportáveis</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Cards minimizados com documentos complementares. Documentos formais validados permanecem fora desta lista.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setHistoryRefreshKey(k => k + 1)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border border-[#E7E2D8] text-[#1F4E5F] hover:bg-[#F6F4EF] transition"
+                >
+                  <RefreshCw size={13} className={loadingHistory ? 'animate-spin' : ''} />
+                  Atualizar
+                </button>
+              </div>
+
+              {historyError && (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {historyError}
+                </div>
+              )}
+
+              {loadingHistory ? (
+                <div className="flex items-center justify-center py-16 text-gray-400 gap-2">
+                  <RefreshCw size={18} className="animate-spin" />
+                  <span className="text-sm">Carregando históricos...</span>
+                </div>
+              ) : (
+                <div className="grid lg:grid-cols-2 gap-4">
+                  {historyCards.map(card => {
+                    const isExpanded = expandedHistoryCard === card.id;
+                    const hasRecord = !!card.record;
+                    const isReport = card.source === 'report';
+                    const generatingThisReport = isReport && generatingReport === card.reportMode;
+
+                    return (
+                      <div
+                        key={card.id}
+                        className="rounded-2xl overflow-hidden bg-white transition-all"
+                        style={{
+                          border: `1.5px solid ${isExpanded ? `${card.accent}55` : '#E7E2D8'}`,
+                          boxShadow: isExpanded ? '0 14px 34px rgba(31,78,95,0.10)' : '0 2px 8px rgba(15,23,42,0.05)',
+                        }}
+                      >
+                        <div className="h-1.5" style={{ background: `linear-gradient(90deg, ${card.accent}, #C69214)` }} />
+                        <div className="p-4">
+                          <div className="flex items-start gap-3">
+                            <div
+                              className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                              style={{ background: card.bg, color: card.accent, border: `1px solid ${card.accent}22` }}
+                            >
+                              {card.icon}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="text-sm font-extrabold text-gray-800 truncate">{card.title}</h3>
+                                <span
+                                  className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                                  style={{ background: card.bg, color: card.accent }}
+                                >
+                                  {card.statusLabel}
+                                </span>
+                              </div>
+                              <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{card.description}</p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid sm:grid-cols-2 gap-2">
+                            {[
+                              { label: 'Tipo', value: card.typeLabel, icon: <FileText size={12} /> },
+                              { label: 'Aluno', value: card.studentName, icon: <UserRound size={12} /> },
+                              { label: 'Data/hora', value: card.dateTime, icon: <Clock size={12} /> },
+                              { label: 'Gerado por', value: card.createdBy, icon: <BookOpen size={12} /> },
+                              { label: 'Nº registro', value: card.registerNumber, icon: <Hash size={12} /> },
+                            ].map(meta => (
+                              <div key={meta.label} className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                                <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+                                  {meta.icon}
+                                  {meta.label}
+                                </p>
+                                <p className="mt-1 text-xs font-semibold text-gray-700 truncate">{meta.value}</p>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="mt-4 flex flex-wrap items-center gap-2">
+                            <button
+                              onClick={() => handleOpenHistoryCard(card)}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-white transition hover:opacity-90"
+                              style={{ background: card.accent }}
+                            >
+                              <Eye size={13} />
+                              Abrir
+                            </button>
+                            <button
+                              onClick={() => handlePdfHistoryCard(card)}
+                              disabled={!hasRecord || !!generatingFicha}
+                              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition disabled:opacity-45 disabled:cursor-not-allowed"
+                              style={{ borderColor: `${card.accent}44`, color: card.accent, background: `${card.accent}08` }}
+                            >
+                              <Download size={13} />
+                              PDF
+                            </button>
+                            <button
+                              onClick={() => setExpandedHistoryCard(isExpanded ? null : card.id)}
+                              className="ml-auto flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold text-gray-500 hover:bg-gray-100 transition"
+                            >
+                              {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                              {isExpanded ? 'Minimizar' : 'Expandir'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="border-t border-[#E7E2D8] p-4" style={{ background: '#FAFAF8' }}>
+                            {card.source === 'report' && (
+                              <div className="space-y-3">
+                                <p className="text-xs text-gray-600">
+                                  {hasRecord
+                                    ? 'Este card exibe o último relatório salvo deste tipo. Você pode abrir, editar e exportar em PDF.'
+                                    : 'Nenhum relatório salvo ainda. Gere o primeiro relatório para este aluno.'}
+                                </p>
+                                <button
+                                  onClick={() => handleGenerateHistoryReport(card.reportMode ?? 'simple')}
+                                  disabled={!!generatingReport}
+                                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white transition disabled:opacity-60"
+                                  style={{ background: card.accent }}
+                                >
+                                  {generatingThisReport
+                                    ? <><RefreshCw size={13} className="animate-spin" /> Gerando...</>
+                                    : <><Sparkles size={13} /> Gerar novo {card.title}</>}
+                                </button>
+                              </div>
+                            )}
+
+                            {card.source === 'ficha' && (
+                              <div className="space-y-2">
+                                <p className="text-xs text-gray-600">
+                                  {hasRecord
+                                    ? 'Abrir leva este registro para a aba de fichas, mantendo os dados prontos para revisão ou novo PDF.'
+                                    : 'Abra a aba de fichas complementares para preencher e salvar este registro.'}
+                                </p>
+                                {card.formType && (
+                                  <button
+                                    onClick={() => { setActiveTab('fichas'); setExpandedFicha(card.formType!); }}
+                                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white"
+                                    style={{ background: card.accent }}
+                                  >
+                                    <ClipboardCheck size={13} />
+                                    Preencher ficha
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {card.source === 'action_plan' && card.record && (
+                              <div className="space-y-2">
+                                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+                                  Prévia do plano
+                                </p>
+                                <div className="grid sm:grid-cols-2 gap-2">
+                                  {[
+                                    card.record.plan_json.beforeClass,
+                                    card.record.plan_json.duringClass,
+                                    card.record.plan_json.activitiesStrategies,
+                                    card.record.plan_json.assessment,
+                                  ].filter(Boolean).map((block: any) => (
+                                    <div key={block.title} className="rounded-xl bg-white border border-[#E7E2D8] p-3">
+                                      <p className="text-xs font-bold text-gray-700">{block.title}</p>
+                                      <p className="text-[11px] text-gray-400 mt-1">{block.items?.length ?? 0} item(ns)</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {activeTab === 'fichas' && (
         <div className="space-y-4">
           {FICHAS.map(ficha => {
@@ -1468,6 +2086,25 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
             </div>
           )}
         </>
+      )}
+
+      {selectedReport && selectedStudent && (
+        <div
+          className="fixed inset-0 z-[250] flex items-start justify-center overflow-y-auto"
+          style={{ background: 'rgba(0,0,0,0.62)', backdropFilter: 'blur(4px)', padding: '24px 16px' }}
+        >
+          <div className="w-full max-w-5xl">
+            <RelatorioPreview
+              resultado={selectedReport.resultado}
+              student={selectedStudent}
+              scores={reportScores}
+              school={user.schoolConfigs?.[0] ?? null}
+              onUpdate={r => setSelectedReport(prev => prev ? { ...prev, resultado: r } : prev)}
+              onSaveEdits={handleSaveHistoryReportEdits}
+              onClose={() => setSelectedReport(null)}
+            />
+          </div>
+        </div>
       )}
 
       {/* Input de upload oculto */}

@@ -38,6 +38,7 @@ import { AppointmentsView } from './views/AppointmentsView';
 import { SchoolTemplatesView } from './views/SchoolTemplatesView';
 import { ReferralService } from './services/referralService';
 import { FichasComplementaresView } from './views/FichasComplementaresView';
+import { FichasHistoricosView } from './views/FichasHistoricosView';
 import { TriagemView } from './views/TriagemView';
 import { ServiceControlView } from './views/ServiceControlView';
 import { SubscriptionView } from './views/SubscriptionView';
@@ -58,17 +59,11 @@ import { ServiceRecordService, AppointmentService } from './services/persistence
 import { NotificationsPanel } from './components/NotificationsPanel';
 import { MessagesView } from './views/MessagesView';
 import { StudentSearchService } from './services/studentSearchService';
+import { ensureDocumentCode, getDocumentCodeKind } from './utils/documentCodes';
 
 // --- Helper ---
-const generateAuditCode = (userName: string) => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let random = '';
-  for (let i = 0; i < 8; i++) random += chars.charAt(Math.floor(Math.random() * chars.length));
-  const now = new Date();
-  return `${random}-${userName.split(' ')[0].toUpperCase()}-${now
-    .toLocaleDateString('pt-BR')
-    .replace(/\//g, '')}`;
-};
+const generateAuditCode = (docType: DocumentType, existing?: string) =>
+  ensureDocumentCode(getDocumentCodeKind(docType), existing);
 
 // --- Mock Data ---
 const INITIAL_SCHOOLS: SchoolConfig[] = [
@@ -197,9 +192,14 @@ const App: React.FC = () => {
   // Detecta rota inicial via pathname para /login e /cadastro
   const detectInitialView = () => {
     const path = window.location.pathname;
+    if (path.startsWith('/validar')) return 'audit';
     if (path === '/login') return 'login';
     if (path === '/cadastro') return 'login';
     return 'landing';
+  };
+  const detectInitialAuditCode = () => {
+    const match = window.location.pathname.match(/^\/validar\/([^/?#]+)/);
+    return match ? decodeURIComponent(match[1]).toUpperCase() : '';
   };
   const detectInitialTab = (): 'login' | 'register' => {
     const path = window.location.pathname;
@@ -227,7 +227,7 @@ const App: React.FC = () => {
   const [currentProtocol, setCurrentProtocol] = useState<Protocol | null>(null);
   const [activeDocumentType, setActiveDocumentType] = useState<DocumentType>(DocumentType.PEI);
 
-  const [auditSearch, setAuditSearch] = useState('');
+  const [auditSearch, setAuditSearch] = useState(detectInitialAuditCode);
   const [auditResult, setAuditResult] = useState<{ found: boolean; type?: string; studentName?: string; issuedAt?: string; code?: string } | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [showLGPD, setShowLGPD] = useState(false); // inicializado false — verificação real ocorre no _loadAfterAuth
@@ -828,6 +828,9 @@ const App: React.FC = () => {
   ) => {
     const timestamp = new Date().toISOString();
     const school = user.schoolConfigs[0];
+    const protocolType = currentProtocol?.type || activeDocumentType;
+    const documentCode = generateAuditCode(protocolType, (data as any)?.auditCode || currentProtocol?.auditCode);
+    const dataToPersist = { ...(data as any), auditCode: documentCode } as DocumentData;
 
     if (currentProtocol && currentProtocol.id !== 'temp') {
       const newVersion: DocumentVersion = {
@@ -835,14 +838,15 @@ const App: React.FC = () => {
         versionNumber: currentProtocol.versions.length + 1,
         createdAt: timestamp,
         editedBy: user.name,
-        content: data,
+        content: dataToPersist,
         changeLog: logMessage || 'Edição manual',
       };
 
       const updatedProtocol: Protocol = {
         ...currentProtocol,
         versions: [...currentProtocol.versions, newVersion],
-        structuredData: data,
+        structuredData: dataToPersist,
+        auditCode: documentCode,
         status,
         lastEditedAt: timestamp,
         lastEditedBy: user.name,
@@ -855,7 +859,7 @@ const App: React.FC = () => {
         await databaseService.saveDocument({
           ...updatedProtocol,
           tenant_id: user.tenant_id,
-          structured_data: data,
+          structured_data: dataToPersist,
         });
       } catch (e: any) {
         console.error('[handleSaveDocument] erro ao persistir:', e);
@@ -868,7 +872,7 @@ const App: React.FC = () => {
         versionNumber: 1,
         createdAt: timestamp,
         editedBy: user.name,
-        content: data,
+        content: dataToPersist,
         changeLog: 'Criação inicial',
       };
 
@@ -881,13 +885,13 @@ const App: React.FC = () => {
         source_id: currentProtocol?.source_id || null,
         content: '',
         isStructured: true,
-        structuredData: data,
+        structuredData: dataToPersist,
         versions: [newVersion],
         createdAt: timestamp,
         lastEditedAt: timestamp,
         lastEditedBy: user.name,
         generatedBy: user.name,
-        auditCode: generateAuditCode(user.name),
+        auditCode: documentCode,
         signatures: {
           regent: user.name,
           coordinator: school?.coordinatorName || '',
@@ -904,7 +908,7 @@ const App: React.FC = () => {
         const savedDoc = await databaseService.saveDocument({
           ...newProtocol,
           tenant_id: user.tenant_id,
-          structured_data: data,
+          structured_data: dataToPersist,
         });
         // Sincroniza o ID real gerado pelo banco (evita duplicatas em novos upserts)
         if (savedDoc?.id && savedDoc.id !== newProtocol.id) {
@@ -1006,6 +1010,10 @@ const App: React.FC = () => {
     const handleValidate = async () => {
       const code = auditSearch.trim().toUpperCase();
       if (!code) return;
+      if (!code.startsWith('VAL-')) {
+        setAuditResult({ found: false });
+        return;
+      }
       setAuditLoading(true);
       setAuditResult(null);
       try {
@@ -1035,10 +1043,10 @@ const App: React.FC = () => {
         <div className="max-w-xl w-full bg-white p-8 rounded-2xl shadow-xl text-center">
           <ShieldCheck className="mx-auto text-brand-600 h-16 w-16 mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Validação Pública</h2>
-          <p className="text-gray-500 text-sm mb-6">Digite o código de autenticidade impresso no documento.</p>
+          <p className="text-gray-500 text-sm mb-6">Digite o código de validação impresso no documento.</p>
           <input
             className="w-full text-center text-lg p-4 border border-gray-300 rounded-lg mb-4 uppercase tracking-widest font-mono"
-            placeholder="Ex: AB3C1D2E-NOME-26032026"
+            placeholder="Ex: VAL-20260505-143522-B8K2"
             value={auditSearch}
             onChange={e => { setAuditSearch(e.target.value); setAuditResult(null); }}
             onKeyDown={e => { if (e.key === 'Enter') handleValidate(); }}
@@ -1240,8 +1248,8 @@ const App: React.FC = () => {
           </header>
 
           <main className={view === 'incluilab' || view === 'incluilab_library' ? 'flex-1 overflow-hidden flex flex-col min-h-0' : 'flex-1 overflow-y-auto'}>
-            {/* Banner de configuração da escola — aparece enquanto os dados estiverem incompletos */}
-            {!user.isAdmin && (
+            {/* Banner de configuração da escola — exibe apenas em Configurações */}
+            {!user.isAdmin && view === 'settings' && (
               <SchoolSetupBanner
                 school={user.schoolConfigs?.[0]}
                 onGoToSettings={() => handleSetView('settings')}
@@ -1471,6 +1479,10 @@ const App: React.FC = () => {
                 students={students}
                 user={user}
               />
+            )}
+
+            {view === 'fichas_historicos' && (
+              <FichasHistoricosView user={user} />
             )}
 
             {view === 'service_control' && (

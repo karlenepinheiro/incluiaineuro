@@ -544,7 +544,7 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
             </select>
           </div>
           <div>
-            <label className="text-xs font-bold text-gray-500 uppercase block mb-1.5">Código de Auditoria</label>
+            <label className="text-xs font-bold text-gray-500 uppercase block mb-1.5">Código de Registro</label>
             <div className="w-full border border-gray-100 p-2.5 rounded-xl bg-gray-50 font-mono text-xs text-gray-600 flex items-center gap-2">
               <ShieldCheck size={14} className="text-green-500 shrink-0"/>
               {auditCode || '—'}

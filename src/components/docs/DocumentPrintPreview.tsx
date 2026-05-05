@@ -12,6 +12,7 @@ import {
   type DocType,
 } from './DocComponents';
 import type { Student, User } from '../../types';
+import { isValidatedDocumentType } from '../../utils/documentCodes';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -288,6 +289,7 @@ export const DocumentPrintPreview: React.FC<DocumentPrintPreviewProps> = ({
     protocolo:  colors.navy,
   };
   const accent = accentColors[docType] ?? colors.petrol;
+  const isValidated = isValidatedDocumentType(title);
 
   return (
     <DocumentPage id="document-print-preview">
@@ -348,7 +350,7 @@ export const DocumentPrintPreview: React.FC<DocumentPrintPreviewProps> = ({
 
         {/* Assinaturas */}
         <DocumentSignatureBlock
-          title="Validação e Assinaturas"
+          title={isValidated ? 'Validação e Assinaturas' : 'Registro e Assinaturas'}
           date={dateStr}
           location={school?.city}
           signatures={[
@@ -364,7 +366,7 @@ export const DocumentPrintPreview: React.FC<DocumentPrintPreviewProps> = ({
           emittedBy={userName}
           date={dateStr}
           schoolName={school?.schoolName}
-          showQR
+          showQR={isValidated}
         />
       </div>
     </DocumentPage>

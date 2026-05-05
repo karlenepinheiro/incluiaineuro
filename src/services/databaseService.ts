@@ -1024,16 +1024,6 @@ export const databaseService = {
       // ledger opcional — não bloqueia
     }
 
-    // DEBUG temporário — comparar wallet real vs cálculo do ledger
-    const ledgerComputed = planCreditsMonthly + creditsPurchased - creditsConsumedCycle;
-    console.log('CREDITS DEBUG', {
-      wallet: walletAvail,
-      ledger: ledgerComputed,
-      planCreditsMonthly,
-      creditsPurchased,
-      creditsConsumedCycle,
-    });
-
     const billingCycle: 'monthly' | 'annual' =
       (sub as any)?.billing_cycle === 'annual' ? 'annual' : 'monthly';
 

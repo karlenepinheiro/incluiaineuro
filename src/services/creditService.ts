@@ -90,7 +90,7 @@ export const CreditLedgerService = {
   ): Promise<CreditLedgerEntry[]> {
     const { data, error } = await supabase
       .from('credits_ledger')
-      .select('id, tenant_id, user_id, type, amount, description, source, created_at')
+      .select('id, tenant_id, user_id, type, operation, source, amount, description, created_at')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -108,7 +108,7 @@ export const CreditLedgerService = {
   async getGlobalHistory(limit = 100): Promise<CreditLedgerEntry[]> {
     const { data, error } = await supabase
       .from('credits_ledger')
-      .select('id, tenant_id, user_id, type, amount, description, source, created_at')
+      .select('id, tenant_id, user_id, type, operation, source, amount, description, created_at')
       .order('created_at', { ascending: false })
       .limit(limit);
     if (error) throw error;
@@ -275,6 +275,7 @@ function mapLedgerEntry(row: any): CreditLedgerEntry {
     id: row.id,
     tenant_id: row.tenant_id,
     type: row.type,
+    operation: row.operation ?? undefined,
     amount: Number(row.amount),
     description: row.description,
     source: row.source ?? undefined,

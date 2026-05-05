@@ -11,12 +11,12 @@ import {
   ClipboardList,
   PieChart,
   LayoutTemplate,
-  FileEdit,
   Activity,
   CreditCard,
   Calendar,
   FlaskConical,
   MessageSquare,
+  History,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 
@@ -119,12 +119,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     label,
     badge,
     title,
+    iconColor,
   }: {
     viewId: string;
     icon: any;
     label: string;
     badge?: string;
     title?: string;
+    iconColor?: string;
   }) => (
     <button
       onClick={() => setView(viewId)}
@@ -136,7 +138,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           : 'text-gray-500 hover:bg-petrol/10 hover:text-petrol'
       )}
     >
-      <Icon size={18} className="shrink-0" />
+      <Icon
+        size={18}
+        className="shrink-0"
+        style={{ color: currentView === viewId ? '#FFFFFF' : (iconColor ?? 'currentColor') }}
+      />
       <span className="whitespace-nowrap flex-1 text-left">{label}</span>
       {badge && (
         <span className={cn(
@@ -204,7 +210,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
               Gestão Executiva
             </div>
-            <NavItem viewId="admin" icon={PieChart} label="Visão Estratégica" />
+            <NavItem viewId="admin" icon={PieChart} label="Visão Estratégica" iconColor="#C69214" />
           </nav>
         ) : (
           <nav className="space-y-1">
@@ -212,20 +218,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
               Geral
             </div>
-            <NavItem viewId="dashboard"   icon={Home}     label="Dashboard" />
-            <NavItem viewId="students"    icon={Users}    label="Alunos" />
-            <NavItem viewId="appointments" icon={Calendar} label="Agenda" />
+            <NavItem viewId="dashboard"    icon={Home}     label="Dashboard" iconColor="#1F4E5F" />
+            <NavItem viewId="students"     icon={Users}    label="Alunos" iconColor="#2563EB" />
+            <NavItem viewId="appointments" icon={Calendar} label="Agenda" iconColor="#0D9488" />
 
             {/* Documentação pedagógica */}
             <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
               Documentação
             </div>
-            <NavItem viewId="estudo_caso" icon={FileSearch}    label="Estudo de Caso" />
-            <NavItem viewId="paee"        icon={ClipboardList} label="PAEE (uso exclusivo do AEE)"  title="Documento exclusivo para professores do Atendimento Educacional Especializado (AEE)" />
-            <NavItem viewId="protocols"   icon={FileText}      label="PEI" />
-            <NavItem viewId="pdi"         icon={GraduationCap} label="PDI (opcional)"               title="Documento opcional para planejamento individual complementar" />
+            <NavItem viewId="estudo_caso" icon={FileSearch}    label="Estudo de Caso" iconColor="#7C3AED" />
+            <NavItem viewId="paee"        icon={ClipboardList} label="PAEE (uso exclusivo do AEE)"  title="Documento exclusivo para professores do Atendimento Educacional Especializado (AEE)" iconColor="#D97706" />
+            <NavItem viewId="protocols"   icon={FileText}      label="PEI" iconColor="#16A34A" />
+            <NavItem viewId="pdi"         icon={GraduationCap} label="PDI (opcional)"               title="Documento opcional para planejamento individual complementar" iconColor="#DB2777" />
             {isPaid
-              ? <NavItem viewId="school_templates" icon={LayoutTemplate} label="Meus Modelos" />
+              ? <NavItem viewId="school_templates" icon={LayoutTemplate} label="Meus Modelos" iconColor="#C69214" />
               : <LockedNavItemPro icon={LayoutTemplate} label="Meus Modelos" />
             }
 
@@ -234,11 +240,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Ferramentas IA
             </div>
             {isPaid
-              ? <NavItem viewId="incluilab" icon={FlaskConical} label="Laboratório de Adaptações" />
+              ? <NavItem viewId="incluilab" icon={FlaskConical} label="Laboratório de Adaptações" iconColor="#EA580C" />
               : <LockedNavItemPro icon={FlaskConical} label="Laboratório de Adaptações" />
             }
             {isPaid
-              ? <NavItem viewId="incluilab_library" icon={FileText} label="Biblioteca IncluiLAB" />
+              ? <NavItem viewId="incluilab_library" icon={FileText} label="Biblioteca IncluiLAB" iconColor="#0891B2" />
               : <LockedNavItemPro icon={FileText} label="Biblioteca IncluiLAB" />
             }
 
@@ -247,31 +253,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Avaliação & Histórico
             </div>
             {isPaid
-              ? <NavItem viewId="reports" icon={Brain} label="Perfil Cognitivo" />
+              ? <NavItem viewId="reports" icon={Brain} label="Perfil Cognitivo" iconColor="#8B5CF6" />
               : <LockedNavItemPro icon={Brain} label="Perfil Cognitivo" />
             }
             {isPremium
-              ? <NavItem viewId="service_control" icon={Activity} label="Controle de Atendimento" />
+              ? <NavItem viewId="service_control" icon={Activity} label="Controle de Atendimento" iconColor="#10B981" />
               : <LockedNavItem icon={Activity} label="Controle de Atendimento" />
             }
-            {isPremium
-              ? <NavItem viewId="fichas" icon={FileEdit} label="Fichas Complementares" />
-              : <LockedNavItem icon={FileEdit} label="Fichas Complementares" />
-            }
+            <NavItem viewId="fichas_historicos" icon={History} label="Fichas e Históricos" iconColor="#C69214" />
 
             {/* Rodapé */}
             <div className="pt-4 mt-2">
               <Separator className="mb-3" />
-              <NavItem viewId="subscription" icon={CreditCard}     label="Assinatura & Créditos" />
-              <NavItem viewId="settings"     icon={Settings}       label="Configurações" />
+              <NavItem viewId="subscription" icon={CreditCard}     label="Assinatura & Créditos" iconColor="#1F4E5F" />
+              <NavItem viewId="settings"     icon={Settings}       label="Configurações" iconColor="#64748B" />
               <NavItem
                 viewId="messages"
                 icon={MessageSquare}
                 label="Mensagens"
                 badge={unreadMessages > 0 ? String(unreadMessages > 9 ? '9+' : unreadMessages) : undefined}
+                iconColor="#2563EB"
               />
               {user.isAdmin && (
-                <NavItem viewId="admin" icon={PieChart} label="Painel CEO" />
+                <NavItem viewId="admin" icon={PieChart} label="Painel CEO" iconColor="#B45309" />
               )}
             </div>
           </nav>

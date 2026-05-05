@@ -1647,4 +1647,181 @@ ESTRUTURA JSON OBRIGATÓRIA
       modelId: options.modelId, school: options.school,
     });
   },
+
+  // ── Plano de Ação do Professor Regente ────────────────────────────────────────
+
+  async generateActionPlan(
+    student: Student,
+    user: User,
+    period: import('../types').ActionPlanPeriod,
+    versionNumber: number,
+  ): Promise<import('../types').ActionPlanJSON> {
+    const cost = AI_CREDIT_COSTS.PLANO_ACAO;
+    if (!(await this.checkCredits(user, cost))) {
+      throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
+    }
+
+    const diagnosis    = (student.diagnosis || []).join(', ') || 'Não informado';
+    const cid          = Array.isArray(student.cid) ? student.cid.join(', ') : (student.cid || '');
+    const abilities    = (student.abilities || []).join('; ') || '';
+    const difficulties = (student.difficulties || []).join('; ') || '';
+    const strategies   = (student.strategies || []).join('; ') || '';
+
+    let ctxBlock = '';
+    try {
+      const canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
+      if (CanonicalStudentContextService.hasData(canonicalCtx)) {
+        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'ficha_aluno');
+      }
+    } catch { /* contexto é opcional */ }
+
+    const pkBlock = buildPKBlock(student);
+
+    const periodLabel =
+      period === 'semanal'   ? 'SEMANAL (próximos 5 dias letivos)'   :
+      period === 'mensal'    ? 'MENSAL (próximo mês letivo)'          :
+      period === 'bimestral' ? 'BIMESTRAL (próximo bimestre letivo)'  :
+      'MACRO ANUAL (referência ampla)';
+
+    const prompt = `Você é uma especialista em educação inclusiva e AEE (Atendimento Educacional Especializado).
+
+Sua tarefa: gerar um PLANO DE AÇÃO DO PROFESSOR REGENTE para o período ${periodLabel} para o aluno abaixo.
+
+REGRAS CRÍTICAS:
+- Cada bloco deve ter entre 5 e 8 itens de checklist
+- Itens DEVEM ser ações práticas, específicas, observáveis — NÃO texto teórico
+- Linguagem direta ao professor: use verbos no infinitivo ou imperativo
+- Considere especificamente o diagnóstico, nível de suporte e estratégias já mapeadas
+- NÃO repita itens entre blocos
+- Retorne SOMENTE JSON válido, sem explicações fora do JSON
+
+═══════════════════════════════════════
+DADOS DO ALUNO
+═══════════════════════════════════════
+Nome: ${student.name}
+Diagnóstico(s): ${diagnosis}${cid ? ` (CID: ${cid})` : ''}
+Nível de Suporte (DSM-5): ${student.supportLevel || 'Não informado'}
+Série/Turno: ${student.grade || '—'} / ${student.shift || '—'}
+Professor Regente: ${student.regentTeacher || '—'}
+Professor AEE: ${student.aeeTeacher || '—'}
+Habilidades: ${abilities || 'Não informado'}
+Dificuldades: ${difficulties || 'Não informado'}
+Estratégias que funcionam: ${strategies || 'Não informado'}
+Comunicação: ${(student.communication || []).join('; ') || 'Não informado'}
+${pkBlock}
+${ctxBlock ? `\n═══ CONTEXTO PEDAGÓGICO ADICIONAL ═══\n${ctxBlock}` : ''}
+
+═══════════════════════════════════════
+ESTRUTURA DO JSON (retorne EXATAMENTE neste formato)
+═══════════════════════════════════════
+{
+  "period": "${period}",
+  "generatedAt": "${new Date().toISOString()}",
+  "generatedBy": "${(user as any)?.id ?? ''}",
+  "generatedByName": "${(user as any)?.name ?? (user as any)?.email ?? 'Profissional'}",
+  "registrationNumber": "",
+  "version": ${versionNumber},
+  "beforeClass": {
+    "title": "Antes da Aula",
+    "items": [
+      { "id": "bc1", "text": "SUBSTITUA por ação real para ${student.name}", "done": false },
+      { "id": "bc2", "text": "SUBSTITUA por ação real de organização do ambiente", "done": false },
+      { "id": "bc3", "text": "SUBSTITUA por ação de comunicação prévia", "done": false },
+      { "id": "bc4", "text": "SUBSTITUA por ação sobre materiais adaptados", "done": false },
+      { "id": "bc5", "text": "SUBSTITUA por ação sobre rotina visual/agenda", "done": false }
+    ]
+  },
+  "duringClass": {
+    "title": "Durante a Aula",
+    "items": [
+      { "id": "dc1", "text": "SUBSTITUA por estratégia de acolhimento", "done": false },
+      { "id": "dc2", "text": "SUBSTITUA por adaptação de instrução", "done": false },
+      { "id": "dc3", "text": "SUBSTITUA por suporte à atenção/foco", "done": false },
+      { "id": "dc4", "text": "SUBSTITUA por manejo de comportamento", "done": false },
+      { "id": "dc5", "text": "SUBSTITUA por estratégia de participação", "done": false },
+      { "id": "dc6", "text": "SUBSTITUA por uso de recurso alternativo", "done": false }
+    ]
+  },
+  "activitiesStrategies": {
+    "title": "Atividades e Estratégias",
+    "items": [
+      { "id": "as1", "text": "SUBSTITUA por tipo de atividade prioritária", "done": false },
+      { "id": "as2", "text": "SUBSTITUA por adaptação de tarefa/avaliação", "done": false },
+      { "id": "as3", "text": "SUBSTITUA por recurso pedagógico específico", "done": false },
+      { "id": "as4", "text": "SUBSTITUA por estratégia de trabalho em grupo", "done": false },
+      { "id": "as5", "text": "SUBSTITUA por atividade de generalização", "done": false }
+    ]
+  },
+  "assessment": {
+    "title": "Avaliação",
+    "items": [
+      { "id": "av1", "text": "SUBSTITUA por forma de avaliação adaptada", "done": false },
+      { "id": "av2", "text": "SUBSTITUA por critério observável de progresso", "done": false },
+      { "id": "av3", "text": "SUBSTITUA por tipo de registro a manter", "done": false },
+      { "id": "av4", "text": "SUBSTITUA por indicador de avanço a reportar", "done": false },
+      { "id": "av5", "text": "SUBSTITUA por ajuste de meta para o período", "done": false }
+    ]
+  },
+  "attentionObservations": {
+    "title": "Atenção e Observações",
+    "items": [
+      { "id": "ao1", "text": "SUBSTITUA por sinal de sobrecarga a observar", "done": false },
+      { "id": "ao2", "text": "SUBSTITUA por gatilho a evitar/monitorar", "done": false },
+      { "id": "ao3", "text": "SUBSTITUA por estratégia de pausa/saída", "done": false },
+      { "id": "ao4", "text": "SUBSTITUA por atenção sobre saúde/medicação", "done": false },
+      { "id": "ao5", "text": "SUBSTITUA por observação sobre transições", "done": false }
+    ]
+  },
+  "communicationTeam": {
+    "title": "Comunicação com AEE / Coordenação / Família",
+    "items": [
+      { "id": "ct1", "text": "SUBSTITUA por ponto a comunicar ao AEE", "done": false },
+      { "id": "ct2", "text": "SUBSTITUA por informação para a família", "done": false },
+      { "id": "ct3", "text": "SUBSTITUA por situação para a coordenação", "done": false },
+      { "id": "ct4", "text": "SUBSTITUA por próximo encaminhamento", "done": false },
+      { "id": "ct5", "text": "SUBSTITUA por registro no diário/caderneta", "done": false }
+    ]
+  }
+}
+
+IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específicas para ${student.name}.`;
+
+    const t0 = Date.now();
+    const auditId = await AiAuditService.logRequest({
+      tenantId: (user as any).tenant_id ?? '', userId: user.id,
+      requestType: 'plano_acao', model: 'gemini-2.5-flash',
+      creditsConsumed: cost,
+      inputData: { studentId: student.id, studentName: student.name, period, versionNumber },
+    });
+
+    let raw: string;
+    let serverDebited = false;
+    try {
+      const { result, creditsRemaining } = await callAIGateway({
+        task: 'json', prompt,
+        creditsRequired: cost,
+        requestType: 'plano_acao',
+      });
+      raw = result;
+      serverDebited = creditsRemaining !== undefined;
+    } catch (e) {
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: String(e) });
+      throw e;
+    }
+
+    const cleaned = cleanJsonString(raw);
+    let plan: import('../types').ActionPlanJSON;
+    try {
+      plan = JSON.parse(cleaned) as import('../types').ActionPlanJSON;
+    } catch {
+      if (!serverDebited) await this.deductCredits(user, Math.ceil(cost / 2));
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: 'JSON parse error' });
+      throw new Error('Resposta da IA em formato inválido. Tente novamente.');
+    }
+
+    if (!serverDebited) await this.deductCredits(user, cost);
+    if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'json', content: JSON.stringify(plan).slice(0, 300) });
+
+    return plan;
+  },
 };

@@ -4,6 +4,15 @@
 import { Student, User, SchoolConfig } from '../types';
 import type { DynChecklistSection } from '../components/DynamicChecklist';
 import type { IntelligentProfileJSON, ChecklistItem as SIPChecklistItem } from './intelligentProfileService';
+import { IntelligentProfilePDFDocument } from './IntelligentProfilePDFDocument';
+import {
+  INCLUIAI_SITE,
+  ensureDocumentCode,
+  formatGeneratedAt,
+  getDocumentCodeKind,
+  validationUrl,
+  type DocumentCodeKind,
+} from '../utils/documentCodes';
 import QRCode from 'qrcode';
 
 // ─── jsPDF CDN ────────────────────────────────────────────────────────────────
@@ -59,6 +68,9 @@ const _fontB64Cache = new Map<string, string>(); // file → base64
 let _currentAuditCode = '';
 let _currentUserName  = '';
 let _currentSchool: SchoolConfig | null = null;
+let _currentDocKind: DocumentCodeKind = 'registration';
+let _currentGeneratedAt = new Date().toISOString();
+let _currentQrDataUrl: string | undefined;
 
 /** Converts ISO (YYYY-MM-DD) or DD/MM/YYYY to DD/MM/YYYY for display in PDFs. */
 function formatBirthDate(date?: string): string {
@@ -184,10 +196,38 @@ async function cropToCircle(photoUrl: string): Promise<string> {
 async function buildQr(code: string): Promise<string | undefined> {
   try {
     return await QRCode.toDataURL(
-      `https://www.incluiai.app.br/validar/${code}`,
+      validationUrl(code),
       { margin: 0, width: 256 },
     );
   } catch { return undefined; }
+}
+
+function cleanUserName(name: string): string {
+  return name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim() || name;
+}
+
+function setCurrentDocumentMeta(params: {
+  code: string;
+  kind: DocumentCodeKind;
+  userName: string;
+  school?: SchoolConfig | null;
+  generatedAt?: string;
+  qrDataUrl?: string;
+}) {
+  _currentAuditCode = params.code;
+  _currentDocKind = params.kind;
+  _currentUserName = cleanUserName(params.userName);
+  _currentSchool = params.school ?? null;
+  _currentGeneratedAt = params.generatedAt ?? new Date().toISOString();
+  _currentQrDataUrl = params.qrDataUrl;
+}
+
+function codeLabel(kind: DocumentCodeKind = _currentDocKind): string {
+  return kind === 'validation' ? 'Código de Validação' : 'Código de Registro';
+}
+
+function shortCodeLabel(kind: DocumentCodeKind = _currentDocKind): string {
+  return kind === 'validation' ? 'Cód. Validação' : 'Cód. Registro';
 }
 
 // ─── RUNNING HEADER (todas as páginas exceto capa) ───────────────────────────
@@ -198,6 +238,9 @@ function addRunningHeader(
   const W  = doc.internal.pageSize.getWidth();
   const s  = school ?? _currentSchool;
   const name     = s?.schoolName?.trim() || 'Sistema IncluiAI';
+  const hasQr = _currentDocKind === 'validation' && !!_currentQrDataUrl;
+  const qrSz = hasQr ? 8 : 0;
+  const rightX = W - MR - (hasQr ? qrSz + 3 : 0);
   const cityLine = [s?.city, s?.state].filter(Boolean).join(' – ');
 
   // Logo institucional — máx 7 × 7 mm
@@ -226,9 +269,17 @@ function addRunningHeader(
 
   // Código de validação (direita)
   doc.setFont('courier', 'normal');
-  doc.setFontSize(SMALL_SIZE - 0.5);
+  doc.setFontSize(6.3);
   sc(doc, GRAY);
-  doc.text(`Cód. Validação: ${auditCode}`, W - MR, 6.5, { align: 'right' });
+  doc.text(`${shortCodeLabel()}: ${auditCode}`, rightX, 4.5, { align: 'right' });
+  doc.setFont(_docFont, 'normal');
+  doc.setFontSize(5.8);
+  doc.text(`Gerado em: ${formatGeneratedAt(_currentGeneratedAt)}`, rightX, 7.4, { align: 'right' });
+  doc.text(`Gerado por: ${_currentUserName || 'Sistema'}`, rightX, 10.1, { align: 'right' });
+
+  if (hasQr) {
+    try { doc.addImage(_currentQrDataUrl, 'PNG', W - MR - qrSz, 2.2, qrSz, qrSz); } catch {}
+  }
 
   // Linha separadora
   sd(doc, BORDER);
@@ -260,6 +311,7 @@ function addCoverBlock(
   const W      = doc.internal.pageSize.getWidth();
   const maxW   = W - ML - MR;
   const school = _currentSchool;
+  const isValidation = _currentDocKind === 'validation';
 
   const cityLine = [school?.city, school?.state].filter(Boolean).join(' – ');
   const secLine  = (school as any)?.secretaria as string | undefined;
@@ -354,18 +406,19 @@ function addCoverBlock(
 
   // ── LINHA DE METADADOS (abaixo do banner) ─────────────────────────────────────
   const metaY   = bannerH + 8;
-  const nowStr  = new Date().toLocaleDateString('pt-BR');
+  const nowStr  = formatGeneratedAt(_currentGeneratedAt);
 
   doc.setFont(_docFont, 'normal');
-  doc.setFontSize(SMALL_SIZE);
+  doc.setFontSize(TINY_SIZE);
   sc(doc, GRAY);
-  doc.text(`Emissão: ${nowStr}`, ML, metaY);
+  doc.text(`Gerado em: ${nowStr}`, ML, metaY);
+  doc.text(`Gerado por: ${_currentUserName || 'Sistema'}`, ML, metaY + 4);
 
   // Código centralizado
   doc.setFont(_docFont, 'bold');
   doc.setFontSize(SMALL_SIZE);
   sc(doc, PETROL);
-  const cLabel  = 'Cód. Validação: ';
+  const cLabel  = `${shortCodeLabel()}: `;
   const cLabelW = doc.getTextWidth(cLabel);
   const codeW   = doc.getTextWidth(auditCode);
   const codeX   = W / 2 - (cLabelW + codeW) / 2;
@@ -374,15 +427,15 @@ function addCoverBlock(
   doc.text(auditCode, codeX + cLabelW, metaY);
 
   doc.setFont(_docFont, 'normal');
-  doc.setFontSize(SMALL_SIZE);
+  doc.setFontSize(TINY_SIZE);
   sc(doc, GRAY);
-  doc.text('incluiai.app.br/validar', W - MR, metaY, { align: 'right' });
+  doc.text(isValidation ? 'incluiai.app.br/validar' : INCLUIAI_SITE, W - MR, metaY, { align: 'right' });
 
   sd(doc, BORDER);
   doc.setLineWidth(0.3);
-  doc.line(ML, metaY + 4, W - MR, metaY + 4);
+  doc.line(ML, metaY + 8, W - MR, metaY + 8);
 
-  return metaY + 10;
+  return metaY + 14;
 }
 
 // ─── SECTION BANNER (faixa petrol full-width — SECTION_SIZE 11 pt) ──────────
@@ -846,6 +899,7 @@ function addSignatureBlock(
   userName: string,
   opts?: SignatureAreaOpts,
 ): number {
+  const isValidation = _currentDocKind === 'validation';
   const H    = doc.internal.pageSize.getHeight();
   const need = 85; 
   if (y > cBot(H) - need) { y = onNewPage(); }
@@ -855,7 +909,7 @@ function addSignatureBlock(
   doc.setFont(_docFont, 'bold');
   doc.setFontSize(SECTION_SIZE + 1);
   sc(doc, PETROL);
-  doc.text('Validação e Assinaturas', x, y);
+  doc.text(isValidation ? 'Validação e Assinaturas' : 'Registro e Assinaturas', x, y);
   y += 3;
   sd(doc, GOLD);
   doc.setLineWidth(0.5);
@@ -952,10 +1006,10 @@ function addSignatureBlock(
   doc.setFontSize(TINY_SIZE);
   sc(doc, DARK);
   doc.text(`Documento gerado em ${auditDate} por ${cleanName}`, x, y);
-  doc.text(`Autentique a validade deste documento em: www.incluiai.app.br/validar`, x, y + 4);
+  doc.text(isValidation ? `Valide este documento em: ${INCLUIAI_SITE}/validar` : `Registro interno: ${INCLUIAI_SITE}`, x, y + 4);
   
   doc.setFont('courier', 'bold');
-  doc.text(`CÓDIGO DE VALIDAÇÃO: ${auditCode}`, x + maxW, y + 4, { align: 'right' });
+  doc.text(`${codeLabel().toUpperCase()}: ${auditCode}`, x + maxW, y + 4, { align: 'right' });
 
   return y + 10;
 }
@@ -968,6 +1022,10 @@ function addFooter(doc: any): void {
   const H   = doc.internal.pageSize.getHeight();
   const fY  = H - MB - FOOTER_H + 2;
   const pgN = doc.internal.getCurrentPageInfo().pageNumber;
+  const isValidation = _currentDocKind === 'validation';
+  const qrSz = isValidation && _currentQrDataUrl ? 10 : 0;
+  const textRight = W - MR - (qrSz ? qrSz + 3 : 0);
+  const footerCodeLabel = codeLabel();
 
   // Dupla linha decorativa petrol + ouro
   sf(doc, PETROL);
@@ -979,15 +1037,15 @@ function addFooter(doc: any): void {
   doc.setFont(_docFont, 'normal');
   doc.setFontSize(TINY_SIZE);
   sc(doc, GRAY);
-  doc.text('Documento pedagógico oficial gerado pelo sistema IncluiAI', ML, fY + 4.5);
+  doc.text(`IncluiAI - ${INCLUIAI_SITE} - ${footerCodeLabel} ${_currentAuditCode}`, ML, fY + 4.5);
 
   doc.setFont(_docFont, 'bold');
   sc(doc, PETROL);
-  doc.text('INCLUIAI.APP.BR', W / 2, fY + 4.5, { align: 'center' });
+  doc.text(isValidation ? 'DOCUMENTO VALIDADO' : 'DOCUMENTO REGISTRADO', W / 2, fY + 4.5, { align: 'center' });
 
   doc.setFont(_docFont, 'normal');
   sc(doc, GRAY);
-  doc.text(`Página ${pgN}`, W - MR, fY + 4.5, { align: 'right' });
+  doc.text(`Página ${pgN}`, textRight, fY + 4.5, { align: 'right' });
 
   // ── Linha 2 ──────────────────────────────────────────────────────────────────
   doc.setFont(_docFont, 'normal');
@@ -996,21 +1054,18 @@ function addFooter(doc: any): void {
 
   const cleanName = _currentUserName || '';
   if (cleanName) {
-    const emitDate = new Date().toLocaleString('pt-BR', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    });
-    doc.text(`Emitido por: ${cleanName}  |  ${emitDate}`, ML, fY + 8.5);
+    doc.text(`Gerado por: ${cleanName}  |  ${formatGeneratedAt(_currentGeneratedAt)}`, ML, fY + 8.5);
   }
 
   if (_currentAuditCode) {
     doc.setFont('courier', 'normal');
     doc.setFontSize(TINY_SIZE - 0.5);
     sc(doc, PETROL);
-    doc.text(
-      `incluiai.app.br/validar/${_currentAuditCode}`,
-      W - MR, fY + 8.5, { align: 'right' },
-    );
+    doc.text(`${footerCodeLabel}: ${_currentAuditCode}`, textRight, fY + 8.5, { align: 'right' });
+  }
+
+  if (isValidation && _currentQrDataUrl) {
+    try { doc.addImage(_currentQrDataUrl, 'PNG', W - MR - qrSz, fY + 2.1, qrSz, qrSz); } catch {}
   }
 }
 
@@ -1038,16 +1093,22 @@ export const PDFGenerator = {
 
   async generate(params: GeneratePDFParams): Promise<Blob> {
     resetSubN();
+    const docKind = getDocumentCodeKind(params.docType);
+    const documentCode = ensureDocumentCode(docKind, params.auditCode);
     // Metadados acessíveis pelo rodapé/cabeçalho via vars de módulo
-    _currentAuditCode = params.auditCode;
-    _currentUserName  = params.user.name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim();
-    _currentSchool    = params.school ?? null;
+    setCurrentDocumentMeta({
+      code: documentCode,
+      kind: docKind,
+      userName: params.user.name,
+      school: params.school ?? null,
+    });
 
     const {
       docType, title, student, user, school,
-      filledData, checklistSections = [], auditCode,
+      filledData, checklistSections = [],
       parentSignatureData, parentSignatureMode, parentSignerName,
     } = params;
+    const auditCode = documentCode;
 
     const sigOpts: SignatureAreaOpts = { parentSignatureData, parentSignatureMode, parentSignerName };
 
@@ -1056,7 +1117,8 @@ export const PDFGenerator = {
     await ensureNotoSans(doc);
     const W        = doc.internal.pageSize.getWidth();
     const maxW     = W - ML - MR;
-    const qrUrl    = await buildQr(auditCode);
+    const qrUrl    = docKind === 'validation' ? await buildQr(auditCode) : undefined;
+    _currentQrDataUrl = qrUrl;
     const docTitle = title || getDocTitle(docType);
     const dateStr  = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
     const sName    = school?.schoolName || 'Escola';
@@ -1333,15 +1395,21 @@ export const PDFGenerator = {
     parentSignerName?:    string;
   }): Promise<Blob> {
     resetSubN();
-    _currentAuditCode = params.auditCode;
-    _currentUserName  = params.user.name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim();
-    _currentSchool    = params.school ?? null;
+    const docKind = getDocumentCodeKind(params.docType);
+    const documentCode = ensureDocumentCode(docKind, params.auditCode);
+    setCurrentDocumentMeta({
+      code: documentCode,
+      kind: docKind,
+      userName: params.user.name,
+      school: params.school ?? null,
+    });
 
     const {
       docType, title, student, user, school,
-      sections, auditCode,
+      sections,
       parentSignatureData, parentSignatureMode, parentSignerName,
     } = params;
+    const auditCode = documentCode;
 
     const sigOpts: SignatureAreaOpts = { parentSignatureData, parentSignatureMode, parentSignerName };
 
@@ -1350,7 +1418,8 @@ export const PDFGenerator = {
     await ensureNotoSans(doc);
     const W        = doc.internal.pageSize.getWidth();
     const maxW     = W - ML - MR;
-    const qrUrl    = await buildQr(auditCode);
+    const qrUrl    = docKind === 'validation' ? await buildQr(auditCode) : undefined;
+    _currentQrDataUrl = qrUrl;
     const docTitle = title || getDocTitle(docType);
     const subtitle = getDocSubtitle(docType);
     const sName    = school?.schoolName || 'Escola';
@@ -1454,18 +1523,24 @@ export const PDFGenerator = {
     auditCode:  string;
   }): Promise<Blob> {
     resetSubN();
-    _currentAuditCode = params.auditCode;
-    _currentUserName  = params.user.name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim();
-    _currentSchool    = params.school ?? null;
+    const documentCode = ensureDocumentCode('registration', params.auditCode);
+    setCurrentDocumentMeta({
+      code: documentCode,
+      kind: 'registration',
+      userName: params.user.name,
+      school: params.school ?? null,
+    });
 
-    const { fichaTitle, fields, student, user, school, auditCode } = params;
+    const { fichaTitle, fields, student, user, school } = params;
+    const auditCode = documentCode;
 
     const jsPDF = await loadJsPDF();
     const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     await ensureNotoSans(doc);
     const W     = doc.internal.pageSize.getWidth();
     const maxW  = W - ML - MR;
-    const qrUrl = await buildQr(auditCode);
+    const qrUrl = undefined;
+    _currentQrDataUrl = undefined;
     const halfW = (maxW - 4) / 2;
 
     const newPage = (): number => {
@@ -1542,6 +1617,9 @@ export const PDFGenerator = {
     _currentAuditCode = '';
     _currentUserName  = user.name.replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim();
     _currentSchool    = school;
+    _currentDocKind   = 'registration';
+    _currentQrDataUrl = undefined;
+    _currentGeneratedAt = new Date().toISOString();
 
     const jsPDF   = await loadJsPDF();
     const doc     = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -1730,72 +1808,42 @@ export async function generateIntelligentProfilePDF(params: {
   generatedByName: string;
   school?: SchoolConfig | null;
 }): Promise<void> {
+  return IntelligentProfilePDFDocument(params);
+
   const { profile, student, versionNumber, generatedAt, generatedByName, school } = params;
 
   const jsPDF  = await loadJsPDF();
   const doc    = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   await ensureNotoSans(doc);
 
-  const W      = doc.internal.pageSize.getWidth();
-  const H      = doc.internal.pageSize.getHeight();
-  const maxW   = W - ML - MR;
+  const W    = doc.internal.pageSize.getWidth();
+  const H    = doc.internal.pageSize.getHeight();
+  const maxW = W - ML - MR;
 
-  // Metadados do documento
   const auditCode = `PI-${student.id.slice(-8).toUpperCase()}-V${versionNumber}`;
   _currentAuditCode = auditCode;
   _currentUserName  = generatedByName;
   _currentSchool    = school ?? null;
 
-  const genDate = new Date(generatedAt).toLocaleDateString('pt-BR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-  });
-  const genTime = new Date(generatedAt).toLocaleTimeString('pt-BR', {
-    hour: '2-digit', minute: '2-digit',
-  });
+  const genDate = new Date(generatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const genTime = new Date(generatedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-  // Foto do aluno
   let circularPhoto: string | undefined;
   if (student.photoUrl) {
     try { circularPhoto = await cropToCircle(student.photoUrl); } catch {}
   }
-
-  // QR
   const qrUrl = await buildQr(auditCode);
 
-  // ── HELPERS LOCAIS ────────────────────────────────────────────────────────────
-
-  function newPage(): number {
-    doc.addPage();
-    return addRunningHeader(doc, auditCode, school) + 2;
-  }
-
-  function sectionTitle(text: string, y: number): number {
-    return sectionBanner(doc, text, ML, y, maxW);
-  }
-
-  function bodyText(text: string, x: number, y: number, w: number): number {
-    if (!text?.trim()) return y;
-    doc.setFont(_docFont, 'normal');
-    doc.setFontSize(BODY_SIZE);
-    sc(doc, DARK);
-    const paragraphs = text.split('\n').filter(Boolean);
-    for (const para of paragraphs) {
-      const lines: string[] = doc.splitTextToSize(para, w);
-      for (const ln of lines) {
-        if (y > cBot(H) - 6) { y = newPage(); }
-        doc.text(ln, x, y);
-        y += LINE_H;
-      }
-      y += 2;
-    }
-    return y + 2;
-  }
-
-  // Status indicator for checklist items
+  // ── Status maps ──────────────────────────────────────────────────────────────
   const STATUS_COLORS: Record<SIPChecklistItem['status'], [number,number,number]> = {
-    presente:          [22, 163, 74],   // green-600
-    em_desenvolvimento:[198, 146, 20],  // gold
-    nao_observado:     [156, 163, 175], // gray
+    presente:          [22, 163, 74],
+    em_desenvolvimento:[198, 146, 20],
+    nao_observado:     [156, 163, 175],
+  };
+  const STATUS_BG: Record<SIPChecklistItem['status'], [number,number,number]> = {
+    presente:          [240, 253, 244],
+    em_desenvolvimento:[254, 252, 232],
+    nao_observado:     [248, 250, 252],
   };
   const STATUS_LABELS: Record<SIPChecklistItem['status'], string> = {
     presente:          'Presente',
@@ -1803,66 +1851,162 @@ export async function generateIntelligentProfilePDF(params: {
     nao_observado:     'Não observado',
   };
 
-  function renderProfileChecklist(items: SIPChecklistItem[], x: number, y: number, w: number): number {
-    for (const item of items) {
-      if (y > cBot(H) - 8) { y = newPage(); }
-      const col = STATUS_COLORS[item.status];
-      // Status dot
-      sf(doc, col);
-      sd(doc, col);
-      doc.circle(x + 2, y - 1.5, 2, 'F');
-      // Label
+  // ── Local helpers ────────────────────────────────────────────────────────────
+  function newPage(): number {
+    doc.addPage();
+    return addRunningHeader(doc, auditCode, school) + 4;
+  }
+
+  function ensureY(y: number, needed: number): number {
+    return y > cBot(H) - needed ? newPage() : y;
+  }
+
+  function textBlock(text: string, x: number, y: number, w: number): number {
+    if (!text?.trim()) return y;
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(BODY_SIZE);
+    sc(doc, DARK);
+    for (const para of text.split('\n').filter(Boolean)) {
+      const lines: string[] = doc.splitTextToSize(para, w);
+      for (const ln of lines) {
+        if (y > cBot(H) - 6) { y = newPage(); }
+        doc.text(ln, x, y);
+        y += LINE_H;
+      }
+      y += 1.5;
+    }
+    return y + 1;
+  }
+
+  function sectionDividerLabel(label: string, y: number): number {
+    y = ensureY(y, 14);
+    const tw = doc.getTextWidth(label);
+    const lw = (maxW - tw - 10) / 2;
+    sd(doc, BORDER);
+    doc.setLineWidth(0.2);
+    doc.line(ML, y, ML + lw, y);
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(TINY_SIZE);
+    sc(doc, GRAY);
+    doc.text(label, ML + lw + 5, y + 1.5);
+    doc.line(ML + lw + tw + 10, y, W - MR, y);
+    return y + 10;
+  }
+
+  // Renders a badge-style chip: dot + label text + status pill
+  function skillChip(item: SIPChecklistItem, x: number, y: number, w: number): number {
+    if (y > cBot(H) - 7) { y = newPage(); }
+    const col   = STATUS_COLORS[item.status];
+    const bgCol = STATUS_BG[item.status];
+    const slbl  = STATUS_LABELS[item.status];
+    // Colored dot
+    sf(doc, col); sd(doc, col);
+    doc.circle(x + 2, y - 1.4, 1.5, 'F');
+    // Item label
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(TABLE_SIZE);
+    sc(doc, DARK);
+    const lblLines: string[] = doc.splitTextToSize(item.label, w - 46);
+    doc.text(lblLines, x + 7, y);
+    // Status badge (right-aligned pill)
+    const bw = doc.getTextWidth(slbl) + 6;
+    sf(doc, bgCol); sd(doc, col);
+    doc.setLineWidth(0.15);
+    doc.roundedRect(x + w - bw, y - 3.5, bw, 5, 1, 1, 'FD');
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(TINY_SIZE);
+    sc(doc, col);
+    doc.text(slbl, x + w - bw + 3, y);
+    // Thin separator
+    sd(doc, BORDER);
+    doc.setLineWidth(0.1);
+    doc.line(x, y + 2.5, x + w, y + 2.5);
+    return y + 6.5;
+  }
+
+  // Gold-dot bullet
+  function bullet(text: string, x: number, y: number, w: number, color: [number,number,number] = GOLD): number {
+    if (y > cBot(H) - 7) { y = newPage(); }
+    sf(doc, color); sd(doc, color);
+    doc.circle(x + 1.5, y - 1.5, 1.2, 'F');
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(BODY_SIZE);
+    sc(doc, DARK);
+    const ls: string[] = doc.splitTextToSize(text, w - 7);
+    doc.text(ls, x + 6, y);
+    return y + ls.length * LINE_H + 1;
+  }
+
+  // Open checkbox (print-friendly)
+  function checkbox(text: string, x: number, y: number, w: number, lightText = false): number {
+    if (y > cBot(H) - 7) { y = newPage(); }
+    sd(doc, lightText ? (WHITE as any) : (PETROL as any));
+    doc.setLineWidth(0.3);
+    doc.roundedRect(x, y - 3.5, 4, 4, 0.5, 0.5, 'D');
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(BODY_SIZE);
+    sc(doc, lightText ? [200, 220, 230] as any : DARK);
+    const ls: string[] = doc.splitTextToSize(text, w - 8);
+    doc.text(ls, x + 7, y);
+    return y + ls.length * LINE_H + 1;
+  }
+
+  // Card: draws rounded white rectangle with optional colored border
+  function drawCard(y: number, h: number, borderCol: [number,number,number] = BORDER): void {
+    sf(doc, WHITE); sd(doc, borderCol);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(ML, y, maxW, h, 2, 2, 'FD');
+  }
+
+  // Renders full analysis card (tinted header + text body + skill chips)
+  function analysisCard(
+    y: number,
+    title: string,
+    hdrBg: [number,number,number],
+    hdrFg: [number,number,number],
+    body: string,
+    checklist: SIPChecklistItem[],
+  ): number {
+    const bodyLines: string[] = doc.splitTextToSize(body || ' ', maxW - 10);
+    const bodyH  = bodyLines.length * LINE_H + 4;
+    const chipsH = checklist.length > 0 ? checklist.length * 7 + 14 : 0;
+    const cardH  = 12 + bodyH + chipsH + 8;
+    y = ensureY(y, cardH + 4);
+    drawCard(y, cardH);
+    // Header strip
+    sf(doc, hdrBg); sd(doc, hdrBg);
+    doc.roundedRect(ML + 0.3, y + 0.3, maxW - 0.6, 11, 1.5, 1.5, 'F');
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(SECTION_SIZE);
+    sc(doc, hdrFg);
+    doc.text(title, ML + 5, y + 7.5);
+    let cy = y + 16;
+    // Body text
+    if (body?.trim()) {
       doc.setFont(_docFont, 'normal');
-      doc.setFontSize(TABLE_SIZE);
+      doc.setFontSize(BODY_SIZE);
       sc(doc, DARK);
-      doc.text(item.label, x + 7, y);
-      // Status text (right-aligned)
-      doc.setFont(_docFont, 'italic');
+      doc.text(bodyLines, ML + 5, cy);
+      cy += bodyLines.length * LINE_H + 4;
+    }
+    // Chip list
+    if (checklist.length > 0) {
+      sd(doc, BORDER); doc.setLineWidth(0.15);
+      doc.line(ML + 5, cy, W - MR - 5, cy);
+      cy += 5;
+      doc.setFont(_docFont, 'bold');
       doc.setFontSize(TINY_SIZE);
       sc(doc, GRAY);
-      doc.text(STATUS_LABELS[item.status], x + w, y, { align: 'right' });
-      // Thin divider
-      sd(doc, [230, 231, 232] as any);
-      doc.setLineWidth(0.15);
-      doc.line(x, y + 2, x + w, y + 2);
-      y += 6;
+      doc.text('STATUS DE HABILIDADES', ML + 5, cy);
+      cy += 5;
+      for (const item of checklist) {
+        cy = skillChip(item, ML + 5, cy, maxW - 10);
+      }
     }
-    return y + 4;
+    return cy + 8;
   }
 
-  function renderBulletItems(items: string[], x: number, y: number, w: number): number {
-    for (const item of items) {
-      if (y > cBot(H) - 8) { y = newPage(); }
-      sf(doc, PETROL);
-      doc.circle(x + 1.5, y - 1.5, 1.2, 'F');
-      doc.setFont(_docFont, 'normal');
-      doc.setFontSize(BODY_SIZE);
-      sc(doc, DARK);
-      const ls: string[] = doc.splitTextToSize(item, w - 8);
-      doc.text(ls, x + 6, y);
-      y += ls.length * LINE_H + 1;
-    }
-    return y + 3;
-  }
-
-  function renderStringChecklist(items: string[], x: number, y: number, w: number): number {
-    for (const item of items) {
-      if (y > cBot(H) - 8) { y = newPage(); }
-      // Empty checkbox
-      sd(doc, PETROL as any);
-      doc.setLineWidth(0.3);
-      doc.roundedRect(x, y - 3.5, 4, 4, 0.5, 0.5, 'D');
-      doc.setFont(_docFont, 'normal');
-      doc.setFontSize(BODY_SIZE);
-      sc(doc, DARK);
-      const ls: string[] = doc.splitTextToSize(item, w - 8);
-      doc.text(ls, x + 7, y);
-      y += ls.length * LINE_H + 1;
-    }
-    return y + 3;
-  }
-
-  // ── PÁGINA 1 — CAPA ─────────────────────────────────────────────────────────
+  // ── PAGE 1 — COVER ───────────────────────────────────────────────────────────
   addCoverBlock(
     doc,
     'Perfil Inteligente do Aluno',
@@ -1871,193 +2015,306 @@ export async function generateIntelligentProfilePDF(params: {
     school?.schoolName ?? 'Sistema IncluiAI',
   );
 
-  // Bloco do aluno abaixo da capa
-  let y = 55; // após banner
+  let y = 55;
   y = buildStudentBlock(doc, student, circularPhoto, ML, y, maxW, [
-    ['Professor(a) Regente:', student.regentTeacher || ''],
-    ['Professor(a) AEE:',    student.aeeTeacher    || ''],
-    ['Gerado em:',           `${genDate} às ${genTime}`],
-    ['Gerado por:',          generatedByName],
-    ['Versão:',              `${versionNumber}`],
+    ['Professor(a) Regente:', student.regentTeacher || '—'],
+    ['Professor(a) AEE:',     student.aeeTeacher    || '—'],
+    ['Gerado em:',            `${genDate} às ${genTime}`],
+    ['Gerado por:',           generatedByName],
+    ['Versão:',               `${versionNumber}`],
   ]);
 
-  // ── SEÇÃO 1 — CONHECENDO O ALUNO ────────────────────────────────────────────
-  y += 4;
-  if (y > cBot(H) - 40) { y = newPage(); }
-  y = sectionTitle(profile.humanizedIntroduction.title, y);
-  y = bodyText(profile.humanizedIntroduction.text, ML, y, maxW);
+  // ── QUEM SOU EU ──────────────────────────────────────────────────────────────
+  y = sectionDividerLabel('QUEM SOU EU?', y + 6);
+  const letter = profile.firstPersonLetter || profile.humanizedIntroduction.text;
+  const letterLines: string[] = doc.splitTextToSize(letter, maxW - 16);
+  const quemCardH = letterLines.length * LINE_H + 22;
+  y = ensureY(y, quemCardH + 4);
 
-  // ── SEÇÃO 2 — PARECER PEDAGÓGICO ────────────────────────────────────────────
-  if (y > cBot(H) - 40) { y = newPage(); }
-  y = sectionTitle('Parecer Pedagógico', y);
-  y = bodyText(profile.pedagogicalReport.text, ML, y, maxW);
-
-  // Legenda
+  // Light teal card
+  sf(doc, [238, 245, 248] as any); sd(doc, [197, 221, 231] as any);
+  doc.setLineWidth(0.25);
+  doc.roundedRect(ML, y, maxW, quemCardH, 3, 3, 'FD');
+  // Petrol left accent bar
+  sf(doc, PETROL);
+  doc.roundedRect(ML, y, 3, quemCardH, 1, 1, 'F');
+  // Title
+  doc.setFont(_docFont, 'bold');
+  doc.setFontSize(SECTION_SIZE);
+  sc(doc, PETROL);
+  doc.text('Quem sou eu?', ML + 9, y + 8);
+  // Italic text
   doc.setFont(_docFont, 'italic');
-  doc.setFontSize(TINY_SIZE);
-  sc(doc, GRAY);
-  doc.text('● Verde: Presente  ● Dourado: Em desenvolvimento  ● Cinza: Não observado', ML, y);
-  y += 6;
+  doc.setFontSize(BODY_SIZE + 0.5);
+  sc(doc, [46, 58, 82] as any);
+  doc.text(letterLines, ML + 9, y + 16);
+  y += quemCardH + 8;
 
-  y = renderProfileChecklist(profile.pedagogicalReport.checklist, ML, y, maxW);
+  // ── ANÁLISE MULTIDISCIPLINAR ─────────────────────────────────────────────────
+  y = sectionDividerLabel('ANÁLISE MULTIDISCIPLINAR', y);
 
-  // ── SEÇÃO 3 — PARECER NEUROPEDAGÓGICO ───────────────────────────────────────
-  if (y > cBot(H) - 40) { y = newPage(); }
-  y = sectionTitle('Parecer Neuropedagógico', y);
+  y = analysisCard(y,
+    'Parecer Pedagógico Educacional',
+    [238, 245, 248] as [number,number,number],
+    PETROL,
+    profile.pedagogicalReport.text,
+    profile.pedagogicalReport.checklist,
+  );
 
-  // Aviso
-  const aviso = 'Este parecer reflete observações pedagógicas. Não constitui diagnóstico médico nem substitui avaliação clínica especializada.';
-  const avisoLines: string[] = doc.splitTextToSize(aviso, maxW);
-  sf(doc, [255, 251, 235] as any);
-  sd(doc, [253, 230, 138] as any);
-  doc.setLineWidth(0.3);
-  doc.roundedRect(ML, y, maxW, avisoLines.length * LINE_H + 6, 2, 2, 'FD');
-  doc.setFont(_docFont, 'italic');
-  doc.setFontSize(TINY_SIZE);
-  sc(doc, [146, 64, 14] as any);
-  doc.text(avisoLines, ML + 4, y + 4.5);
-  y += avisoLines.length * LINE_H + 10;
+  y = analysisCard(y + 2,
+    'Parecer Neuropedagógico',
+    [243, 240, 255] as [number,number,number],
+    [88, 28, 135] as [number,number,number],
+    profile.neuroPedagogicalReport.text,
+    profile.neuroPedagogicalReport.checklist,
+  );
 
-  y = bodyText(profile.neuroPedagogicalReport.text, ML, y, maxW);
-  y = renderProfileChecklist(profile.neuroPedagogicalReport.checklist, ML, y, maxW);
-
-  // ── SEÇÃO 4 — COMO APRENDE MELHOR ───────────────────────────────────────────
-  if (y > cBot(H) - 30) { y = newPage(); }
-  y = sectionTitle('Como Aprende Melhor', y);
-  y = bodyText(profile.bestLearningStrategies.text, ML, y, maxW);
-  y = renderBulletItems(profile.bestLearningStrategies.items, ML, y, maxW);
-
-  // ── SEÇÃO 5 — ATIVIDADES INDICADAS ──────────────────────────────────────────
-  if (y > cBot(H) - 30) { y = newPage(); }
-  y = sectionTitle('Atividades Indicadas', y);
-
-  for (const act of profile.recommendedActivities) {
-    if (y > cBot(H) - 30) { y = newPage(); }
-
-    // Activity header
-    sf(doc, [236, 244, 247] as any);
-    sd(doc, BORDER);
-    doc.setLineWidth(0.2);
-    const actTitleLines: string[] = doc.splitTextToSize(act.title, maxW - 30);
-    const actBoxH = actTitleLines.length * LINE_H + 8;
-    doc.roundedRect(ML, y, maxW, actBoxH, 2, 2, 'FD');
+  // Potencialidades
+  const strengths = profile.strengths ?? profile.nextSteps ?? [];
+  if (strengths.length > 0) {
+    const ptCardH = strengths.length * 7 + 22;
+    y = ensureY(y + 4, ptCardH + 4);
+    drawCard(y, ptCardH, [167, 243, 208] as any);
+    sf(doc, [240, 253, 244] as any); sd(doc, [167, 243, 208] as any);
+    doc.roundedRect(ML + 0.3, y + 0.3, maxW - 0.6, 11, 1.5, 1.5, 'F');
     doc.setFont(_docFont, 'bold');
-    doc.setFontSize(BODY_SIZE);
-    sc(doc, PETROL);
-    doc.text(actTitleLines, ML + 4, y + 5);
-    // Support level badge (right)
-    const lvlColor = act.supportLevel === 'Baixo' ? [21, 128, 61] as [number,number,number]
-      : act.supportLevel === 'Alto' ? [190, 18, 60] as [number,number,number]
-      : [161, 98, 7] as [number,number,number];
-    doc.setFont(_docFont, 'bold');
-    doc.setFontSize(TINY_SIZE);
-    sc(doc, lvlColor);
-    doc.text(`Apoio ${act.supportLevel}`, W - MR, y + 5, { align: 'right' });
-    y += actBoxH + 2;
-
-    // Objective
-    if (act.objective) {
-      doc.setFont(_docFont, 'bold');
-      doc.setFontSize(LABEL_SIZE);
-      sc(doc, PETROL);
-      doc.text('Objetivo:', ML, y);
-      y += 5;
-      y = bodyText(act.objective, ML + 2, y, maxW - 2);
+    doc.setFontSize(SECTION_SIZE);
+    sc(doc, [21, 128, 61] as any);
+    doc.text('Potencialidades', ML + 5, y + 7.5);
+    let sy = y + 16;
+    for (const item of strengths) {
+      sy = bullet(item, ML + 5, sy, maxW - 10, [22, 163, 74] as [number,number,number]);
     }
-
-    // How to apply
-    if (act.howToApply) {
-      doc.setFont(_docFont, 'bold');
-      doc.setFontSize(LABEL_SIZE);
-      sc(doc, PETROL);
-      doc.text('Como aplicar:', ML, y);
-      y += 5;
-      y = bodyText(act.howToApply, ML + 2, y, maxW - 2);
-    }
-
-    // Why it helps
-    if (act.whyItHelps) {
-      doc.setFont(_docFont, 'bold');
-      doc.setFontSize(LABEL_SIZE);
-      sc(doc, PETROL);
-      doc.text('Por que ajuda:', ML, y);
-      y += 5;
-      y = bodyText(act.whyItHelps, ML + 2, y, maxW - 2);
-    }
-
-    y += 4;
-    sd(doc, BORDER);
-    doc.setLineWidth(0.3);
-    doc.line(ML, y, W - MR, y);
-    y += 6;
+    y = sy + 8;
   }
 
-  // ── SEÇÃO 6 — PONTOS DE OBSERVAÇÃO ──────────────────────────────────────────
-  if (y > cBot(H) - 30) { y = newPage(); }
-  y = sectionTitle('Pontos de Observação para os Próximos Dias', y);
-  y = bodyText(profile.observationPoints.text, ML, y, maxW);
-  y = renderStringChecklist(profile.observationPoints.checklist, ML, y, maxW);
+  // ── COMO APRENDE MELHOR ──────────────────────────────────────────────────────
+  y = sectionDividerLabel('COMO APRENDE MELHOR', y + 4);
+  const learnItems = profile.bestLearningStrategies.items;
+  const learnCardH = learnItems.length * 8 + 22;
+  y = ensureY(y, learnCardH + 4);
+  drawCard(y, learnCardH, [240, 228, 181] as any);
+  sf(doc, [253, 248, 236] as any); sd(doc, [240, 228, 181] as any);
+  doc.roundedRect(ML + 0.3, y + 0.3, maxW - 0.6, 11, 1.5, 1.5, 'F');
+  doc.setFont(_docFont, 'bold');
+  doc.setFontSize(SECTION_SIZE);
+  sc(doc, [146, 105, 10] as any);
+  doc.text('Como Aprende Melhor', ML + 5, y + 7.5);
+  let ly = y + 16;
+  for (const item of learnItems) {
+    if (ly > cBot(H) - 7) { ly = newPage(); }
+    sf(doc, GOLD); sd(doc, GOLD);
+    doc.circle(ML + 7, ly - 1.5, 1.8, 'F');
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(BODY_SIZE);
+    sc(doc, DARK);
+    const ils: string[] = doc.splitTextToSize(item, maxW - 18);
+    doc.text(ils, ML + 12, ly);
+    ly += ils.length * LINE_H + 2;
+  }
+  y = ly + 8;
 
-  // ── SEÇÃO 7 — CUIDADOS E PRÓXIMOS PASSOS ────────────────────────────────────
-  if (y > cBot(H) - 30) { y = newPage(); }
+  // Pontos de Cuidado
+  const challenges = profile.challenges ?? (profile.carePoints ?? []).map(c => ({ title: 'Ponto de Atenção', description: c }));
+  if (challenges.length > 0) {
+    const chalCardH = challenges.reduce((acc, c) => {
+      const dLines: string[] = doc.splitTextToSize(c.description, maxW - 18);
+      return acc + dLines.length * LINE_H + 10;
+    }, 22);
+    y = ensureY(y + 2, chalCardH + 4);
+    drawCard(y, chalCardH, [253, 186, 116] as any);
+    sf(doc, [255, 247, 237] as any); sd(doc, [253, 186, 116] as any);
+    doc.roundedRect(ML + 0.3, y + 0.3, maxW - 0.6, 11, 1.5, 1.5, 'F');
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(SECTION_SIZE);
+    sc(doc, [194, 65, 12] as any);
+    doc.text('Pontos de Cuidado', ML + 5, y + 7.5);
+    let cy2 = y + 16;
+    for (const c of challenges) {
+      if (cy2 > cBot(H) - 8) { cy2 = newPage(); }
+      sf(doc, [249, 115, 22] as any); sd(doc, [249, 115, 22] as any);
+      doc.circle(ML + 7, cy2 - 1.5, 2, 'F');
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(BODY_SIZE);
+      sc(doc, [124, 45, 18] as any);
+      doc.text(`${c.title}:`, ML + 12, cy2);
+      cy2 += LINE_H;
+      doc.setFont(_docFont, 'normal');
+      sc(doc, DARK);
+      const dls: string[] = doc.splitTextToSize(c.description, maxW - 18);
+      doc.text(dls, ML + 12, cy2);
+      cy2 += dls.length * LINE_H + 3;
+    }
+    y = cy2 + 8;
+  }
 
-  const halfW = (maxW - 8) / 2;
+  // ── ATIVIDADES INDICADAS ─────────────────────────────────────────────────────
+  if (profile.recommendedActivities.length > 0) {
+    y = sectionDividerLabel('ATIVIDADES INDICADAS', y + 4);
 
-  // Pontos de cuidado (esquerda)
-  y = sectionTitle('Pontos de Cuidado', y);
-  y = renderBulletItems(profile.carePoints, ML, y, halfW);
+    for (const act of profile.recommendedActivities) {
+      const objLines: string[] = doc.splitTextToSize(act.objective || '', maxW - 10);
+      const colW = (maxW - 14) / 2;
+      const howLines: string[] = doc.splitTextToSize(act.howToApply || '', colW - 2);
+      const whyLines: string[] = doc.splitTextToSize(act.whyItHelps || '', colW - 2);
+      const titleLines2: string[] = doc.splitTextToSize(act.title, maxW - 40);
+      const hdrH = titleLines2.length * LINE_H + 8;
+      const actH = hdrH + objLines.length * LINE_H + Math.max(howLines.length, whyLines.length) * LINE_H + 36;
 
-  // Próximos passos
-  if (y > cBot(H) - 30) { y = newPage(); }
-  y = sectionTitle('Próximos Passos', y);
-  y = renderBulletItems(profile.nextSteps, ML, y, maxW);
+      y = ensureY(y, actH + 4);
+      drawCard(y, actH);
+
+      // Teal header
+      sf(doc, [238, 245, 248] as any); sd(doc, [197, 221, 231] as any);
+      doc.roundedRect(ML + 0.3, y + 0.3, maxW - 0.6, hdrH, 1.5, 1.5, 'F');
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(BODY_SIZE + 0.5);
+      sc(doc, PETROL);
+      doc.text(titleLines2, ML + 5, y + 6);
+
+      // Support badge
+      const lvlColor: [number,number,number] = act.supportLevel === 'Baixo'
+        ? [21, 128, 61] : act.supportLevel === 'Alto' ? [190, 18, 60] : [161, 98, 7];
+      const lvlBg: [number,number,number] = act.supportLevel === 'Baixo'
+        ? [240, 253, 244] : act.supportLevel === 'Alto' ? [254, 242, 242] : [254, 252, 232];
+      const lvlTxt = `Apoio ${act.supportLevel}`;
+      const lvlW = doc.getTextWidth(lvlTxt) + 6;
+      sf(doc, lvlBg); sd(doc, lvlColor);
+      doc.setLineWidth(0.2);
+      doc.roundedRect(W - MR - lvlW - 1, y + 3, lvlW, 5, 1, 1, 'FD');
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(TINY_SIZE);
+      sc(doc, lvlColor);
+      doc.text(lvlTxt, W - MR - lvlW + 2, y + 6.8);
+
+      let ay = y + hdrH + 5;
+
+      if (act.objective) {
+        doc.setFont(_docFont, 'bold');
+        doc.setFontSize(TINY_SIZE);
+        sc(doc, PETROL);
+        doc.text('OBJETIVO', ML + 5, ay);
+        ay += 4.5;
+        doc.setFont(_docFont, 'normal');
+        doc.setFontSize(BODY_SIZE);
+        sc(doc, DARK);
+        doc.text(objLines, ML + 5, ay);
+        ay += objLines.length * LINE_H + 4;
+      }
+
+      // Como Aplicar + Por que Ajuda side by side
+      if (act.howToApply || act.whyItHelps) {
+        // Left: como aplicar
+        if (act.howToApply) {
+          doc.setFont(_docFont, 'bold');
+          doc.setFontSize(TINY_SIZE);
+          sc(doc, [46, 78, 95] as any);
+          doc.text('COMO APLICAR', ML + 5, ay);
+          doc.setFont(_docFont, 'normal');
+          doc.setFontSize(BODY_SIZE);
+          sc(doc, DARK);
+          doc.text(howLines, ML + 5, ay + 4.5);
+        }
+        // Right: por que ajuda
+        if (act.whyItHelps) {
+          doc.setFont(_docFont, 'bold');
+          doc.setFontSize(TINY_SIZE);
+          sc(doc, [21, 128, 61] as any);
+          doc.text('POR QUE AJUDA', ML + 5 + colW + 4, ay);
+          doc.setFont(_docFont, 'normal');
+          doc.setFontSize(BODY_SIZE);
+          sc(doc, DARK);
+          doc.text(whyLines, ML + 5 + colW + 4, ay + 4.5);
+        }
+        ay += Math.max(howLines.length, whyLines.length) * LINE_H + 10;
+      }
+
+      y = ay + 4;
+    }
+  }
+
+  // ── PONTOS DE OBSERVAÇÃO ─────────────────────────────────────────────────────
+  y = sectionDividerLabel('PONTOS DE OBSERVAÇÃO', y + 4);
+  const obsTxtLines: string[] = profile.observationPoints.text
+    ? doc.splitTextToSize(profile.observationPoints.text, maxW - 10)
+    : [];
+  const obsList = profile.observationPoints.checklist;
+  const obsCardH = obsTxtLines.length * LINE_H + obsList.length * 7 + 26;
+  y = ensureY(y, obsCardH + 4);
+
+  // Dark petrol card
+  sf(doc, PETROL); sd(doc, PETROL);
+  doc.setLineWidth(0.25);
+  doc.roundedRect(ML, y, maxW, obsCardH, 3, 3, 'F');
+  // Slightly lighter strip for label
+  sf(doc, [26, 66, 80] as any);
+  doc.roundedRect(ML + 0.3, y + 0.3, maxW - 0.6, 11, 1.5, 1.5, 'F');
+  doc.setFont(_docFont, 'bold');
+  doc.setFontSize(SECTION_SIZE);
+  sc(doc, WHITE);
+  doc.text('Pontos de Observação', ML + 5, y + 7.5);
+
+  let oy = y + 16;
+  if (obsTxtLines.length > 0) {
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(BODY_SIZE);
+    sc(doc, [200, 220, 230] as any);
+    doc.text(obsTxtLines, ML + 5, oy);
+    oy += obsTxtLines.length * LINE_H + 6;
+  }
+  if (obsList.length > 0) {
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(TINY_SIZE);
+    sc(doc, [150, 185, 200] as any);
+    doc.text('CHECKLIST DE AVALIAÇÃO DIÁRIA', ML + 5, oy);
+    oy += 5;
+    for (const item of obsList) {
+      oy = checkbox(item, ML + 5, oy, maxW - 10, true);
+    }
+  }
+  y = oy + 8;
 
   // ── ASSINATURAS ──────────────────────────────────────────────────────────────
-  if (y > cBot(H) - 70) { y = newPage(); }
+  y = ensureY(y + 8, 70);
 
-  y += 8;
   doc.setFont(_docFont, 'bold');
-  doc.setFontSize(SECTION_SIZE + 1);
-  sc(doc, PETROL);
-  doc.text('Assinaturas', ML, y);
+  doc.setFontSize(TINY_SIZE);
+  sc(doc, GRAY);
+  doc.text('CIÊNCIA E VALIDAÇÃO DA EQUIPE MULTIDISCIPLINAR', W / 2, y, { align: 'center' });
   y += 2;
-  sd(doc, GOLD);
-  doc.setLineWidth(0.5);
-  doc.line(ML, y, ML + 30, y);
-  y += 10;
+  sd(doc, BORDER); doc.setLineWidth(0.2);
+  doc.line(ML + 15, y, W - MR - 15, y);
+  y += 16;
 
   const school2 = school?.schoolName ?? 'Sistema IncluiAI';
   doc.setFont(_docFont, 'normal');
   doc.setFontSize(BODY_SIZE - 0.5);
   sc(doc, DARK);
-  doc.text(`${school2}, ${genDate}`, ML, y);
-  y += 14;
+  doc.text(`${school2} — ${genDate}`, ML, y);
+  y += 16;
 
-  const sigCols = 3;
-  const sigW    = (maxW - 10) / sigCols;
+  const sigW2 = (maxW - 10) / 3;
   const signers = [
-    'Professor(a) Regente',
-    'Professor(a) do AEE',
-    'Coordenação Pedagógica',
+    { name: student.regentTeacher || 'Professor(a) Regente', role: 'Professor(a) Regente' },
+    { name: student.aeeTeacher    || 'Prof. do AEE',         role: 'Professor(a) do AEE' },
+    { name: 'Coordenação Pedagógica',                        role: school2 },
   ];
-
-  signers.forEach((role, i) => {
-    const sx = ML + i * (sigW + 5);
-    sd(doc, DARK);
-    doc.setLineWidth(0.2);
-    doc.line(sx, y, sx + sigW, y);
+  signers.forEach((sig, i) => {
+    const sx = ML + i * (sigW2 + 5);
+    sf(doc, [238, 245, 248] as any); sd(doc, [197, 221, 231] as any);
+    doc.setLineWidth(0.3);
+    doc.line(sx, y, sx + sigW2, y);
     doc.setFont(_docFont, 'bold');
     doc.setFontSize(TINY_SIZE);
     sc(doc, DARK);
-    doc.text(role, sx + sigW / 2, y + 4, { align: 'center' });
+    doc.text(sig.name, sx + sigW2 / 2, y + 5, { align: 'center' });
     doc.setFont(_docFont, 'normal');
     sc(doc, GRAY);
-    doc.text('Matrícula: _______________', sx + sigW / 2, y + 8, { align: 'center' });
+    doc.text(sig.role, sx + sigW2 / 2, y + 9.5, { align: 'center' });
+    doc.text('Matrícula: _______________', sx + sigW2 / 2, y + 14, { align: 'center' });
   });
+  y += 22;
 
-  y += 20;
-
-  // Gerado por
   doc.setFont(_docFont, 'italic');
   doc.setFontSize(TINY_SIZE);
   sc(doc, GRAY);
@@ -2066,10 +2323,8 @@ export async function generateIntelligentProfilePDF(params: {
     ML, y,
   );
 
-  // ── RODAPÉS ──────────────────────────────────────────────────────────────────
   addFooterAllPages(doc);
 
-  // ── SALVAR ───────────────────────────────────────────────────────────────────
   const fileName = `PerfilInteligente_${student.name.replace(/\s+/g, '_')}_V${versionNumber}.pdf`;
   doc.save(fileName);
 }

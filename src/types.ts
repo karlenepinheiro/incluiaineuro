@@ -576,6 +576,45 @@ export interface Student {
   emergencyContactPhone?: string;
 }
 
+// ── Plano de Ação do Professor Regente ────────────────────────────────────────
+
+export type ActionPlanPeriod = 'semanal' | 'mensal' | 'bimestral' | 'macro';
+
+export interface ActionPlanItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+export interface ActionPlanBlock {
+  title: string;
+  icon?: string;
+  items: ActionPlanItem[];
+}
+
+export interface ActionPlanJSON {
+  period: ActionPlanPeriod;
+  generatedAt: string;
+  generatedBy: string;
+  generatedByName: string;
+  registrationNumber: string;
+  version: number;
+  beforeClass: ActionPlanBlock;
+  duringClass: ActionPlanBlock;
+  activitiesStrategies: ActionPlanBlock;
+  assessment: ActionPlanBlock;
+  attentionObservations: ActionPlanBlock;
+  communicationTeam: ActionPlanBlock;
+}
+
+export interface ActionPlanRecord {
+  id: string;
+  student_id: string;
+  tenant_id: string;
+  plan_json: ActionPlanJSON;
+  created_at: string;
+}
+
 export interface ServiceDailyChecklist {
   desempenho: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;  // Desempenho na atividade (1-8)
   interacao: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;    // Interação com pares/profissional (1-8)
@@ -1055,6 +1094,8 @@ export interface Subscription {
 export type CreditLedgerType =
   // Novos tipos (spec v5)
   | 'monthly_grant' | 'usage_ai' | 'manual_grant' | 'refund'
+  // Valores reais do DB
+  | 'plan_reset' | 'ai_debit' | 'free_bootstrap' | 'debit' | 'credit' | 'subscription'
   // Aliases legados (schema v4 — mantidos para compatibilidade)
   | 'bonus_manual' | 'purchase_extra' | 'courtesy' | 'renewal' | 'purchase' | 'bonus' | 'consumption' | 'adjustment';
 
@@ -1062,6 +1103,8 @@ export interface CreditLedgerEntry {
   id: string;
   tenant_id: string;
   type: CreditLedgerType;
+  /** Campo operation da tabela real (ex: 'credit', 'debit'). */
+  operation?: string;
   amount: number;
   description?: string;
   /** Origem do lançamento (ex: 'kiwify_activation', 'free_bootstrap'). */

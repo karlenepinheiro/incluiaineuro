@@ -5,6 +5,7 @@ import { AIService } from './aiService';
 import { CanonicalStudentContextService } from './canonicalStudentContext';
 import generateReportFull from '../prompts/generate-report-full.md?raw';
 import generateReportSimple from '../prompts/generate-report-simple.md?raw';
+import { generateDocumentCode } from '../utils/documentCodes';
 
 // ─── Tipos exportados ─────────────────────────────────────────────────────────
 
@@ -80,12 +81,8 @@ export interface RelatorioResultado {
 
 // ─── Helpers internos ─────────────────────────────────────────────────────────
 
-function makeReportCode(studentId: string): string {
-  const now = Date.now().toString(36).toUpperCase();
-  const hash = Math.abs(
-    studentId.split('').reduce((h, c) => (h << 5) - h + c.charCodeAt(0), 0)
-  ).toString(16).toUpperCase().padStart(6, '0').slice(0, 6);
-  return `REL-${hash}-${now}`;
+function makeReportCode(_studentId: string): string {
+  return generateDocumentCode('registration');
 }
 
 function calcAge(birthDate?: string): string {

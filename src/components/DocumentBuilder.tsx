@@ -21,6 +21,7 @@ import { StoredTemplateSelector } from './StoredTemplateSelector';
 import { SchoolTemplate } from '../services/templateService';
 import { DocumentPrintPreview } from './docs/DocumentPrintPreview';
 import type { DocType } from './docs/DocComponents';
+import { ensureDocumentCode, getDocumentCodeKind, isValidatedDocumentType } from '../utils/documentCodes';
 
 // Seções esperadas por tipo de documento — contexto para análise via upload
 const STANDARD_DOC_FIELDS: Record<string, string> = {
@@ -69,13 +70,8 @@ function CreditBadge({ type }: { type: string }) {
   );
 }
 
-const generateSecureAuditCode = (userName: string): string => {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let randomStr = "";
-    for(let i=0; i<20; i++) randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
-    const now = new Date();
-    return `${randomStr}-${userName.substring(0, 5).toUpperCase()}-${now.getFullYear()}`;
-};
+const ensureDocumentCodeForType = (type: DocumentType, existing?: string): string =>
+  ensureDocumentCode(getDocumentCodeKind(type), existing);
 
 // ─── QR Code via Canvas (sem lib extra — usa qrcode dinamicamente via CDN) ───
 const QRCodeRenderer: React.FC<{ code: string }> = ({ code }) => {
@@ -991,10 +987,8 @@ const planLimits = getPlanLimits(user.plan);
          if (!confirm("Confirmar conclusão? O documento será marcado como final e não poderá mais ser editado livremente.")) return;
          
          // Generate Audit Code if not exists
-         if (!finalAuditCode) {
-             finalAuditCode = generateSecureAuditCode(user.name);
-             setCurrentAuditCode(finalAuditCode);
-         }
+         finalAuditCode = ensureDocumentCodeForType(type, finalAuditCode);
+         setCurrentAuditCode(finalAuditCode);
      }
 
      // Pass auditCode in data (workaround to persist it in structuredData)
@@ -1392,7 +1386,8 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
     setGeneratingPDF(true);
     try {
       const school = user.schoolConfigs?.[0] ?? null;
-      const auditCode = currentAuditCode || generateSecureAuditCode(user.name);
+      const auditCode = ensureDocumentCodeForType(type, currentAuditCode);
+      if (auditCode !== currentAuditCode) setCurrentAuditCode(auditCode);
       const pdfSections = sections.map(sec => ({
         title: sec.title,
         fields: (sec.fields ?? []).map(f => ({
@@ -2310,12 +2305,19 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
             {/* Audit Code + QR — modo edição */}
             {currentAuditCode && (
                 <div className="mt-8 pt-4 border-t border-gray-200 flex flex-col items-center gap-2 print:mt-4">
-                    <canvas id={`qr-canvas-${currentAuditCode}`} className="w-20 h-20"/>
+                    {isValidatedDocumentType(type) && (
+                      <>
+                        <canvas id={`qr-canvas-${currentAuditCode}`} className="w-20 h-20"/>
+                        <QRCodeRenderer code={currentAuditCode} />
+                      </>
+                    )}
                     <p className="text-xs font-mono text-gray-400 text-center">
+                        {isValidatedDocumentType(type) ? 'Código de Validação' : 'Código de Registro'}<br/>
                         {currentAuditCode}<br/>
-                        <span className="text-[10px]">incluiai.com/validar/{currentAuditCode}</span>
+                        {isValidatedDocumentType(type) && (
+                          <span className="text-[10px]">www.incluiai.app.br/validar/{currentAuditCode}</span>
+                        )}
                     </p>
-                    <QRCodeRenderer code={currentAuditCode} />
                 </div>
             )}
         </div>

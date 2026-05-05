@@ -3,7 +3,7 @@
 // Regra: Ficha = documento INTERNO → sem QR, sem URL pública, sem dados técnicos de IA
 //        Relatório Evolutivo = documento OFICIAL → mantém QR + URL de validação
 import { Student, StudentEvolution, DocField, SchoolConfig } from "../types";
-import QRCode from 'qrcode';
+import { ensureDocumentCode, generateDocumentCode, INCLUIAI_SITE } from '../utils/documentCodes';
 
 // ─── Carrega jsPDF dinamicamente (CDN) ────────────────────────────────────────
 async function loadJsPDF(): Promise<any> {
@@ -93,23 +93,8 @@ function getInitials(name: string): string {
 }
 
 // ─── Helpers compartilhados ───────────────────────────────────────────────────
-async function buildQrDataUrl(auditCode: string): Promise<string | undefined> {
-  try {
-    return await QRCode.toDataURL(
-      `https://www.incluiai.app.br/validar/${auditCode}`,
-      { margin: 0, width: 256 },
-    );
-  } catch { return undefined; }
-}
-
-function makeAuditCode(prefix: string, id: string): string {
-  let hash = 0;
-  const str = id + Date.now().toString();
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return `${prefix}-${Math.abs(hash).toString(16).toUpperCase().padStart(8, "0").slice(0, 8)}`;
+function makeAuditCode(_prefix: string, _id: string): string {
+  return generateDocumentCode('registration');
 }
 
 function addWrappedText(
@@ -720,7 +705,7 @@ function addDocHeader(
 
   doc.setFont('courier', 'normal');
   doc.setFontSize(7.5);
-  doc.text(`Cód. Validação: ${auditCode}`, W - MR, 6.5, { align: 'right' });
+  doc.text(`Cód. Registro: ${auditCode}`, W - MR, 6.5, { align: 'right' });
 
   doc.setDrawColor(BORDER[0], BORDER[1], BORDER[2]);
   doc.setLineWidth(0.3);
@@ -728,7 +713,7 @@ function addDocHeader(
   return 11;
 }
 
-function addDocFooter(doc: any, auditCode: string, emittedBy: string, qrDataUrl?: string): void {
+function addDocFooter(doc: any, auditCode: string, emittedBy: string): void {
   const W    = doc.internal.pageSize.getWidth();
   const H    = doc.internal.pageSize.getHeight();
   const fY   = H - BOTTOM_MARGIN - FOOTER_H;
@@ -742,12 +727,7 @@ function addDocFooter(doc: any, auditCode: string, emittedBy: string, qrDataUrl?
   doc.setFillColor(248, 249, 250);
   doc.rect(0, fY + 2, W, FOOTER_H - 2, 'F');
 
-  const qrSz   = 16;
-  const qrX    = W - MR - qrSz;
-  if (qrDataUrl) {
-    try { doc.addImage(qrDataUrl, 'PNG', qrX, fY + 3, qrSz, qrSz); } catch {}
-  }
-  const textRight = qrDataUrl ? qrX - 4 : W - MR;
+  const textRight = W - MR;
   const cx        = ML + (textRight - ML) / 2;
   const dateStr   = new Date().toLocaleString('pt-BR', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -761,17 +741,17 @@ function addDocFooter(doc: any, auditCode: string, emittedBy: string, qrDataUrl?
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(6);
   doc.setTextColor(BRAND[0], BRAND[1], BRAND[2]);
-  doc.text('DOCUMENTO PEDAGÓGICO OFICIAL', textRight, fY + 7.5, { align: 'right' });
+  doc.text('DOCUMENTO REGISTRADO', textRight, fY + 7.5, { align: 'right' });
 
   doc.setFont('courier', 'bold');
   doc.setFontSize(7);
   doc.setTextColor(BRAND[0], BRAND[1], BRAND[2]);
-  doc.text(auditCode, cx, fY + 14, { align: 'center' });
+  doc.text(`Código de Registro ${auditCode}`, cx, fY + 14, { align: 'center' });
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(6.5);
   doc.setTextColor(BRAND[0], BRAND[1], BRAND[2]);
-  doc.text(`www.incluiai.app.br/validar/${auditCode}`, ML, fY + 20);
+  doc.text(`${INCLUIAI_SITE} — Código de Registro ${auditCode}`, ML, fY + 20);
   doc.setTextColor(GRAY[0], GRAY[1], GRAY[2]);
   doc.text(
     `Página ${doc.internal.getCurrentPageInfo().pageNumber} de ${doc.internal.getNumberOfPages()}`,
@@ -779,9 +759,9 @@ function addDocFooter(doc: any, auditCode: string, emittedBy: string, qrDataUrl?
   );
 }
 
-function addFooterAllPages(doc: any, auditCode: string, emittedBy: string, qrDataUrl?: string): void {
+function addFooterAllPages(doc: any, auditCode: string, emittedBy: string): void {
   const pages = doc.internal.getNumberOfPages();
-  for (let i = 1; i <= pages; i++) { doc.setPage(i); addDocFooter(doc, auditCode, emittedBy, qrDataUrl); }
+  for (let i = 1; i <= pages; i++) { doc.setPage(i); addDocFooter(doc, auditCode, emittedBy); }
 }
 
 function addSectionTitle(doc: any, title: string, x: number, y: number, w: number): number {
@@ -1610,7 +1590,7 @@ export const ExportService = {
     const W     = doc.internal.pageSize.getWidth();
     const H     = doc.internal.pageSize.getHeight();
     const maxW  = W - ML - MR;
-    const auditCode = existingCode || makeAuditCode('EVO', student.id + Date.now());
+    const auditCode = ensureDocumentCode('registration', existingCode);
 
     const pageHeader = (subtitle = 'Acompanhamento de Desenvolvimento') =>
       addDocHeader(doc, 'RELATÓRIO EVOLUTIVO', subtitle, student.name, auditCode, school);
@@ -1763,8 +1743,7 @@ export const ExportService = {
       }
     });
 
-    const qrDataUrl = await buildQrDataUrl(auditCode);
-    addFooterAllPages(doc, auditCode, createdBy, qrDataUrl);
+    addFooterAllPages(doc, auditCode, createdBy);
     doc.save(`Relatorio_Evolutivo_${student.name.replace(/\s+/g, '_')}.pdf`);
   },
 
@@ -1820,7 +1799,8 @@ export const ExportService = {
     createdBy?: string;
   }) {
     const { student, resultado, scores, school, createdBy = 'Sistema' } = params;
-    const { data, codigoDoc, geradoEm } = resultado;
+    const { data, geradoEm } = resultado;
+    const codigoDoc = ensureDocumentCode('registration', resultado.codigoDoc);
 
     const jsPDF  = await loadJsPDF();
     const doc    = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -1828,9 +1808,6 @@ export const ExportService = {
     const H      = doc.internal.pageSize.getHeight();
     const maxW   = W - ML - MR;
     const BOT    = H - BOTTOM_MARGIN - FOOTER_H;
-
-    // QR code
-    const qrData = await buildQrDataUrl(codigoDoc);
 
     // ── cabeçalho corrente (páginas 2+) ────────────────────────────────────
     const addRunHdr = () => {
@@ -1867,10 +1844,7 @@ export const ExportService = {
       doc.setFont('helvetica', 'normal'); sc(doc, GRAY);
       doc.text(`Página ${pgN} de ${tot}`, W - MR, fY + 5.5, { align: 'right' });
       doc.setFont('courier', 'normal'); doc.setFontSize(6); sc(doc, BRAND);
-      doc.text(codigoDoc, ML, fY + 9.5);
-      if (qrData) {
-        try { doc.addImage(qrData, 'PNG', W - MR - 11, fY + 1, 11, 11); } catch {}
-      }
+      doc.text(`Código de Registro ${codigoDoc}`, ML, fY + 9.5);
     };
 
     // ── helpers internos ───────────────────────────────────────────────────
@@ -1986,15 +1960,12 @@ export const ExportService = {
     // Código e data (direita)
     doc.setFont('courier', 'normal'); doc.setFontSize(7); sc(doc, GOLD);
     doc.text(codigoDoc, W - MR, 33, { align: 'right' });
-    if (qrData) {
-      try { doc.addImage(qrData, 'PNG', W - MR - 14, 2, 12, 12); } catch {}
-    }
 
     // Metadados abaixo do banner
     y = bannerH + 7;
     const dtFull = new Date(geradoEm).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, GRAY);
-    doc.text(`Emissão: ${dtFull}  |  Profissional: ${createdBy}`, ML, y);
+    doc.text(`Código de Registro: ${codigoDoc}  |  Gerado em: ${dtFull}  |  Gerado por: ${createdBy}`, ML, y);
     sdd(doc, BORDER); doc.setLineWidth(0.3);
     doc.line(ML, y + 4, W - MR, y + 4);
     y += 10;

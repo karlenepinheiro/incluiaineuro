@@ -7,10 +7,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   CreditCard, CheckCircle, AlertTriangle, XCircle, Clock,
-  Zap, ArrowRight, RefreshCw, ExternalLink, Star, Shield,
+  Zap, ArrowRight, RefreshCw, ExternalLink, Star, Shield, History,
+  Sparkles, CalendarDays, Wrench, Receipt,
 } from 'lucide-react';
-import type { User } from '../types';
-import { formatPlanDisplayName, formatStudentLimit } from '../types';
+import type { User, CreditLedgerEntry } from '../types';
+import { formatPlanDisplayName, formatStudentLimit, PlanTier, resolvePlanTier } from '../types';
 import { getActiveSubscription, type ActiveSubscriptionInfo } from '../services/subscriptionService';
 import { SUBSCRIPTION_PLANS, CREDIT_PACKAGES as CREDIT_PACKAGES_CONFIG } from '../config/aiCosts';
 import {
@@ -18,6 +19,7 @@ import {
   getCreditsCheckoutUrl,
   isKiwifyConfigured,
 } from '../services/kiwifyService';
+import { CreditLedgerService } from '../services/creditService';
 
 // ── Paleta ────────────────────────────────────────────────────────────────────
 const P = {
@@ -109,6 +111,55 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// ── Ledger helpers ────────────────────────────────────────────────────────────
+const PLAN_TYPES   = new Set(['plan_reset','monthly_grant','subscription','renewal','free_bootstrap','manual_grant','courtesy','bonus','bonus_manual']);
+const PURCHASE_TYPES = new Set(['purchase','purchase_extra']);
+const AI_TYPES     = new Set(['ai_debit','usage_ai','consumption']);
+
+function getLedgerIcon(type: string): React.ReactNode {
+  if (PLAN_TYPES.has(type)) return (
+    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <CalendarDays size={18} color="#1D4ED8" />
+    </div>
+  );
+  if (PURCHASE_TYPES.has(type)) return (
+    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#F0FDF4', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <CreditCard size={18} color="#15803D" />
+    </div>
+  );
+  if (AI_TYPES.has(type)) return (
+    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#FAF5FF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <Sparkles size={18} color="#7C3AED" />
+    </div>
+  );
+  return (
+    <div style={{ width: 40, height: 40, borderRadius: 12, background: '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <Wrench size={18} color="#64748B" />
+    </div>
+  );
+}
+
+function getDateGroupLabel(isoDate: string): string {
+  const d   = new Date(isoDate);
+  const now = new Date();
+  const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+  const key = (date: Date) => date.toDateString();
+  if (key(d) === key(now))       return 'HOJE';
+  if (key(d) === key(yesterday)) return 'ONTEM';
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
+function groupLedgerByDate(entries: CreditLedgerEntry[]): { label: string; entries: CreditLedgerEntry[] }[] {
+  const groups: { label: string; entries: CreditLedgerEntry[] }[] = [];
+  const idx = new Map<string, number>();
+  for (const entry of entries) {
+    const label = getDateGroupLabel(entry.created_at);
+    if (!idx.has(label)) { idx.set(label, groups.length); groups.push({ label, entries: [] }); }
+    groups[idx.get(label)!].entries.push(entry);
+  }
+  return groups;
+}
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface Props {
   user: User;
@@ -132,6 +183,10 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
   const [success, setSuccess]     = useState<string | null>(null);
   /** Ciclo de cobrança selecionado pelo usuário na seção de upgrade. */
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
+  const [ledger, setLedger]         = useState<CreditLedgerEntry[]>([]);
+  const [ledgerLoading, setLedgerLoading] = useState(false);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -140,6 +195,17 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
           const s = await getActiveSubscription(user.tenant_id);
           setSub(s);
         } catch { /* sem assinatura */ }
+
+        setLedgerLoading(true);
+        try {
+          const entries = await CreditLedgerService.getHistory(user.tenant_id, 100);
+          setLedger(entries);
+        } catch (e) {
+          console.error('[SubscriptionView] Erro ao carregar credits_ledger:', e);
+          setLedgerError(String((e as any)?.message ?? e));
+        } finally {
+          setLedgerLoading(false);
+        }
       }
       const ok = await isKiwifyConfigured();
       setKiwifyOk(ok);
@@ -148,13 +214,17 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
     init();
   }, [user.tenant_id]);
 
-  const planCode = sub?.planCode ?? user.plan ?? 'FREE';
-  const isFree   = planCode === 'FREE';
-  const isPro    = planCode === 'PRO';
-  const isMaster = planCode === 'MASTER' || planCode === 'PREMIUM';
+  // rawCode pode ser DB code ('FREE','PRO','MASTER') ou PlanTier enum ('Starter (Grátis)', etc.)
+  // quando não há subscription — resolvePlanTier normaliza ambos os formatos.
+  const rawCode       = sub?.planCode ?? user.plan ?? 'FREE';
+  const tier          = resolvePlanTier(rawCode);
+  const isFree        = tier === PlanTier.FREE;
+  const isPro         = tier === PlanTier.PRO;
+  const isMaster      = tier === PlanTier.PREMIUM;
+  const planShortCode = isFree ? 'FREE' : isPro ? 'PRO' : 'PREMIUM';
 
   // Nome de exibição com ciclo: "PRO MENSAL", "PREMIUM ANUAL", etc.
-  const planDisplayName = formatPlanDisplayName(planCode, sub?.billingCycle ?? 'monthly');
+  const planDisplayName = formatPlanDisplayName(rawCode, sub?.billingCycle ?? 'monthly');
 
   // ── Abrir checkout de assinatura ─────────────────────────────────────────
   async function handleSubscribe(code: 'PRO' | 'MASTER', cycle?: 'monthly' | 'annual') {
@@ -210,6 +280,37 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
   function fmtDate(iso: string | null): string {
     if (!iso) return '—';
     return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+  }
+
+  function fmtDateTime(iso: string): string {
+    return new Date(iso).toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  }
+
+  function typeLabel(type: string): string {
+    const map: Record<string, string> = {
+      plan_reset:    'Renovação de plano',
+      monthly_grant: 'Renovação de plano',
+      manual_grant:  'Concessão manual',
+      purchase:      'Compra',
+      purchase_extra:'Compra avulsa',
+      refund:        'Estorno',
+      ai_debit:      'Consumo IA',
+      usage_ai:      'Consumo IA',
+      consumption:   'Consumo IA',
+      subscription:  'Assinatura',
+      bonus:         'Bônus',
+      bonus_manual:  'Bônus manual',
+      free_bootstrap:'Créditos iniciais',
+      courtesy:      'Cortesia',
+      renewal:       'Renovação',
+      adjustment:    'Ajuste',
+      debit:         'Débito',
+      credit:        'Crédito',
+    };
+    return map[type] ?? type;
   }
 
   if (loading) {
@@ -291,8 +392,8 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
 
           {/* Créditos — breakdown detalhado */}
           {(() => {
-            const planInfo    = PLANS_INFO.find(p => p.code === planCode) ?? null;
-            const monthlyPlan = planCreditsMonthly ?? planInfo?.credits ?? (planCode === 'FREE' ? SUBSCRIPTION_PLANS.FREE.credits : 0);
+            const planInfo    = PLANS_INFO.find(p => p.code === planShortCode) ?? null;
+            const monthlyPlan = planCreditsMonthly ?? planInfo?.credits ?? (isFree ? SUBSCRIPTION_PLANS.FREE.credits : 0);
             return (
               <div style={{
                 background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 12,
@@ -309,7 +410,7 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
                 {/* Tabela de breakdown */}
                 <div style={{ fontSize: 11, color: '#78350F', display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid #FDE68A', paddingTop: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-                    <span>📅 Do plano ({planCode}):</span>
+                    <span>📅 Do plano ({planShortCode}):</span>
                     <strong>{monthlyPlan}</strong>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
@@ -346,7 +447,7 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
               </p>
             </div>
             <button
-              onClick={() => handleSubscribe(planCode as 'PRO' | 'MASTER')}
+              onClick={() => handleSubscribe(isPro ? 'PRO' : 'MASTER')}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: '#D97706', color: 'white',
@@ -508,66 +609,249 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
         </div>
       )}
 
-      {/* ── Pacotes de créditos avulsos ──────────────────────────────────────── */}
+      {/* ── Pacotes de créditos avulsos (apenas PRO/PREMIUM) ────────────────── */}
+      {isFree ? (
+        <div style={{
+          background: '#FFFBEB', border: '1.5px solid #FDE68A', borderRadius: 16,
+          padding: '22px 24px', display: 'flex', alignItems: 'flex-start', gap: 16,
+        }}>
+          <div style={{ width: 36, height: 36, background: '#FEF3C7', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Zap size={18} color="#D97706" />
+          </div>
+          <div>
+            <p style={{ fontSize: 15, fontWeight: 700, color: '#92400E', marginBottom: 4 }}>
+              Pacotes de créditos avulsos
+            </p>
+            <p style={{ fontSize: 13, color: '#78350F', lineHeight: 1.6, marginBottom: 0 }}>
+              Pacotes de créditos avulsos estão disponíveis apenas para assinantes <strong>PRO</strong> e <strong>PREMIUM</strong>.<br />
+              Faça upgrade acima para desbloquear essa funcionalidade e comprar créditos extras a qualquer momento.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          background: P.surface, border: `1px solid ${P.border}`, borderRadius: 16,
+          padding: '24px 24px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <div style={{ width: 32, height: 32, background: '#FEF3C7', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Zap size={15} color="#D97706" />
+            </div>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: P.dark }}>Pacotes de créditos avulsos</h3>
+          </div>
+          <p style={{ fontSize: 13, color: '#64748B', marginBottom: 20, lineHeight: 1.6 }}>
+            Sem créditos suficientes? Compre pacotes avulsos a qualquer momento.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
+            {CREDIT_PACKS.map(pack => (
+              <div key={pack.credits} style={{
+                border: `1px solid ${pack.tag === 'Mais popular' ? '#FDE68A' : P.border}`,
+                borderRadius: 12, padding: '18px 16px',
+                background: pack.tag === 'Mais popular' ? '#FFFBEB' : P.surface,
+              }}>
+                {pack.tag ? (
+                  <div style={{
+                    display: 'inline-block', fontSize: 10, fontWeight: 700,
+                    background: pack.tag === 'Melhor custo' ? '#DCFCE7' : '#FEF3C7',
+                    color: pack.tag === 'Melhor custo' ? '#166534' : '#92400E',
+                    padding: '2px 8px', borderRadius: 5, marginBottom: 10, letterSpacing: '0.04em',
+                  }}>
+                    {pack.tag.toUpperCase()}
+                  </div>
+                ) : <div style={{ height: 20, marginBottom: 10 }} />}
+
+                <div style={{ fontSize: 22, fontWeight: 800, color: P.dark, marginBottom: 2 }}>{pack.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#D97706', marginBottom: 6 }}>
+                  R$ {pack.price.toFixed(2).replace('.', ',')}
+                </div>
+                <p style={{ fontSize: 11, color: '#6B7280', marginBottom: 14, lineHeight: 1.5 }}>{pack.desc}</p>
+
+                <button
+                  onClick={() => handleBuyCreditPack(pack.credits)}
+                  disabled={loadingUrl === `credits_${pack.credits}`}
+                  style={{
+                    width: '100%', padding: '9px', borderRadius: 7,
+                    background: '#FFFBEB', color: '#92400E',
+                    border: '1.5px solid #FDE68A',
+                    fontSize: 13, fontWeight: 600,
+                    cursor: loadingUrl === `credits_${pack.credits}` ? 'wait' : 'pointer',
+                    opacity: loadingUrl === `credits_${pack.credits}` ? 0.7 : 1,
+                  }}
+                >
+                  {loadingUrl === `credits_${pack.credits}` ? 'Aguarde...' : 'Comprar'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Histórico financeiro e créditos (accordion) ────────────────────── */}
       <div style={{
         background: P.surface, border: `1px solid ${P.border}`, borderRadius: 16,
-        padding: '24px 24px',
+        marginTop: 20, overflow: 'hidden',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          <div style={{ width: 32, height: 32, background: '#FEF3C7', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Zap size={15} color="#D97706" />
+        {/* Cabeçalho clicável */}
+        <button
+          onClick={() => setHistoryOpen(o => !o)}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+            padding: '20px 24px', background: 'none', border: 'none', cursor: 'pointer',
+            textAlign: 'left',
+          }}
+        >
+          <div style={{ width: 32, height: 32, background: '#EFF6FF', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <History size={15} color="#1D4ED8" />
           </div>
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: P.dark }}>Pacotes de créditos avulsos</h3>
-        </div>
-        <p style={{ fontSize: 13, color: '#64748B', marginBottom: 20, lineHeight: 1.6 }}>
-          Sem créditos suficientes? Compre pacotes avulsos a qualquer momento.
-          Disponíveis apenas para assinantes PRO e PREMIUM.
-        </p>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 15, fontWeight: 700, color: P.dark, marginBottom: 2 }}>
+              Histórico financeiro e créditos
+            </p>
+            <p style={{ fontSize: 12, color: '#94A3B8' }}>
+              Veja todas as movimentações de créditos da sua conta.
+            </p>
+          </div>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: historyOpen ? P.petrol : '#EFF6FF',
+            color: historyOpen ? '#fff' : '#1D4ED8',
+            fontSize: 12, fontWeight: 700,
+            padding: '6px 14px', borderRadius: 8,
+            flexShrink: 0, transition: 'all 0.2s',
+          }}>
+            {historyOpen ? 'Recolher' : 'Ver histórico'}
+            <ArrowRight size={12} style={{ transform: historyOpen ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
+          </div>
+        </button>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
-          {CREDIT_PACKS.map(pack => (
-            <div key={pack.credits} style={{
-              border: `1px solid ${pack.tag === 'Mais popular' ? '#FDE68A' : P.border}`,
-              borderRadius: 12, padding: '18px 16px',
-              background: pack.tag === 'Mais popular' ? '#FFFBEB' : P.surface,
-            }}>
-              {pack.tag ? (
+        {/* Conteúdo expansível */}
+        {historyOpen && (
+          <div style={{ padding: '0 24px 24px', borderTop: `1px solid ${P.border}` }}>
+
+            {/* Resumo do ciclo */}
+            {!ledgerLoading && !ledgerError && ledger.length > 0 && (() => {
+              const received = ledger.filter(e => e.amount > 0).reduce((s, e) => s + e.amount, 0);
+              const consumed = ledger.filter(e => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0);
+              return (
                 <div style={{
-                  display: 'inline-block', fontSize: 10, fontWeight: 700,
-                  background: pack.tag === 'Melhor custo' ? '#DCFCE7' : '#FEF3C7',
-                  color: pack.tag === 'Melhor custo' ? '#166534' : '#92400E',
-                  padding: '2px 8px', borderRadius: 5, marginBottom: 10, letterSpacing: '0.04em',
+                  display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12,
+                  background: '#F8FAFC', border: `1px solid ${P.border}`,
+                  borderRadius: 12, padding: '16px 20px', margin: '20px 0',
                 }}>
-                  {pack.tag.toUpperCase()}
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                      Recebidos
+                    </p>
+                    <p style={{ fontSize: 22, fontWeight: 800, color: '#15803D', lineHeight: 1 }}>+{received}</p>
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                      Consumidos
+                    </p>
+                    <p style={{ fontSize: 22, fontWeight: 800, color: '#DC2626', lineHeight: 1 }}>−{consumed}</p>
+                  </div>
+                  <div>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                      Saldo atual
+                    </p>
+                    <p style={{ fontSize: 22, fontWeight: 800, color: P.dark, lineHeight: 1 }}>{creditsAvailable}</p>
+                  </div>
                 </div>
-              ) : <div style={{ height: 20, marginBottom: 10 }} />}
+              );
+            })()}
 
-              <div style={{ fontSize: 22, fontWeight: 800, color: P.dark, marginBottom: 2 }}>{pack.label}</div>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#D97706', marginBottom: 6 }}>
-                R$ {pack.price.toFixed(2).replace('.', ',')}
+            {ledgerError && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', margin: '16px 0', color: '#B91C1C', fontSize: 13 }}>
+                Erro ao carregar histórico: {ledgerError}
               </div>
-              <p style={{ fontSize: 11, color: '#6B7280', marginBottom: 14, lineHeight: 1.5 }}>{pack.desc}</p>
+            )}
 
-              <button
-                onClick={() => handleBuyCreditPack(pack.credits)}
-                disabled={loadingUrl === `credits_${pack.credits}` || isFree}
-                style={{
-                  width: '100%', padding: '9px', borderRadius: 7,
-                  background: isFree ? '#F3F4F6' : '#FFFBEB',
-                  color: isFree ? '#9CA3AF' : '#92400E',
-                  border: `1.5px solid ${isFree ? '#E5E7EB' : '#FDE68A'}`,
-                  fontSize: 13, fontWeight: 600,
-                  cursor: isFree ? 'not-allowed' : (loadingUrl === `credits_${pack.credits}` ? 'wait' : 'pointer'),
-                  opacity: loadingUrl === `credits_${pack.credits}` ? 0.7 : 1,
-                }}
-              >
-                {loadingUrl === `credits_${pack.credits}`
-                  ? 'Aguarde...'
-                  : isFree ? 'Apenas para assinantes' : 'Comprar'}
-              </button>
-            </div>
-          ))}
-        </div>
+            {ledgerLoading ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '20px 0', color: '#64748B', fontSize: 14 }}>
+                <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite' }} /> Carregando histórico...
+              </div>
+            ) : !ledgerError && ledger.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 24px', textAlign: 'center' }}>
+                <div style={{ width: 48, height: 48, background: '#F1F5F9', borderRadius: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
+                  <Receipt size={22} color="#94A3B8" />
+                </div>
+                <p style={{ fontSize: 15, fontWeight: 700, color: P.dark, marginBottom: 6 }}>Nenhuma movimentação ainda</p>
+                <p style={{ fontSize: 13, color: '#94A3B8', maxWidth: 300, lineHeight: 1.6 }}>
+                  Quando você gerar atividades ou receber créditos, tudo aparecerá aqui.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                {groupLedgerByDate(ledger).map((group, gi) => (
+                  <div key={group.label}>
+                    <div style={{
+                      fontSize: 11, fontWeight: 700, color: '#94A3B8',
+                      textTransform: 'uppercase', letterSpacing: '0.12em',
+                      marginBottom: 10, paddingLeft: 4,
+                    }}>
+                      {group.label}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {group.entries.map((entry, idx) => (
+                        <div
+                          key={entry.id}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 14,
+                            padding: '14px 16px', borderRadius: 12,
+                            background: P.surface, border: `1px solid ${P.border}`,
+                            cursor: 'default', transition: 'background 0.15s, box-shadow 0.15s',
+                            animation: 'fadeInUp 0.25s ease both',
+                            animationDelay: `${(gi * 8 + idx) * 35}ms`,
+                          }}
+                          onMouseEnter={e => {
+                            (e.currentTarget as HTMLDivElement).style.background = '#FAFAFA';
+                            (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 10px rgba(0,0,0,0.06)';
+                          }}
+                          onMouseLeave={e => {
+                            (e.currentTarget as HTMLDivElement).style.background = P.surface;
+                            (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
+                          }}
+                        >
+                          {getLedgerIcon(entry.type)}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{
+                              fontSize: 14, fontWeight: 600, color: P.dark, marginBottom: 5,
+                              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                            }}>
+                              {entry.description || typeLabel(entry.type)}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: '#475569', background: '#F1F5F9', padding: '2px 8px', borderRadius: 5 }}>
+                                {typeLabel(entry.type)}
+                              </span>
+                              {entry.source && (
+                                <span style={{ fontSize: 11, color: '#94A3B8', background: '#F8FAFC', padding: '2px 8px', borderRadius: 5 }}>
+                                  {entry.source}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{
+                              fontSize: 18, fontWeight: 800, lineHeight: 1, marginBottom: 4,
+                              color: entry.amount >= 0 ? '#15803D' : '#DC2626',
+                            }}>
+                              {entry.amount >= 0 ? '+' : ''}{entry.amount}
+                            </div>
+                            <div style={{ fontSize: 11, color: '#94A3B8' }}>
+                              {new Date(entry.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Info ─────────────────────────────────────────────────────────────── */}
@@ -588,7 +872,13 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
         )}
       </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeInUp {
+          from { opacity: 0; transform: translateY(6px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
     </div>
   );
 };

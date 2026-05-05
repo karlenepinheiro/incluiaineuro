@@ -101,9 +101,10 @@ export async function checkCredits(
  * Debita créditos e registra no ledger com prefixo "[gateway]".
  * Retorna o saldo restante.
  *
- * Durante a 2A, o prefixo "[gateway]" diferencia esta entrada das entradas
- * do frontend (que têm prefixo "IA: ") facilitando a detecção de duplicatas
- * via query no credits_ledger.
+ * Usa tenant_id (não walletId) para garantir que o UPDATE sempre acerta a linha
+ * correta — evita o bug silencioso onde .eq('id', null) afeta 0 rows sem erro.
+ * Lança em caso de falha para que o index.ts deixe creditsRemaining undefined
+ * e o frontend realize o débito como fallback.
  */
 export async function debitCredits(
   adminDb:     SupabaseClient,
@@ -115,19 +116,25 @@ export async function debitCredits(
 ): Promise<number> {
   const next = Math.max(0, wallet.balance - cost);
 
-  // UPDATE atômico no wallet
-  const { error: updateErr } = await adminDb
+  // UPDATE usando tenant_id — mais robusto que walletId (evita 0-row silencioso)
+  const { data: updatedRows, error: updateErr } = await adminDb
     .from('credits_wallet')
-    .update({ balance: next, updated_at: new Date().toISOString() })
-    .eq('id', wallet.walletId);
+    .update({ balance: next })
+    .eq('tenant_id', tenantId)
+    .select('balance');
 
   if (updateErr) {
     console.error('[_credits] debitCredits update error:', updateErr.message);
-    // Não lança — retorna saldo estimado e deixa o frontend como fallback
-    return wallet.balance;
+    throw new Error(`WALLET_UPDATE_FAILED: ${updateErr.message}`);
   }
 
-  // Ledger entry — prefixo "[gateway]" para rastreabilidade durante a 2A
+  if (!updatedRows || updatedRows.length === 0) {
+    // UPDATE afetou 0 rows — wallet não existe ou tenant_id incorreto
+    console.error('[_credits] debitCredits: 0 rows updated for tenant', tenantId);
+    throw new Error('WALLET_UPDATE_NO_ROWS');
+  }
+
+  // Ledger entry SOMENTE após update confirmado — prefixo "[gateway]" para rastreabilidade
   await adminDb.from('credits_ledger').insert({
     tenant_id:   tenantId,
     user_id:     userId,

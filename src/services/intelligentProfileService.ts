@@ -78,7 +78,7 @@ export interface IntelligentProfileRecord {
   generated_by_name: string | null;
   version_number: number;
   profile_json: IntelligentProfileJSON;
-  generation_type: 'initial' | 'update';
+  generation_type: 'initial' | 'update' | 'manual_edit';
   summary: string | null;
   created_at: string;
   updated_at: string;
@@ -115,13 +115,37 @@ export const IntelligentProfileService = {
     return data as IntelligentProfileRecord | null;
   },
 
+  async getTenantCount(tenantId: string): Promise<number> {
+    const { count, error } = await supabase
+      .from('student_intelligent_profiles')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenantId);
+    if (error) {
+      console.error('[IntelligentProfileService] getTenantCount:', error.message);
+      return 0;
+    }
+    return count ?? 0;
+  },
+
+  async deleteAll(studentId: string): Promise<boolean> {
+    const { error } = await supabase
+      .from('student_intelligent_profiles')
+      .delete()
+      .eq('student_id', studentId);
+    if (error) {
+      console.error('[IntelligentProfileService] deleteAll:', error.message);
+      return false;
+    }
+    return true;
+  },
+
   async save(params: {
     studentId: string;
     tenantId: string;
     generatedBy: string | null;
     generatedByName: string | null;
     profileJson: IntelligentProfileJSON;
-    generationType: 'initial' | 'update';
+    generationType: 'initial' | 'update' | 'manual_edit';
     summary?: string;
     versionNumber: number;
   }): Promise<string | null> {
