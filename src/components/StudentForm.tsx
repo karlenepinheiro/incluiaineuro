@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Student, SchoolConfig, PlanTier, getPlanLimits, PriorKnowledgeProfile, SociofamilyData, DEFAULT_SOCIOFAMILY_DATA } from '../types';
+import { Student, SchoolConfig, PlanTier, getPlanLimits, PriorKnowledgeProfile, SociofamilyData, DEFAULT_SOCIOFAMILY_DATA, normalizeSociofamilyData } from '../types';
 import { Save, ArrowLeft, Upload, FileText, Trash2, Plus, AlertCircle, Lock, Stethoscope, BookOpen, Users, HelpCircle, X, Paperclip, Sparkles } from 'lucide-react';
 import { SociofamilySection } from './SociofamilySection';
 import { MultiSelect } from './MultiSelect';
@@ -136,7 +136,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
   });
 
   const [sociofamilyData, setSociofamilyData] = useState<SociofamilyData>(
-    initialData?.sociofamilyData ?? DEFAULT_SOCIOFAMILY_DATA
+    normalizeSociofamilyData(initialData?.sociofamilyData)
   );
 
   const [cidInput, setCidInput] = useState('');
@@ -242,9 +242,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         cid: normalizedCid,
         priorKnowledge: initialData.priorKnowledge ?? undefined,
       }));
-      if (initialData.sociofamilyData) {
-        setSociofamilyData(initialData.sociofamilyData);
-      }
+      setSociofamilyData(normalizeSociofamilyData(initialData.sociofamilyData));
     }
   }, [initialData]);
 

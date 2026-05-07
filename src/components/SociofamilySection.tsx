@@ -7,6 +7,7 @@ import {
   SociofamilyAddress,
   TriState,
   DEFAULT_SOCIOFAMILY_DATA,
+  normalizeSociofamilyData,
 } from '../types';
 import { maskCPF, maskCEP, maskPhone, maskDateBR, unmask, validateCPF } from '../utils/masks';
 
@@ -327,8 +328,10 @@ interface Props {
   onChange: (d: SociofamilyData) => void;
 }
 
-export const SociofamilySection: React.FC<Props> = ({ value, onChange }) => {
+export const SociofamilySection: React.FC<Props> = ({ value: rawValue, onChange }) => {
   const [open, setOpen] = useState(false);
+
+  const value = normalizeSociofamilyData(rawValue);
 
   const setField = <K extends keyof SociofamilyData>(key: K, val: SociofamilyData[K]) =>
     onChange({ ...value, [key]: val });
@@ -336,11 +339,11 @@ export const SociofamilySection: React.FC<Props> = ({ value, onChange }) => {
   const copyAddressFromG1 = () => {
     onChange({
       ...value,
-      guardian2: { ...value.guardian2, address: { ...value.guardian1.address }, sameAddressAsGuardian1: false },
+      guardian2: { ...value.guardian2, address: { ...(value.guardian1?.address ?? {}) }, sameAddressAsGuardian1: false },
     });
   };
 
-  const marriedOrSame = value.familyStatus.guardiansMarriedOrSameAddress;
+  const marriedOrSame = value.familyStatus?.guardiansMarriedOrSameAddress;
 
   const { isListening, isSupported, toggle } = useSpeechRecognition((text) => {
     const current = value.benefits.notes;

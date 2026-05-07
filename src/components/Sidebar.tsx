@@ -17,6 +17,7 @@ import {
   FlaskConical,
   MessageSquare,
   History,
+  LifeBuoy,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 
@@ -267,6 +268,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Separator className="mb-3" />
               <NavItem viewId="subscription" icon={CreditCard}     label="Assinatura & Créditos" iconColor="#1F4E5F" />
               <NavItem viewId="settings"     icon={Settings}       label="Configurações" iconColor="#64748B" />
+              <NavItem viewId="help_center"  icon={LifeBuoy}       label="Central de Ajuda" iconColor="#25D366" />
               <NavItem
                 viewId="messages"
                 icon={MessageSquare}

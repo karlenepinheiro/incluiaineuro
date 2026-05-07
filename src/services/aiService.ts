@@ -425,6 +425,7 @@ ORIENTAÇÕES ÉTICAS DA IA:
 - A fala dos responsáveis deve ser interpretada com critério; jamais seja transcrita como verdade absoluta.
 - Não invente diagnósticos, laudos, habilidades ou histórico não fornecido.
 - Se um dado estiver ausente, deixe o campo vazio ou infira APENAS a partir de dados explicitamente fornecidos.
+- Ao citar legislação, use apenas as normas pelo nome geral — nunca invente artigo, inciso ou resolução específica. Normas seguras: Lei nº 13.146/2015 (LBI), Lei nº 9.394/1996 (LDB), PNEEPEI, BNCC, Resolução CNE/CEB nº 4/2009.
 
 ${studentDataBlock}
 ${familyBlock}
@@ -598,6 +599,7 @@ ORIENTAÇÕES ÉTICAS DA IA:
 - Melhore linguagem e vocabulário técnico — NÃO crie fatos não fornecidos.
 - A fala dos responsáveis deve ser interpretada com critério; jamais transcrita como verdade absoluta.
 - Não invente recursos, laudos ou dados ausentes.
+- Ao citar legislação, use apenas as normas pelo nome geral — nunca invente artigo, inciso ou resolução específica. Normas seguras: Lei nº 13.146/2015 (LBI), Lei nº 9.394/1996 (LDB), PNEEPEI, Resolução CNE/CEB nº 4/2009, Nota Técnica MEC/SEESP nº 11/2010.
 
 ${studentDataBlock}
 ${familyBlock}
@@ -680,6 +682,9 @@ Preencha TODOS os campos "value" com conteúdo real. Cada adaptação deve ser c
 
 FINALIDADE DO PDI: Documento abrangente que integra metas de desenvolvimento global do aluno — cognitivo, social, emocional, comunicativo e pedagógico — em perspectiva longitudinal. Combina o que o PEI define para o currículo com o que o PAEE define para acessibilidade, acrescentando metas de desenvolvimento pessoal e familiar.
 
+FUNDAMENTAÇÃO LEGAL:
+Este PDI é fundamentado na Lei Brasileira de Inclusão (Lei nº 13.146/2015), na LDB (Lei nº 9.394/1996) e nas diretrizes da Política Nacional de Educação Especial na Perspectiva da Educação Inclusiva (PNEEPEI). Ao citar legislação, use apenas as normas acima pelo nome geral — nunca invente artigo, inciso ou resolução específica.
+
 ${studentDataBlock}
 ${familyBlock}
 
@@ -739,6 +744,9 @@ Preencha TODOS os campos "value" com conteúdo real e técnico baseado nos dados
       prompt = `Você é psicopedagogo especialista em elaboração de Estudos de Caso para educação inclusiva, com domínio em análise interpretativa de dados clínicos e pedagógicos.
 
 FINALIDADE DO ESTUDO DE CASO: Documento-base de toda a documentação pedagógica. Integra e interpreta de forma longitudinal todos os dados disponíveis sobre o aluno. Destina-se a equipes multidisciplinares, órgãos de saúde (CAPS, CRAS, APAE), secretarias de educação e, quando necessário, ao sistema judiciário. Embasa o PEI, o PAEE e o PDI.
+
+FUNDAMENTAÇÃO LEGAL:
+Este Estudo de Caso é fundamentado na Lei Brasileira de Inclusão (Lei nº 13.146/2015), na LDB (Lei nº 9.394/1996), no ECA (Lei nº 8.069/1990) e nas diretrizes da PNEEPEI. Ao citar legislação, use apenas as normas acima pelo nome geral — nunca invente artigo, inciso ou resolução específica. Quando pertinente, a menção à legislação deve ser objetiva e institucional, sem transformar o documento em texto jurídico.
 
 ORIENTAÇÕES ÉTICAS DA IA:
 - ANALISE, não descreva. "Dificuldade na leitura" é descrição. "A dificuldade na decodificação fonológica compromete o acesso curricular e se intensifica em avaliações formais" é análise.
@@ -1032,10 +1040,17 @@ Formato OBRIGATÓRIO (use Markdown):
 ## Instruções para o aluno (5–8 linhas)
 ## Adaptações / Acessibilidade (3–6 bullets)
 ## Avaliação rápida (rubrica 0–2)
+## Alinhamento BNCC
+- **Componente curricular:** ...
+- **Ano/Série:** ...
+- **Código BNCC:** ... _(se não identificável com segurança: "Sugerido — validar com o professor")_
+- **Habilidade:** ...
+- **Objetivo de aprendizagem:** ...
+- **Adaptação inclusiva:** ...
 ## Observações (2–4 linhas, opcional)
 
 Linguagem direta, adequada ao aluno e à família.
-Se BNCC estiver vazio, sugira **1–2** códigos plausíveis marcados como "Sugestão".`;
+O bloco "Alinhamento BNCC" é OBRIGATÓRIO. Nunca invente código — use "Sugerido — validar com o professor" quando não houver certeza.`;
 
     const { promptAppend, imageBase64 } = await extractDocxIfNeeded(normalized.imageBase64);
 
@@ -1104,6 +1119,7 @@ REGRAS ABSOLUTAS:
 8. Nenhum bloco deve ter texto de orientação ao professor; isso vai em observacao_professor.
 9. Não invente termos médicos ou diagnósticos.
 10. Campo "disciplina" deve ser EXATAMENTE: matematica | portugues | ciencias | ingles | geografia | geral
+11. bncc_alinhamento: preencha sempre. Se não identificar o código com segurança, use "Sugerido — validar com o professor" no campo codigo_bncc — nunca invente código aleatório.
 
 RETORNE SOMENTE o JSON (sem markdown, sem explicações):
 {
@@ -1119,6 +1135,14 @@ RETORNE SOMENTE o JSON (sem markdown, sem explicações):
     {"id":"b3","type":"fill_blank","fillText":"Complete: O resultado de 2 + 3 é _____."}
   ],
   "observacao_professor": "Orientação para o professor (separada da folha do aluno)",
+  "bncc_alinhamento": {
+    "componente": "Nome do componente curricular",
+    "ano_serie": "Ano/Série",
+    "codigo_bncc": "EF__XX__ (ou 'Sugerido — validar com o professor' se incerto)",
+    "habilidade": "Descrição da habilidade BNCC",
+    "objetivo": "Objetivo de aprendizagem desta atividade",
+    "adaptacao_inclusiva": "Como esta atividade adapta a habilidade para o perfil do aluno"
+  },
   "nivel_dificuldade": "Fácil",
   "visualStyle": "colorful"
 }`;

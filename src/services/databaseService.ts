@@ -6,6 +6,7 @@ import {
   UserRole,
   resolvePlanTier,
   formatPlanDisplayName,
+  normalizeSociofamilyData,
   type Protocol,
   type Student,
   type TenantSummary,
@@ -767,7 +768,7 @@ export const databaseService = {
       missingRequiredFields: r.missing_required_fields ?? r.missingRequiredFields ?? [],
       priorKnowledge:         r.prior_knowledge          ?? r.priorKnowledge          ?? undefined,
       // Dados sociofamiliares (schema_v_sociofamily.sql)
-      sociofamilyData:        r.sociofamily_data         ?? r.sociofamilyData         ?? undefined,
+      sociofamilyData:        normalizeSociofamilyData(r.sociofamily_data ?? r.sociofamilyData),
       primaryContactName:     r.primary_contact_name     ?? r.primaryContactName      ?? undefined,
       primaryContactPhone:    r.primary_contact_phone    ?? r.primaryContactPhone     ?? undefined,
       emergencyContactName:   r.emergency_contact_name   ?? r.emergencyContactName    ?? undefined,

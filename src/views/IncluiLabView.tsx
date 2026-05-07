@@ -351,7 +351,15 @@ Use exatamente este contrato:
     "criterios_de_avaliacao": ["Criterio 1 observavel", "Criterio 2"],
     "materiais_necessarios": ["Material 1", "Material 2"],
     "tempo_estimado": "30 minutos",
-    "adaptacoes_inclusivas": ["Adaptacao 1", "Adaptacao 2"]
+    "adaptacoes_inclusivas": ["Adaptacao 1", "Adaptacao 2"],
+    "bncc_alinhamento": {
+      "componente": "Componente curricular",
+      "ano_serie": "Ano/Serie",
+      "codigo_bncc": "EF__XX__ (ou 'Sugerido — validar com o professor' se incerto)",
+      "habilidade": "Descricao da habilidade BNCC",
+      "objetivo": "Objetivo de aprendizagem",
+      "adaptacao_inclusiva": "Como a atividade adapta a habilidade ao perfil do aluno"
+    }
   },
   "folha_do_aluno": {
     "cabecalho": {
@@ -401,6 +409,7 @@ Regras pedagogicas:
 - Portugues do Brasil.
 - FOLHA DO ALUNO: visual de worksheet escolar A4 tradicional, fundo branco, titulo grande, quadros simples, bordas discretas e poucas cores.
 - Nao misture objetivo longo, metodologia, materiais, BNCC, observacoes do professor ou explicacoes pedagogicas na folha_do_aluno.
+- bncc_alinhamento: preencha SEMPRE no guia_pedagogico; se nao identificar o codigo com seguranca, use "Sugerido — validar com o professor" — nunca invente codigo.
 - TAMANHO: 3 a 5 exercicios no maximo. Atividade simples: 3 exercicios. Atividade padrao: 4 exercicios. Nunca passe de 5.
 - Cada exercicio deve conter 1 ideia central. Enunciado com no maximo 2 frases curtas.
 - Se o conteudo ficar extenso: resumir e remover redundancia. NUNCA truncar com "...".
@@ -639,15 +648,16 @@ Tema: ${topic}${gradeStr}${adaptStr}
 Retorne APENAS JSON válido, sem Markdown, sem texto antes ou depois:
 {
   "titulo_atividade": "Título curto e atraente da atividade",
-  "guia_pedagogico": "# Guia do Professor\\n\\n## Objetivo da Aula\\n[Objetivo claro em uma frase]\\n\\n## Metodologia Adaptada\\n[Como aplicar com adaptações inclusivas]\\n\\n## Tempo Estimado\\n[X minutos]\\n\\n## Materiais Necessários\\n- Material 1\\n- Material 2\\n\\n## Dicas de Mediação\\n- Dica 1\\n- Dica 2\\n\\n## Critérios de Avaliação\\n- Critério observável 1\\n- Critério observável 2\\n\\n## Adaptações Inclusivas\\n- Adaptação 1\\n- Adaptação 2\\n\\n## Observações para o Professor\\n[Orientações adicionais]",
+  "guia_pedagogico": "# Guia do Professor\\n\\n## Objetivo da Aula\\n[Objetivo claro em uma frase]\\n\\n## Metodologia Adaptada\\n[Como aplicar com adaptações inclusivas]\\n\\n## Tempo Estimado\\n[X minutos]\\n\\n## Materiais Necessários\\n- Material 1\\n- Material 2\\n\\n## Dicas de Mediação\\n- Dica 1\\n- Dica 2\\n\\n## Critérios de Avaliação\\n- Critério observável 1\\n- Critério observável 2\\n\\n## Adaptações Inclusivas\\n- Adaptação 1\\n- Adaptação 2\\n\\n## Alinhamento BNCC\\n- **Componente curricular:** [componente]\\n- **Ano/Série:** [ano]\\n- **Código BNCC:** [código ou 'Sugerido — validar com o professor']\\n- **Habilidade:** [descrição da habilidade]\\n- **Objetivo de aprendizagem:** [objetivo]\\n- **Adaptação inclusiva:** [como a atividade adapta a habilidade]\\n\\n## Observações para o Professor\\n[Orientações adicionais]",
   "descricao_folha": "Folha do aluno em A4 escolar limpo. CABECALHO: Nome, Data, Turma. TITULO: [titulo grande]. TEXTO CURTO: [uma instrucao breve, se necessario]. QUESTAO 1: [comando curto]; opcoes se houver; espaco para resposta. QUESTAO 2: [comando curto]. QUESTAO 3: [comando curto]. [3 a 5 questoes no maximo, cada uma em quadro proprio; sem guia do professor, sem metodologia, sem materiais]"
 }
 
 Regras:
-- guia_pedagogico: texto markdown completo com todas as 8 seções. Linguagem para o professor.
+- guia_pedagogico: texto markdown completo com todas as 9 seções (incluindo Alinhamento BNCC). Linguagem para o professor.
 - descricao_folha: texto descritivo (max. 220 palavras) que guiara geracao da imagem A4. 3 a 5 questoes no maximo. Portugues correto.
 - A folha do aluno deve ser limpa, branca, com quadros simples, bordas discretas, poucas cores e imagens pequenas apenas quando ajudam.
 - Nao incluir objetivo longo, metodologia, materiais, BNCC, observacoes do professor ou explicacoes pedagogicas na descricao_folha.
+- No Alinhamento BNCC do guia_pedagogico: nunca inventar codigo — usar "Sugerido — validar com o professor" quando nao houver certeza.
 - Nenhum dado inventado sobre o aluno.
 - Retorne apenas JSON, sem nada antes ou depois.`;
 }
@@ -680,11 +690,11 @@ ${analysisText.slice(0, 1200)}
 Retorne APENAS JSON válido, sem Markdown, sem texto antes ou depois:
 {
   "titulo_atividade": "Título curto da atividade adaptada",
-  "guia_pedagogico": "# Guia do Professor\\n\\n## Objetivo da Aula\\n[Objetivo preservado e adaptado]\\n\\n## Metodologia Adaptada\\n[Como aplicar]\\n\\n## Tempo Estimado\\n[X minutos]\\n\\n## Materiais Necessários\\n- Material 1\\n\\n## Dicas de Mediação\\n- Dica 1\\n\\n## Critérios de Avaliação\\n- Critério 1\\n\\n## Adaptações Inclusivas\\n- Adaptação 1\\n\\n## Observações para o Professor\\n[Orientações]",
+  "guia_pedagogico": "# Guia do Professor\\n\\n## Objetivo da Aula\\n[Objetivo preservado e adaptado]\\n\\n## Metodologia Adaptada\\n[Como aplicar]\\n\\n## Tempo Estimado\\n[X minutos]\\n\\n## Materiais Necessários\\n- Material 1\\n\\n## Dicas de Mediação\\n- Dica 1\\n\\n## Critérios de Avaliação\\n- Critério 1\\n\\n## Adaptações Inclusivas\\n- Adaptação 1\\n\\n## Alinhamento BNCC\\n- **Componente curricular:** [componente]\\n- **Ano/Série:** [ano]\\n- **Código BNCC:** [código ou 'Sugerido — validar com o professor']\\n- **Habilidade:** [descrição]\\n- **Objetivo de aprendizagem:** [objetivo]\\n- **Adaptação inclusiva:** [como adapta a habilidade]\\n\\n## Observações para o Professor\\n[Orientações]",
   "descricao_folha": "Folha do aluno em A4 escolar limpo. CABECALHO: Nome, Data, Turma. TITULO: [titulo grande]. TEXTO CURTO: [uma instrucao breve, se necessario]. QUESTAO 1: [comando curto adaptado]; opcoes se houver; espaco para resposta. QUESTAO 2: [comando curto]. QUESTAO 3: [comando curto]. [3 a 5 questoes no maximo, cada uma em quadro proprio; sem guia do professor, sem metodologia, sem materiais]"
 }
 
-Regras: descricao_folha max. 220 palavras. Preserve o objetivo pedagogico original. Folha branca, limpa, com quadros simples, poucas cores e imagens pequenas apenas quando ajudam. Nao inclua guia do professor, metodologia, materiais ou explicacoes pedagogicas na folha do aluno. Portugues correto. Apenas JSON.`;
+Regras: descricao_folha max. 220 palavras. Preserve o objetivo pedagogico original. Folha branca, limpa, com quadros simples, poucas cores e imagens pequenas apenas quando ajudam. Nao inclua guia do professor, metodologia, materiais ou explicacoes pedagogicas na folha do aluno. No Alinhamento BNCC: nunca inventar codigo — usar "Sugerido — validar com o professor" quando nao houver certeza. Portugues correto. Apenas JSON.`;
 }
 
 function buildOpenAIActivityImagePrompt(

@@ -490,6 +490,25 @@ export const DEFAULT_SOCIOFAMILY_DATA: SociofamilyData = {
   },
 };
 
+/** Garante shape mínimo para qualquer sociofamilyData vindo do DB, CSV ou legado. */
+export function normalizeSociofamilyData(raw?: Partial<SociofamilyData> | null): SociofamilyData {
+  if (!raw) return { ...DEFAULT_SOCIOFAMILY_DATA, benefits: { ...DEFAULT_SOCIOFAMILY_DATA.benefits }, familyStatus: { ...DEFAULT_SOCIOFAMILY_DATA.familyStatus }, guardian1: { ...DEFAULT_SOCIOFAMILY_DATA.guardian1, address: { ...DEFAULT_SOCIOFAMILY_DATA.guardian1.address } }, guardian2: { ...DEFAULT_SOCIOFAMILY_DATA.guardian2, address: { ...DEFAULT_SOCIOFAMILY_DATA.guardian2.address } } };
+  return {
+    benefits: { ...DEFAULT_SOCIOFAMILY_DATA.benefits, ...(raw.benefits ?? {}) },
+    familyStatus: { ...DEFAULT_SOCIOFAMILY_DATA.familyStatus, ...(raw.familyStatus ?? {}) },
+    guardian1: {
+      ...DEFAULT_SOCIOFAMILY_DATA.guardian1,
+      ...(raw.guardian1 ?? {}),
+      address: { ...DEFAULT_SOCIOFAMILY_DATA.guardian1.address, ...(raw.guardian1?.address ?? {}) },
+    },
+    guardian2: {
+      ...DEFAULT_SOCIOFAMILY_DATA.guardian2,
+      ...(raw.guardian2 ?? {}),
+      address: { ...DEFAULT_SOCIOFAMILY_DATA.guardian2.address, ...(raw.guardian2?.address ?? {}) },
+    },
+  };
+}
+
 export interface Student {
   id: string;
   tenant_id?: string;
@@ -896,6 +915,43 @@ export type AtividadeBlockType =
   | 'drawing'
   | 'info'
   | 'tip';
+
+// ── Support types (Fase 4 — interfaces only, sem tabela DB) ──────────────────
+
+export type SupportMessageStatus = 'sent' | 'delivered' | 'read';
+export type SupportThreadStatus  = 'open' | 'pending' | 'resolved' | 'closed';
+
+export interface SupportAttachment {
+  id: string;
+  url: string;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export interface SupportMessage {
+  id: string;
+  threadId: string;
+  authorId: string;
+  authorName: string;
+  body: string;
+  attachments?: SupportAttachment[];
+  status: SupportMessageStatus;
+  createdAt: string;
+}
+
+export interface SupportThread {
+  id: string;
+  tenantId: string;
+  userId: string;
+  subject: string;
+  status: SupportThreadStatus;
+  messages: SupportMessage[];
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+}
 
 export interface AtividadeBlock {
   id: string;

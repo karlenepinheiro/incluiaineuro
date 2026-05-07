@@ -5,6 +5,7 @@ import {
   MapPin, User, BookOpen, Sparkles,
   BarChart3, AlertTriangle, TrendingUp, Star, ShieldCheck, Activity,
   Bell, X as XIcon, UserCheck, UserPlus, UserX, PieChart,
+  MessageCircle, LifeBuoy,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Student, Protocol, Appointment } from '../types';
@@ -1223,6 +1224,49 @@ export function DashboardView({
           </div>
         </div>
       )}
+
+      {/* ── Suporte Humanizado ────────────────────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center gap-5"
+        style={{
+          background: C.surface,
+          border: `1.5px solid ${C.border}`,
+          boxShadow: '0 2px 12px rgba(31,78,95,0.06)',
+        }}
+      >
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+          style={{ background: '#25D36618', boxShadow: '0 2px 10px rgba(37,211,102,0.15)' }}>
+          <LifeBuoy size={22} style={{ color: '#25D366' }} />
+        </div>
+        <div className="flex-1">
+          <h3 className="text-sm font-bold mb-0.5" style={{ color: C.dark }}>Suporte Humanizado</h3>
+          <p className="text-[12px] leading-relaxed" style={{ color: C.textSec }}>
+            Precisa de ajuda para gerar documentos, configurar alunos ou usar o sistema?
+          </p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <a
+            href={`https://wa.me/5511999999999?text=${encodeURIComponent('Olá! Vim pelo IncluiAI e gostaria de ajuda.')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs text-white transition hover:opacity-90"
+            style={{ background: '#25D366', boxShadow: '0 2px 10px rgba(37,211,102,0.28)', textDecoration: 'none' }}
+          >
+            <MessageCircle size={14} />
+            WhatsApp
+          </a>
+          <button
+            onClick={() => onNavigate?.('help_center')}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition hover:opacity-80"
+            style={{ background: C.petrol + '12', color: C.petrol, border: `1px solid ${C.petrol}20` }}
+          >
+            Central de Ajuda
+          </button>
+        </div>
+      </motion.div>
 
       {/* ── Upgrade CTA ───────────────────────────────────────────────────── */}
       {(isFree || isPro) && (

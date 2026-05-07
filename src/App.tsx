@@ -58,6 +58,8 @@ import { databaseService, DuplicateStudentError } from './services/databaseServi
 import { ServiceRecordService, AppointmentService } from './services/persistenceService';
 import { NotificationsPanel } from './components/NotificationsPanel';
 import { MessagesView } from './views/MessagesView';
+import { HelpCenterView } from './views/HelpCenterView';
+import { WhatsAppFloatButton } from './components/common/WhatsAppFloatButton';
 import { StudentSearchService } from './services/studentSearchService';
 import { ensureDocumentCode, getDocumentCodeKind } from './utils/documentCodes';
 
@@ -1124,20 +1126,23 @@ const App: React.FC = () => {
         />
       );
     return (
-      <LandingPage
-        onLogin={() => {
-          window.history.pushState({ view: 'login', tab: 'login' }, '', '/login');
-          setLoginInitialTab('login');
-          setView('login');
-        }}
-        onRegister={() => {
-          window.history.pushState({ view: 'login', tab: 'register' }, '', '/cadastro?plan=free');
-          setLoginInitialTab('register');
-          setView('login');
-        }}
-        onAudit={() => setView('audit')}
-        onUpgradeClick={handleUpgradeClick}
-      />
+      <>
+        <LandingPage
+          onLogin={() => {
+            window.history.pushState({ view: 'login', tab: 'login' }, '', '/login');
+            setLoginInitialTab('login');
+            setView('login');
+          }}
+          onRegister={() => {
+            window.history.pushState({ view: 'login', tab: 'register' }, '', '/cadastro?plan=free');
+            setLoginInitialTab('register');
+            setView('login');
+          }}
+          onAudit={() => setView('audit')}
+          onUpgradeClick={handleUpgradeClick}
+        />
+        <WhatsAppFloatButton />
+      </>
     );
   }
 
@@ -1552,6 +1557,10 @@ const App: React.FC = () => {
             {view === 'messages' && (
               <MessagesView onNavigate={handleSetView} />
             )}
+
+            {view === 'help_center' && (
+              <HelpCenterView onNavigate={handleSetView} />
+            )}
             </div>{/* /p-4 lg:p-8 */}
           </main>
         </div>
@@ -1566,6 +1575,9 @@ const App: React.FC = () => {
           onClose={() => setShowEnrollmentWizard(false)}
         />
       )}
+
+      {/* WhatsApp Float Button — persistente em todas as telas autenticadas */}
+      <WhatsAppFloatButton />
 
       {/* Toast inline — substitui alert() para eventos de vínculo e erros de aluno */}
       {toastMsg && (
