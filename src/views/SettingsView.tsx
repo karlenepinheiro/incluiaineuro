@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, resolvePlanTier, PLAN_LIMITS, formatPlanDisplayName, formatStudentLimit } from '../types';
 import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
-import { Plus, Trash2, School, User as UserIcon, CreditCard, Star, Settings, Sparkles, AlertTriangle, ShoppingCart, Upload, Building2, MapPin, Phone, Hash, FileText, AlertCircle, ChevronDown, RefreshCw, ExternalLink, Search, CheckCircle } from 'lucide-react';
+import { Plus, Trash2, School, User as UserIcon, CreditCard, Star, Settings, Sparkles, AlertTriangle, ShoppingCart, Upload, Building2, MapPin, Phone, Hash, FileText, AlertCircle, ChevronDown, RefreshCw, ExternalLink, Search, CheckCircle, Lock, Eye, EyeOff, Shield, Info, Briefcase } from 'lucide-react';
 import { fetchSchoolByINEP, validateINEPCode, type INEPFetchError } from '../services/inepService';
 import { fetchAddressByCep, validateCep, normalizeCep, formatCep } from '../services/cepService';
 import { PaymentService, /* DEFAULT_ADDONS */ } from '../services/paymentService';
 import { databaseService } from '../services/databaseService';
+import { supabase } from '../services/supabase';
 import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
 import { CreditWalletService, CreditLedgerService, isFreeBootstrapEntry } from '../services/creditService';
 import type { CreditLedgerEntry } from '../types';
@@ -48,6 +49,43 @@ const DEFAULT_ADDONS: AddOnProduct[] = [
   },
 ];
 
+// ─── Helpers de máscara ───────────────────────────────────────────────────────
+function maskCPF(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
+  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+function maskPhone(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  if (!d.length) return '';
+  if (d.length <= 2) return `(${d}`;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+function maskCEP(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 8);
+  if (d.length <= 5) return d;
+  return `${d.slice(0, 5)}-${d.slice(5)}`;
+}
+function getPasswordStrength(p: string): { label: string; color: string; score: number } {
+  let score = 0;
+  if (p.length >= 8) score++;
+  if (/[A-Z]/.test(p)) score++;
+  if (/[0-9]/.test(p)) score++;
+  if (/[^A-Za-z0-9]/.test(p)) score++;
+  const levels = [
+    { label: 'Muito fraca', color: '#ef4444' },
+    { label: 'Fraca',       color: '#f97316' },
+    { label: 'Razoável',    color: '#eab308' },
+    { label: 'Boa',         color: '#22c55e' },
+    { label: 'Forte',       color: '#16a34a' },
+  ];
+  return { ...levels[score], score };
+}
+
 interface SettingsViewProps {
   user: User;
   onUpdateUser: (updatedUser: User) => void;
@@ -60,10 +98,45 @@ interface SettingsViewProps {
 export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, onFinishSetup, initialTab }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'team' | 'finance'>(initialTab ?? 'profile');
   const [name, setName] = useState(user.name);
-  const [email, setEmail] = useState(user.email);
   const [profilePhoto, setProfilePhoto] = useState<string | undefined>(user.profilePhoto);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [schools, setSchools] = useState<SchoolConfig[]>(user.schoolConfigs);
+
+  // ─── Perfil pessoal ─────────────────────────────────────────────────────────
+  const [phone, setPhone] = useState<string>(maskPhone(user.phone ?? ''));
+  const [cpf, setCpf] = useState<string>(maskCPF(user.cpf ?? ''));
+  const [cargo, setCargo] = useState<string>((user as any).cargo ?? '');
+
+  // ─── Endereço pessoal ────────────────────────────────────────────────────────
+  const [cep, setCep] = useState<string>(maskCEP((user as any).cep ?? ''));
+  const [rua, setRua] = useState<string>((user as any).rua ?? '');
+  const [numero, setNumero] = useState<string>((user as any).numero ?? '');
+  const [complemento, setComplemento] = useState<string>((user as any).complemento ?? '');
+  const [bairro, setBairro] = useState<string>((user as any).bairro ?? '');
+  const [cidade, setCidade] = useState<string>((user as any).cidade ?? '');
+  const [estado, setEstado] = useState<string>((user as any).estado ?? '');
+  const [personalCepLoading, setPersonalCepLoading] = useState(false);
+  const [personalCepStatus, setPersonalCepStatus] = useState<'idle' | 'found' | 'not_found'>('idle');
+
+  // ─── Preferências de documentos ─────────────────────────────────────────────
+  const [displayName, setDisplayName] = useState<string>((user as any).display_name ?? '');
+  const [professionalSignature, setProfessionalSignature] = useState<string>((user as any).professional_signature ?? '');
+  const [docPhone, setDocPhone] = useState<string>(maskPhone((user as any).doc_phone ?? ''));
+
+  // ─── Segurança ───────────────────────────────────────────────────────────────
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordMsg, setPasswordMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // ─── Estado do save de perfil ────────────────────────────────────────────────
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // ─── Último acesso (auth) ────────────────────────────────────────────────────
+  const [lastSignIn, setLastSignIn] = useState<string | null>(null);
   const [newSchool, setNewSchool] = useState<Partial<SchoolConfig>>({ schoolName: '' });
   // ID da escola com formulário expandido; null = todos recolhidos
   const [expandedSchoolId, setExpandedSchoolId] = useState<string | null>(
@@ -72,17 +145,92 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
 
   const [newMember, setNewMember] = useState<Partial<TeamMember>>({ role: 'Professor Regente' });
 
-  const handleSaveProfile = async () => {
+  const handleSavePersonal = async () => {
+    setProfileBusy(true);
+    setProfileMsg(null);
     try {
-      await databaseService.updateUserProfile(user.id, { name, email });
-      await databaseService.saveSchoolConfigs(user.id, schools);
-      onUpdateUser({ ...user, name, email, schoolConfigs: schools, profilePhoto });
-      setExpandedSchoolId(null);
-      alert('Configurações salvas com sucesso!');
+      await databaseService.updateUserProfile(user.id, {
+        name,
+        phone: phone.replace(/\D/g, '') ? phone : '',
+        cpf: cpf.replace(/\D/g, '') ? cpf : '',
+        cargo,
+        profilePhotoUrl: profilePhoto ?? '',
+        cep: cep.replace(/\D/g, '') ? cep : '',
+        rua, numero, complemento, bairro, cidade, estado,
+        displayName, professionalSignature,
+        docPhone: docPhone.replace(/\D/g, '') ? docPhone : '',
+      });
+      onUpdateUser({
+        ...user, name, phone, cpf,
+        cargo, profilePhoto,
+        cep, rua, numero, complemento, bairro, cidade, estado,
+        display_name: displayName,
+        professional_signature: professionalSignature,
+        doc_phone: docPhone,
+      } as any);
+      setProfileMsg({ type: 'success', text: 'Dados salvos com sucesso!' });
     } catch (e: any) {
-      alert(e?.message || 'Erro ao salvar configurações');
+      setProfileMsg({ type: 'error', text: e?.message || 'Erro ao salvar dados.' });
+    } finally {
+      setProfileBusy(false);
     }
   };
+
+  const handleChangePassword = async () => {
+    if (newPassword.length < 8) {
+      setPasswordMsg({ type: 'error', text: 'A senha deve ter pelo menos 8 caracteres.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMsg({ type: 'error', text: 'As senhas não coincidem.' });
+      return;
+    }
+    setPasswordBusy(true);
+    setPasswordMsg(null);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordMsg({ type: 'success', text: 'Senha atualizada com sucesso!' });
+    } catch (e: any) {
+      setPasswordMsg({ type: 'error', text: e?.message || 'Erro ao atualizar senha.' });
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
+
+  const handlePersonalCepBlur = async (rawCep: string) => {
+    const digits = normalizeCep(rawCep);
+    if (!validateCep(digits)) return;
+    setPersonalCepLoading(true);
+    setPersonalCepStatus('idle');
+    try {
+      const data = await fetchAddressByCep(digits);
+      if (data) {
+        setRua(prev => data.logradouro || prev);
+        setBairro(prev => data.bairro || prev);
+        setCidade(prev => data.localidade || prev);
+        setEstado(prev => data.uf || prev);
+        setPersonalCepStatus('found');
+      } else {
+        setPersonalCepStatus('not_found');
+      }
+    } catch {
+      setPersonalCepStatus('not_found');
+    } finally {
+      setPersonalCepLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        setLastSignIn(authUser?.last_sign_in_at ?? null);
+      } catch { /* silencioso */ }
+    })();
+  }, []);
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -356,45 +504,354 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
       </div>
 
       {activeTab === 'profile' && (
-          <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
-              <h3 className="text-lg font-bold mb-6 flex gap-2 items-center text-gray-800"><UserIcon size={20}/> Seus Dados</h3>
-              <div className="flex items-start gap-6 mb-6">
-                <div className="flex flex-col items-center gap-2">
+        <div className="space-y-5">
+
+          {/* ── Card 1: Dados Pessoais ─────────────────────────────────────── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+              <UserIcon size={16} className="text-brand-600" />
+              <h3 className="font-bold text-gray-800">Dados Pessoais</h3>
+            </div>
+            <div className="p-6">
+              <div className="flex flex-col sm:flex-row gap-6 items-start">
+                {/* Avatar */}
+                <div className="flex flex-col items-center gap-2 shrink-0">
                   <div
                     onClick={() => photoInputRef.current?.click()}
-                    className="w-20 h-20 rounded-full border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center cursor-pointer hover:border-brand-400 transition overflow-hidden shrink-0"
+                    className="w-24 h-24 rounded-full border-2 border-dashed border-gray-200 bg-gray-50 flex items-center justify-center cursor-pointer hover:border-brand-400 transition overflow-hidden"
+                    title="Clique para trocar a foto"
                   >
                     {profilePhoto ? (
                       <img src={profilePhoto} alt="foto" className="w-full h-full object-cover" />
                     ) : (
-                      <div className="flex flex-col items-center">
-                        <Upload size={18} className="text-gray-400" />
-                        <span className="text-[9px] text-gray-400 mt-0.5">Foto</span>
+                      <div className="flex flex-col items-center gap-1">
+                        <Upload size={20} className="text-gray-400" />
+                        <span className="text-[10px] text-gray-400">Foto</span>
                       </div>
                     )}
                   </div>
                   <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoUpload} />
-                  {profilePhoto && (
-                    <button onClick={() => setProfilePhoto(undefined)} className="text-[10px] text-red-500 hover:underline">
-                      Remover
-                    </button>
+                  {profilePhoto ? (
+                    <button onClick={() => setProfilePhoto(undefined)} className="text-[10px] text-red-500 hover:underline">Remover</button>
+                  ) : (
+                    <span className="text-[10px] text-gray-400 text-center">PNG/JPG, máx 2 MB</span>
                   )}
                 </div>
-                <div className="space-y-4 flex-1 max-w-md">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome</label>
-                      <input value={name} onChange={e => setName(e.target.value)} className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" placeholder="Seu nome completo"/>
+
+                {/* Campos */}
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome Completo *</label>
+                    <input
+                      value={name}
+                      onChange={e => setName(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
+                      placeholder="Seu nome completo"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">CPF</label>
+                    <input
+                      value={cpf}
+                      onChange={e => setCpf(maskCPF(e.target.value))}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
+                      placeholder="000.000.000-00"
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Telefone / WhatsApp</label>
+                    <input
+                      value={phone}
+                      onChange={e => setPhone(maskPhone(e.target.value))}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
+                      placeholder="(00) 00000-0000"
+                      inputMode="tel"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1 flex items-center gap-1"><Briefcase size={11} className="text-gray-400" /> Cargo / Função</label>
+                    <input
+                      value={cargo}
+                      onChange={e => setCargo(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
+                      placeholder="Ex: Professora AEE, Coordenadora..."
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-bold text-gray-500 uppercase">E-mail</span>
+                      <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                        <Lock size={8} /> bloqueado
+                      </span>
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 uppercase mb-1">E-mail</label>
-                      <input value={email} onChange={e => setEmail(e.target.value)} className="w-full border border-gray-200 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" placeholder="seu@email.com"/>
-                    </div>
-                    <button onClick={handleSaveProfile} className="bg-brand-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-brand-700 transition">
-                      Salvar alterações
-                    </button>
+                    <input
+                      value={user.email}
+                      readOnly
+                      className="w-full border border-gray-100 rounded-xl px-3 py-2.5 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Para alterar o e-mail, entre em contato com o suporte.</p>
+                  </div>
                 </div>
               </div>
+            </div>
           </div>
+
+          {/* ── Card 2: Segurança da Conta ────────────────────────────────── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+              <Shield size={16} className="text-brand-600" />
+              <h3 className="font-bold text-gray-800">Segurança da Conta</h3>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nova Senha</label>
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
+                      placeholder="Mínimo 8 caracteres"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(v => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  {newPassword && (() => {
+                    const s = getPasswordStrength(newPassword);
+                    return (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${(s.score / 4) * 100}%`, backgroundColor: s.color }} />
+                        </div>
+                        <span className="text-[10px] font-semibold" style={{ color: s.color }}>{s.label}</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Confirmar Nova Senha</label>
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={e => setConfirmPassword(e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
+                      placeholder="Repita a nova senha"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(v => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  {confirmPassword && newPassword !== confirmPassword && (
+                    <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1"><AlertCircle size={10} /> As senhas não coincidem.</p>
+                  )}
+                </div>
+              </div>
+
+              {passwordMsg && (
+                <div className={`mt-3 p-3 rounded-xl text-sm flex items-center gap-2 max-w-lg ${passwordMsg.type === 'success' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+                  {passwordMsg.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+                  {passwordMsg.text}
+                </div>
+              )}
+
+              <div className="flex items-center gap-4 mt-4 flex-wrap">
+                <button
+                  onClick={handleChangePassword}
+                  disabled={passwordBusy || newPassword.length < 8 || newPassword !== confirmPassword}
+                  className="bg-brand-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2 transition"
+                >
+                  {passwordBusy ? <RefreshCw size={14} className="animate-spin" /> : <Lock size={14} />}
+                  Atualizar senha
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!window.confirm('Isso vai encerrar a sessão em todos os dispositivos. Confirmar?')) return;
+                    await supabase.auth.signOut({ scope: 'global' });
+                    window.location.reload();
+                  }}
+                  className="text-sm text-gray-400 hover:text-red-600 hover:underline transition"
+                >
+                  Sair de todos os dispositivos
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Card 3: Endereço ──────────────────────────────────────────── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+              <MapPin size={16} className="text-brand-600" />
+              <h3 className="font-bold text-gray-800">Endereço</h3>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-6 gap-4">
+                <div className="col-span-6 sm:col-span-2">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">CEP</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={cep}
+                      onChange={e => { setCep(maskCEP(e.target.value)); setPersonalCepStatus('idle'); }}
+                      onBlur={e => handlePersonalCepBlur(e.target.value)}
+                      placeholder="00000-000"
+                      maxLength={9}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 pr-7"
+                    />
+                    {personalCepLoading && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-brand-500 animate-pulse">●</span>}
+                  </div>
+                  {personalCepStatus === 'found' && <p className="text-[10px] text-green-600 mt-0.5 font-semibold flex items-center gap-1"><CheckCircle size={9} /> Endereço preenchido</p>}
+                  {personalCepStatus === 'not_found' && <p className="text-[10px] text-orange-500 mt-0.5">CEP não encontrado</p>}
+                </div>
+                <div className="col-span-6 sm:col-span-4">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Rua / Logradouro</label>
+                  <input value={rua} onChange={e => setRua(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" placeholder="Nome da rua" />
+                </div>
+                <div className="col-span-6 sm:col-span-2">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Número</label>
+                  <input value={numero} onChange={e => setNumero(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" placeholder="123" />
+                </div>
+                <div className="col-span-6 sm:col-span-4">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Complemento</label>
+                  <input value={complemento} onChange={e => setComplemento(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" placeholder="Apto, Bloco... (opcional)" />
+                </div>
+                <div className="col-span-6 sm:col-span-2">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Bairro</label>
+                  <input value={bairro} onChange={e => setBairro(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" placeholder="Bairro" />
+                </div>
+                <div className="col-span-6 sm:col-span-3">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Cidade</label>
+                  <input value={cidade} onChange={e => setCidade(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" placeholder="Cidade" />
+                </div>
+                <div className="col-span-6 sm:col-span-1">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">UF</label>
+                  <input value={estado} onChange={e => setEstado(e.target.value.toUpperCase().slice(0, 2))} className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300" placeholder="TO" maxLength={2} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Card 4: Preferências de Documentos ───────────────────────── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+              <FileText size={16} className="text-brand-600" />
+              <h3 className="font-bold text-gray-800">Preferências de Documentos</h3>
+              <span className="text-xs text-gray-400 ml-1">Dados que aparecem nos PDFs gerados</span>
+            </div>
+            <div className="p-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome exibido nos documentos</label>
+                  <input
+                    value={displayName}
+                    onChange={e => setDisplayName(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
+                    placeholder="Ex: Profa. Maria Silva — AEE"
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">Se vazio, o nome completo será usado.</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Assinatura profissional</label>
+                  <input
+                    value={professionalSignature}
+                    onChange={e => setProfessionalSignature(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
+                    placeholder="Ex: Especialista em Educação Inclusiva · CRP 00000"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Telefone nos documentos</label>
+                  <input
+                    value={docPhone}
+                    onChange={e => setDocPhone(maskPhone(e.target.value))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
+                    placeholder="(00) 00000-0000"
+                    inputMode="tel"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Botão salvar (cards 1, 3 e 4) ────────────────────────────── */}
+          {profileMsg && (
+            <div className={`p-3 rounded-xl text-sm flex items-center gap-2 ${profileMsg.type === 'success' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+              {profileMsg.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
+              {profileMsg.text}
+            </div>
+          )}
+          <div className="flex justify-end">
+            <button
+              onClick={handleSavePersonal}
+              disabled={profileBusy}
+              className="bg-brand-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-brand-700 disabled:opacity-60 flex items-center gap-2 transition shadow-sm"
+            >
+              {profileBusy && <RefreshCw size={15} className="animate-spin" />}
+              Salvar alterações
+            </button>
+          </div>
+
+          {/* ── Card 5: Informações da Conta (somente leitura) ───────────── */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+              <Info size={16} className="text-gray-400" />
+              <h3 className="font-bold text-gray-700">Informações da Conta</h3>
+              <span className="text-xs text-gray-400 ml-1">Somente leitura</span>
+            </div>
+            <div className="p-6">
+              <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-5">
+                <div>
+                  <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Plano atual</dt>
+                  <dd className="mt-1 font-bold text-gray-900 text-sm">
+                    {formatPlanDisplayName(
+                      isFreePlan ? 'FREE' : isProPlan ? 'PRO' : 'MASTER',
+                      (activeSubscription as any)?.billingCycle ?? tenantSummary?.billingCycle ?? 'monthly'
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Créditos IA disponíveis</dt>
+                  <dd className="mt-1 font-bold text-gray-900 text-sm">{tenantSummary ? tenantSummary.aiCreditsRemaining : '—'}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Tipo de usuário</dt>
+                  <dd className="mt-1 font-bold text-gray-900 text-sm capitalize">{user.role}</dd>
+                </div>
+                <div>
+                  <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Membro desde</dt>
+                  <dd className="mt-1 font-bold text-gray-900 text-sm">
+                    {user.created_at ? new Date(user.created_at).toLocaleDateString('pt-BR') : '—'}
+                  </dd>
+                </div>
+                {lastSignIn && (
+                  <div>
+                    <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Último acesso</dt>
+                    <dd className="mt-1 font-bold text-gray-900 text-sm">
+                      {new Date(lastSignIn).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </dd>
+                  </div>
+                )}
+                <div>
+                  <dt className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">ID da conta</dt>
+                  <dd className="mt-1 text-xs text-gray-400 font-mono">{user.id.slice(0, 8)}…</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+
+        </div>
       )}
 
       {activeTab === 'team' && (

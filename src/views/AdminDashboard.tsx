@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Users, DollarSign, TrendingUp, AlertCircle, Brain, Zap,
+  Users, User as UserIcon, DollarSign, TrendingUp, AlertCircle, Brain, Zap,
   PieChart, Activity, ArrowUpRight, ArrowDownRight, PlusCircle,
   Shield, CreditCard, FileText, Globe, CheckCircle, XCircle,
   Save, Search, Edit3, Trash2, Lock, RefreshCw,
@@ -13,6 +13,11 @@ import {
   Subscriber, Plan, CreditLedgerEntry, LandingSection, SubscriptionStatus,
   User, UserActivityLog
 } from '../types';
+import { PasswordResetModal } from '../components/ceo/PasswordResetModal';
+import { BillingHealthCard } from '../components/ceo/BillingHealthCard';
+import { KiwifyStatusBanner } from '../components/ceo/KiwifyStatusBanner';
+import { PendingPurchasesDrawer } from '../components/ceo/PendingPurchasesDrawer';
+import { SubscriberRowCard } from '../components/ceo/SubscriberRowCard';
 import { supabase, DEMO_MODE } from '../services/supabase';
 import { AdminService } from '../services/adminService';
 import { CreditLedgerService, CreditWalletService } from '../services/creditService';
@@ -22,8 +27,11 @@ import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
 import {
   getCeoKpis, getCeoSubscribers, getKiwifyProducts, upsertKiwifyProduct,
   getCoupons, upsertCoupon, toggleCoupon, deleteCoupon, buildCouponShareLink,
-  getAdminAuditLog, logAction,
+  getAdminAuditLog, logAction, getKiwifyPurchases, getCeoInactiveTenants,
+  setTenantInternal, computeKiwifyAlerts, reconcilePendingPurchases, buildPendingAccountInstructions,
+  getCeoSubscribersContacts, adminUpdateUserContact, getCeoInternalTenants,
   type CeoKpis, type CeoSubscriber, type KiwifyProduct, type CeoCoupon, type AdminAuditEntry,
+  type KiwifyPurchaseRow, type InactiveTenantRow, type ReconcileResult,
 } from '../services/ceoService';
 
 // ============================================================================
@@ -597,81 +605,382 @@ const PlansTab = ({ adminUser }: { adminUser: AdminUser }) => {
 // TAB: ASSINANTES
 // ============================================================================
 
+/** Retorna a compra Kiwify mais recente vinculada ao tenant, por tenant_id ou email. */
+function matchKiwifyPurchase(sub: CeoSubscriber, purchases: KiwifyPurchaseRow[]): KiwifyPurchaseRow | null {
+  const byTenant = purchases.find(p => p.tenant_id && p.tenant_id === sub.tenant_id);
+  if (byTenant) return byTenant;
+  const email = (sub.user_email ?? '').toLowerCase().trim();
+  if (!email) return null;
+  return purchases.find(p => p.email && p.email.toLowerCase().trim() === email) ?? null;
+}
+
+type DivergenceKind = 'paid_but_free' | 'plan_mismatch';
+type IntegrityKind = 'no_owner' | 'no_subscription' | 'wallet_mismatch';
+
+interface DivergenceInfo { kind: DivergenceKind; label: string; }
+interface IntegrityFlag  { kind: IntegrityKind;  label: string; color: string; }
+
+function computeDivergence(sub: CeoSubscriber, p: KiwifyPurchaseRow | null): DivergenceInfo | null {
+  if (!p || p.status !== 'APPROVED') return null;
+  const sysPlan = String(sub.plan_code).toUpperCase().replace('PREMIUM', 'MASTER');
+  const expectedPlan = (p.plan_code ?? '').toUpperCase().replace('PREMIUM', 'MASTER');
+  if (!expectedPlan) return null;
+  if (!p.activated_at && sysPlan === 'FREE') {
+    return { kind: 'paid_but_free', label: 'COMPRA PAGA MAS PLANO FREE' };
+  }
+  if (p.activated_at && expectedPlan && expectedPlan !== sysPlan) {
+    return { kind: 'plan_mismatch', label: 'PLANO DO SISTEMA DIFERENTE DO PRODUTO' };
+  }
+  return null;
+}
+
+/** Detecta problemas de integridade de dados a partir do que a view retorna. */
+function computeIntegrityFlags(sub: CeoSubscriber): IntegrityFlag[] {
+  const flags: IntegrityFlag[] = [];
+  if (!sub.user_email || sub.user_email === '—') {
+    flags.push({ kind: 'no_owner', label: 'SEM OWNER', color: 'bg-red-100 text-red-700 border border-red-200' });
+  }
+  // next_due_date null = tenant ativo mas sem subscription row (COALESCE escondia isso)
+  if (!sub.next_due_date && sub.subscription_status !== 'ACTIVE') {
+    flags.push({ kind: 'no_subscription', label: 'SEM SUBSCRIPTION', color: 'bg-orange-100 text-orange-700 border border-orange-200' });
+  }
+  // Plano pago mas créditos no teto do FREE (60) = wallet provavelmente nunca criada
+  if (sub.plan_code !== 'FREE' && (sub.credits_remaining ?? 0) === 0 && (sub.credits_limit ?? 0) <= 60) {
+    flags.push({ kind: 'wallet_mismatch', label: 'SUBSCRIPTION SEM WALLET', color: 'bg-yellow-100 text-yellow-700 border border-yellow-200' });
+  }
+  return flags;
+}
+
+const DIVERGENCE_COLORS: Record<DivergenceKind, string> = {
+  paid_but_free: 'bg-red-100 text-red-700 border border-red-200',
+  plan_mismatch: 'bg-orange-100 text-orange-700 border border-orange-200',
+};
+
+// ── Modal CEO: editar telefone/CPF de assinante ──────────────────────────────
+function _applyPhoneMaskDash(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 2)  return d.replace(/(\d{1,2})/, '($1');
+  if (d.length <= 6)  return d.replace(/(\d{2})(\d+)/, '($1) $2');
+  if (d.length <= 10) return d.replace(/(\d{2})(\d{4})(\d+)/, '($1) $2-$3');
+  return d.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+}
+function _applyCPFMaskDash(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 3)  return d;
+  if (d.length <= 6)  return d.replace(/(\d{3})(\d+)/, '$1.$2');
+  if (d.length <= 9)  return d.replace(/(\d{3})(\d{3})(\d+)/, '$1.$2.$3');
+  return d.replace(/(\d{3})(\d{3})(\d{3})(\d+)/, '$1.$2.$3-$4');
+}
+
+interface ContactEditModalProps {
+  targetEmail: string;
+  targetName: string;
+  initialPhone: string | null;
+  initialCpf: string | null;
+  adminUser: AdminUser;
+  onSaved: () => void;
+  onClose: () => void;
+}
+
+const ContactEditModal: React.FC<ContactEditModalProps> = ({
+  targetEmail, targetName, initialPhone, initialCpf, adminUser, onSaved, onClose,
+}) => {
+  const [phone, setPhone] = useState(initialPhone ?? '');
+  const [cpf, setCpf]     = useState(
+    initialCpf
+      ? initialCpf.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4')
+      : ''
+  );
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]       = useState('');
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr('');
+    setSaving(true);
+    try {
+      const cpfDigits = cpf.replace(/\D/g, '');
+      await adminUpdateUserContact(
+        targetEmail,
+        phone.trim() || null,
+        cpfDigits || null,
+        adminUser,
+      );
+      onSaved();
+      onClose();
+    } catch (ex: any) {
+      setErr(ex?.message ?? 'Erro ao salvar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 9999, padding: 16,
+    }}>
+      <div style={{
+        background: 'white', borderRadius: 16, padding: 28,
+        width: '100%', maxWidth: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+      }}>
+        <h3 style={{ fontWeight: 800, fontSize: 16, color: '#111827', margin: '0 0 4px' }}>
+          Editar contato
+        </h3>
+        <p style={{ fontSize: 12, color: '#6B7280', margin: '0 0 20px' }}>
+          {targetName} · <span style={{ fontFamily: 'monospace' }}>{targetEmail}</span>
+        </p>
+        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 5 }}>
+              Telefone / WhatsApp
+            </label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={e => setPhone(_applyPhoneMaskDash(e.target.value))}
+              placeholder="(11) 99999-9999"
+              inputMode="numeric"
+              style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #D1D5DB', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#374151', marginBottom: 5 }}>
+              CPF
+            </label>
+            <input
+              type="text"
+              value={cpf}
+              onChange={e => setCpf(_applyCPFMaskDash(e.target.value))}
+              placeholder="000.000.000-00"
+              inputMode="numeric"
+              style={{ width: '100%', padding: '9px 12px', border: '1.5px solid #D1D5DB', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          {err && (
+            <p style={{ fontSize: 12, color: '#DC2626', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '8px 12px', margin: 0 }}>
+              {err}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              type="submit"
+              disabled={saving}
+              style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: saving ? '#9CA3AF' : '#1F4E5F', color: 'white', fontWeight: 700, fontSize: 13, cursor: saving ? 'wait' : 'pointer' }}
+            >
+              {saving ? 'Salvando...' : 'Salvar'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ padding: '10px 16px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: 'white', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ── Modal confirmação: marcar como conta interna ─────────────────────────────
+interface InternalConfirmModalProps {
+  tenantName: string;
+  onConfirm: () => void;
+  onClose: () => void;
+  loading: boolean;
+}
+const InternalConfirmModal: React.FC<InternalConfirmModalProps> = ({ tenantName, onConfirm, onClose, loading }) => (
+  <div style={{
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 9999, padding: 16,
+  }}>
+    <div style={{
+      background: 'white', borderRadius: 16, padding: 28,
+      width: '100%', maxWidth: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <TestTube size={20} style={{ color: '#6B7280' }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h3 style={{ fontWeight: 800, fontSize: 15, color: '#111827', margin: 0 }}>Conta interna</h3>
+          <p style={{ fontSize: 12, color: '#6B7280', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tenantName}</p>
+        </div>
+        <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: '#F3F4F6', color: '#6B7280', border: '1px solid #E5E7EB', letterSpacing: '0.06em', textTransform: 'uppercase', flexShrink: 0 }}>
+          INTERNO
+        </span>
+      </div>
+      <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, marginBottom: 14 }}>
+        Esta conta será removida dos indicadores financeiros e comerciais.
+      </p>
+      <ul style={{ fontSize: 12, color: '#6B7280', lineHeight: 2, marginBottom: 22, paddingLeft: 20, margin: '0 0 22px' }}>
+        <li>Não entra em MRR nem ARR</li>
+        <li>Não entra em contagem de churn</li>
+        <li>Não entra em taxas de conversão</li>
+        <li>Não aparece nos KPIs financeiros</li>
+      </ul>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button
+          onClick={onConfirm}
+          disabled={loading}
+          style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: loading ? '#9CA3AF' : '#374151', color: 'white', fontWeight: 700, fontSize: 13, cursor: loading ? 'wait' : 'pointer' }}
+        >
+          {loading ? 'Aguarde…' : 'Confirmar'}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={loading}
+          style={{ padding: '10px 18px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: 'white', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
+  const [subscribers, setSubscribers] = useState<CeoSubscriber[]>([]);
+  const [inactiveTenants, setInactiveTenants] = useState<InactiveTenantRow[]>([]);
+  const [kiwifyPurchases, setKiwifyPurchases] = useState<KiwifyPurchaseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterDivergence, setFilterDivergence] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [actionMode, setActionMode] = useState<'credits' | 'plan' | 'courtesy' | null>(null);
-  const [actionCredits, setActionCredits] = useState('');
-  const [actionPlan, setActionPlan] = useState('PRO');
-  const [actionReason, setActionReason] = useState('');
+  const [resetTarget, setResetTarget] = useState<{ email: string; name: string } | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [contactEditTarget, setContactEditTarget] = useState<{
+    email: string; name: string; phone: string | null; cpf: string | null;
+  } | null>(null);
+  const [internalConfirm, setInternalConfirm] = useState<{ tenantId: string; tenantName: string } | null>(null);
+  const [internalConfirmLoading, setInternalConfirmLoading] = useState(false);
+  const [internalTenants, setInternalTenants] = useState<InactiveTenantRow[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    setSubscribers(await AdminService.getSubscribers());
+    const [subs, purchases, inactive, contactsMap, internal] = await Promise.all([
+      getCeoSubscribers({ limit: 500 }).catch((e: any) => {
+        console.error('[CEO Subscribers] Erro ao carregar v_ceo_subscribers:', e?.message ?? e);
+        return [] as CeoSubscriber[];
+      }),
+      getKiwifyPurchases().catch(() => [] as KiwifyPurchaseRow[]),
+      getCeoInactiveTenants().catch(() => [] as InactiveTenantRow[]),
+      getCeoSubscribersContacts().catch(() => new Map()),
+      getCeoInternalTenants().catch(() => [] as InactiveTenantRow[]),
+    ]);
+
+    // Mescla phone/cpf na lista de subscribers
+    const subsWithContact = subs.map(s => {
+      const contact = s.user_email ? contactsMap.get(s.user_email) : undefined;
+      return {
+        ...s,
+        user_phone: contact?.phone ?? s.user_phone ?? null,
+        user_cpf:   contact?.cpf   ?? s.user_cpf   ?? null,
+      };
+    });
+
+    // Logs de auditoria para anomalias detectadas
+    const noOwner = subsWithContact.filter(s => !s.user_email);
+    const noSub   = subsWithContact.filter(s => !s.next_due_date);
+    const noWallet = subsWithContact.filter(s => s.plan_code !== 'FREE' && (s.credits_remaining ?? 0) === 0 && (s.credits_limit ?? 0) <= 60);
+    if (noOwner.length)  console.warn('[CEO] Tenants SEM OWNER (user_email null):', noOwner.length, noOwner.map(s => s.tenant_id));
+    if (noSub.length)    console.warn('[CEO] Tenants SEM SUBSCRIPTION (next_due_date null):', noSub.length, noSub.map(s => s.tenant_id));
+    if (noWallet.length) console.warn('[CEO] Tenants SUBSCRIPTION SEM WALLET (créditos zerados em plano pago):', noWallet.length, noWallet.map(s => s.tenant_id));
+    if (inactive.length) console.warn('[CEO] Tenants INATIVOS (is_active=false, ausentes da view):', inactive.length, inactive.map(t => t.id));
+
+    setSubscribers(subsWithContact);
+    setKiwifyPurchases(purchases);
+    setInactiveTenants(inactive);
+    setInternalTenants(internal);
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
+  const orphanPurchases = kiwifyPurchases.filter(
+    p => !p.tenant_id && p.status === 'APPROVED' && !p.activated_at
+  );
+
+  const kiwifyAlerts = computeKiwifyAlerts(kiwifyPurchases);
+
   const filtered = subscribers.filter(s => {
-    const matchSearch = !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.email.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = filterStatus === 'all' || s.status === filterStatus;
-    return matchSearch && matchStatus;
+    const matchSearch = !search
+      || (s.tenant_name ?? '').toLowerCase().includes(search.toLowerCase())
+      || (s.user_email ?? '').toLowerCase().includes(search.toLowerCase());
+    const matchStatus = filterStatus === 'all' || s.subscription_status === filterStatus;
+    if (!matchSearch || !matchStatus) return false;
+    if (filterDivergence) {
+      const p = matchKiwifyPurchase(s, kiwifyPurchases);
+      return computeDivergence(s, p) !== null || computeIntegrityFlags(s).length > 0;
+    }
+    return true;
   });
 
-  const openAction = (subId: string, mode: 'credits' | 'plan' | 'courtesy') => {
-    if (expanded === subId && actionMode === mode) { setExpanded(null); setActionMode(null); return; }
-    setExpanded(subId);
-    setActionMode(mode);
-    setActionCredits('');
-    setActionPlan('PRO');
-    setActionReason('');
-  };
+  const divergenceCount = subscribers.filter(s => {
+    const p = matchKiwifyPurchase(s, kiwifyPurchases);
+    return computeDivergence(s, p) !== null || computeIntegrityFlags(s).length > 0;
+  }).length;
 
-  const handleInlineAction = async (sub: Subscriber) => {
-    if (!actionMode) return;
-    setActionLoading(sub.id);
-    try {
-      if (actionMode === 'credits') {
-        const amount = Number(actionCredits);
-        if (!amount || !actionReason.trim()) { alert('Preencha quantidade e motivo.'); return; }
-        await AdminService.grantCredits(sub.tenant_id, amount, actionReason, adminUser);
-      } else if (actionMode === 'plan') {
-        await AdminService.updateSubscriberPlan(sub.tenant_id, actionPlan, adminUser);
-      } else if (actionMode === 'courtesy') {
-        if (!actionReason.trim()) { alert('Informe o motivo da cortesia.'); return; }
-        await AdminService.grantCourtesy(sub.tenant_id, actionReason, adminUser);
-      }
-      setExpanded(null); setActionMode(null);
-      await load();
-    } catch (e: any) { alert(e.message); }
-    finally { setActionLoading(null); }
-  };
-
-  const doAction = async (action: () => Promise<void>, subId: string) => {
-    setActionLoading(subId);
+  const doAction = async (action: () => Promise<void>, tenantId: string) => {
+    setActionLoading(tenantId);
     try { await action(); await load(); }
     catch (e: any) { alert(e.message); }
     finally { setActionLoading(null); }
   };
 
+  const handleMarkInternal = (tenantId: string, tenantName: string) => {
+    setInternalConfirm({ tenantId, tenantName });
+  };
+
+  const confirmMarkInternal = async () => {
+    if (!internalConfirm) return;
+    setInternalConfirmLoading(true);
+    try {
+      await setTenantInternal(internalConfirm.tenantId, true, adminUser);
+      await load();
+      setInternalConfirm(null);
+    } catch (e: any) { alert(e.message); }
+    finally { setInternalConfirmLoading(false); }
+  };
+
+  const handleFixDivergence = async (tenantId: string) => {
+    await doAction(() => reconcilePendingPurchases().then(() => {}), tenantId);
+  };
+
   return (
-    <div>
-      <div className="flex flex-wrap gap-3 items-center justify-between mb-6">
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex flex-wrap gap-3 items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Assinantes</h2>
-          <p className="text-gray-400 text-sm">{subscribers.length} tenants cadastrados</p>
+          <h2 className="text-2xl font-bold text-gray-900">Assinantes</h2>
+          <p className="text-gray-400 text-sm mt-0.5">
+            {subscribers.length} tenants · {kiwifyPurchases.length} compras Kiwify
+            {inactiveTenants.length > 0 && (
+              <span className="ml-2 text-orange-500 font-medium">· {inactiveTenants.length} inativos</span>
+            )}
+          </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
-            <input className="pl-9 pr-3 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-300 w-56" placeholder="Buscar nome ou e-mail..." value={search} onChange={e => setSearch(e.target.value)} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={14} />
+            <input
+              className="pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-200 w-52 bg-white"
+              placeholder="Buscar nome ou e-mail…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
           </div>
-          <select className="border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+          <select
+            className="border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-200 bg-white"
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+          >
             <option value="all">Todos os status</option>
             <option value="ACTIVE">Ativos</option>
             <option value="OVERDUE">Em atraso</option>
@@ -679,165 +988,220 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
             <option value="TRIAL">Trial</option>
             <option value="INTERNAL_TEST">Teste interno</option>
           </select>
-          <button onClick={load} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500 transition"><RefreshCw size={15} /></button>
+          <button
+            onClick={() => setFilterDivergence(v => !v)}
+            className={`px-3 py-2 text-xs font-semibold rounded-xl border transition flex items-center gap-1.5 ${filterDivergence ? 'bg-red-600 text-white border-red-600' : 'bg-white text-red-500 border-red-200 hover:bg-red-50'}`}
+          >
+            <AlertTriangle size={12} />
+            {divergenceCount > 0 ? `${divergenceCount} alertas` : 'Alertas'}
+          </button>
+          <button
+            onClick={load}
+            className="p-2 hover:bg-gray-100 rounded-xl text-gray-400 transition"
+            title="Atualizar"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
         </div>
       </div>
 
-      {loading ? <div className="text-gray-400 text-sm">Carregando assinantes...</div> : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
-          <table className="w-full text-sm min-w-[900px]">
-            <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
-              <tr>
-                <th className="px-5 py-3 text-left">Assinante</th>
-                <th className="px-5 py-3 text-left">Plano</th>
-                <th className="px-5 py-3 text-left">Status</th>
-                <th className="px-5 py-3 text-left">Uso IA</th>
-                <th className="px-5 py-3 text-left">Alunos</th>
-                <th className="px-5 py-3 text-left">Próx. Venc.</th>
-                <th className="px-5 py-3 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filtered.map(sub => {
-                const isLoading = actionLoading === sub.id;
-                const isExpanded = expanded === sub.id;
-                return (
-                  <React.Fragment key={sub.id}>
-                  <tr className="hover:bg-gray-50/50">
-                    <td className="px-5 py-3">
-                      <p className="font-bold text-gray-900">{sub.name}</p>
-                      <p className="text-xs text-gray-400">{sub.email}</p>
-                      {sub.phone && <p className="text-xs text-gray-400">{sub.phone}</p>}
-                    </td>
-                    <td className="px-5 py-3">
-                      <Badge color={PLAN_COLOR[String(sub.plan)] ?? 'gray'}>{String(sub.plan)}</Badge>
-                      <p className="text-xs text-gray-400 mt-0.5">{sub.cycle}</p>
-                    </td>
-                    <td className="px-5 py-3">
-                      <SubscriptionStatusBadge status={sub.status} size="sm" />
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-20 bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                          <div className="bg-purple-500 h-full rounded-full" style={{ width: `${Math.min(100, (sub.creditsUsed / Math.max(1, sub.creditsLimit)) * 100)}%` }} />
-                        </div>
-                        <span className="text-xs text-gray-500">{sub.creditsUsed}/{sub.creditsLimit}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                          <div className="bg-blue-500 h-full rounded-full" style={{ width: `${Math.min(100, (sub.studentsActive / Math.max(1, sub.studentsLimit)) * 100)}%` }} />
-                        </div>
-                        <span className="text-xs text-gray-500">{sub.studentsActive}/{sub.studentsLimit}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-xs text-gray-500 font-mono">{sub.nextBilling}</td>
-                    <td className="px-5 py-3 text-right">
-                      {isLoading ? (
-                        <RefreshCw size={14} className="animate-spin text-gray-400 ml-auto" />
-                      ) : (
-                        <div className="flex gap-1 justify-end flex-wrap">
-                          {['super_admin', 'operacional'].includes(adminUser.role) && (
-                            <>
-                              <button onClick={() => openAction(sub.id, 'credits')} title="Conceder/estornar créditos" className={`px-2 py-1 text-xs font-bold rounded-lg transition ${isExpanded && actionMode === 'credits' ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}>
-                                <Zap size={11} className="inline mr-0.5" />Créditos
-                              </button>
-                              <button onClick={() => openAction(sub.id, 'plan')} title="Alterar plano" className={`px-2 py-1 text-xs font-bold rounded-lg transition ${isExpanded && actionMode === 'plan' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
-                                <Package size={11} className="inline mr-0.5" />Plano
-                              </button>
-                              {sub.status === 'ACTIVE' ? (
-                                <button onClick={() => doAction(() => AdminService.suspendSubscriber(sub.tenant_id, adminUser), sub.id)} className="px-2 py-1 text-xs font-bold bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition">
-                                  <XCircle size={11} className="inline mr-0.5" />Suspender
-                                </button>
-                              ) : (
-                                <button onClick={() => doAction(() => AdminService.reactivateSubscriber(sub.tenant_id, adminUser), sub.id)} className="px-2 py-1 text-xs font-bold bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition">
-                                  <CheckCircle size={11} className="inline mr-0.5" />Reativar
-                                </button>
-                              )}
-                              <button onClick={() => openAction(sub.id, 'courtesy')} title="Conceder cortesia" className={`px-2 py-1 text-xs font-bold rounded-lg transition ${isExpanded && actionMode === 'courtesy' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}>
-                                <Gift size={11} className="inline mr-0.5" />Cortesia
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                  {/* Painel de ação inline — aparece abaixo da linha selecionada */}
-                  {isExpanded && actionMode && (
-                    <tr>
-                      <td colSpan={7} style={{ background: 'rgba(249,250,251,0.98)', borderBottom: '2px solid #E5E7EB' }}>
-                        <div className="px-6 py-4">
-                          <div className="flex items-start gap-4 flex-wrap">
-                            <div className="flex-1 min-w-[280px]">
-                              <p className="text-xs font-bold text-gray-500 mb-2 uppercase">
-                                {actionMode === 'credits' && `Créditos para ${sub.name}`}
-                                {actionMode === 'plan' && `Alterar plano de ${sub.name}`}
-                                {actionMode === 'courtesy' && `Cortesia para ${sub.name}`}
-                              </p>
-                              {actionMode === 'credits' && (
-                                <div className="flex gap-3 items-end flex-wrap">
-                                  <div>
-                                    <label className="block text-xs text-gray-400 mb-1">Quantidade (negativo = estorno)</label>
-                                    <input type="number" autoFocus className="border rounded-lg px-3 py-1.5 text-sm w-32 focus:ring-2 focus:ring-purple-300 outline-none" value={actionCredits} onChange={e => setActionCredits(e.target.value)} placeholder="+50 ou -10" />
-                                  </div>
-                                  <div className="flex-1 min-w-[180px]">
-                                    <label className="block text-xs text-gray-400 mb-1">Motivo (obrigatório para auditoria)</label>
-                                    <input className="w-full border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-purple-300 outline-none" value={actionReason} onChange={e => setActionReason(e.target.value)} placeholder="Ex: Bonificação por feedback" />
-                                  </div>
-                                </div>
-                              )}
-                              {actionMode === 'plan' && (
-                                <div className="flex gap-3 items-end">
-                                  <div>
-                                    <label className="block text-xs text-gray-400 mb-1">Novo plano</label>
-                                    <select className="border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-300 outline-none" value={actionPlan} onChange={e => setActionPlan(e.target.value)}>
-                                      <option value="FREE">FREE — Starter (60 créditos / 5 alunos)</option>
-                                      <option value="PRO">PRO — Profissional (500 créditos / 30 alunos)</option>
-                                      <option value="MASTER">PREMIUM — Clínicas (700 créditos / ilimitado)</option>
-                                      <option value="INSTITUTIONAL">INSTITUTIONAL</option>
-                                    </select>
-                                  </div>
-                                  <p className="text-xs text-gray-400">Plano atual: <strong>{String(sub.plan)}</strong></p>
-                                </div>
-                              )}
-                              {actionMode === 'courtesy' && (
-                                <div>
-                                  <label className="block text-xs text-gray-400 mb-1">Motivo da cortesia (obrigatório)</label>
-                                  <input autoFocus className="w-full border rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-amber-300 outline-none" value={actionReason} onChange={e => setActionReason(e.target.value)} placeholder="Ex: Cliente parceiro, erro de cobrança, demo comercial" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex gap-2 items-center pt-4">
-                              <button
-                                onClick={() => handleInlineAction(sub)}
-                                disabled={actionLoading === sub.id}
-                                className="px-4 py-2 text-sm font-bold text-white rounded-lg transition disabled:opacity-50 flex items-center gap-1.5"
-                                style={{ background: actionMode === 'credits' ? '#7C3AED' : actionMode === 'plan' ? '#2563EB' : '#D97706' }}
-                              >
-                                {actionLoading === sub.id ? <RefreshCw size={13} className="animate-spin" /> : <CheckCircle size={13} />}
-                                Confirmar
-                              </button>
-                              <button onClick={() => { setExpanded(null); setActionMode(null); }} className="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition">
-                                Cancelar
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                  </React.Fragment>
-                );
-              })}
-              {filtered.length === 0 && (
-                <tr><td colSpan={7} className="px-5 py-8 text-center text-gray-400">Nenhum assinante encontrado.</td></tr>
-              )}
-            </tbody>
-          </table>
+      {/* KPI strip */}
+      {!loading && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <BillingHealthCard
+            title="Ativos"
+            value={subscribers.filter(s => s.subscription_status === 'ACTIVE').length}
+            icon={CheckCircle}
+            severity="ok"
+            subtext="assinaturas ativas"
+          />
+          <BillingHealthCard
+            title="Em Atraso"
+            value={subscribers.filter(s => s.subscription_status === 'OVERDUE').length}
+            icon={AlertTriangle}
+            severity={subscribers.filter(s => s.subscription_status === 'OVERDUE').length > 0 ? 'warn' : 'ok'}
+            subtext="pagamentos vencidos"
+          />
+          <BillingHealthCard
+            title="Pend. Ativação"
+            value={kiwifyAlerts.notActivated.length}
+            icon={Clock}
+            severity={kiwifyAlerts.notActivated.length > 0 ? 'warn' : 'ok'}
+            subtext="webhook falhou"
+          />
+          <BillingHealthCard
+            title="Sem Conta"
+            value={orphanPurchases.length}
+            icon={UserIcon}
+            severity={orphanPurchases.length > 0 ? 'critical' : 'ok'}
+            subtext="pagaram sem cadastro"
+            cta={orphanPurchases.length > 0 ? { label: 'Ver compras', onClick: () => setDrawerOpen(true) } : undefined}
+          />
+          <BillingHealthCard
+            title="Divergências"
+            value={divergenceCount}
+            icon={AlertTriangle}
+            severity={divergenceCount > 0 ? 'critical' : 'ok'}
+            subtext="plano ou ativação incorretos"
+            cta={divergenceCount > 0 && !filterDivergence ? { label: 'Filtrar', onClick: () => setFilterDivergence(true) } : undefined}
+          />
+          <BillingHealthCard
+            title="Inativos"
+            value={inactiveTenants.length}
+            icon={EyeOff}
+            severity="neutral"
+            subtext="is_active = false"
+          />
         </div>
       )}
+
+      {/* Kiwify health banner */}
+      {!loading && (
+        <KiwifyStatusBanner
+          noAccountCount={kiwifyAlerts.noAccount.length}
+          notActivatedCount={kiwifyAlerts.notActivated.length}
+          unknownProductCount={kiwifyAlerts.unknownProduct.length}
+          onOpenDrawer={() => setDrawerOpen(true)}
+        />
+      )}
+
+      {/* Subscriber cards */}
+      {loading ? (
+        <div className="py-6 text-sm text-gray-400">Carregando assinantes…</div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(sub => {
+            const kp = matchKiwifyPurchase(sub, kiwifyPurchases);
+            const divergence = computeDivergence(sub, kp);
+            const integrity = computeIntegrityFlags(sub);
+            return (
+              <SubscriberRowCard
+                key={sub.tenant_id}
+                sub={sub}
+                kiwifyPurchase={kp}
+                divergence={divergence}
+                integrityFlags={integrity}
+                actionLoading={actionLoading === sub.tenant_id}
+                adminUser={adminUser}
+                onGrantCredits={async (tid, amount, reason) => {
+                  await doAction(() => AdminService.grantCredits(tid, amount, reason, adminUser), tid);
+                }}
+                onChangePlan={async (tid, plan) => {
+                  await doAction(() => AdminService.updateSubscriberPlan(tid, plan, adminUser), tid);
+                }}
+                onGrantCourtesy={async (tid, reason) => {
+                  await doAction(() => AdminService.grantCourtesy(tid, reason, adminUser), tid);
+                }}
+                onSuspend={async (tid) => {
+                  await doAction(() => AdminService.suspendSubscriber(tid, adminUser), tid);
+                }}
+                onReactivate={async (tid) => {
+                  await doAction(() => AdminService.reactivateSubscriber(tid, adminUser), tid);
+                }}
+                onResetPassword={(email, name) => setResetTarget({ email, name })}
+                onMarkInternal={handleMarkInternal}
+                onFixDivergence={handleFixDivergence}
+                onEditContact={(email, phone, cpf, name) =>
+                  setContactEditTarget({ email, name, phone, cpf })
+                }
+              />
+            );
+          })}
+          {filtered.length === 0 && (
+            <div className="py-12 text-center text-sm text-gray-400 bg-white rounded-2xl border border-gray-100">
+              Nenhum assinante encontrado.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Inactive tenants */}
+      {!loading && inactiveTenants.length > 0 && (
+        <div className="pt-2">
+          <div className="flex items-center gap-2 mb-2">
+            <EyeOff size={13} className="text-gray-400" />
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              Tenants inativos — ausentes da listagem ({inactiveTenants.length})
+            </h3>
+          </div>
+          <div className="space-y-1.5">
+            {inactiveTenants.map(t => (
+              <div key={t.id} className="flex items-center gap-3 px-4 py-2.5 bg-white rounded-xl border border-gray-100 text-xs">
+                <span className="w-2 h-2 rounded-full bg-gray-300 shrink-0" />
+                <span className="font-medium text-gray-700 flex-1 truncate">{t.name}</span>
+                <span className="font-mono text-gray-300 text-[10px] hidden sm:block truncate max-w-[200px]">{t.id}</span>
+                <span className="text-gray-400 shrink-0">{t.created_at ? new Date(t.created_at).toLocaleDateString('pt-BR') : '—'}</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-200 shrink-0">INATIVO</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Contas internas */}
+      {!loading && internalTenants.length > 0 && (
+        <div className="pt-2">
+          <div className="flex items-center gap-2 mb-2">
+            <TestTube size={13} className="text-gray-400" />
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              Contas internas — fora das métricas ({internalTenants.length})
+            </h3>
+          </div>
+          <div className="space-y-1.5">
+            {internalTenants.map(t => (
+              <div key={t.id} className="flex items-center gap-3 px-4 py-2.5 bg-white rounded-xl border border-gray-100 text-xs">
+                <span className="w-2 h-2 rounded-full bg-gray-200 shrink-0" />
+                <span className="font-medium text-gray-700 flex-1 truncate">{t.name}</span>
+                <span className="font-mono text-gray-300 text-[10px] hidden sm:block truncate max-w-[200px]">{t.id}</span>
+                <span className="text-gray-400 shrink-0">{t.created_at ? new Date(t.created_at).toLocaleDateString('pt-BR') : '—'}</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 border border-gray-200 shrink-0">INTERNO</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: confirmar conta interna */}
+      {internalConfirm && (
+        <InternalConfirmModal
+          tenantName={internalConfirm.tenantName}
+          onConfirm={confirmMarkInternal}
+          onClose={() => setInternalConfirm(null)}
+          loading={internalConfirmLoading}
+        />
+      )}
+
+      {/* Password reset modal */}
+      {resetTarget && (
+        <PasswordResetModal
+          targetEmail={resetTarget.email}
+          targetName={resetTarget.name}
+          adminUser={adminUser}
+          onClose={() => setResetTarget(null)}
+          onSuccess={() => setResetTarget(null)}
+        />
+      )}
+
+      {/* Contact edit modal (phone/CPF) */}
+      {contactEditTarget && (
+        <ContactEditModal
+          targetEmail={contactEditTarget.email}
+          targetName={contactEditTarget.name}
+          initialPhone={contactEditTarget.phone}
+          initialCpf={contactEditTarget.cpf}
+          adminUser={adminUser}
+          onSaved={load}
+          onClose={() => setContactEditTarget(null)}
+        />
+      )}
+
+      {/* Pending purchases drawer */}
+      <PendingPurchasesDrawer
+        open={drawerOpen}
+        purchases={orphanPurchases}
+        onClose={() => setDrawerOpen(false)}
+        onReconcileSuccess={() => load()}
+      />
     </div>
   );
 };
@@ -2407,14 +2771,30 @@ const LogsTab = () => {
 // ============================================================================
 
 const KiwifyProductsTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [products, setProducts] = useState<KiwifyProduct[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Partial<KiwifyProduct> | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [products, setProducts]         = useState<KiwifyProduct[]>([]);
+  const [purchases, setPurchases]       = useState<KiwifyPurchaseRow[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [loadError, setLoadError]       = useState<string | null>(null);
+  const [editing, setEditing]           = useState<Partial<KiwifyProduct> | null>(null);
+  const [saving, setSaving]             = useState(false);
+  const [reconciling, setReconciling]   = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<ReconcileResult[] | null>(null);
+  const [alertExpanded, setAlertExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setProducts(await getKiwifyProducts()); } catch { /**/ }
+    setLoadError(null);
+    try {
+      const [prods, purcs] = await Promise.all([
+        getKiwifyProducts(),
+        getKiwifyPurchases(),
+      ]);
+      setProducts(prods);
+      setPurchases(purcs);
+    } catch (e: any) {
+      setLoadError(e?.message ?? 'Erro ao carregar produtos Kiwify. Verifique RLS e a migration 20260510000001.');
+      console.error('[CEO Kiwify] Erro ao carregar:', e);
+    }
     setLoading(false);
   }, []);
 
@@ -2431,6 +2811,24 @@ const KiwifyProductsTab = ({ adminUser }: { adminUser: AdminUser }) => {
     finally { setSaving(false); }
   };
 
+  const handleReconcile = async () => {
+    if (!confirm('Reprocessar todas as compras aprovadas não ativadas?\n\nIsso ativará automaticamente os planos de usuários que já têm conta no sistema. Não pode ser desfeito.')) return;
+    setReconciling(true);
+    setReconcileResult(null);
+    try {
+      const result = await reconcilePendingPurchases();
+      setReconcileResult(result);
+      await load();
+    } catch (e: any) {
+      alert('Erro na reconciliação: ' + e.message);
+    } finally {
+      setReconciling(false);
+    }
+  };
+
+  const alerts = computeKiwifyAlerts(purchases);
+  const totalAlerts = alerts.noAccount.length + alerts.notActivated.length + alerts.unknownProduct.length;
+
   const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none';
 
   return (
@@ -2438,10 +2836,209 @@ const KiwifyProductsTab = ({ adminUser }: { adminUser: AdminUser }) => {
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl font-bold">Produtos Kiwify</h2>
-          <p className="text-gray-400 text-sm">Gerencie links, preços e destaques dos produtos.</p>
+          <p className="text-gray-400 text-sm">
+            Gerencie links, preços e destaques dos produtos.
+            {totalAlerts > 0 && (
+              <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-700 font-bold rounded text-xs">
+                {totalAlerts} {totalAlerts === 1 ? 'alerta' : 'alertas'}
+              </span>
+            )}
+          </p>
         </div>
-        <button onClick={load} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"><RefreshCw size={15} /></button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleReconcile}
+            disabled={reconciling || (alerts.noAccount.length === 0 && alerts.notActivated.length === 0)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-bold disabled:opacity-40 transition"
+          >
+            <RotateCcw size={14} className={reconciling ? 'animate-spin' : ''} />
+            {reconciling ? 'Reconciliando...' : 'Reconciliar compras'}
+          </button>
+          <button onClick={load} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"><RefreshCw size={15} /></button>
+        </div>
       </div>
+
+      {/* Resultado da reconciliação */}
+      {reconcileResult !== null && (
+        <div className="mb-6 bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <CheckCircle size={16} className="text-green-600" />
+            <h3 className="font-bold text-gray-800">Resultado da reconciliação ({reconcileResult.length} compras processadas)</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 text-gray-500 font-bold uppercase">
+                <tr>
+                  <th className="px-4 py-2 text-left">Email</th>
+                  <th className="px-4 py-2 text-left">Plano</th>
+                  <th className="px-4 py-2 text-left">Tenant</th>
+                  <th className="px-4 py-2 text-left">Resultado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {reconcileResult.map((r, i) => (
+                  <tr key={i} className="hover:bg-gray-50/50">
+                    <td className="px-4 py-2 font-mono">{r.purchase_email}</td>
+                    <td className="px-4 py-2 font-bold">{r.purchase_plan ?? '—'}</td>
+                    <td className="px-4 py-2 font-mono text-[10px]">{r.found_tenant_id ?? '—'}</td>
+                    <td className="px-4 py-2">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                        r.result_action === 'activated'     ? 'bg-green-100 text-green-700' :
+                        r.result_action === 'no_account_yet' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {r.result_action === 'activated'      ? 'ATIVADO' :
+                         r.result_action === 'no_account_yet' ? 'SEM CONTA' :
+                         r.result_action}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button onClick={() => setReconcileResult(null)} className="mt-3 text-xs text-gray-400 hover:text-gray-600 underline">Fechar resultado</button>
+        </div>
+      )}
+
+      {/* Painel de Alertas de Compras */}
+      {!loading && totalAlerts > 0 && (
+        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+
+          {/* Alerta 1: Sem conta */}
+          {alerts.noAccount.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-2xl font-black text-red-700">{alerts.noAccount.length}</p>
+                  <p className="text-xs font-bold text-red-600 mt-0.5">Aprovadas sem conta</p>
+                  <p className="text-[10px] text-red-500 mt-1">Pagou mas não criou conta no sistema</p>
+                </div>
+                <AlertTriangle size={20} className="text-red-500 shrink-0" />
+              </div>
+              <button
+                onClick={() => setAlertExpanded(alertExpanded === 'noAccount' ? null : 'noAccount')}
+                className="mt-3 text-xs text-red-600 font-bold underline"
+              >
+                {alertExpanded === 'noAccount' ? 'Ocultar' : 'Ver lista'}
+              </button>
+              {alertExpanded === 'noAccount' && (
+                <div className="mt-2 space-y-1.5">
+                  {alerts.noAccount.map(p => {
+                    const { whatsappUrl, text, signupUrl } = buildPendingAccountInstructions(p);
+                    return (
+                      <div key={p.id} className="bg-white rounded-lg px-3 py-2 border border-red-100">
+                        <p className="text-xs font-mono font-bold text-gray-800">{p.email}</p>
+                        <p className="text-[10px] text-gray-500 mb-1.5">{p.plan_code ?? '—'} · {p.paid_at ? new Date(p.paid_at).toLocaleDateString('pt-BR') : '—'}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => { navigator.clipboard.writeText(p.email); }}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-gray-100 hover:bg-gray-200 text-gray-700 transition"
+                            title="Copiar e-mail"
+                          >
+                            <Copy size={10} /> Copiar e-mail
+                          </button>
+                          <button
+                            onClick={() => { navigator.clipboard.writeText(text); }}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-700 transition"
+                            title="Copiar instruções"
+                          >
+                            <Copy size={10} /> Copiar instruções
+                          </button>
+                          <a
+                            href={whatsappUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-green-50 hover:bg-green-100 text-green-700 transition"
+                            title="Enviar via WhatsApp"
+                          >
+                            <Share2 size={10} /> WhatsApp
+                          </a>
+                          <a
+                            href={signupUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-gray-50 hover:bg-gray-100 text-gray-600 transition"
+                            title="Link de cadastro"
+                          >
+                            <ExternalLink size={10} /> Link cadastro
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Alerta 2: Não ativadas (tem tenant mas activated_at nulo) */}
+          {alerts.notActivated.length > 0 && (
+            <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-2xl font-black text-orange-700">{alerts.notActivated.length}</p>
+                  <p className="text-xs font-bold text-orange-600 mt-0.5">Aprovadas não ativadas</p>
+                  <p className="text-[10px] text-orange-500 mt-1">Webhook falhou ao ativar — use Reconciliar</p>
+                </div>
+                <AlertCircle size={20} className="text-orange-500 shrink-0" />
+              </div>
+              <button
+                onClick={() => setAlertExpanded(alertExpanded === 'notActivated' ? null : 'notActivated')}
+                className="mt-3 text-xs text-orange-600 font-bold underline"
+              >
+                {alertExpanded === 'notActivated' ? 'Ocultar' : 'Ver lista'}
+              </button>
+              {alertExpanded === 'notActivated' && (
+                <div className="mt-2 space-y-1.5">
+                  {alerts.notActivated.map(p => (
+                    <div key={p.id} className="bg-white rounded-lg px-3 py-2 border border-orange-100">
+                      <p className="text-xs font-mono font-bold text-gray-800">{p.email}</p>
+                      <p className="text-[10px] text-gray-500">{p.plan_code ?? '—'} · {p.paid_at ? new Date(p.paid_at).toLocaleDateString('pt-BR') : '—'}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Alerta 3: Produto UNKNOWN */}
+          {alerts.unknownProduct.length > 0 && (
+            <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-2xl font-black text-purple-700">{alerts.unknownProduct.length}</p>
+                  <p className="text-xs font-bold text-purple-600 mt-0.5">Produto UNKNOWN</p>
+                  <p className="text-[10px] text-purple-500 mt-1">product_key não reconhecido pelo webhook</p>
+                </div>
+                <Package size={20} className="text-purple-500 shrink-0" />
+              </div>
+              <button
+                onClick={() => setAlertExpanded(alertExpanded === 'unknown' ? null : 'unknown')}
+                className="mt-3 text-xs text-purple-600 font-bold underline"
+              >
+                {alertExpanded === 'unknown' ? 'Ocultar' : 'Ver lista'}
+              </button>
+              {alertExpanded === 'unknown' && (
+                <div className="mt-2 space-y-1.5">
+                  {alerts.unknownProduct.map(p => (
+                    <div key={p.id} className="bg-white rounded-lg px-3 py-2 border border-purple-100">
+                      <p className="text-xs font-mono font-bold text-gray-800">{p.email}</p>
+                      <p className="text-[10px] text-gray-500">{p.provider_order_id ?? p.id} · {p.paid_at ? new Date(p.paid_at).toLocaleDateString('pt-BR') : '—'}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+        </div>
+      )}
+      {!loading && totalAlerts === 0 && purchases.length > 0 && (
+        <div className="mb-6 flex items-center gap-2 text-green-600 text-sm font-bold">
+          <CheckCircle size={16} /> Todas as compras aprovadas estão ativadas corretamente.
+        </div>
+      )}
 
       {/* Form de edição */}
       {editing && (
@@ -2513,6 +3110,18 @@ const KiwifyProductsTab = ({ adminUser }: { adminUser: AdminUser }) => {
             <button onClick={() => setEditing(null)} className="border border-gray-200 px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50">
               Cancelar
             </button>
+          </div>
+        </div>
+      )}
+
+      {loadError && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700 flex items-start gap-2">
+          <AlertTriangle size={15} className="text-red-500 shrink-0 mt-0.5" />
+          <div>
+            <strong>Erro ao carregar produtos Kiwify:</strong> {loadError}
+            <div className="mt-1 text-xs text-red-500">
+              Verifique se a migration <code>20260510000001_profiles_phone_cpf.sql</code> foi aplicada (adiciona RLS de leitura para <code>kiwify_products</code>).
+            </div>
           </div>
         </div>
       )}

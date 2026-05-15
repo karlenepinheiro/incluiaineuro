@@ -4,10 +4,9 @@ import {
   LifeBuoy, ChevronDown, ChevronUp, MessageCircle,
   PlayCircle, FileText, Brain, Target, BookOpen,
 } from 'lucide-react';
+import { waUrl } from '../config/contact';
 
-const WA_NUMBER = '5511999999999'; // TODO: substituir pelo número real do suporte
-const WA_MESSAGE = encodeURIComponent('Olá! Vim pelo IncluiAI e gostaria de ajuda.');
-const WA_URL = `https://wa.me/${WA_NUMBER}?text=${WA_MESSAGE}`;
+const WA_URL = waUrl('Olá! Vim pelo IncluiAI e gostaria de ajuda.');
 
 const C = {
   bg:      '#F6F4EF',

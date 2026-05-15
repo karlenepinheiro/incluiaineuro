@@ -714,3 +714,85 @@ export async function importStudentsBatch(
     errors,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AVALIAÇÃO DE STATUS DO ALUNO — usada pela UI (não altera fluxo de importação)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type BasicCompletionStatus = 'invalid' | 'valid_basic' | 'enriched';
+export type PedagogicalEnrichmentStatus = 'enriched' | 'partial' | 'empty';
+
+type StudentLike = {
+  name?: string;
+  birthDate?: string;
+  grade?: string;
+  schoolName?: string;
+  schoolId?: string;
+  guardianName?: string;
+  guardianPhone?: string;
+  diagnosis?: string[];
+  cid?: string | string[];
+  difficulties?: string[];
+  abilities?: string[];
+  strategies?: string[];
+  communication?: string[];
+  familyContext?: string;
+  schoolHistory?: string;
+  observations?: string;
+  supportLevel?: string;
+};
+
+/**
+ * Avalia o preenchimento dos dados pedagógicos do aluno.
+ *   enriched ≥3 campos, partial 1-2, empty 0.
+ */
+export function getStudentPedagogicalEnrichmentStatus(
+  student: StudentLike,
+): PedagogicalEnrichmentStatus {
+  const arr = (v?: string[]) => Array.isArray(v) && v.some(s => s.trim().length > 0);
+  const str = (v?: string) => typeof v === 'string' && v.trim().length > 0;
+  const hasCid = (v?: string | string[]) =>
+    Array.isArray(v) ? v.some(s => s.trim().length > 0) : str(v as string | undefined);
+
+  const score = [
+    arr(student.diagnosis),
+    hasCid(student.cid),
+    arr(student.difficulties),
+    arr(student.abilities),
+    arr(student.strategies),
+    arr(student.communication),
+    str(student.familyContext),
+    str(student.schoolHistory),
+    str(student.observations),
+    str(student.supportLevel),
+  ].filter(Boolean).length;
+
+  if (score >= 3) return 'enriched';
+  if (score >= 1) return 'partial';
+  return 'empty';
+}
+
+/**
+ * Avalia o status de completude básica do cadastro do aluno.
+ *   invalid     — sem nome ou <2 dados pessoais essenciais
+ *   valid_basic — nome + ≥2 campos pessoais, perfil pedagógico pendente
+ *   enriched    — valid_basic + ≥3 campos pedagógicos preenchidos
+ */
+export function getStudentBasicCompletionStatus(
+  student: StudentLike,
+): BasicCompletionStatus {
+  if (!(student.name ?? '').trim()) return 'invalid';
+
+  const personalCount = [
+    student.birthDate,
+    student.grade,
+    student.schoolName || student.schoolId,
+    student.guardianName,
+    student.guardianPhone,
+  ].filter(v => (typeof v === 'string' ? v.trim().length > 0 : !!v)).length;
+
+  if (personalCount < 2) return 'invalid';
+
+  const pedagStatus = getStudentPedagogicalEnrichmentStatus(student);
+  return pedagStatus === 'enriched' ? 'enriched' : 'valid_basic';
+}

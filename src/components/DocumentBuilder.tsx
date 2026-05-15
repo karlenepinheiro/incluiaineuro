@@ -76,8 +76,8 @@ const ensureDocumentCodeForType = (type: DocumentType, existing?: string): strin
 // ─── QR Code via Canvas (sem lib extra — usa qrcode dinamicamente via CDN) ───
 const QRCodeRenderer: React.FC<{ code: string }> = ({ code }) => {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
-  const appUrl = (import.meta as any).env?.VITE_APP_URL || window.location.origin;
-  const url = `${appUrl}/validar/${code}`;
+  // URL fixa de produção — não usar window.location.origin (seria localhost em dev)
+  const url = `https://www.incluiai.app.br/validar/${encodeURIComponent(code)}`;
 
   React.useEffect(() => {
     const el = canvasRef.current;
@@ -96,13 +96,14 @@ const QRCodeRenderer: React.FC<{ code: string }> = ({ code }) => {
         const div = document.createElement('div');
         div.style.display = 'none';
         document.body.appendChild(div);
-        const qr = new (window as any).QRCode(div, { text: url, width: 80, height: 80, correctLevel: 0 });
+        // correctLevel: 1 = M (melhor equilíbrio entre densidade e resistência a erros)
+        const qr = new (window as any).QRCode(div, { text: url, width: 128, height: 128, correctLevel: 1 });
         await new Promise(r => setTimeout(r, 200));
         const img = div.querySelector('img') as HTMLImageElement | null;
         if (img && el) {
           const ctx = el.getContext('2d');
           const image = new Image();
-          image.onload = () => { ctx?.drawImage(image, 0, 0, 80, 80); };
+          image.onload = () => { ctx?.drawImage(image, 0, 0, 128, 128); };
           image.src = img.src;
         }
         div.remove();
@@ -113,7 +114,7 @@ const QRCodeRenderer: React.FC<{ code: string }> = ({ code }) => {
     generate();
   }, [url]);
 
-  return <canvas ref={canvasRef} width={80} height={80} className="border border-gray-100 rounded" title={url} />;
+  return <canvas ref={canvasRef} width={128} height={128} className="border border-gray-100 rounded" title={url} />;
 };
 
 // ─── BNCC Suggestor ───────────────────────────────────────────────────────────
@@ -310,6 +311,10 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
   // ── Verificação de plano Premium ─────────────────────────────────────────────
   const isPremiumUser = ['MASTER', 'PREMIUM', 'INSTITUTIONAL'].includes(user.plan as string);
 
+  // Dirty state tracking (unsaved changes)
+  const [isDirty, setIsDirty] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
   // Custom Fields & Reordering
   const [isReordering, setIsReordering] = useState(false);
   const [showCustomFieldModal, setShowCustomFieldModal] = useState(false);
@@ -460,6 +465,290 @@ const planLimits = getPlanLimits(user.plan);
           // The previous code generated it on mount. Let's stick to that but ensure it persists.
       }
   }, [step, user, planLimits.audit_print]);
+
+  // ─── Sugestões contextuais por tipo de documento, seção e campo ───────────────
+  // Retorna string[] específico para o campo; [] significa sem sugestões (sem fallback genérico).
+  const getFieldSuggestions = (docType: DocumentType, _sectionId: string, fieldId: string): string[] => {
+    // ── PEI ────────────────────────────────────────────────────────────────────
+    if (docType === DocumentType.PEI) {
+      if (fieldId === 'sint1') return [
+        'Conforme Estudo de Caso, o aluno apresenta histórico de dificuldades persistentes que demandam suporte especializado.',
+        'A síntese indica necessidade de adaptações curriculares e recursos de acessibilidade.',
+        'O histórico documenta trajetória escolar com avanços graduais mediante intervenções especializadas.',
+      ];
+      if (fieldId === 'sint2') return [
+        'A família demonstra comprometimento e participação ativa no acompanhamento escolar.',
+        'Há necessidade de fortalecer a comunicação entre escola e família para alinhamento de estratégias.',
+        'O contexto familiar oferece suporte consistente às intervenções realizadas pela escola.',
+      ];
+      if (fieldId === 'pot1') return [
+        'Demonstra engajamento em atividades com apoio visual e rotinas estruturadas.',
+        'Apresenta boa memória para sequências e atividades de interesse.',
+        'Comunica suas necessidades de forma funcional no contexto escolar.',
+      ];
+      if (fieldId === 'nec1') return [
+        'Necessita de adaptação nos materiais e tempo ampliado para realização das atividades.',
+        'Demanda apoio para organização e planejamento das tarefas escolares.',
+        'Requer estratégias de mediação individual em atividades coletivas.',
+      ];
+      if (fieldId === 'og1') return [
+        'Promover a participação efetiva do aluno nas atividades curriculares com os recursos e suportes necessários.',
+        'Desenvolver autonomia progressiva nas atividades de aprendizagem e convivência escolar.',
+        'Ampliar as habilidades de comunicação, interação e aprendizagem acadêmica ao longo do ano letivo.',
+      ];
+      if (fieldId.endsWith('_bncc')) return [
+        'Registre os códigos BNCC trabalhados, ex: EF01LP01, EF02MA05.',
+        'As habilidades devem ser selecionadas com base no nível de desenvolvimento atual do aluno.',
+        'Priorize habilidades funcionais e significativas para a vida cotidiana do estudante.',
+      ];
+      if (fieldId.endsWith('_obj')) return [
+        'O aluno deverá identificar e produzir com apoio visual e mediação do professor.',
+        'Espera-se que o aluno avance progressivamente com redução gradual de suportes.',
+        'Meta observável: realizar a tarefa proposta com autonomia em 3 de 5 tentativas até o final do período.',
+      ];
+      if (fieldId.endsWith('_estrat')) return [
+        'Utilizar instruções curtas, objetivas e acompanhadas de apoio visual.',
+        'Organizar as atividades em etapas sequenciadas e previsíveis, com antecipação de rotina.',
+        'Oferecer tempo ampliado e mediação individual quando necessário.',
+      ];
+      if (fieldId.endsWith('_adapt')) return [
+        'Adaptar o conteúdo reduzindo a quantidade de itens e aumentando o nível de concretude.',
+        'Utilizar material adaptado com letras ampliadas, pictogramas e apoio tátil.',
+        'Avaliar por meio de portfólio e observação diária, além das avaliações escritas.',
+      ];
+      if (fieldId.endsWith('_aval')) return [
+        'Observação diária com registro em ficha de acompanhamento bimestral.',
+        'Avaliação por portfólio com produções adaptadas às possibilidades do aluno.',
+        'Critérios: participação, tentativas, evolução qualitativa e uso dos recursos propostos.',
+      ];
+      if (fieldId === 'rec2') return [
+        'Carteiras adaptadas, iluminação adequada e redução de estímulos visuais em excesso.',
+        'Material com fonte ampliada, alto contraste e espaçamento aumentado.',
+        'Sala com área de descanso sensorial e acesso facilitado à comunicação aumentativa.',
+      ];
+      if (fieldId === 'comp1') return [
+        'O aluno apresenta agitação em momentos de transição — estratégia: antecipação verbal e visual da mudança.',
+        'Em situações de sobrecarga, recorre à saída da sala — combinado: espaço de regulação disponível.',
+        'Reforço positivo por aproximação tem se mostrado eficaz para reduzir comportamentos de recusa.',
+      ];
+      if (fieldId === 'comp2') return [
+        'Meta: realizar a higiene pessoal de forma independente até o final do semestre.',
+        'Desenvolver autonomia na organização do material escolar com checklist visual.',
+        'Ampliar a capacidade de solicitar ajuda verbalmente ou por meio da CAA.',
+      ];
+      if (fieldId === 'av1') return [
+        'Avaliação adaptada com questões de múltipla escolha e apoio de leitura oral pelo professor.',
+        'Portfólio com registros quinzenais de produções, vídeos e fotografias das atividades.',
+        'Avaliação por observação sistemática com ficha de acompanhamento de habilidades.',
+      ];
+      if (fieldId === 'av2') return [
+        'Registro quinzenal em ficha de observação estruturada.',
+        'Reunião bimestral com equipe pedagógica para análise dos dados coletados.',
+        'Relatório descritivo ao final de cada bimestre documentando avanços e ajustes.',
+      ];
+      if (fieldId === 'mon3') return [
+        'O monitoramento deve contemplar tanto os avanços acadêmicos quanto o bem-estar emocional.',
+        'Registrar ocorrências relevantes e compartilhar com a família quinzenalmente.',
+        'Incluir a perspectiva do próprio aluno quando possível (autoavaliação adaptada).',
+      ];
+    }
+
+    // ── ESTUDO DE CASO ──────────────────────────────────────────────────────────
+    if (docType === DocumentType.ESTUDO_CASO) {
+      if (fieldId === 'resp4') return [
+        'Psicólogo(a) escolar, fonoaudiólogo(a), terapeuta ocupacional.',
+        'Assistente social e equipe do CAPS Infantil ou serviço de saúde vinculado.',
+        'Profissionais externos que acompanham o estudante e contribuem com informações para este estudo.',
+      ];
+      if (fieldId === 'id_demanda') return [
+        'Dificuldades persistentes de aprendizagem sem resposta satisfatória às intervenções realizadas em sala.',
+        'Comportamentos que interferem no processo de aprendizagem e na convivência escolar.',
+        'Suspeita de necessidade educacional especial que requer avaliação multidisciplinar.',
+      ];
+      if (fieldId === 'mod2') return [
+        'Atendimento de 2 vezes por semana, com duração de 50 minutos cada sessão.',
+        'Frequência mensal no serviço especializado externo, com retorno de relatório à escola.',
+        'Atendimento diário no contraturno, 4 horas semanais na sala de recursos multifuncionais.',
+      ];
+      if (fieldId === 'hist1') return [
+        'Estudante matriculado desde a Educação Infantil, com histórico de dificuldades na alfabetização.',
+        'Apresentou repetência no 1º ano; transferências entre escolas; sem diagnóstico formal até o momento.',
+        'Trajetória marcada por progressão por conselho, com déficits acumulados nas habilidades básicas.',
+      ];
+      if (fieldId === 'hist2') return [
+        'O aluno demonstra sentimento de inadequação em relação aos colegas, evita atividades escritas.',
+        'Relata que "não consegue aprender igual aos outros" e apresenta baixa autoestima escolar.',
+        'Demonstra motivação quando as atividades envolvem seus interesses específicos.',
+      ];
+      if (fieldId === 'cui2') return [
+        'O aluno necessita de apoio para atividades de higiene pessoal, deslocamento e alimentação na escola.',
+        'Apresenta risco de segurança em ambientes não supervisionados — cuidador necessário em período integral.',
+        'O suporte é necessário para garantir a plena participação nas atividades pedagógicas e de convivência.',
+      ];
+      if (fieldId === 'ent1') return [
+        'A família relata as mesmas dificuldades observadas na escola, especialmente na comunicação e autonomia.',
+        'Os responsáveis demonstram preocupação com o futuro do aluno e esperam maior suporte da rede especializada.',
+        'A família acompanha ativamente o processo e implementa orientações recebidas da escola em casa.',
+      ];
+      if (fieldId === 'ent2') return [
+        'A fala dos responsáveis revela sobrecarga emocional e necessidade de orientação parental mais estruturada.',
+        'Percebe-se que a família compreende as dificuldades, mas não tem estratégias suficientes para apoio em casa.',
+        'Há inconsistência entre o discurso familiar e as informações escolares — recomenda-se aprofundamento da escuta.',
+      ];
+      if (fieldId === 'sau1') return [
+        'Diagnóstico de TEA (F84.0), confirmado por neuropediatra em relatório anexo.',
+        'Hipótese diagnóstica de TDAH — laudo em processo de investigação com especialista externo.',
+        'Sem diagnóstico formal até o momento; histórico de dificuldades observado pela escola desde o ingresso.',
+      ];
+      if (fieldId === 'sau2') return [
+        'Em uso de metilfenidato 10mg, administrado antes da escola.',
+        'Sem medicação no período letivo; uso de suplementação vitamínica relatada pela família.',
+        'A família optou por não iniciar medicação; acompanhamento com psiquiatra infantil em andamento.',
+      ];
+      if (fieldId === 'sau3') return [
+        'Gestação sem intercorrências relatadas; parto normal; desenvolvimento motor dentro do esperado.',
+        'Histórico de otites recorrentes na primeira infância; tratamento concluído sem sequelas identificadas.',
+        'Prematuridade (32 semanas); UTIN por 3 semanas; desenvolvimento neuromotor monitorado nos primeiros anos.',
+      ];
+      if (fieldId === 'sau4') return [
+        'Neuropediatra (acompanhamento trimestral) e fonoaudiólogo(a) (sessões semanais).',
+        'Terapeuta ocupacional (2x/semana) com foco em integração sensorial.',
+        'Psicólogo(a) (sessões quinzenais); CAPS Infantil vinculado ao município.',
+      ];
+      if (fieldId === 'ped1') return [
+        'Demonstra autonomia na realização de atividades rotineiras com apoio de sequência visual.',
+        'Reconhece letras e números; realiza leitura de palavras simples com apoio.',
+        'Engaja-se em atividades práticas e manipulativas; boa memória para sequências.',
+      ];
+      if (fieldId === 'ped2') return [
+        'Dificuldade de atenção sustentada em atividades longas sem suporte individualizado.',
+        'Resistência à escrita espontânea; prefere atividades com menor demanda grafomotora.',
+        'Dificuldade na generalização de aprendizados para novos contextos sem mediação do adulto.',
+      ];
+      if (fieldId === 'ped3') return [
+        'Nível pré-silábico na leitura e escrita; reconhece o próprio nome e algumas letras isoladas.',
+        'Nível silábico-alfabético; realiza leitura com apoio e escrita de palavras simples conhecidas.',
+        'Alfabetizado funcionalmente; leitura com compreensão de textos curtos e escrita com apoio ortográfico.',
+      ];
+      if (fieldId === 'com2') return [
+        'Comunicação expressiva limitada a palavras-chave; compreende instruções simples e diretas.',
+        'Utiliza gestos, apontamento e pictogramas como complemento à comunicação oral.',
+        'Comunicação verbal funcional para necessidades básicas; dificuldade em narrativas complexas.',
+      ];
+      if (fieldId === 'at1') return [
+        'Mantém atenção por 10–15 minutos em atividades de interesse; menor em atividades abstratas.',
+        'Distrai-se com estímulos auditivos do ambiente; beneficia-se de posicionamento próximo ao professor.',
+        'Alternância frequente de foco; necessita de estímulos variados e intervenções curtas.',
+      ];
+      if (fieldId === 'at2') return [
+        'Uso de timer visual e rotina previsível auxiliam na manutenção da atenção.',
+        'Atividades de curta duração com intervalos sensoriais entre as tarefas.',
+        'Recursos visuais (agenda, lista de passos) aumentam o foco e a organização.',
+      ];
+      if (fieldId === 'eng1') return [
+        'Engaja-se mais em atividades práticas, lúdicas e com temática de seu interesse.',
+        'Participação aumenta significativamente quando há previsibilidade e estrutura clara.',
+        'Em atividades em pequenos grupos com mediação, o engajamento é substancialmente maior.',
+      ];
+      if (fieldId === 'eng2') return [
+        'Demonstra interesse por dinossauros, veículos e jogos de construção.',
+        'Responde positivamente a reforços verbais e registro visual de seus progressos.',
+        'A variação de materiais e a oferta de escolha aumentam a motivação e a permanência na tarefa.',
+      ];
+      if (fieldId === 'comp1') return [
+        'Apresenta agitação motora em momentos de transição entre atividades.',
+        'Em situações de sobrecarga, vocaliza de forma repetitiva ou se recusa a participar.',
+        'Comportamento de recusa frequente ao iniciar atividades percebidas como difíceis.',
+      ];
+      if (fieldId === 'comp2') return [
+        'Os comportamentos se intensificam em momentos de imprevisibilidade ou mudança de rotina.',
+        'Situações de barulho excessivo e superlotação da sala antecedem episódios de agitação.',
+        'A recusa ocorre principalmente em atividades que envolvem escrita ou leitura em voz alta.',
+      ];
+      if (fieldId === 'sob1') return [
+        'Reage a barulhos intensos tamponando os ouvidos e procurando isolar-se.',
+        'Apresenta desconforto a determinadas texturas e resistência ao toque inesperado.',
+        'Sensibilidade a estímulos visuais em excesso — sala muito decorada dificulta a concentração.',
+      ];
+      if (fieldId === 'sob2') return [
+        'Acesso a brinquedo sensorial (fidget) e pausa em espaço calmo auxiliam na regulação.',
+        'Música suave e fone de ouvido em momentos de sobrecarga reduzem a agitação.',
+        'Protocolo combinado: sinal visual para solicitação de pausa, seguido de 5 minutos em área tranquila.',
+      ];
+      if (fieldId === 'int1') return [
+        'Interage com pares de forma paralela; busca pouco o contato espontâneo com colegas.',
+        'Aceita e responde à interação quando iniciada por colegas em atividades de seu interesse.',
+        'Com mediação do adulto, participa de atividades cooperativas por períodos curtos.',
+      ];
+      if (fieldId === 'int2') return [
+        'Responde positivamente a adultos com quem tem vínculo estabelecido; resiste a novos interlocutores.',
+        'Aceita orientações quando dadas de forma calma, direta e acompanhadas de suporte visual.',
+        'A relação com os professores é de confiança; instrui-se melhor em dupla do que em grupo.',
+      ];
+      if (fieldId === 'ling1') return [
+        'Vocabulário funcional presente; frases simples de 2–4 palavras na comunicação espontânea.',
+        'Discurso ecolálico em situações de estresse; linguagem mais elaborada em contextos de interesse.',
+        'Dificuldade na construção de narrativas e sequenciação de eventos.',
+      ];
+      if (fieldId === 'ling2') return [
+        'Compreende instruções simples e diretas; dificuldade com comandos compostos ou abstratos.',
+        'Beneficia-se de instruções acompanhadas de demonstração e apoio visual.',
+        'Compreensão textual emergente; precisa de mediação para inferências e sentido figurado.',
+      ];
+      if (fieldId === 'leit1') return [
+        'Pré-silábico — reconhece o próprio nome e algumas letras do alfabeto.',
+        'Silábico-alfabético — realiza leitura de palavras familiares com apoio.',
+        'Leitor fluente com adaptações — necessita de texto simplificado e letras ampliadas.',
+      ];
+      if (fieldId === 'leit2') return [
+        'Uso de textos adaptados com pictogramas e fonte ampliada melhora o desempenho.',
+        'Leitura compartilhada em dupla tem se mostrado eficaz para avanço na decodificação.',
+        'Estratégias de predição e uso de contexto visual auxiliam a compreensão leitora.',
+      ];
+      if (fieldId === 'esc1') return [
+        'Pré-silábico — produz garatujas e pseudoletras; copia o próprio nome com apoio.',
+        'Silábico — associa sílabas a letras; escreve palavras simples com apoio fonético.',
+        'Alfabético com dificuldades ortográficas — escreve com compreensão, mas com trocas frequentes.',
+      ];
+      if (fieldId === 'esc2') return [
+        'Ditado de sílabas e palavras curtas com feedback imediato.',
+        'Escrita em teclado ou tablet como alternativa à escrita manual.',
+        'Uso de vogais coloridas e material concreto para apoio à análise fonológica.',
+      ];
+    }
+
+    // ── PAEE ────────────────────────────────────────────────────────────────────
+    if (docType === DocumentType.PAEE) {
+      if (fieldId === 'c1') return [
+        'Terças e quintas-feiras, das 14h às 15h, na sala de recursos multifuncionais.',
+        'Atendimento no contraturno, 2 vezes por semana, conforme disponibilidade do aluno.',
+        'Sessões de 45 minutos, às segundas e quartas-feiras, ajustáveis conforme evolução.',
+      ];
+      if (fieldId === 'a1') return [
+        'A articulação com o professor regente ocorre semanalmente de forma sistemática.',
+        'Há troca regular de informações sobre estratégias e adaptações em sala.',
+        'O professor regente tem implementado as orientações do AEE com êxito.',
+      ];
+      if (fieldId === 'a2') return [
+        'Reunião bimestral com a família para alinhamento das estratégias e comunicação dos avanços.',
+        'A família recebe orientações mensais por escrito sobre atividades de suporte em casa.',
+        'Canal de comunicação aberto via agenda escolar para troca de informações relevantes.',
+      ];
+      if (fieldId === 'met1') return [
+        'Desenvolver habilidades de comunicação funcional por meio da CAA até o final do semestre.',
+        'Ampliar a autonomia nas atividades de vida diária com redução progressiva do suporte.',
+        'Consolidar as habilidades de leitura e escrita funcional no contexto escolar.',
+      ];
+      if (fieldId === 'res1') return [
+        'Participação nas atividades propostas: meta de 80% de engajamento ao final do período.',
+        'Uso independente da prancha de comunicação em 3 de 5 situações observadas.',
+        'Evolução documentada por ficha de acompanhamento quinzenal com indicadores observáveis.',
+      ];
+    }
+
+    // Campos sem sugestão específica — retorna vazio para não mostrar genérico
+    return [];
+  };
 
   const buildStandardSections = (docType: DocumentType): DocSection[] => {
     if (!selectedStudent) return [];
@@ -823,6 +1112,7 @@ const planLimits = getPlanLimits(user.plan);
       const newSecs = [...sections];
       newSecs[secIdx].fields[fieldIdx].value = val;
       setSections(newSecs);
+      setIsDirty(true);
   };
 
   const handleAudioUpdate = (secIdx: number, fieldIdx: number, url: string, duration: number) => {
@@ -891,6 +1181,7 @@ const planLimits = getPlanLimits(user.plan);
       const newSecs = [...sections];
       newSecs[secIdx].fields.splice(fieldIdx, 1);
       setSections(newSecs);
+      setIsDirty(true);
   };
 
   const PROTECTED_SECTION_IDS = new Set(['header', 'dados_inst', 'assinaturas', 'identificacao']);
@@ -907,6 +1198,7 @@ const planLimits = getPlanLimits(user.plan);
           : `Excluir a seção "${section.title}"?`;
       if (!confirm(msg)) return;
       setSections(prev => prev.filter((_, i) => i !== secIdx));
+      setIsDirty(true);
   };
 
   // ─── SEÇÃO MODAL PREMIUM ────────────────────────────────────────────────────
@@ -980,25 +1272,31 @@ const planLimits = getPlanLimits(user.plan);
   const handleSaveWrapper = (status: ProtocolStatus = 'DRAFT') => {
      if (!selectedStudent) return;
      const log = initialProtocol ? `Editado por ${user.name}` : `Criado por ${user.name}`;
-     
+
      let finalAuditCode = currentAuditCode;
 
      if (status === 'FINAL') {
-         if (!confirm("Confirmar conclusão? O documento será marcado como final e não poderá mais ser editado livremente.")) return;
-         
-         // Generate Audit Code if not exists
+         // Gera código auditável se ainda não existe
          finalAuditCode = ensureDocumentCodeForType(type, finalAuditCode);
          setCurrentAuditCode(finalAuditCode);
      }
 
-     // Pass auditCode in data (workaround to persist it in structuredData)
      const dataToSave = { sections, auditCode: finalAuditCode };
-     
      onSave(dataToSave, selectedStudent, log, status);
-     
-     if (status === 'FINAL') setIsEditing(false);
-     // UX: we treat the editor as always editable; avoid exposing "rascunho" terminology.
-     alert(status === 'FINAL' ? "Documento concluído e salvo com sucesso." : "Documento salvo com sucesso.");
+     setIsDirty(false);
+
+     const msg = status === 'FINAL'
+       ? 'Documento marcado como finalizado e salvo.'
+       : 'Alterações salvas com sucesso.';
+     console.info('[DocumentBuilder] save:', msg);
+  };
+
+  const handleCloseEditing = () => {
+    if (isDirty) {
+      setShowCloseConfirm(true);
+    } else {
+      setIsEditing(false);
+    }
   };
 
   const handleDeleteWrapper = () => {
@@ -1339,44 +1637,50 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
   const documentRef = useRef<HTMLDivElement>(null);
 
-  // ── Imprimir/PDF: injeta clone direto no body, sem overlay intermediário ─────
+  // ── Imprimir: gera o MESMO PDF do botão "Gerar PDF" e abre para impressão ────
   const handlePrint = async () => {
-    const el = documentRef.current;
-    if (!el) { window.print(); return; }
-
-    const clone = el.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll('.print\\:hidden, [data-no-print]').forEach(n => n.remove());
-    clone.style.cssText = 'max-height:none;overflow:visible;padding:0;margin:0;background:white;';
-    clone.id = '__doc_print_content__';
-
-    const bodyKids = Array.from(document.body.children) as HTMLElement[];
-    bodyKids.forEach(el => el.style.setProperty('display', 'none', 'important'));
-    document.body.appendChild(clone);
-
-    const style = document.createElement('style');
-    style.id = '__doc_print_style__';
-    style.textContent = `
-      @page { size: A4 portrait; margin: 15mm 15mm 20mm 15mm; }
-      html, body { margin:0; padding:0;
-        -webkit-print-color-adjust: exact; print-color-adjust: exact; color-adjust: exact; }
-      #__doc_print_content__ [data-doc-page] {
-        width: 100% !important; min-height: auto !important; box-shadow: none !important;
+    if (!selectedStudent || sections.length === 0) { window.print(); return; }
+    setGeneratingPDF(true);
+    try {
+      const school = user.schoolConfigs?.[0] ?? null;
+      const auditCode = ensureDocumentCodeForType(type, currentAuditCode);
+      if (auditCode !== currentAuditCode) setCurrentAuditCode(auditCode);
+      const pdfSections = sections.map(sec => ({
+        title: sec.title,
+        fields: (sec.fields ?? []).map(f => ({
+          label:    f.label,
+          value:    f.value ?? '',
+          type:     f.type,
+          maxScale: (f as any).maxScale,
+        })),
+      }));
+      const blob = await PDFGenerator.generateFromSections({
+        docType:  type,
+        title:    type,
+        student:  selectedStudent,
+        user:     user as any,
+        school,
+        sections: pdfSections,
+        auditCode,
+      });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank');
+      if (win) {
+        win.addEventListener('load', () => {
+          setTimeout(() => {
+            win.print();
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          }, 400);
+        });
+      } else {
+        // Popup bloqueado — baixa direto como fallback
+        PDFGenerator.download(blob, `${type}_${selectedStudent.name.replace(/\s+/g, '_')}_${auditCode}_impressao.pdf`);
       }
-      #__doc_print_content__ * { box-shadow: none !important; }
-    `;
-    document.head.appendChild(style);
-
-    const prevTitle = document.title;
-    document.title = `${type} — ${selectedStudent?.name ?? ''}`;
-    await new Promise<void>(r => setTimeout(r, 200));
-    window.print();
-
-    setTimeout(() => {
-      document.title = prevTitle;
-      clone.remove();
-      style.remove();
-      bodyKids.forEach(el => el.style.removeProperty('display'));
-    }, 800);
+    } catch (e: any) {
+      alert(`Erro ao preparar impressão: ${e?.message || 'Tente novamente.'}`);
+    } finally {
+      setGeneratingPDF(false);
+    }
   };
 
   // ── Gerar PDF real via jsPDF (separado do Imprimir) ──────────────────────────
@@ -1855,33 +2159,47 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
             </div>
           }
           right={<>
-            <DocButton variant="outline" icon={<Printer size={15}/>} onClick={handlePrint} title="Imprimir documento atual">
-              <span className="hidden sm:inline">Imprimir</span>
-            </DocButton>
-
-            <DocButton
-              variant="outline"
-              icon={<Download size={15}/>}
-              loading={generatingPDF}
-              onClick={handleGeneratePDF}
-              title="Gerar arquivo PDF auditável"
-            >
-              <span className="hidden sm:inline">{generatingPDF ? 'Gerando…' : 'Gerar PDF'}</span>
-            </DocButton>
-
-            {isEditing && (
+            {isEditing ? (
               <>
+                {/* ── Ações principais ─────────────────────────────────── */}
                 <DocButton
-                  variant={isReordering ? 'primary' : 'secondary'}
-                  icon={isReordering ? <CheckCircle size={15}/> : <Settings size={15}/>}
+                  variant="primary"
+                  icon={<Save size={15}/>}
+                  onClick={() => handleSaveWrapper('DRAFT')}
+                  title="Salvar alterações"
+                >
+                  <span className="hidden sm:inline">Salvar</span>
+                </DocButton>
+
+                <DocButton
+                  variant="outline"
+                  icon={<Download size={15}/>}
+                  loading={generatingPDF}
+                  onClick={handleGeneratePDF}
+                  title="Gerar arquivo PDF auditável"
+                >
+                  <span className="hidden sm:inline">{generatingPDF ? 'Gerando…' : 'Gerar PDF'}</span>
+                </DocButton>
+
+                {/* ── Separador ──────────────────────────────────────────── */}
+                <span className="w-px h-5 bg-gray-200 self-center hidden sm:block" />
+
+                {/* ── Ações secundárias ──────────────────────────────────── */}
+                <DocButton variant="outline" icon={<Printer size={15}/>} onClick={handlePrint} title="Imprimir">
+                  <span className="hidden sm:inline">Imprimir</span>
+                </DocButton>
+
+                <DocButton
+                  variant={isReordering ? 'secondary' : 'ghost'}
+                  icon={<Settings size={15}/>}
                   onClick={() => setIsReordering(!isReordering)}
                   title="Reordenar campos e seções"
                 >
-                  <span className="hidden sm:inline">{isReordering ? 'Concluir' : 'Organizar'}</span>
+                  <span className="hidden sm:inline">Organizar</span>
                 </DocButton>
 
-                <DocButton variant="ghost" icon={<Plus size={15}/>} onClick={handleAddSection} title="Criar nova seção/bloco">
-                  <span className="hidden sm:inline">Add Seção</span>
+                <DocButton variant="ghost" icon={<Plus size={15}/>} onClick={handleAddSection} title="Criar nova seção">
+                  <span className="hidden sm:inline">Seção</span>
                 </DocButton>
 
                 {(type === DocumentType.PEI || type === DocumentType.ESTUDO_CASO) && (
@@ -1889,31 +2207,36 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                     variant="amber"
                     icon={<Star size={14}/>}
                     onClick={() => setShowTemplateEditor(true)}
-                    title="Editar estrutura e salvar como meu modelo reutilizável"
+                    title="Salvar como modelo reutilizável"
                   >
-                    <span className="hidden sm:inline">Salvar como modelo</span>
+                    <span className="hidden sm:inline">Salvar modelo</span>
                   </DocButton>
                 )}
-              </>
-            )}
 
-            {isEditing ? (
-              <>
-                <DocButton variant="secondary" icon={<Save size={15}/>} onClick={() => handleSaveWrapper('DRAFT')} title="Salvar como rascunho">
-                  <span className="hidden sm:inline">Salvar</span>
-                </DocButton>
-                <DocButton variant="primary" icon={<CheckCircle size={15}/>} onClick={() => handleSaveWrapper('FINAL')} title="Finalizar documento (gera código auditável)">
-                  Concluir
-                </DocButton>
               </>
             ) : (
-              <DocButton variant="primary" icon={<Edit3 size={15}/>} onClick={() => setIsEditing(true)} title="Editar documento">
-                Editar
-              </DocButton>
+              <>
+                {/* ── Modo visualização (documento FINAL) ────────────────── */}
+                <DocButton variant="primary" icon={<Edit3 size={15}/>} onClick={() => setIsEditing(true)} title="Editar documento">
+                  Editar
+                </DocButton>
+                <DocButton
+                  variant="outline"
+                  icon={<Download size={15}/>}
+                  loading={generatingPDF}
+                  onClick={handleGeneratePDF}
+                  title="Gerar PDF"
+                >
+                  <span className="hidden sm:inline">{generatingPDF ? 'Gerando…' : 'Gerar PDF'}</span>
+                </DocButton>
+                <DocButton variant="outline" icon={<Printer size={15}/>} onClick={handlePrint} title="Imprimir">
+                  <span className="hidden sm:inline">Imprimir</span>
+                </DocButton>
+              </>
             )}
 
-            <DocIconButton variant="destructive" icon={<Trash2 size={15}/>} label="Excluir documento" onClick={handleDeleteWrapper} />
-            <DocButton variant="ghost" onClick={onCancel}>Fechar</DocButton>
+            {/* ── Saída do modo edição ────────────────────────────────────── */}
+            <DocButton variant="ghost" onClick={handleCloseEditing}>Fechar edição</DocButton>
           </>}
         />
 
@@ -2116,7 +2439,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                                     <button
                                         onClick={() => handleDeleteSection(i)}
                                         title="Excluir esta seção"
-                                        className="text-xs flex items-center gap-1 text-red-400 hover:text-red-600 font-bold opacity-0 group-hover/section:opacity-100 transition-opacity"
+                                        className="text-xs flex items-center gap-1 text-red-400 hover:text-red-600 font-bold transition-colors"
                                     >
                                         <Trash2 size={13}/> Excluir seção
                                     </button>
@@ -2163,6 +2486,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                                               onChange={(v) => handleFieldChange(i, j, v)}
                                               placeholder={f.placeholder}
                                               rows={5}
+                                              suggestionChips={getFieldSuggestions(type, sec.id, f.id)}
                                             />
                                         ) : f.type === 'scale' ? (
                                             <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
@@ -2273,17 +2597,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                                     )
                                 )}
 
-                                {/* Audio Recorder */}
-                                {f.allowAudio && f.allowAudio !== 'none' && (
-                                    <div className={!isEditing && !f.audioUrl ? 'hidden' : ''}>
-                                        <AudioRecorder
-                                            initialAudioUrl={f.audioUrl}
-                                            onSave={(url, duration) => handleAudioUpdate(i, j, url, duration)}
-                                            onDelete={() => handleAudioDelete(i, j)}
-                                            readOnly={!isEditing}
-                                        />
-                                    </div>
-                                )}
+                                {/* Audio Recorder removido — microfone único via AudioEnhancedTextarea */}
 
                                 {/* BNCC Suggestor — campos *_bncc no PEI */}
                                 {isEditing && type === DocumentType.PEI && f.id in DISCIPLINE_KEY_MAP && (
@@ -2331,6 +2645,45 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 onSaved={() => {}}
                 onClose={() => setShowTemplateEditor(false)}
             />
+        )}
+
+        {/* ── Modal: confirmar fechar edição com alterações não salvas ── */}
+        {showCloseConfirm && (
+          <div className="fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+              <h3 className="text-base font-semibold text-gray-900 mb-2">Alterações não salvas</h3>
+              <p className="text-sm text-gray-500 mb-6">Deseja salvar antes de fechar?</p>
+              <div className="flex flex-col gap-2">
+                <button
+                  className="w-full py-2.5 rounded-xl text-sm font-medium text-white transition"
+                  style={{ background: '#1F4E5F' }}
+                  onClick={() => {
+                    handleSaveWrapper('DRAFT');
+                    setShowCloseConfirm(false);
+                    setIsEditing(false);
+                  }}
+                >
+                  Salvar e fechar
+                </button>
+                <button
+                  className="w-full py-2.5 rounded-xl text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition"
+                  onClick={() => {
+                    setIsDirty(false);
+                    setShowCloseConfirm(false);
+                    setIsEditing(false);
+                  }}
+                >
+                  Descartar alterações
+                </button>
+                <button
+                  className="w-full py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 transition"
+                  onClick={() => setShowCloseConfirm(false)}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
         )}
     </div>
   );

@@ -68,15 +68,21 @@ function contentBottom(H: number): number { return H - BOTTOM_MARGIN - FOOTER_H;
 
 function calcAge(birthDate?: string): string {
   if (!birthDate) return '';
-  const parts = birthDate.includes('/') ? birthDate.split('/') : birthDate.split('-');
-  if (parts.length < 3) return '';
-  const [d, m, y] = parts.map(Number);
-  if (!y || !m) return '';
+  let d: number, m: number, y: number;
+  if (birthDate.includes('/')) {
+    // DD/MM/YYYY
+    const p = birthDate.split('/').map(Number);
+    [d, m, y] = [p[0], p[1], p[2]];
+  } else {
+    // YYYY-MM-DD (ISO) — year is first token
+    const p = birthDate.split('-').map(Number);
+    [y, m, d] = [p[0], p[1], p[2]];
+  }
+  if (!y || y < 100 || !m) return '';
   const today = new Date();
   let age = today.getFullYear() - y;
-  const monthOk = today.getMonth() + 1 < m ||
-    (today.getMonth() + 1 === m && today.getDate() < d);
-  if (monthOk) age--;
+  const notYet = today.getMonth() + 1 < m || (today.getMonth() + 1 === m && today.getDate() < d);
+  if (notYet) age--;
   return age >= 0 ? `${age} anos` : '';
 }
 
@@ -143,11 +149,241 @@ async function cropCircle(photoUrl: string): Promise<string> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// HELPERS EXCLUSIVOS DA FICHA DO ALUNO (documento interno — sem validação pública)
+// PREMIUM FICHA HELPERS — Painel Pedagógico Visual
+// Espírito do preview_ficha_aluno_premium — implementado em jsPDF
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Cabeçalho corrente das páginas 2+ da Ficha (sem URL de validação). */
-function addFichaHeader(
+// Paleta premium (complementa a paleta geral)
+const PF_GREEN_BG   = [236, 253, 245] as [number,number,number]; // emerald-50
+const PF_GREEN_TXT  = [  4, 120,  87] as [number,number,number]; // emerald-700
+const PF_GREEN_BD   = [167, 243, 208] as [number,number,number]; // emerald-200
+const PF_ORANGE_BG  = [255, 247, 237] as [number,number,number]; // orange-50
+const PF_ORANGE_TXT = [194,  65,  12] as [number,number,number]; // orange-700
+const PF_ORANGE_BD  = [254, 215, 170] as [number,number,number]; // orange-200
+const PF_ORANGE_ACC = [251, 146,  60] as [number,number,number]; // orange-400 (barra acento hero)
+const PF_BLUE_BG    = [239, 246, 255] as [number,number,number]; // blue-50
+const PF_BLUE_TXT   = [ 29,  78, 216] as [number,number,number]; // blue-700
+const PF_BLUE_BD    = [191, 219, 254] as [number,number,number]; // blue-200
+const PF_SL100      = [241, 245, 249] as [number,number,number]; // slate-100
+const PF_SL200      = [226, 232, 240] as [number,number,number]; // slate-200
+const PF_SL400      = [148, 163, 184] as [number,number,number]; // slate-400
+const PF_SL500      = [100, 116, 139] as [number,number,number]; // slate-500
+const PF_SL700      = [ 51,  65,  85] as [number,number,number]; // slate-700
+const PF_SL800      = [ 30,  41,  59] as [number,number,number]; // slate-800
+const PF_SL900      = [ 15,  23,  42] as [number,number,number]; // slate-900
+
+/** Valor normalizado — retorna fallback se vazio. */
+function pf_val(v: any, fallback = 'Não informado'): string {
+  return String(v ?? '').trim() || fallback;
+}
+
+/** Cabeçalho corrente — páginas 2+ da Ficha Premium. */
+function pf_header(
+  doc: any, studentName: string, code: string, school?: SchoolConfig | null,
+): number {
+  const W  = doc.internal.pageSize.getWidth();
+  const sn = school?.schoolName?.trim() || 'Escola não informada';
+  doc.setFont('helvetica', 'bold');   doc.setFontSize(8);   sc(doc, PF_SL900);
+  doc.text(sn.toUpperCase(), FL, 7.5);
+  const shortName = studentName.length > 28 ? studentName.split(' ').slice(0, 2).join(' ') : studentName;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL500);
+  doc.text(`FICHA DO ALUNO — ${shortName}`, W / 2, 7.5, { align: 'center' });
+  doc.setFont('courier', 'normal');   doc.setFontSize(7);   sc(doc, PF_SL400);
+  doc.text(`Doc.: ${code}`, W - FR, 7.5, { align: 'right' });
+  sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+  doc.line(FL, 10.5, W - FR, 10.5);
+  return 13;
+}
+
+/** Rodapé limpo — sem QR, sem URL pública. */
+function pf_footer(doc: any, code: string, emittedBy: string): void {
+  const W   = doc.internal.pageSize.getWidth();
+  const H   = doc.internal.pageSize.getHeight();
+  const fY  = H - 10 - FICHA_FOOTER_H;
+  const pN  = doc.internal.getCurrentPageInfo().pageNumber;
+  const pT  = doc.internal.getNumberOfPages();
+  const cleanBy  = (emittedBy || '').replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim() || emittedBy;
+  const emitDate = new Date().toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+  sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+  doc.line(FL, fY, W - FR, fY);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7);   sc(doc, PF_SL500);
+  doc.text('Documento pedagógico para uso interno IncluiAI', FL, fY + 4.5);
+  doc.setFont('helvetica', 'bold');                         sc(doc, BRAND);
+  doc.text('INCLUIAI', W / 2, fY + 4.5, { align: 'center' });
+  doc.setFont('helvetica', 'normal');                       sc(doc, PF_SL500);
+  doc.text(`Página ${pN} de ${pT}`, W - FR, fY + 4.5, { align: 'right' });
+  doc.setFontSize(6.5); sc(doc, PF_SL400);
+  if (cleanBy) doc.text(`Emitido por: ${cleanBy}  ·  ${emitDate}`, FL, fY + 8.5);
+  doc.setFont('courier', 'normal'); sc(doc, BRAND);
+  doc.text(`Cód.: ${code}`, W - FR, fY + 8.5, { align: 'right' });
+}
+
+function pf_footerAllPages(doc: any, code: string, emittedBy: string): void {
+  const n = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= n; i++) { doc.setPage(i); pf_footer(doc, code, emittedBy); }
+}
+
+/** Y máximo disponível antes do rodapé. */
+function pf_pfBottom(H: number): number { return H - 10 - FICHA_FOOTER_H; }
+
+/** Título de seção: badge azul quadrado + título bold. */
+function pf_sectionTitle(
+  doc: any, symbol: string, title: string, x: number, y: number,
+): number {
+  const sz = 8;
+  sf(doc, PF_BLUE_BG); sdd(doc, PF_BLUE_BD); doc.setLineWidth(0.25);
+  doc.roundedRect(x, y, sz, sz, 1.5, 1.5, 'FD');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); sc(doc, PF_BLUE_TXT);
+  doc.text(symbol, x + sz / 2, y + sz / 2 + 1.2, { align: 'center' });
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(12); sc(doc, PF_SL900);
+  doc.text(title, x + sz + 3, y + sz - 1);
+  return y + sz + 4;
+}
+
+/** Calcula altura de uma lista de chips sem desenhar. */
+function pf_measureChipList(doc: any, items: string[], maxW: number): number {
+  const arr = (items || []).map(i => String(i ?? '').trim()).filter(Boolean);
+  if (!arr.length) return 0;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+  const chipH = 6, padX = 3.5, gapX = 2.5, gapY = 2.5;
+  let cx = 0, rows = 1;
+  for (const item of arr) {
+    const chipW = doc.getTextWidth(item) + padX * 2;
+    if (cx > 0 && cx + chipW > maxW) { cx = 0; rows++; }
+    cx += chipW + gapX;
+  }
+  return rows * (chipH + gapY);
+}
+
+/** Lista de chips coloridos com quebra de linha automática. */
+function pf_chipList(
+  doc: any, items: any[], x: number, y: number, maxW: number,
+  tone: 'blue' | 'green' | 'orange' = 'blue',
+): number {
+  const arr = (items || []).map(i => String(i ?? '').trim()).filter(Boolean);
+  if (!arr.length) {
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); sc(doc, PF_SL400);
+    doc.text('Em preenchimento', x, y + 5);
+    return y + 10;
+  }
+  const bg  = tone === 'green' ? PF_GREEN_BG  : tone === 'orange' ? PF_ORANGE_BG  : PF_BLUE_BG;
+  const txt = tone === 'green' ? PF_GREEN_TXT : tone === 'orange' ? PF_ORANGE_TXT : PF_BLUE_TXT;
+  const bd  = tone === 'green' ? PF_GREEN_BD  : tone === 'orange' ? PF_ORANGE_BD  : PF_BLUE_BD;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+  const chipH = 6, padX = 3.5, gapX = 2.5, gapY = 2.5;
+  let cx = x;
+  for (const item of arr) {
+    const chipW = doc.getTextWidth(item) + padX * 2;
+    if (cx > x && cx + chipW > x + maxW) { cx = x; y += chipH + gapY; }
+    sf(doc, bg); sdd(doc, bd); doc.setLineWidth(0.25);
+    doc.roundedRect(cx, y, chipW, chipH, 1.5, 1.5, 'FD');
+    sc(doc, txt); doc.text(item, cx + padX, y + chipH - 1.5);
+    cx += chipW + gapX;
+  }
+  return y + chipH + 2;
+}
+
+/** Card de campo único: label cinza pequeno (caps) + valor bold. */
+function pf_fieldCard(
+  doc: any, label: string, value: string,
+  x: number, y: number, w: number, h = 16,
+): void {
+  sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+  doc.roundedRect(x, y, w, h, 2, 2, 'FD');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); sc(doc, PF_SL400);
+  doc.text(label.toUpperCase(), x + 4, y + 5.5);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); sc(doc, PF_SL800);
+  const vLines = doc.splitTextToSize(String(value || '—'), w - 8) as string[];
+  doc.text(vLines[0] || '—', x + 4, y + 11);
+}
+
+/** Grid de cards de campo em N colunas. */
+function pf_infoGrid(
+  doc: any, fields: Array<[string, string]>,
+  x: number, y: number, maxW: number, cols = 3,
+): number {
+  const fH = 16, gX = 3, gY = 3;
+  const cW = (maxW - gX * (cols - 1)) / cols;
+  fields.forEach(([label, value], i) => {
+    pf_fieldCard(
+      doc, label, pf_val(value),
+      x + (i % cols) * (cW + gX),
+      y + Math.floor(i / cols) * (fH + gY),
+      cW, fH,
+    );
+  });
+  return y + Math.ceil(fields.length / cols) * (fH + gY) + 1;
+}
+
+/** Dois cards de chips lado a lado com altura igualada. */
+function pf_twoChipCards(
+  doc: any,
+  left:  { title: string; chips: string[]; tone: 'green' | 'orange' },
+  right: { title: string; chips: string[]; tone: 'green' | 'orange' },
+  x: number, y: number, maxW: number,
+): number {
+  const cW     = (maxW - 4) / 2;
+  const titleH = 10;
+  const lH     = pf_measureChipList(doc, left.chips,  cW - 8);
+  const rH     = pf_measureChipList(doc, right.chips, cW - 8);
+  const cardH  = Math.max(28, titleH + Math.max(lH, rH) + 8);
+
+  const drawCard = (cx: number, t: typeof left) => {
+    const bd  = t.tone === 'green' ? PF_GREEN_BD  : PF_ORANGE_BD;
+    const clr = t.tone === 'green' ? PF_GREEN_TXT : PF_ORANGE_TXT;
+    sf(doc, WHITE); sdd(doc, bd); doc.setLineWidth(0.25);
+    doc.roundedRect(cx, y, cW, cardH, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); sc(doc, clr);
+    doc.text(t.title, cx + 4, y + 8);
+    pf_chipList(doc, t.chips, cx + 4, y + titleH, cW - 8, t.tone);
+  };
+  drawCard(x, left);
+  drawCard(x + cW + 4, right);
+  return y + cardH + 3;
+}
+
+/** Dois cards de texto corrido lado a lado. */
+function pf_twoTextCards(
+  doc: any,
+  left:  { title: string; text: string },
+  right: { title: string; text: string },
+  x: number, y: number, maxW: number,
+): number {
+  const cW     = (maxW - 4) / 2;
+  const titleH = 10;
+  const lh     = 4.2;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+  const lLines = doc.splitTextToSize(left.text  || '—', cW - 8) as string[];
+  const rLines = doc.splitTextToSize(right.text || '—', cW - 8) as string[];
+  const cardH  = Math.max(28, titleH + Math.max(lLines.length, rLines.length) * lh + 6);
+
+  const drawCard = (cx: number, t: typeof left, lines: string[]) => {
+    sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+    doc.roundedRect(cx, y, cW, cardH, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); sc(doc, PF_SL900);
+    doc.text(t.title, cx + 4, y + 8);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); sc(doc, PF_SL700);
+    doc.text(lines, cx + 4, y + titleH + lh);
+  };
+  drawCard(x,         left,  lLines);
+  drawCard(x + cW + 4, right, rLines);
+  return y + cardH + 3;
+}
+
+/** Barra de progresso: fundo cinza + preenchimento colorido. */
+function pf_progressBar(
+  doc: any, pct: number, x: number, y: number, w: number,
+  fillColor: [number,number,number] = PF_BLUE_TXT,
+): void {
+  const barH = 2.5, v = Math.max(0, Math.min(100, pct));
+  sf(doc, PF_SL200); doc.roundedRect(x, y, w, barH, 1, 1, 'F');
+  if (v > 0) { sf(doc, fillColor); doc.roundedRect(x, y, w * v / 100, barH, 1, 1, 'F'); }
+}
+
+// (helpers antigos removidos — substituídos pelos pf_ acima)
+function addFichaHeader_UNUSED(
   doc: any,
   studentName: string,
   internalCode: string,
@@ -943,6 +1179,8 @@ export const ExportService = {
     config?: {
       dadosAluno?: boolean; fotoAluno?: boolean; logoEscola?: boolean;
       enderecoCompleto?: boolean; codigoUnico?: boolean;
+      perfilPedagogico?: boolean; conhecimentoPrevio?: boolean;
+      dadosSociofamiliares?: boolean; responsaveisContatos?: boolean;
       ultimaAvaliacao?: boolean; agendamentos?: boolean;
       controleAtendimento?: boolean;
       documentosGerados?: boolean;
@@ -957,6 +1195,8 @@ export const ExportService = {
     const cfg = {
       dadosAluno: true, fotoAluno: true, logoEscola: true,
       enderecoCompleto: false, codigoUnico: true,
+      perfilPedagogico: true, conhecimentoPrevio: true,
+      dadosSociofamiliares: true, responsaveisContatos: true,
       ultimaAvaliacao: true, agendamentos: true,
       controleAtendimento: true,
       documentosGerados: true,
@@ -970,599 +1210,634 @@ export const ExportService = {
     const W     = doc.internal.pageSize.getWidth();
     const H     = doc.internal.pageSize.getHeight();
     const maxW  = W - FL - FR;
-    // halfW reserved for future two-column layout
 
     const internalCode = makeAuditCode('FICHA', student.id);
     const schoolForDoc = cfg.logoEscola ? school : null;
 
-    // Pré-processa foto circular
+    // Pre-processa foto circular
     let circularPhoto: string | undefined;
     if (cfg.fotoAluno && student.photoUrl) {
       try { circularPhoto = await cropCircle(student.photoUrl); } catch {}
     }
 
-    // Cabeçalho corrente das páginas 2+
-    const fichaHeader = (): number => {
-      const top = addFichaHeader(doc, student.name, internalCode, schoolForDoc);
-      return top;
-    };
+    // Dados normalizados
+    const age         = calcAge(student.birthDate);
+    const rawSex      = (student as any).gender || (student as any).sex || '';
+    const gLabel      = rawSex === 'M' ? 'Masculino' : rawSex === 'F' ? 'Feminino' : rawSex || 'Não informado';
+    const supLvl      = (student as any).supportLevel || (student as any).support_level || '';
+    const diagArr     = student.diagnosis || [];
+    const cidVal      = typeof student.cid === 'string' ? student.cid
+                      : Array.isArray(student.cid) ? (student.cid as string[]).join(', ') : '';
+    const status      = (student as any).tipo_aluno === 'com_laudo' ? 'Com Laudo'
+                      : (student as any).tipo_aluno === 'em_triagem' ? 'Em Triagem' : 'Em Preenchimento';
+    const shift       = student.shift || (student as any).turno || '';
+    const medication  = (student as any).medication || '';
+    const uniqueCode  = (student as any).unique_code || student.id?.slice(-8) || '';
+    const recomendacoes   = (student as any).recomendacoes   || (student as any).recommendations || '';
+    const encaminhamentos = (student as any).encaminhamentos || (student as any).referrals || '';
+    const adaptacoes  = (student as any).adaptacoes || (student as any).adaptations || [];
+    const recursos    = (student as any).recursos    || (student as any).resources    || [];
+    const adaptItems  = [...adaptacoes, ...recursos].filter((it: any) => it?.trim?.());
+    const interacaoSocial = (student as any).interacaoSocial || (student as any).social_interaction || '';
+    const diagStr     = [diagArr[0] || '', cidVal].filter(Boolean).join(' - ') || 'Não informado';
+    const schoolName  = schoolForDoc?.schoolName?.trim() || (student as any).schoolName || '';
+    const cityLine    = [schoolForDoc?.city, schoolForDoc?.state].filter(Boolean).join(' - ');
+    const emitDate    = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+    const pBottom     = pf_pfBottom(H);
+    const pfHeader    = (): number => pf_header(doc, student.name, internalCode, schoolForDoc);
 
-    // ════════════════════════════════════════════════════════════
-    // PÁGINA 1 — CAPA INSTITUCIONAL
-    // ════════════════════════════════════════════════════════════
-    await addStudentCover(doc, student, schoolForDoc, internalCode, circularPhoto);
+    // ==============================================================
+    // PAGINA 1 - CAPA HERO + RESUMO + EQUIPE ESCOLAR
+    // ==============================================================
 
-    // ════════════════════════════════════════════════════════════
-    // PÁGINA 2 — IDENTIFICAÇÃO COMPLETA
-    // ════════════════════════════════════════════════════════════
-    doc.addPage();
-    let y = fichaHeader();
+    // Cabecalho da pagina 1
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); sc(doc, PF_SL900);
+    doc.text((schoolName || 'Escola não informada').toUpperCase(), FL, 7.5);
+    if (cityLine) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL500);
+      doc.text(cityLine, FL, 11.5);
+    }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); sc(doc, BRAND);
+    doc.text('FICHA DO ALUNO', W - FR, 7.5, { align: 'right' });
+    doc.setFont('courier', 'normal'); doc.setFontSize(7); sc(doc, PF_SL400);
+    doc.text(`Doc.: ${internalCode}`, W - FR, 11.5, { align: 'right' });
+    sdd(doc, PF_SL200); doc.setLineWidth(0.25); doc.line(FL, 13, W - FR, 13);
 
-    // ── I. DADOS DE IDENTIFICAÇÃO ──────────────────────────────
-    y = fichaSection(doc, 'I. Dados de Identificação', FL, y, maxW);
+    // Hero Card
+    let y = 16;
+    const heroH = 70;
+    sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+    doc.roundedRect(FL, y, maxW, heroH, 3, 3, 'FD');
+    // Barra de acento laranja a direita
+    sf(doc, PF_ORANGE_ACC); doc.rect(FL + maxW - 2, y + 3, 2, heroH - 6, 'F');
 
-    const age     = calcAge(student.birthDate);
-    const rawSex  = (student as any).gender || (student as any).sex || '';
-    const gLabel  = rawSex === 'M' ? 'Masculino' : rawSex === 'F' ? 'Feminino' : rawSex || 'Não informado';
-    const supLvl  = (student as any).supportLevel || (student as any).support_level || 'Não informado';
-    const diagArr = student.diagnosis || [];
-    const cidVal  = typeof student.cid === 'string'
-      ? student.cid
-      : Array.isArray(student.cid) ? (student.cid as string[]).join(', ') : '';
-    const status  = (student as any).tipo_aluno === 'com_laudo' ? 'Com Laudo' :
-                    (student as any).tipo_aluno === 'em_triagem' ? 'Em Triagem' : 'Em Preenchimento';
-    const shift   = student.shift || (student as any).turno || '';
-    const medication = (student as any).medication || '';
-    const uniqueCode = (student as any).unique_code || student.id?.slice(-8) || '';
+    // Subtitulo
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL400);
+    doc.text('DOCUMENTAÇÃO EDUCACIONAL INCLUSIVA', FL + 8, y + 9);
 
-    y = fichaKvGrid(doc, [
-      ['Nome Completo:',    student.name],
-      ['Código do Aluno:',  uniqueCode || internalCode.split('-')[1]],
-      ['Data de Nasc.:',    placeholder(student.birthDate)],
-      ['Idade:',            age || 'Não informado'],
-      ['Gênero:',           gLabel],
-      ['Série / Turma:',    placeholder(student.grade)],
-      ['Turno:',            placeholder(shift)],
-      ['Escola:',           placeholder(schoolForDoc?.schoolName || (student as any).schoolName)],
-      ['Nível de Suporte:', supLvl],
-      ['Status:',           status],
-      ['CID / Diagnóstico:', [diagArr[0], cidVal].filter(Boolean).join(' – ') || 'Não informado'],
-      ['Medicação:',        placeholder(medication, 'Não usa medicação')],
-    ].filter(([, v]) => !!String(v ?? '').trim()) as [string, string][], FL, y, maxW);
+    // Box do codigo (canto superior direito do hero)
+    const codeBoxW = 52, codeBoxX = FL + maxW - codeBoxW - 6;
+    sf(doc, GBKG); sdd(doc, PF_SL200); doc.setLineWidth(0.2);
+    doc.roundedRect(codeBoxX, y + 4, codeBoxW, 14, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(6); sc(doc, PF_SL400);
+    doc.text('CÓDIGO DO DOCUMENTO', codeBoxX + codeBoxW / 2, y + 9.5, { align: 'center' });
+    doc.setFont('courier', 'bold'); doc.setFontSize(5.5); sc(doc, PF_SL900);
+    doc.text(internalCode.substring(0, 26), codeBoxX + codeBoxW / 2, y + 14.5, { align: 'center' });
 
-    // Endereço (opcional)
-    if (cfg.enderecoCompleto) {
-      const addr = [
-        (student as any).street && [(student as any).street, (student as any).streetNumber, (student as any).complement].filter(Boolean).join(', '),
-        (student as any).neighborhood,
-        (student as any).city && [(student as any).city, (student as any).state].filter(Boolean).join(' — '),
-        (student as any).zipcode && `CEP ${(student as any).zipcode}`,
-      ].filter(Boolean).join(' · ');
-      if (addr) {
-        y = fichaSubSection(doc, 'Endereço', FL, y);
-        y = fichaField(doc, '', addr, FL, y, maxW, fichaHeader);
+    // Titulo do documento
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(18); sc(doc, PF_SL900);
+    doc.text('FICHA DO ALUNO', FL + 8, y + 22);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); sc(doc, PF_SL500);
+    doc.text(`Emissão: ${emitDate}`, FL + 8, y + 28);
+
+    // Divisoria interna do hero
+    sf(doc, PF_SL100); doc.rect(FL + 6, y + 32, maxW - 12, 0.4, 'F');
+
+    // Bloco do aluno
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL400);
+    doc.text('ALUNO', FL + 8, y + 37);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14); sc(doc, PF_SL900);
+    const nameLines = doc.splitTextToSize(student.name, codeBoxX - FL - 14) as string[];
+    doc.text(nameLines[0], FL + 8, y + 44);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, PF_SL500);
+    doc.text(`Cód. Aluno: ${uniqueCode || '—'}`, FL + 8, y + 50);
+
+    // Foto circular (se disponivel)
+    if (circularPhoto) {
+      try {
+        const photoD = 16;
+        doc.addImage(circularPhoto, 'PNG', FL + maxW - photoD - 8, y + 34, photoD, photoD);
+      } catch {}
+    }
+
+    // 4 boxes de info na base do hero
+    const boxRowY = y + 56, boxH2 = 11, boxGap = 3;
+    const boxW    = (maxW - boxGap * 3) / 4;
+    [
+      { label: 'Série / Turma',    value: pf_val(student.grade), orange: false },
+      { label: 'Turno',            value: pf_val(shift),          orange: false },
+      { label: 'Nível de Suporte', value: pf_val(supLvl),         orange: false },
+      { label: 'Status',           value: status,                  orange: status !== 'Em Preenchimento' },
+    ].forEach((box, i) => {
+      const bx  = FL + i * (boxW + boxGap);
+      const bbg = box.orange ? PF_ORANGE_BG  : PF_SL100;
+      const btx = box.orange ? PF_ORANGE_TXT : PF_SL700;
+      const bbd = box.orange ? PF_ORANGE_BD  : PF_SL200;
+      const blb = box.orange ? PF_ORANGE_ACC : PF_SL400;
+      sf(doc, bbg); sdd(doc, bbd); doc.setLineWidth(0.2);
+      doc.roundedRect(bx, boxRowY, boxW, boxH2, 2, 2, 'FD');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(6); sc(doc, blb);
+      doc.text(box.label.toUpperCase(), bx + 4, boxRowY + 4.5);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); sc(doc, btx);
+      doc.text(box.value, bx + 4, boxRowY + 9.5);
+    });
+    y = y + heroH + 6;
+
+    // Secao I: Resumo do Aluno
+    y = pf_sectionTitle(doc, 'I', 'Resumo do Aluno', FL, y);
+    y = pf_infoGrid(doc, [
+      ['Nascimento',            pf_val(student.birthDate)],
+      ['Idade',                 age || 'Não calculada'],
+      ['Gênero',                gLabel],
+      ['Diagnóstico principal', diagStr],
+      ['Medicação',             pf_val(medication, 'Não usa medicação')],
+      ['Cód. do documento',     internalCode],
+    ], FL, y, maxW, 3);
+    y += 4;
+
+    // Secao II: Responsavel e Equipe Escolar
+    if (y > pBottom - 48) { doc.addPage(); y = pfHeader(); }
+    y = pf_sectionTitle(doc, 'II', 'Responsável e Equipe Escolar', FL, y);
+    const rCardW = (maxW - 4) / 2, rCardH = 26;
+
+    sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+    doc.roundedRect(FL, y, rCardW, rCardH, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7); sc(doc, PF_SL400);
+    doc.text('RESPONSÁVEL LEGAL', FL + 4, y + 6);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); sc(doc, PF_SL900);
+    doc.text(pf_val(student.guardianName), FL + 4, y + 13);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, PF_SL500);
+    doc.text([student.guardianPhone?.trim(), student.guardianEmail?.trim()].filter(Boolean).join(' · ') || 'Não informado', FL + 4, y + 19);
+
+    const rcx = FL + rCardW + 4;
+    sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+    doc.roundedRect(rcx, y, rCardW, rCardH, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(7); sc(doc, PF_SL400);
+    doc.text('EQUIPE ESCOLAR', rcx + 4, y + 6);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, PF_SL700);
+    doc.text(`Regente: ${pf_val(student.regentTeacher)}`, rcx + 4, y + 12);
+    doc.text(`AEE: ${pf_val(student.aeeTeacher, 'Não atribuído')}`, rcx + 4, y + 17);
+    doc.text(`Coordenação: ${pf_val(student.coordinator)}`, rcx + 4, y + 22);
+    y += rCardH + 4;
+
+    const profs = (student.professionals || []).filter((p: any) => p?.trim?.());
+    if (profs.length > 0) { y = pf_chipList(doc, profs, FL, y, maxW, 'blue'); y += 2; }
+
+    // ==============================================================
+    // PAGINA 2 - MAPA PEDAGOGICO + CONTEXTO + OBSERVACOES
+    // ==============================================================
+    doc.addPage(); y = pfHeader();
+
+    // Secao III: Mapa Pedagogico e Funcional
+    if (cfg.perfilPedagogico) {
+      y = pf_sectionTitle(doc, 'III', 'Mapa Pedagógico e Funcional', FL, y);
+      y = pf_twoChipCards(doc,
+        { title: 'Habilidades / Potencialidades', chips: student.abilities    || [], tone: 'green'  },
+        { title: 'Dificuldades / Barreiras',      chips: student.difficulties || [], tone: 'orange' },
+        FL, y, maxW,
+      );
+      const commStr  = (student.communication || []).filter((c: any) => c?.trim?.()).join(', ') || 'Em preenchimento';
+      const stratStr = (student.strategies    || []).filter((s: any) => s?.trim?.()).join(', ') || 'Em preenchimento';
+      y = pf_infoGrid(doc, [
+        ['Formas de Comunicação',            commStr],
+        ['Estratégias Pedagógicas Eficazes', stratStr],
+        ['Adaptações e Recursos Necessários', adaptItems.length ? adaptItems.join(', ') : 'Em preenchimento'],
+      ], FL, y, maxW, 3);
+      y += 2;
+      if (interacaoSocial?.trim()) {
+        if (y > pBottom - 22) { doc.addPage(); y = pfHeader(); }
+        y = pf_infoGrid(doc, [['Interação Social', interacaoSocial]], FL, y, maxW, 1);
+        y += 2;
       }
     }
 
-    // ── II. RESPONSÁVEL E CONTATOS ─────────────────────────────
-    if (y > fichaBottom(H) - 40) { doc.addPage(); y = fichaHeader(); }
-    y = fichaSection(doc, 'II. Responsável e Contatos', FL, y, maxW);
-
-    y = fichaKvGrid(doc, [
-      ['Responsável Legal:', placeholder(student.guardianName)],
-      ['Telefone:',          placeholder(student.guardianPhone)],
-      ['E-mail:',            placeholder(student.guardianEmail, 'Não informado')],
-    ], FL, y, maxW);
-
-    // ── III. EQUIPE ESCOLAR ────────────────────────────────────
-    if (y > fichaBottom(H) - 40) { doc.addPage(); y = fichaHeader(); }
-    y = fichaSection(doc, 'III. Equipe Escolar', FL, y, maxW);
-
-    y = fichaKvGrid(doc, [
-      ['Professor(a) Regente:', placeholder(student.regentTeacher)],
-      ['Professor(a) AEE:',     placeholder(student.aeeTeacher, 'Não atribuído')],
-      ['Coordenação:',          placeholder(student.coordinator, 'Não informado')],
-    ], FL, y, maxW);
-
-    // ── IV. PROFISSIONAIS EXTERNOS ─────────────────────────────
-    const profs = (student.professionals || []).filter((p: any) => p?.trim?.());
-    if (profs.length > 0) {
-      if (y > fichaBottom(H) - 30) { doc.addPage(); y = fichaHeader(); }
-      y = fichaSection(doc, 'IV. Profissionais Externos', FL, y, maxW);
-      y = fichaBullets(doc, profs, FL, y, maxW, fichaHeader);
-    }
-
-    // ════════════════════════════════════════════════════════════
-    // PÁGINA 3 — PERFIL PEDAGÓGICO E FUNCIONAL
-    // ════════════════════════════════════════════════════════════
-    doc.addPage();
-    y = fichaHeader();
-
-    y = fichaSection(doc, 'V. Perfil Pedagógico e Funcional', FL, y, maxW);
-
-    // Habilidades / Potencialidades — bullets
-    y = fichaSubSection(doc, 'Habilidades / Potencialidades', FL, y);
-    y = fichaBullets(doc, student.abilities || [], FL, y, maxW, fichaHeader);
-
-    // Dificuldades / Barreiras — bullets
-    if (y > fichaBottom(H) - 30) { doc.addPage(); y = fichaHeader(); }
-    y = fichaSubSection(doc, 'Dificuldades / Barreiras de Aprendizagem', FL, y);
-    y = fichaBullets(doc, student.difficulties || [], FL, y, maxW, fichaHeader);
-
-    // Formas de Comunicação — bullets
-    if (y > fichaBottom(H) - 25) { doc.addPage(); y = fichaHeader(); }
-    y = fichaSubSection(doc, 'Formas de Comunicação', FL, y);
-    y = fichaBullets(doc, student.communication || [], FL, y, maxW, fichaHeader);
-
-    // Interação Social — texto livre
-    const interacaoSocial = (student as any).interacaoSocial || (student as any).social_interaction || '';
-    if (interacaoSocial) {
-      if (y > fichaBottom(H) - 25) { doc.addPage(); y = fichaHeader(); }
-      y = fichaSubSection(doc, 'Interação Social', FL, y);
-      y = fichaField(doc, '', interacaoSocial, FL, y, maxW, fichaHeader);
-    }
-
-    // Estratégias Pedagógicas — checks (estratégias aplicadas)
-    if (y > fichaBottom(H) - 30) { doc.addPage(); y = fichaHeader(); }
-    y = fichaSubSection(doc, 'Estratégias Pedagógicas Eficazes', FL, y);
-    y = fichaChecks(doc, student.strategies || [], FL, y, maxW, fichaHeader);
-
-    // Adaptações e Recursos Necessários — checks
-    const adaptacoes = (student as any).adaptacoes || (student as any).adaptations || [];
-    const recursos   = (student as any).recursos    || (student as any).resources    || [];
-    const adaptItems = [...adaptacoes, ...recursos].filter((it: any) => it?.trim?.());
-    if (adaptItems.length > 0 || true) {
-      if (y > fichaBottom(H) - 30) { doc.addPage(); y = fichaHeader(); }
-      y = fichaSubSection(doc, 'Adaptações e Recursos Necessários', FL, y);
-      y = fichaChecks(doc, adaptItems.length > 0 ? adaptItems : [], FL, y, maxW, fichaHeader);
-    }
-
-    // ════════════════════════════════════════════════════════════
-    // PÁGINA 4 — RESUMO PEDAGÓGICO
-    // ════════════════════════════════════════════════════════════
-    doc.addPage();
-    y = fichaHeader();
-
-    // ── VI. CONTEXTO ESCOLAR ───────────────────────────────────
-    y = fichaSection(doc, 'VI. Contexto Escolar', FL, y, maxW);
-    y = fichaField(doc, 'Histórico Escolar', student.schoolHistory || '', FL, y, maxW, fichaHeader);
-
-    // Diagnósticos completos
+    // Secao IV: Contexto Escolar e Familiar
+    if (y > pBottom - 55) { doc.addPage(); y = pfHeader(); }
+    y = pf_sectionTitle(doc, 'IV', 'Contexto Escolar e Familiar', FL, y);
+    y = pf_twoTextCards(doc,
+      { title: 'Histórico Escolar', text: student.schoolHistory || '' },
+      { title: 'Contexto Familiar', text: student.familyContext  || '' },
+      FL, y, maxW,
+    );
     if (diagArr.length > 0) {
-      if (y > fichaBottom(H) - 20) { doc.addPage(); y = fichaHeader(); }
-      y = fichaField(doc, 'Diagnósticos', diagArr.join(', '), FL, y, maxW, fichaHeader);
+      if (y > pBottom - 18) { doc.addPage(); y = pfHeader(); }
+      sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+      doc.roundedRect(FL, y, maxW, 18, 2, 2, 'FD');
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); sc(doc, PF_SL900);
+      doc.text('Diagnósticos Registrados', FL + 4, y + 8);
+      pf_chipList(doc, diagArr, FL + 4, y + 11, maxW - 8, 'blue');
+      y += 21;
     }
 
-    // ── VII. CONTEXTO FAMILIAR ─────────────────────────────────
-    if (y > fichaBottom(H) - 30) { doc.addPage(); y = fichaHeader(); }
-    y = fichaSection(doc, 'VII. Contexto Familiar', FL, y, maxW);
-    y = fichaField(doc, '', student.familyContext || '', FL, y, maxW, fichaHeader);
-
-    // ── VIII. OBSERVAÇÕES PEDAGÓGICAS ─────────────────────────
-    if (y > fichaBottom(H) - 30) { doc.addPage(); y = fichaHeader(); }
-    y = fichaSection(doc, 'VIII. Observações Pedagógicas', FL, y, maxW);
-    y = fichaField(doc, '', student.observations || '', FL, y, maxW, fichaHeader);
-
-    // ── IX. RECOMENDAÇÕES (caixa âmbar) ───────────────────────
-    const recomendacoes = (student as any).recomendacoes || (student as any).recommendations || '';
-    if (y > fichaBottom(H) - 30) { doc.addPage(); y = fichaHeader(); }
-    y = fichaSection(doc, 'IX. Recomendações', FL, y, maxW);
-    y = fichaHighlight(doc, 'Recomendações Pedagógicas', recomendacoes, FL, y, maxW, fichaHeader);
-
-    // ── X. ENCAMINHAMENTOS ─────────────────────────────────────
-    const encaminhamentos = (student as any).encaminhamentos || (student as any).referrals || '';
-    if (encaminhamentos) {
-      if (y > fichaBottom(H) - 25) { doc.addPage(); y = fichaHeader(); }
-      y = fichaSection(doc, 'X. Encaminhamentos', FL, y, maxW);
-      y = fichaField(doc, '', encaminhamentos, FL, y, maxW, fichaHeader);
+    // Secao V: Observacoes e Recomendacoes
+    if (y > pBottom - 38) { doc.addPage(); y = pfHeader(); }
+    y = pf_sectionTitle(doc, 'V', 'Observações e Recomendações', FL, y);
+    y = pf_twoTextCards(doc,
+      { title: 'Observações Pedagógicas',   text: pf_val(student.observations, 'Não informado') },
+      { title: 'Recomendações Pedagógicas', text: pf_val(recomendacoes,         'Não informado') },
+      FL, y, maxW,
+    );
+    if (encaminhamentos?.trim()) {
+      if (y > pBottom - 22) { doc.addPage(); y = pfHeader(); }
+      y = pf_infoGrid(doc, [['Encaminhamentos', encaminhamentos]], FL, y, maxW, 1);
+      y += 2;
     }
 
-    // ════════════════════════════════════════════════════════════
-    // PÁGINA 5 — REGISTROS COMPLEMENTARES (somente se necessário)
-    // ════════════════════════════════════════════════════════════
+    // ==============================================================
+    // SECAO CONHECIMENTO PREVIO
+    // ==============================================================
+    if (cfg.conhecimentoPrevio && student.priorKnowledge) {
+      const pk = student.priorKnowledge;
+      const PKL: Record<1|2|3|4|5, string> = {
+        1: 'Muito inicial', 2: 'Inicial', 3: 'Em desenvolvimento',
+        4: 'Adequado para a etapa', 5: 'Avançado para a etapa',
+      };
+      const pkAreas: [string, number | undefined, string | undefined][] = [
+        ['Leitura',           pk.leitura_score,      pk.leitura_notes],
+        ['Escrita',           pk.escrita_score,       pk.escrita_notes],
+        ['Compreensão',       pk.entendimento_score,  pk.entendimento_notes],
+        ['Autonomia',         pk.autonomia_score,     pk.autonomia_notes],
+        ['Atenção',           pk.atencao_score,       pk.atencao_notes],
+        ['Raciocínio Lógico', pk.raciocinio_score,    pk.raciocinio_notes],
+      ].filter(([, score]) => score !== undefined) as [string, number, string | undefined][];
+      const hasAnyPk = pkAreas.length > 0 || pk.observacoes_pedagogicas;
 
+      if (hasAnyPk) {
+        if (y > pBottom - 55) { doc.addPage(); y = pfHeader(); }
+        y = pf_sectionTitle(doc, 'CP', 'Conhecimento Prévio', FL, y);
+
+        if (pkAreas.length > 0) {
+          const colW = (maxW - 4) / 2, rowH = 14, gap = 4;
+          for (let i = 0; i < pkAreas.length; i += 2) {
+            const left  = pkAreas[i];
+            const right = pkAreas[i + 1];
+            if (y > pBottom - rowH - 4) { doc.addPage(); y = pfHeader(); }
+            [left, right].forEach((area, col) => {
+              if (!area) return;
+              const [label, score, notes] = area;
+              const bx = FL + col * (colW + gap);
+              sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.2);
+              doc.roundedRect(bx, y, colW, rowH, 2, 2, 'FD');
+              const scoreNum = score as 1|2|3|4|5;
+              const scoreLabel = PKL[scoreNum] ?? '—';
+              const pct = Math.round(((score as number) / 5) * 100);
+              // Barra de progresso
+              const barX = bx + 4, barY = y + rowH - 3.5, barW = colW - 8, barH = 1.5;
+              sf(doc, PF_SL100); doc.rect(barX, barY, barW, barH, 'F');
+              const fillColor: [number,number,number] = score <= 2 ? [239,68,68] : score === 3 ? [245,158,11] : [34,197,94];
+              sf(doc, fillColor); doc.rect(barX, barY, barW * pct / 100, barH, 'F');
+              doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); sc(doc, PF_SL400);
+              doc.text(label.toUpperCase(), bx + 4, y + 5);
+              doc.setFont('helvetica', 'bold'); doc.setFontSize(8); sc(doc, PF_SL900);
+              doc.text(`${score}/5`, bx + 4, y + 10);
+              doc.setFont('helvetica', 'normal'); doc.setFontSize(7); sc(doc, PF_SL500);
+              doc.text(scoreLabel, bx + 14, y + 10);
+              if (notes?.trim()) {
+                const noteText = doc.splitTextToSize(notes.trim(), colW - 8)[0] as string;
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(6); sc(doc, PF_SL400);
+                doc.text(noteText, bx + 4, y + rowH - 5);
+              }
+            });
+            y += rowH + 2;
+          }
+        }
+
+        if (pk.observacoes_pedagogicas?.trim()) {
+          if (y > pBottom - 22) { doc.addPage(); y = pfHeader(); }
+          y = pf_infoGrid(doc, [['Observações Pedagógicas (CP)', pk.observacoes_pedagogicas]], FL, y, maxW, 1);
+          y += 2;
+        }
+      }
+    }
+
+    // ==============================================================
+    // SECAO DADOS SOCIOFAMILIARES
+    // ==============================================================
+    if (cfg.dadosSociofamiliares && student.sociofamilyData) {
+      const socioData = student.sociofamilyData;
+      const fs  = socioData.familyStatus;
+      const ben = socioData.benefits;
+      const tri = (t?: string) => t === 'yes' ? 'Sim' : t === 'no' ? 'Não' : 'Não informado';
+
+      const sfRows: [string, string][] = [
+        ['Com quem mora',         fs?.studentLivesWith        || ''],
+        ['Responsável principal', fs?.mainGuardianName         || ''],
+        ['Tel. escolar',          fs?.schoolPrimaryPhone       || ''],
+        ['Contato emergência',    fs?.emergencyContactName     || ''],
+        ['Tel. emergência',       fs?.emergencyContactPhone    || ''],
+        ['Bolsa Família',         tri(ben?.bolsaFamilia)],
+        ['BPC/LOAS',              tri(ben?.bpcLoas)],
+      ].filter(([, v]) => v && v !== 'Não informado') as [string, string][];
+
+      const sfNotes = [fs?.notes, ben?.notes, ben?.otherBenefit].filter(Boolean).join(' · ');
+      const hasSfData = sfRows.length > 0 || sfNotes;
+
+      if (hasSfData) {
+        if (y > pBottom - 45) { doc.addPage(); y = pfHeader(); }
+        y = pf_sectionTitle(doc, 'SF', 'Dados Sociofamiliares', FL, y);
+        if (sfRows.length > 0) {
+          y = pf_infoGrid(doc, sfRows, FL, y, maxW, Math.min(sfRows.length, 4));
+          y += 2;
+        }
+        if (sfNotes) {
+          if (y > pBottom - 18) { doc.addPage(); y = pfHeader(); }
+          y = pf_infoGrid(doc, [['Observações', sfNotes]], FL, y, maxW, 1);
+          y += 2;
+        }
+      }
+    }
+
+    // ==============================================================
+    // SECAO RESPONSAVEIS E CONTATOS (expandido)
+    // ==============================================================
+    if (cfg.responsaveisContatos && student.sociofamilyData) {
+      const { guardian1, guardian2 } = student.sociofamilyData;
+      const guardians = [
+        { label: 'Responsável / Guardião 1', g: guardian1 },
+        { label: 'Responsável / Guardião 2', g: guardian2 },
+      ].filter(({ g }) => g?.fullName?.trim());
+
+      const emName  = student.emergencyContactName  || student.sociofamilyData.familyStatus?.emergencyContactName  || (student as any).emergencyContactName  || '';
+      const emPhone = student.emergencyContactPhone || student.sociofamilyData.familyStatus?.emergencyContactPhone || (student as any).emergencyContactPhone || '';
+
+      const hasExpanded = guardians.length > 0 || emName;
+      if (hasExpanded) {
+        if (y > pBottom - 50) { doc.addPage(); y = pfHeader(); }
+        y = pf_sectionTitle(doc, 'RC', 'Responsáveis e Contatos', FL, y);
+
+        for (const { label, g } of guardians) {
+          if (y > pBottom - 36) { doc.addPage(); y = pfHeader(); }
+          const cardH = 34;
+          sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+          doc.roundedRect(FL, y, maxW, cardH, 2, 2, 'FD');
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(7); sc(doc, PF_SL400);
+          doc.text(label.toUpperCase(), FL + 4, y + 6);
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(9); sc(doc, PF_SL900);
+          doc.text(g.fullName, FL + 4, y + 13);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL700);
+          const row2Parts = [g.relationship && `Vínculo: ${g.relationship}`, g.phone && `Tel.: ${g.phone}`].filter(Boolean).join('   ');
+          doc.text(row2Parts || '—', FL + 4, y + 19);
+          if (g.address?.street?.trim()) {
+            const addrParts = [g.address.street, g.address.number, g.address.complement, g.address.district, g.address.city, g.address.state].filter(Boolean).join(', ');
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(7); sc(doc, PF_SL500);
+            const addrLine = doc.splitTextToSize(addrParts, maxW - 8)[0] as string;
+            doc.text(addrLine, FL + 4, y + 25);
+          }
+          if (g.isEmergencyContact) {
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); sc(doc, [239,68,68] as [number,number,number]);
+            doc.text('Contato de emergência', FL + 4, y + 31);
+          }
+          y += cardH + 3;
+        }
+
+        if (emName && !guardians.some(({ g }) => g.isEmergencyContact)) {
+          if (y > pBottom - 18) { doc.addPage(); y = pfHeader(); }
+          const emParts: [string, string][] = [['Contato de emergência', emName]];
+          if (emPhone) emParts.push(['Telefone emergência', emPhone]);
+          y = pf_infoGrid(doc, emParts, FL, y, maxW, 2);
+          y += 2;
+        }
+      }
+    }
+
+    // ==============================================================
+    // PAGINA 3+ - REGISTROS COMPLEMENTARES (somente se houver dados)
+    // ==============================================================
     const hasSupplementary =
-      (cfg.ultimaAvaliacao      && extra.evolutions      && extra.evolutions.length > 0)      ||
-      (cfg.agendamentos         && extra.appointments    && extra.appointments.length > 0)    ||
-      (cfg.controleAtendimento  && extra.serviceRecords  && extra.serviceRecords.length > 0)  ||
-      (cfg.documentosGerados    && extra.protocols       && extra.protocols.length > 0)       ||
-      (cfg.analiseLaudo         && extra.documents       && extra.documents.some((d: any) => d.type === 'Laudo' || d.type === 'Relatorio')) ||
-      (cfg.fichasComplementares && extra.obsForms        && extra.obsForms.length > 0);
+      (cfg.ultimaAvaliacao      && extra.evolutions    && extra.evolutions.length    > 0) ||
+      (cfg.agendamentos         && extra.appointments  && extra.appointments.length  > 0) ||
+      (cfg.controleAtendimento  && extra.serviceRecords && extra.serviceRecords.length > 0) ||
+      (cfg.documentosGerados    && extra.protocols     && extra.protocols.length     > 0) ||
+      (cfg.analiseLaudo         && extra.documents     && extra.documents.some((d: any) => d.type === 'Laudo' || d.type === 'Relatorio')) ||
+      (cfg.fichasComplementares && extra.obsForms      && extra.obsForms.length      > 0);
 
     if (hasSupplementary) {
-      doc.addPage();
-      y = fichaHeader();
+      doc.addPage(); y = pfHeader();
+      const CRITERIA_NAMES = [
+        'Comunicação Expressiva', 'Interação Social', 'Autonomia (AVD)', 'Autorregulação',
+        'Atenção Sustentada', 'Compreensão', 'Motricidade Fina', 'Motricidade Grossa',
+        'Participação', 'Linguagem / Leitura',
+      ];
 
-      // ── XI. AVALIAÇÃO COGNITIVA E FUNCIONAL ───────────────────
+      // Secao VI: Avaliacao Cognitiva e Funcional
       if (cfg.ultimaAvaliacao && extra.evolutions && extra.evolutions.length > 0) {
-        const ev     = extra.evolutions[0];
+        const ev      = extra.evolutions[0];
         const scores: number[] = ev.scores || [];
-        const CRITERIA_NAMES = [
-          'Comunicação Expressiva', 'Interação Social', 'Autonomia (AVD)', 'Autorregulação',
-          'Atenção Sustentada', 'Compreensão', 'Motricidade Fina', 'Motricidade Grossa',
-          'Participação', 'Linguagem/Leitura',
-        ];
-
-        if (y > fichaBottom(H) - 60) { doc.addPage(); y = fichaHeader(); }
-        y = fichaSection(doc, 'XI. Avaliação Cognitiva e Funcional', FL, y, maxW);
-
-        // Card de resumo
-        const avg      = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+        const avg      = scores.length > 0 ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length : 0;
         const avgRound = Math.round(avg * 10) / 10;
         const avgPct   = Math.round((avg / 5) * 100);
-        const resumoH  = 36;
+        const strong   = CRITERIA_NAMES.filter((_, i) => (scores[i] ?? 0) >= 4);
+        const priority = CRITERIA_NAMES.filter((_, i) => (scores[i] ?? 0) <= 2);
+        const evDate2  = ev.date ? new Date(ev.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
 
-        sf(doc, BRAND_LIGHT); sdd(doc, BRAND);
-        doc.setLineWidth(0.4);
-        doc.roundedRect(FL, y, maxW, resumoH, 3, 3, 'FD');
-        sf(doc, BRAND);
-        doc.rect(FL, y, maxW, 6, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(F_SMALL_SIZE);
-        sc(doc, WHITE);
-        doc.text('RESUMO DA AVALIAÇÃO', FL + 4, y + 4.5);
+        if (y > pBottom - 58) { doc.addPage(); y = pfHeader(); }
+        y = pf_sectionTitle(doc, 'VI', 'Avaliação Cognitiva e Funcional', FL, y);
 
-        const ry = y + 10;
-        const evDate = ev.date ? new Date(ev.date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(F_SMALL_SIZE);
-        sc(doc, GRAY);
-        doc.text(`Avaliação: ${evDate}  ·  Profissional: ${ev.author || '—'}`, FL + 4, ry);
+        // 3 cards topo
+        const topCardH = 42, topCardW = (maxW - 4) / 3;
+        // Card azul: Media Geral
+        sf(doc, PF_BLUE_TXT as [number,number,number]);
+        doc.roundedRect(FL, y, topCardW, topCardH, 2, 2, 'F');
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7); sc(doc, [179, 210, 255] as [number,number,number]);
+        doc.text('MÉDIA GERAL', FL + 4, y + 7);
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(20); sc(doc, WHITE);
+        doc.text(`${avgRound}/5`, FL + 4, y + 20);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, [179, 210, 255] as [number,number,number]);
+        doc.text(`${avgPct}% de desempenho`, FL + 4, y + 28);
+        sf(doc, [60, 100, 180] as [number,number,number]); doc.roundedRect(FL + 4, y + 33, topCardW - 8, 2.5, 1, 1, 'F');
+        if (avgPct > 0) { sf(doc, WHITE); doc.roundedRect(FL + 4, y + 33, (topCardW - 8) * avgPct / 100, 2.5, 1, 1, 'F'); }
 
-        const avgColor = avgRound >= 4 ? [22, 163, 74] : avgRound >= 3 ? [31, 78, 95] : avgRound >= 2 ? [217, 119, 6] : [220, 38, 38];
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(F_SMALL_SIZE + 1);
-        sc(doc, avgColor as [number,number,number]);
-        doc.text(`Média geral: ${avgRound}/5  (${avgPct}%)`, FL + 4, ry + 7);
-        sf(doc, BORDER as [number,number,number]);
-        doc.rect(FL + 4, ry + 9, 60, 3, 'F');
-        sf(doc, avgColor as [number,number,number]);
-        doc.rect(FL + 4, ry + 9, 60 * (avg / 5), 3, 'F');
+        // Card verde: Areas Fortes
+        const mc1X = FL + topCardW + 2;
+        sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+        doc.roundedRect(mc1X, y, topCardW, topCardH, 2, 2, 'FD');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); sc(doc, PF_GREEN_TXT);
+        doc.text('Áreas Fortes', mc1X + 4, y + 8);
+        pf_chipList(doc, strong.slice(0, 4), mc1X + 4, y + 13, topCardW - 8, 'green');
 
-        const strong   = CRITERIA_NAMES.filter((_, i) => (scores[i] ?? 0) >= 4).slice(0, 3);
-        const priority = CRITERIA_NAMES.filter((_, i) => (scores[i] ?? 0) <= 2).slice(0, 3);
-        const colMidX  = FL + maxW / 2 + 2;
+        // Card laranja: Areas Prioritarias
+        const mc2X = FL + 2 * topCardW + 4, mc2W = maxW - 2 * topCardW - 4;
+        sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+        doc.roundedRect(mc2X, y, mc2W, topCardH, 2, 2, 'FD');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9); sc(doc, PF_ORANGE_TXT);
+        doc.text('Áreas Prioritárias', mc2X + 4, y + 8);
+        pf_chipList(doc, priority.slice(0, 4), mc2X + 4, y + 13, mc2W - 8, 'orange');
+        y += topCardH + 4;
 
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(F_SMALL_SIZE - 0.5);
-        sc(doc, [22, 163, 74] as [number,number,number]);
-        doc.text('ÁREAS FORTES', FL + 4, ry + 17);
-        doc.setFont('helvetica', 'normal');
-        sc(doc, DARK);
-        if (strong.length > 0) {
-          strong.forEach((s, i) => doc.text(`• ${s}`, FL + 4, ry + 22 + i * 4.5));
-        } else {
-          doc.text('— Nenhuma destacada', FL + 4, ry + 22);
-        }
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL500);
+        doc.text(`Data: ${evDate2}  ·  Profissional: ${ev.author || '—'}`, FL, y);
+        y += 6;
 
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(F_SMALL_SIZE - 0.5);
-        sc(doc, [217, 119, 6] as [number,number,number]);
-        doc.text('ÁREAS PRIORITÁRIAS', colMidX, ry + 17);
-        doc.setFont('helvetica', 'normal');
-        sc(doc, DARK);
-        if (priority.length > 0) {
-          priority.forEach((s, i) => doc.text(`• ${s}`, colMidX, ry + 22 + i * 4.5));
-        } else {
-          doc.text('— Todas em nível adequado', colMidX, ry + 22);
-        }
+        // Barras de dimensao (2 colunas)
+        const halfW2 = (maxW - 6) / 2, barLineH = 8;
+        const barsCardH = Math.ceil(CRITERIA_NAMES.length / 2) * barLineH + 14;
+        if (y > pBottom - barsCardH - 10) { doc.addPage(); y = pfHeader(); }
+        sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+        doc.roundedRect(FL, y, maxW, barsCardH, 2, 2, 'FD');
+        CRITERIA_NAMES.forEach((name, i) => {
+          const score   = scores[i] ?? 0;
+          const cx      = FL + 4 + (i % 2) * (halfW2 + 6);
+          const cy      = y + 6 + Math.floor(i / 2) * barLineH;
+          const barW    = halfW2 - 22;
+          const sColor: [number,number,number] = score >= 4 ? PF_GREEN_TXT : score >= 3 ? BRAND as [number,number,number] : score >= 2 ? [217, 119, 6] : [220, 38, 38];
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, PF_SL700);
+          doc.text((doc.splitTextToSize(name, halfW2 - 24) as string[])[0] || name, cx, cy + 4.5);
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); sc(doc, sColor);
+          doc.text(`${score}/5`, cx + halfW2 - 14, cy + 4.5);
+          pf_progressBar(doc, (score / 5) * 100, cx, cy + 5.5, barW, sColor);
+        });
+        y += barsCardH + 5;
 
-        y += resumoH + 5;
-
-        // Radar + pontuações
-        if (y > fichaBottom(H) - 75) { doc.addPage(); y = fichaHeader(); }
-        const criteriaForChart = CRITERIA_NAMES.map(name => ({ name }));
-        try {
-          const radarB64 = await generateRadarCanvas(scores, criteriaForChart);
-          const radarSz  = 62;
-          doc.addImage(radarB64, 'PNG', FL, y, radarSz, radarSz);
-
-          const legendX = FL + radarSz + 6;
-          const legendW = W - FR - legendX - 2;
-          const barW    = Math.min(36, legendW * 0.45);
-          let ly = y + 2;
-
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(F_SMALL_SIZE);
-          sc(doc, DARK);
-          doc.text('Pontuação por Dimensão', legendX, ly);
-          ly += 6;
-
-          CRITERIA_NAMES.forEach((name, i) => {
-            const score  = scores[i] ?? 0;
-            const sColor = score >= 4 ? [22, 163, 74] : score >= 3 ? [31, 78, 95] : score >= 2 ? [217, 119, 6] : [220, 38, 38];
-            const abbrev = doc.splitTextToSize(name, legendW - barW - 14)[0] || name;
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(F_SMALL_SIZE - 1);
-            sc(doc, DARK);
-            doc.text(abbrev, legendX, ly);
-            sf(doc, BORDER as [number,number,number]);
-            doc.rect(legendX, ly + 1, barW, 3, 'F');
-            sf(doc, sColor as [number,number,number]);
-            doc.rect(legendX, ly + 1, barW * (score / 5), 3, 'F');
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(F_SMALL_SIZE - 1);
-            sc(doc, sColor as [number,number,number]);
-            doc.text(`${score}/5`, legendX + barW + 2, ly + 3.5);
-            ly += 6.5;
-          });
-          y = Math.max(y + radarSz + 5, ly + 3);
-        } catch {
-          CRITERIA_NAMES.forEach((name, i) => {
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(F_BODY_SIZE);
-            sc(doc, DARK);
-            doc.text(`${name}: ${scores[i] ?? '—'}/5`, FL, y);
-            y += F_LINE_H;
-          });
-          y += 4;
-        }
-
-        // Parecer descritivo
-        if (ev.observation) {
-          if (y > fichaBottom(H) - 40) { doc.addPage(); y = fichaHeader(); }
-          sf(doc, BRAND);
-          doc.rect(FL, y, maxW, 8, 'F');
-          sf(doc, GOLD);
-          doc.rect(FL, y + 8, maxW, 1.2, 'F');
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(F_SMALL_SIZE + 0.5);
-          sc(doc, WHITE);
-          doc.text('PARECER DESCRITIVO', FL + 4, y + 5.5);
-          y += 12;
-
-          const paragraphs = (ev.observation as string).split(/\n{2,}|\r\n{2,}/).filter(Boolean);
-          for (const para of paragraphs) {
-            if (y > fichaBottom(H) - 20) { doc.addPage(); y = fichaHeader(); }
-            const trimmed  = para.trim();
-            const isHead   = trimmed.length < 60 && (/^[A-ZÁÉÍÓÚÀÂÊÔ].{0,58}:$/.test(trimmed) || trimmed === trimmed.toUpperCase());
-            if (isHead) {
-              doc.setFont('helvetica', 'bold');
-              doc.setFontSize(F_BODY_SIZE);
-              sc(doc, BRAND);
-            } else {
-              doc.setFont('helvetica', 'normal');
-              doc.setFontSize(F_BODY_SIZE);
-              sc(doc, DARK);
-            }
-            const lines = doc.splitTextToSize(trimmed, maxW - 4);
-            doc.text(lines, FL + 2, y);
-            y += lines.length * F_LINE_H + 3;
+        // Parecer Descritivo
+        if (ev.observation?.trim()) {
+          if (y > pBottom - 28) { doc.addPage(); y = pfHeader(); }
+          y = pf_sectionTitle(doc, 'VII', 'Parecer Descritivo', FL, y);
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+          let remaining = [...(doc.splitTextToSize(ev.observation.trim(), maxW - 12) as string[])];
+          while (remaining.length > 0) {
+            const chunk  = remaining.splice(0, Math.max(1, Math.floor((pBottom - y - 12) / 4.5)));
+            const chunkH = chunk.length * 4.5 + 12;
+            sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+            doc.roundedRect(FL, y, maxW, chunkH, 2, 2, 'FD');
+            sc(doc, PF_SL700); doc.text(chunk, FL + 6, y + 8);
+            y += chunkH + 4;
+            if (remaining.length > 0) { doc.addPage(); y = pfHeader(); }
           }
-          y += 4;
         }
       }
 
-      // ── XII. AGENDAMENTOS ────────────────────────────────────
+      // Secao VIII: Agendamentos
       if (cfg.agendamentos && extra.appointments && extra.appointments.length > 0) {
-        if (y > fichaBottom(H) - 45) { doc.addPage(); y = fichaHeader(); }
-        y = fichaSection(doc, 'XII. Agendamentos', FL, y, maxW);
-
-        const cols = { data: 22, hora: 18, titulo: 50, tipo: 28, prof: 28, status: maxW - 22 - 18 - 50 - 28 - 28 };
-        sf(doc, BRAND_LIGHT); doc.rect(FL, y, maxW, 7, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(F_TABLE_SIZE - 0.5);
-        sc(doc, BRAND);
-        let cx = FL + 2;
-        ['DATA', 'HORA', 'TÍTULO', 'TIPO', 'PROFISSIONAL', 'STATUS'].forEach((h, i) => {
-          const w = [cols.data, cols.hora, cols.titulo, cols.tipo, cols.prof, cols.status][i];
-          doc.text(h, cx, y + 5); cx += w;
-        });
+        if (y > pBottom - 42) { doc.addPage(); y = pfHeader(); }
+        y = pf_sectionTitle(doc, 'VIII', 'Agendamentos', FL, y);
+        const aCols = [22, 16, 48, 26, 36, 0];
+        aCols[5] = maxW - aCols.slice(0, 5).reduce((s, v) => s + v, 0);
+        sf(doc, PF_SL100); doc.rect(FL, y, maxW, 7, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); sc(doc, BRAND as [number,number,number]);
+        let cx2 = FL + 2;
+        ['DATA', 'HORA', 'TÍTULO', 'TIPO', 'PROFISSIONAL', 'STATUS'].forEach((h, i) => { doc.text(h, cx2, y + 5); cx2 += aCols[i]; });
         y += 8;
-
         for (const a of extra.appointments) {
-          if (y > fichaBottom(H) - 12) { doc.addPage(); y = fichaHeader(); }
-          const ds = a.date ? new Date(a.date + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
-          const stColor: Record<string, number[]> = { realizado: [22, 163, 74], cancelado: [220, 38, 38], falta: [217, 119, 6] };
-          const sCol = stColor[a.status] || [31, 78, 95];
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(F_TABLE_SIZE - 1);
-          sc(doc, DARK);
-          cx = FL + 2;
-          [ds, a.time || '—', (a.title || '').substring(0, 28), (a.type || '—').substring(0, 16), (a.professional || '—').substring(0, 16)].forEach((val, i) => {
-            const w = [cols.data, cols.hora, cols.titulo, cols.tipo, cols.prof][i];
-            doc.text(val, cx, y + 4); cx += w;
+          if (y > pBottom - 10) { doc.addPage(); y = pfHeader(); }
+          const ds   = a.date ? new Date(a.date + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+          const stC: Record<string, [number,number,number]> = { realizado: PF_GREEN_TXT, cancelado: [220, 38, 38], falta: [217, 119, 6] };
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL700);
+          cx2 = FL + 2;
+          [ds, a.time || '—', (a.title || '').substring(0, 26), (a.type || '—').substring(0, 14), (a.professional || '—').substring(0, 18)].forEach((val, i) => {
+            doc.text(val, cx2, y + 4); cx2 += aCols[i];
           });
-          doc.setFont('helvetica', 'bold');
-          sc(doc, sCol as [number,number,number]);
-          doc.text((a.status || 'agendado').toUpperCase(), cx, y + 4);
-          sdd(doc, BORDER); doc.setLineWidth(0.2);
-          doc.line(FL, y + 6.5, FL + maxW, y + 6.5);
+          doc.setFont('helvetica', 'bold'); sc(doc, stC[a.status] || (BRAND as [number,number,number]));
+          doc.text((a.status || 'agendado').toUpperCase(), cx2, y + 4);
+          sdd(doc, PF_SL200); doc.setLineWidth(0.2); doc.line(FL, y + 6.5, FL + maxW, y + 6.5);
           y += 7.5;
         }
         y += 4;
       }
 
-      // ── XIII. CONTROLE DE ATENDIMENTO ─────────────────────────
+      // Secao IX: Controle de Atendimento
       if (cfg.controleAtendimento && extra.serviceRecords && extra.serviceRecords.length > 0) {
-        if (y > fichaBottom(H) - 45) { doc.addPage(); y = fichaHeader(); }
-        y = fichaSection(doc, 'XIII. Controle de Atendimento', FL, y, maxW);
-
+        if (y > pBottom - 42) { doc.addPage(); y = pfHeader(); }
+        y = pf_sectionTitle(doc, 'IX', 'Controle de Atendimento', FL, y);
         const total    = extra.serviceRecords.length;
         const presente = extra.serviceRecords.filter((r: any) => r.attendance === 'Presente').length;
         const taxa     = total > 0 ? Math.round((presente / total) * 100) : 0;
-
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(F_SMALL_SIZE);
-        sc(doc, GRAY);
-        doc.text(`${total} atendimento(s) · Presença: ${taxa}%`, FL, y);
-        sf(doc, BORDER);
-        doc.rect(FL, y + 3, 60, 3, 'F');
-        sf(doc, [22, 163, 74] as [number,number,number]);
-        doc.rect(FL, y + 3, 60 * (taxa / 100), 3, 'F');
-        y += 10;
-
-        const scCols = { data: 24, hora: 18, tipo: 32, prof: 36, pres: 20, obs: maxW - 24 - 18 - 32 - 36 - 20 };
-        sf(doc, BRAND_LIGHT); doc.rect(FL, y, maxW, 7, 'F');
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(F_TABLE_SIZE - 0.5);
-        sc(doc, BRAND);
-        let scx = FL + 2;
-        ['DATA', 'HORA', 'TIPO', 'PROFISSIONAL', 'PRESENÇA', 'OBSERVAÇÕES'].forEach((h, i) => {
-          const w = [scCols.data, scCols.hora, scCols.tipo, scCols.prof, scCols.pres, scCols.obs][i];
-          doc.text(h, scx, y + 5); scx += w;
-        });
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, PF_SL500);
+        doc.text(`${total} atendimento(s)  ·  Presença: ${taxa}%`, FL, y);
+        pf_progressBar(doc, taxa, FL + 80, y - 3.5, 60, PF_GREEN_TXT);
         y += 8;
-
+        const sCols = [24, 16, 30, 36, 22, 0];
+        sCols[5] = maxW - sCols.slice(0, 5).reduce((s, v) => s + v, 0);
+        sf(doc, PF_SL100); doc.rect(FL, y, maxW, 7, 'F');
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(7.5); sc(doc, BRAND as [number,number,number]);
+        let sx = FL + 2;
+        ['DATA', 'HORA', 'TIPO', 'PROFISSIONAL', 'PRESENÇA', 'OBSERVAÇÕES'].forEach((h, i) => { doc.text(h, sx, y + 5); sx += sCols[i]; });
+        y += 8;
         for (const r of extra.serviceRecords.slice(0, 30)) {
-          if (y > fichaBottom(H) - 12) { doc.addPage(); y = fichaHeader(); }
+          if (y > pBottom - 10) { doc.addPage(); y = pfHeader(); }
           const ds = r.date ? new Date(r.date).toLocaleDateString('pt-BR') : '—';
-          const presColor = r.attendance === 'Presente' ? [22, 163, 74] : r.attendance === 'Falta' ? [220, 38, 38] : [108, 117, 125];
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(F_TABLE_SIZE - 1);
-          sc(doc, DARK);
-          scx = FL + 2;
-          [ds, r.time || '—', (r.type || '—').substring(0, 18), (r.professional || '—').substring(0, 20)].forEach((val, i) => {
-            const w = [scCols.data, scCols.hora, scCols.tipo, scCols.prof][i];
-            doc.text(val, scx, y + 4); scx += w;
-          });
-          doc.setFont('helvetica', 'bold');
-          sc(doc, presColor as [number,number,number]);
-          doc.text(r.attendance || '—', scx, y + 4);
-          scx += scCols.pres;
-          doc.setFont('helvetica', 'normal');
-          sc(doc, GRAY);
-          doc.text((r.observations || '').substring(0, 30), scx, y + 4);
-          sdd(doc, BORDER); doc.setLineWidth(0.2);
-          doc.line(FL, y + 6.5, FL + maxW, y + 6.5);
+          const pColor: [number,number,number] = r.attendance === 'Presente' ? PF_GREEN_TXT : r.attendance === 'Falta' ? [220, 38, 38] : PF_SL500;
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL700);
+          sx = FL + 2;
+          [ds, r.time || '—', (r.type || '—').substring(0, 16), (r.professional || '—').substring(0, 20)].forEach((val, i) => { doc.text(val, sx, y + 4); sx += sCols[i]; });
+          doc.setFont('helvetica', 'bold'); sc(doc, pColor);
+          doc.text(r.attendance || '—', sx, y + 4); sx += sCols[4];
+          doc.setFont('helvetica', 'normal'); sc(doc, PF_SL400);
+          doc.text((r.observations || '').substring(0, 28), sx, y + 4);
+          sdd(doc, PF_SL200); doc.setLineWidth(0.2); doc.line(FL, y + 6.5, FL + maxW, y + 6.5);
           y += 7.5;
         }
         if (extra.serviceRecords.length > 30) {
-          doc.setFont('helvetica', 'italic');
-          doc.setFontSize(F_TABLE_SIZE - 1);
-          sc(doc, GRAY);
-          doc.text(`… e mais ${extra.serviceRecords.length - 30} registros`, FL, y + 3);
+          doc.setFont('helvetica', 'italic'); doc.setFontSize(7.5); sc(doc, PF_SL400);
+          doc.text(`e mais ${extra.serviceRecords.length - 30} registros`, FL, y + 3);
           y += 6;
         }
         y += 4;
       }
 
-      // ── XIV. DOCUMENTOS PEDAGÓGICOS GERADOS ───────────────────
-      if (cfg.documentosGerados && extra.protocols && extra.protocols.length > 0) {
-        if (y > fichaBottom(H) - 40) { doc.addPage(); y = fichaHeader(); }
-        y = fichaSection(doc, 'XIV. Documentos Pedagógicos Gerados', FL, y, maxW);
-
-        for (const p of extra.protocols) {
-          if (y > fichaBottom(H) - 12) { doc.addPage(); y = fichaHeader(); }
-          const ds     = p.createdAt ? new Date(p.createdAt).toLocaleDateString('pt-BR') : '—';
-          const status = p.status === 'FINAL' ? 'Concluído' : 'Rascunho';
-          const sCol   = p.status === 'FINAL' ? [22, 163, 74] : [108, 117, 125];
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(F_SMALL_SIZE);
-          sc(doc, DARK);
-          doc.text(`• ${p.title || p.doc_type || 'Documento'}`, FL + 2, y + 4);
-          doc.setFont('helvetica', 'normal');
-          sc(doc, GRAY);
-          doc.text(`${ds} · por ${p.generatedBy || 'Sistema'}`, FL + 8, y + 9);
-          doc.setFont('helvetica', 'bold');
-          sc(doc, sCol as [number,number,number]);
-          doc.text(status, W - FR - 20, y + 4);
-          sdd(doc, BORDER); doc.setLineWidth(0.2);
-          doc.line(FL, y + 11, FL + maxW, y + 11);
-          y += 13;
-        }
-        y += 3;
-      }
-
-      // ── XV. LAUDOS E DOCUMENTOS CLÍNICOS ANEXADOS ─────────────
-      if (cfg.analiseLaudo && extra.documents && extra.documents.length > 0) {
-        const docsWithAnalysis = extra.documents.filter((d: any) => d.type === 'Laudo' || d.type === 'Relatorio');
-        if (docsWithAnalysis.length > 0) {
-          if (y > fichaBottom(H) - 35) { doc.addPage(); y = fichaHeader(); }
-          y = fichaSection(doc, 'XV. Laudos e Documentos Clínicos Anexados', FL, y, maxW);
-
-          for (const d of docsWithAnalysis) {
-            if (y > fichaBottom(H) - 12) { doc.addPage(); y = fichaHeader(); }
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(F_SMALL_SIZE);
-            sc(doc, DARK);
-            doc.text(`• ${d.name}`, FL + 2, y + 4);
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(F_TABLE_SIZE - 1);
-            sc(doc, GRAY);
-            doc.text(`${d.date || '—'} · Tipo: ${d.type}`, FL + 8, y + 9);
-            sdd(doc, BORDER); doc.setLineWidth(0.2);
-            doc.line(FL, y + 11, FL + maxW, y + 11);
-            y += 13;
+      // Secao X: Documentos, Laudos e Fichas
+      const hasDocs =
+        (cfg.documentosGerados    && extra.protocols && extra.protocols.length > 0) ||
+        (cfg.analiseLaudo         && extra.documents && extra.documents.some((d: any) => d.type === 'Laudo' || d.type === 'Relatorio')) ||
+        (cfg.fichasComplementares && extra.obsForms  && extra.obsForms.length  > 0);
+      if (hasDocs) {
+        if (y > pBottom - 44) { doc.addPage(); y = pfHeader(); }
+        y = pf_sectionTitle(doc, 'X', 'Documentos, Laudos e Fichas Complementares', FL, y);
+        const docCardW = (maxW - 6) / 3;
+        const docItems = (extra.protocols || []).slice(0, 6);
+        const laudos   = (extra.documents || []).filter((d: any) => d.type === 'Laudo' || d.type === 'Relatorio').slice(0, 6);
+        const fichas   = (extra.obsForms  || []).slice(0, 6);
+        const cardH3   = Math.max(40, 14 + Math.max(docItems.length, laudos.length, fichas.length) * 10 + 4);
+        const renderListCard = (cx: number, title: string, items: any[], labelFn: (item: any) => string, dateFn: (item: any) => string) => {
+          sf(doc, WHITE); sdd(doc, PF_SL200); doc.setLineWidth(0.25);
+          doc.roundedRect(cx, y, docCardW, cardH3, 2, 2, 'FD');
+          doc.setFont('helvetica', 'bold'); doc.setFontSize(9); sc(doc, PF_SL900);
+          doc.text(title, cx + 4, y + 8);
+          if (!items.length) {
+            doc.setFont('helvetica', 'italic'); doc.setFontSize(8); sc(doc, PF_SL400);
+            doc.text('Nenhum registro', cx + 4, y + 16);
+          } else {
+            items.forEach((item, idx) => {
+              const iy = y + 14 + idx * 10;
+              doc.setFont('helvetica', 'bold'); doc.setFontSize(8); sc(doc, PF_SL700);
+              doc.text((doc.splitTextToSize(labelFn(item), docCardW - 8) as string[])[0], cx + 4, iy);
+              doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL400);
+              doc.text(dateFn(item), cx + 4, iy + 5);
+            });
           }
-          y += 3;
-        }
-      }
-
-      // ── XVI. FICHAS DE OBSERVAÇÃO ─────────────────────────────
-      if (cfg.fichasComplementares && extra.obsForms && extra.obsForms.length > 0) {
-        if (y > fichaBottom(H) - 40) { doc.addPage(); y = fichaHeader(); }
-        y = fichaSection(doc, 'XVI. Fichas de Observação Complementar', FL, y, maxW);
-
-        for (const f of extra.obsForms.slice(0, 10)) {
-          if (y > fichaBottom(H) - 12) { doc.addPage(); y = fichaHeader(); }
-          const ds = f.created_at ? new Date(f.created_at).toLocaleDateString('pt-BR') : '—';
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(F_SMALL_SIZE);
-          sc(doc, DARK);
-          doc.text(`• ${f.title || f.ficha_type || 'Ficha de Observação'}`, FL + 2, y + 4);
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(F_TABLE_SIZE - 1);
-          sc(doc, GRAY);
-          doc.text(`${ds} · ${f.professional_name || f.created_by || 'Profissional'}`, FL + 8, y + 9);
-          sdd(doc, BORDER); doc.setLineWidth(0.2);
-          doc.line(FL, y + 11, FL + maxW, y + 11);
-          y += 13;
-        }
-        if (extra.obsForms.length > 10) {
-          doc.setFont('helvetica', 'italic');
-          doc.setFontSize(F_TABLE_SIZE - 1);
-          sc(doc, GRAY);
-          doc.text(`… e mais ${extra.obsForms.length - 10} fichas`, FL, y + 2);
-          y += 6;
-        }
-        y += 3;
+        };
+        renderListCard(FL,                    'Documentos Gerados',  docItems,
+          (p: any) => p.title || p.doc_type || 'Documento',
+          (p: any) => `${p.createdAt ? new Date(p.createdAt).toLocaleDateString('pt-BR') : '—'} · ${p.status === 'FINAL' ? 'Concluído' : 'Rascunho'}`);
+        renderListCard(FL + docCardW + 3,     'Laudos e Documentos', laudos,
+          (d: any) => d.name || 'Documento clínico',
+          (d: any) => `${d.date || '—'} · Tipo: ${d.type}`);
+        renderListCard(FL + 2*(docCardW + 3), 'Fichas Complementares', fichas,
+          (f: any) => f.title || f.ficha_type || 'Ficha de Observação',
+          (f: any) => f.created_at ? new Date(f.created_at).toLocaleDateString('pt-BR') : '—');
+        y += cardH3 + 5;
       }
     }
 
-    // ════════════════════════════════════════════════════════════
-    // ASSINATURAS (sempre ao final)
-    // ════════════════════════════════════════════════════════════
-    if (y > fichaBottom(H) - 42) { doc.addPage(); y = fichaHeader(); }
-    y += 6;
-    sf(doc, BRAND); doc.rect(FL, y, maxW, 8, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(F_SECTION_SIZE);
-    sc(doc, WHITE);
-    doc.text('ASSINATURAS E VALIDAÇÃO INSTITUCIONAL', FL + 4, y + 5.5);
-    y += 14;
-
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(F_BODY_SIZE - 0.5);
-    sc(doc, GRAY);
+    // ==============================================================
+    // ASSINATURAS E VALIDACAO INSTITUCIONAL (sempre ao final)
+    // ==============================================================
+    if (y > pBottom - 52) { doc.addPage(); y = pfHeader(); }
+    y += 4;
+    y = pf_sectionTitle(doc, 'XI', 'Assinaturas e Validação Institucional', FL, y);
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(9); sc(doc, PF_SL500);
     const decl = 'Declaramos ciência e concordância com as informações pedagógicas registradas nesta ficha, comprometendo-nos a utilizá-las exclusivamente para fins educacionais e de suporte ao aluno.';
-    const declLs: string[] = doc.splitTextToSize(decl, maxW);
-    doc.text(declLs, FL, y);
-    y += declLs.length * F_LINE_H + 12;
+    const declLines = doc.splitTextToSize(decl, maxW) as string[];
+    doc.text(declLines, FL, y);
+    y += declLines.length * 4.5 + 14;
 
-    const sigFields = ['Professor(a) Regente', 'Professor(a) AEE', 'Coordenação Pedagógica', 'Responsável Legal'];
-    const sigW = maxW / 4;
-    sigFields.forEach((sig, i) => {
-      const sx = FL + i * sigW;
-      sdd(doc, GRAY);
-      doc.setLineWidth(0.3);
-      doc.line(sx, y + 12, sx + sigW - 4, y + 12);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(F_TABLE_SIZE);
-      sc(doc, GRAY);
-      doc.text(sig, sx + (sigW - 4) / 2, y + 17, { align: 'center' });
+    ['Professor(a) Regente', 'Professor(a) AEE', 'Coordenação Pedagógica', 'Responsável Legal'].forEach((sig, i) => {
+      const sx = FL + i * (maxW / 4);
+      sdd(doc, PF_SL400); doc.setLineWidth(0.3);
+      doc.line(sx, y + 12, sx + maxW / 4 - 4, y + 12);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); sc(doc, PF_SL500);
+      doc.text(sig, sx + (maxW / 4 - 4) / 2, y + 17, { align: 'center' });
     });
     y += 26;
 
-    // Nota discreta sobre o código interno (não é validação pública)
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(F_TINY_SIZE);
-    sc(doc, GRAY);
-    doc.text(`Código do documento: ${internalCode}  ·  Emitido em: ${new Date().toLocaleDateString('pt-BR')}`, FL, y);
-    doc.text('Documento pedagógico para uso interno. Não contém link de validação pública.', FL, y + 4);
+    sf(doc, PF_SL100); sdd(doc, PF_SL200); doc.setLineWidth(0.2);
+    doc.roundedRect(FL, y, maxW, 14, 2, 2, 'FD');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL500);
+    doc.text(`Código do documento: ${internalCode}  ·  Emitido em: ${new Date().toLocaleDateString('pt-BR')}`, FL + 4, y + 5);
+    doc.setFontSize(7);
+    doc.text('Documento pedagógico para uso interno. Não contém link de validação pública.', FL + 4, y + 10);
 
-    // ── RODAPÉ EM TODAS AS PÁGINAS ────────────────────────────
-    addFichaFooterAllPages(doc, internalCode, emittedBy);
+    // Rodape em todas as paginas
+    pf_footerAllPages(doc, internalCode, emittedBy);
     doc.save(`Ficha_${student.name.replace(/\s+/g, '_')}.pdf`);
   },
 

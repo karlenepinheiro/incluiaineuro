@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Brain, ShieldCheck, Users, Zap, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Brain, ShieldCheck, Users, Zap, Eye, EyeOff, AlertCircle, CheckCircle2, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BrandLogo } from './BrandLogo';
+import { checkPurchaseByEmail } from '../services/purchaseActivationService';
 
 // ── Google icon SVG inline (sem dependência extra) ────────────────────────────
 const GoogleIcon: React.FC<{ size?: number }> = ({ size = 18 }) => (
@@ -13,11 +14,42 @@ const GoogleIcon: React.FC<{ size?: number }> = ({ size = 18 }) => (
   </svg>
 );
 
+// ── Máscaras e validação ────────────────────────────────────────────────────
+
+function applyPhoneMask(value: string): string {
+  const d = value.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 2)  return d.replace(/(\d{1,2})/, '($1');
+  if (d.length <= 6)  return d.replace(/(\d{2})(\d+)/, '($1) $2');
+  if (d.length <= 10) return d.replace(/(\d{2})(\d{4})(\d+)/, '($1) $2-$3');
+  return d.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+}
+
+function applyCPFMask(value: string): string {
+  const d = value.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 3)  return d;
+  if (d.length <= 6)  return d.replace(/(\d{3})(\d+)/, '$1.$2');
+  if (d.length <= 9)  return d.replace(/(\d{3})(\d{3})(\d+)/, '$1.$2.$3');
+  return d.replace(/(\d{3})(\d{3})(\d{3})(\d+)/, '$1.$2.$3-$4');
+}
+
+export function validateCPF(cpf: string): boolean {
+  const d = cpf.replace(/\D/g, '');
+  if (d.length !== 11 || /^(\d)\1+$/.test(d)) return false;
+  const calc = (len: number) => {
+    let sum = 0;
+    for (let i = 0; i < len; i++) sum += parseInt(d[i]) * (len + 1 - i);
+    const rem = (sum * 10) % 11;
+    return rem === 10 ? 0 : rem;
+  };
+  return calc(9) === parseInt(d[9]) && calc(10) === parseInt(d[10]);
+}
+
 export interface AuthScreenProps {
   onLogin: (email: string, pass: string) => Promise<void>;
-  onRegister: (name: string, email: string, pass: string) => Promise<void>;
+  onRegister: (name: string, email: string, pass: string, phone: string, cpf: string) => Promise<void>;
   onGoogleLogin: () => Promise<void>;
   onGuest?: () => void;
+  onForgotPassword?: () => void;
   /** Quando definido, exibe aviso de que precisa de conta para fazer upgrade */
   pendingPlanLabel?: string;
   /** Forçar aba inicial independente de pendingPlanLabel */
@@ -30,10 +62,13 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
   onGoogleLogin,
   pendingPlanLabel,
   initialTab,
+  onForgotPassword,
 }) => {
   const [tab, setTab]               = useState<'login' | 'register'>(initialTab ?? (pendingPlanLabel ? 'register' : 'login'));
   const [name, setName]             = useState('');
   const [email, setEmail]           = useState('');
+  const [phone, setPhone]           = useState('');
+  const [cpf, setCpf]               = useState('');
   const [pass, setPass]             = useState('');
   const [confirmPass, setConfirmPass] = useState('');
   const [showPass, setShowPass]     = useState(false);
@@ -41,8 +76,31 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError]           = useState('');
   const [success, setSuccess]       = useState('');
+  const [pendingPurchase, setPendingPurchase] = useState<{ plan_code: string | null; credits?: number } | null>(null);
+  const [checkingPurchase, setCheckingPurchase] = useState(false);
 
-  const resetFields = () => { setName(''); setEmail(''); setPass(''); setConfirmPass(''); setError(''); setSuccess(''); };
+  const resetFields = () => {
+    setName(''); setEmail(''); setPhone(''); setCpf('');
+    setPass(''); setConfirmPass(''); setError(''); setSuccess('');
+    setPendingPurchase(null);
+  };
+
+  const handleEmailBlur = async (value: string) => {
+    if (tab !== 'register' || !value.trim() || !value.includes('@')) return;
+    setCheckingPurchase(true);
+    try {
+      const result = await checkPurchaseByEmail(value.trim());
+      if (result.found && result.status === 'APPROVED' && result.product_key !== 'UNKNOWN') {
+        setPendingPurchase({ plan_code: result.plan_code ?? null, credits: result.credits });
+      } else {
+        setPendingPurchase(null);
+      }
+    } catch {
+      // silencioso — não bloqueia o cadastro
+    } finally {
+      setCheckingPurchase(false);
+    }
+  };
 
   const switchTab = (t: 'login' | 'register') => { setTab(t); resetFields(); };
 
@@ -54,6 +112,14 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
 
     if (tab === 'register') {
       if (!name.trim())        { setError('Informe seu nome completo.'); return; }
+
+      const phoneDigits = phone.replace(/\D/g, '');
+      if (phoneDigits.length < 10) { setError('Informe um telefone/WhatsApp válido com DDD.'); return; }
+
+      const cpfDigits = cpf.replace(/\D/g, '');
+      if (cpfDigits.length !== 11) { setError('Informe o CPF completo (11 dígitos).'); return; }
+      if (!validateCPF(cpf))       { setError('CPF inválido. Verifique e tente novamente.'); return; }
+
       if (pass.length < 6)     { setError('A senha deve ter pelo menos 6 caracteres.'); return; }
       if (pass !== confirmPass) { setError('As senhas não coincidem.'); return; }
     }
@@ -63,7 +129,7 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
       if (tab === 'login') {
         await onLogin(email.trim(), pass);
       } else {
-        await onRegister(name.trim(), email.trim(), pass);
+        await onRegister(name.trim(), email.trim(), pass, phone.trim(), cpf.replace(/\D/g, ''));
         setSuccess('Conta criada! Verifique seu e-mail se necessário.');
       }
     } catch (err: any) {
@@ -86,11 +152,23 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
     setGoogleLoading(true);
     try {
       await onGoogleLogin();
-      // A página redireciona para Google — não precisa fazer nada mais aqui
     } catch (err: any) {
       setError(err?.message || 'Erro ao conectar com Google.');
       setGoogleLoading(false);
     }
+  };
+
+  const inputStyle = {
+    border: '1.5px solid #E7E2D8',
+    background: '#FAFAFA',
+    color: '#0F172A',
+  };
+
+  const focusStyle = (e: React.FocusEvent<HTMLInputElement>) => {
+    (e.target as HTMLInputElement).style.borderColor = '#1F4E5F';
+  };
+  const blurStyle = (e: React.FocusEvent<HTMLInputElement>) => {
+    (e.target as HTMLInputElement).style.borderColor = '#E7E2D8';
   };
 
   const features = [
@@ -244,6 +322,7 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
 
             {/* Formulário */}
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Nome — somente cadastro */}
               <AnimatePresence mode="wait">
                 {tab === 'register' && (
                   <motion.div
@@ -263,18 +342,15 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
                       placeholder="Seu nome"
                       required={tab === 'register'}
                       className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-all"
-                      style={{
-                        border: '1.5px solid #E7E2D8',
-                        background: '#FAFAFA',
-                        color: '#0F172A',
-                      }}
-                      onFocus={e => { (e.target as any).style.borderColor = '#1F4E5F'; }}
-                      onBlur={e => { (e.target as any).style.borderColor = '#E7E2D8'; }}
+                      style={inputStyle}
+                      onFocus={focusStyle}
+                      onBlur={blurStyle}
                     />
                   </motion.div>
                 )}
               </AnimatePresence>
 
+              {/* E-mail */}
               <div>
                 <label className="block text-xs font-semibold mb-1.5" style={{ color: '#2E3A59' }}>
                   E-mail
@@ -282,16 +358,107 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
                 <input
                   type="email"
                   value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  onChange={e => { setEmail(e.target.value); setPendingPurchase(null); }}
                   placeholder="seu@email.com"
                   required
                   className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-all"
-                  style={{ border: '1.5px solid #E7E2D8', background: '#FAFAFA', color: '#0F172A' }}
-                  onFocus={e => { (e.target as any).style.borderColor = '#1F4E5F'; }}
-                  onBlur={e => { (e.target as any).style.borderColor = '#E7E2D8'; }}
+                  style={inputStyle}
+                  onFocus={focusStyle}
+                  onBlur={async e => { blurStyle(e); await handleEmailBlur(e.target.value); }}
                 />
+                {checkingPurchase && (
+                  <p className="mt-1.5 text-xs text-gray-400 flex items-center gap-1">
+                    <span className="w-3 h-3 border border-gray-300 border-t-gray-500 rounded-full animate-spin inline-block" />
+                    Verificando assinatura...
+                  </p>
+                )}
               </div>
 
+              {/* Callout: compra pendente */}
+              <AnimatePresence>
+                {tab === 'register' && pendingPurchase && (
+                  <motion.div
+                    key="pending-purchase-callout"
+                    initial={{ opacity: 0, y: -8, height: 0 }}
+                    animate={{ opacity: 1, y: 0, height: 'auto' }}
+                    exit={{ opacity: 0, y: -8, height: 0 }}
+                    transition={{ duration: 0.22 }}
+                    className="overflow-hidden"
+                  >
+                    <div
+                      className="flex items-start gap-2.5 p-3 rounded-xl text-sm"
+                      style={{ background: '#ECFDF5', border: '1px solid #6EE7B7', color: '#065F46' }}
+                    >
+                      <Sparkles size={15} className="shrink-0 mt-0.5" style={{ color: '#059669' }} />
+                      <span>
+                        <strong>Assinatura encontrada!</strong>{' '}
+                        {pendingPurchase.plan_code
+                          ? <>Seu plano <strong>{pendingPurchase.plan_code === 'MASTER' ? 'Master' : pendingPurchase.plan_code}</strong> será ativado automaticamente ao criar sua conta.</>
+                          : <>Seu pacote de créditos será ativado automaticamente ao criar sua conta.</>
+                        }
+                      </span>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Telefone e CPF — somente cadastro */}
+              <AnimatePresence mode="wait">
+                {tab === 'register' && (
+                  <motion.div
+                    key="contact-fields"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="space-y-4"
+                  >
+                    <div>
+                      <label className="block text-xs font-semibold mb-1.5" style={{ color: '#2E3A59' }}>
+                        Telefone / WhatsApp <span style={{ color: '#DC2626' }}>*</span>
+                      </label>
+                      <input
+                        type="tel"
+                        value={phone}
+                        onChange={e => setPhone(applyPhoneMask(e.target.value))}
+                        placeholder="(11) 99999-9999"
+                        required={tab === 'register'}
+                        inputMode="numeric"
+                        className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-all"
+                        style={inputStyle}
+                        onFocus={focusStyle}
+                        onBlur={blurStyle}
+                      />
+                      <p className="mt-1 text-[11px]" style={{ color: '#94A3B8' }}>
+                        Usado para recuperação de acesso sem e-mail
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold mb-1.5" style={{ color: '#2E3A59' }}>
+                        CPF <span style={{ color: '#DC2626' }}>*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={cpf}
+                        onChange={e => setCpf(applyCPFMask(e.target.value))}
+                        placeholder="000.000.000-00"
+                        required={tab === 'register'}
+                        inputMode="numeric"
+                        className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-all"
+                        style={inputStyle}
+                        onFocus={focusStyle}
+                        onBlur={blurStyle}
+                      />
+                      <p className="mt-1 text-[11px]" style={{ color: '#94A3B8' }}>
+                        Seus dados são protegidos conforme a LGPD
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Senha */}
               <div>
                 <label className="block text-xs font-semibold mb-1.5" style={{ color: '#2E3A59' }}>
                   Senha
@@ -304,9 +471,9 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
                     placeholder="••••••••"
                     required
                     className="w-full px-3.5 py-2.5 pr-10 rounded-xl text-sm outline-none transition-all"
-                    style={{ border: '1.5px solid #E7E2D8', background: '#FAFAFA', color: '#0F172A' }}
-                    onFocus={e => { (e.target as any).style.borderColor = '#1F4E5F'; }}
-                    onBlur={e => { (e.target as any).style.borderColor = '#E7E2D8'; }}
+                    style={inputStyle}
+                    onFocus={focusStyle}
+                    onBlur={blurStyle}
                   />
                   <button
                     type="button"
@@ -319,6 +486,7 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
                 </div>
               </div>
 
+              {/* Confirmar senha — somente cadastro */}
               <AnimatePresence mode="wait">
                 {tab === 'register' && (
                   <motion.div
@@ -338,15 +506,15 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
                       placeholder="••••••••"
                       required={tab === 'register'}
                       className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-all"
-                      style={{ border: '1.5px solid #E7E2D8', background: '#FAFAFA', color: '#0F172A' }}
-                      onFocus={e => { (e.target as any).style.borderColor = '#1F4E5F'; }}
-                      onBlur={e => { (e.target as any).style.borderColor = '#E7E2D8'; }}
+                      style={inputStyle}
+                      onFocus={focusStyle}
+                      onBlur={blurStyle}
                     />
                   </motion.div>
                 )}
               </AnimatePresence>
 
-              {/* Erro */}
+              {/* Erro / Sucesso */}
               <AnimatePresence>
                 {error && (
                   <motion.div
@@ -402,10 +570,24 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
             )}
 
             {tab === 'login' && (
-              <p className="mt-4 text-center text-xs" style={{ color: '#94A3B8' }}>
-                Suas informações são protegidas conforme a{' '}
-                <span style={{ color: '#1F4E5F', fontWeight: 600 }}>LGPD</span>.
-              </p>
+              <>
+                {onForgotPassword && (
+                  <div className="mt-3 text-center">
+                    <button
+                      type="button"
+                      onClick={onForgotPassword}
+                      className="text-xs font-medium transition-colors"
+                      style={{ color: '#1F4E5F', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                      Esqueci minha senha
+                    </button>
+                  </div>
+                )}
+                <p className="mt-3 text-center text-xs" style={{ color: '#94A3B8' }}>
+                  Suas informações são protegidas conforme a{' '}
+                  <span style={{ color: '#1F4E5F', fontWeight: 600 }}>LGPD</span>.
+                </p>
+              </>
             )}
           </div>
 

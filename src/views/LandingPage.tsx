@@ -851,7 +851,7 @@ export const LandingPage: React.FC<Props> = ({ onLogin, onRegister: _onRegister,
                 <ShieldCheck size={13} /> Validar Documento
               </button>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#94A3B8' }}>
-                <Phone size={13} /> {config?.contactPhone || '(11) 99999-9999'}
+                <Phone size={13} /> {config?.contactPhone || '(99) 98416-7490'}
               </span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#94A3B8' }}>
                 <Lock size={13} /> LGPD Conforme

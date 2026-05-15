@@ -10,6 +10,7 @@ import {
 import { motion } from 'framer-motion';
 import { Student, Protocol, Appointment } from '../types';
 import { AI_CREDIT_COSTS, SUBSCRIPTION_PLANS } from '../config/aiCosts';
+import { waUrl } from '../config/contact';
 import { PaymentService } from '../services/paymentService';
 import { PlanTier } from '../types';
 import { NumberTicker } from '@/src/components/magicui/number-ticker';
@@ -1049,7 +1050,7 @@ export function DashboardView({
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-bold truncate" style={{ color: C.dark }}>{s.name}</div>
                   <div className="text-[11px] truncate" style={{ color: C.textSec }}>
-                    {s.grade ?? s.school ?? 'Sem turma'}
+                    {s.grade ?? s.schoolName ?? 'Sem turma'}
                   </div>
                 </div>
                 <TrendingUp size={13} style={{ color: C.emerald, opacity: 0.7 }} />
@@ -1249,7 +1250,7 @@ export function DashboardView({
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <a
-            href={`https://wa.me/5511999999999?text=${encodeURIComponent('Olá! Vim pelo IncluiAI e gostaria de ajuda.')}`}
+            href={waUrl('Olá! Vim pelo IncluiAI e gostaria de ajuda.')}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs text-white transition hover:opacity-90"

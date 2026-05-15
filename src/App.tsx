@@ -1,15 +1,35 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { SchoolSetupBanner } from './components/SchoolSetupBanner';
-import { LoginScreen } from './components/LoginScreen';
-import { DashboardView } from './views/DashboardView';
-import { LandingPage } from './views/LandingPage';
-import { StudentForm } from './components/StudentForm';
-import { SettingsView } from './views/SettingsView';
-import { StudentProfile } from './components/StudentProfile';
-import { generateProtocolAI } from './services/geminiService';
 import { StudentContextService } from './services/studentContextService';
 import type { StudentContext } from './services/studentContextService';
+
+// ── Lazy views — não incluídas no bundle inicial ──────────────────────────────
+const LoginScreen       = React.lazy(() => import('./components/LoginScreen').then(m => ({ default: m.LoginScreen })));
+const DashboardView     = React.lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
+const LandingPage       = React.lazy(() => import('./views/LandingPage').then(m => ({ default: m.LandingPage })));
+const ForgotPasswordView    = React.lazy(() => import('./views/ForgotPasswordView').then(m => ({ default: m.ForgotPasswordView })));
+const ForceChangePasswordView = React.lazy(() => import('./views/ForceChangePasswordView').then(m => ({ default: m.ForceChangePasswordView })));
+const AdminDashboard        = React.lazy(() => import('./views/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
+const StudentsListView      = React.lazy(() => import('./views/StudentsListView').then(m => ({ default: m.StudentsListView })));
+const ReportsView           = React.lazy(() => import('./views/ReportsView').then(m => ({ default: m.ReportsView })));
+const AppointmentsView      = React.lazy(() => import('./views/AppointmentsView').then(m => ({ default: m.AppointmentsView })));
+const SchoolTemplatesView   = React.lazy(() => import('./views/SchoolTemplatesView').then(m => ({ default: m.SchoolTemplatesView })));
+const FichasComplementaresView = React.lazy(() => import('./views/FichasComplementaresView').then(m => ({ default: m.FichasComplementaresView })));
+const FichasHistoricosView  = React.lazy(() => import('./views/FichasHistoricosView').then(m => ({ default: m.FichasHistoricosView })));
+const TriagemView           = React.lazy(() => import('./views/TriagemView').then(m => ({ default: m.TriagemView })));
+const ServiceControlView    = React.lazy(() => import('./views/ServiceControlView').then(m => ({ default: m.ServiceControlView })));
+const SubscriptionView      = React.lazy(() => import('./views/SubscriptionView').then(m => ({ default: m.SubscriptionView })));
+const IncluiLabView         = React.lazy(() => import('./views/IncluiLabView').then(m => ({ default: m.IncluiLabView })));
+const MessagesView          = React.lazy(() => import('./views/MessagesView').then(m => ({ default: m.MessagesView })));
+const HelpCenterView        = React.lazy(() => import('./views/HelpCenterView').then(m => ({ default: m.HelpCenterView })));
+const SettingsView          = React.lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
+
+// ── Lazy components pesados ───────────────────────────────────────────────────
+const StudentForm     = React.lazy(() => import('./components/StudentForm').then(m => ({ default: m.StudentForm })));
+const StudentProfile  = React.lazy(() => import('./components/StudentProfile').then(m => ({ default: m.StudentProfile })));
+const DocumentBuilder = React.lazy(() => import('./components/DocumentBuilder').then(m => ({ default: m.DocumentBuilder })));
+const EnrollmentWizard = React.lazy(() => import('./components/EnrollmentWizard').then(m => ({ default: m.EnrollmentWizard })));
 import {
   PlanTier,
   UserRole,
@@ -28,22 +48,10 @@ import {
   ServiceRecord,
   formatPlanDisplayName,
   formatStudentLimit,
+  resolvePlanTier,
 } from './types';
 import { ShieldCheck, Menu, CheckCircle2, AlertCircle, X } from 'lucide-react';
-import { DocumentBuilder } from './components/DocumentBuilder';
-import { AdminDashboard } from './views/AdminDashboard';
-import { StudentsListView } from './views/StudentsListView';
-import { ReportsView } from './views/ReportsView';
-import { AppointmentsView } from './views/AppointmentsView';
-import { SchoolTemplatesView } from './views/SchoolTemplatesView';
 import { ReferralService } from './services/referralService';
-import { FichasComplementaresView } from './views/FichasComplementaresView';
-import { FichasHistoricosView } from './views/FichasHistoricosView';
-import { TriagemView } from './views/TriagemView';
-import { ServiceControlView } from './views/ServiceControlView';
-import { SubscriptionView } from './views/SubscriptionView';
-import { IncluiLabView } from './views/IncluiLabView';
-import { EnrollmentWizard } from './components/EnrollmentWizard';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LGPDModal } from './components/LGPDModal';
 import { ExpiredPlanBanner } from './components/ExpiredPlanBanner';
@@ -57,15 +65,190 @@ import { supabase, DEMO_MODE } from './services/supabase';
 import { databaseService, DuplicateStudentError } from './services/databaseService';
 import { ServiceRecordService, AppointmentService } from './services/persistenceService';
 import { NotificationsPanel } from './components/NotificationsPanel';
-import { MessagesView } from './views/MessagesView';
-import { HelpCenterView } from './views/HelpCenterView';
 import { WhatsAppFloatButton } from './components/common/WhatsAppFloatButton';
 import { StudentSearchService } from './services/studentSearchService';
 import { ensureDocumentCode, getDocumentCodeKind } from './utils/documentCodes';
 
+// ── Suspense fallback ─────────────────────────────────────────────────────────
+const PageLoader = () => (
+  <div className="flex items-center justify-center h-48">
+    <div className="w-8 h-8 rounded-full border-2 border-[#1F4E5F] border-t-transparent animate-spin" />
+  </div>
+);
+
 // --- Helper ---
 const generateAuditCode = (docType: DocumentType, existing?: string) =>
   ensureDocumentCode(getDocumentCodeKind(docType), existing);
+
+// ── Helpers de máscara (usados no modal) ────────────────────────────────────
+function _applyPhoneMask(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 2)  return d.replace(/(\d{1,2})/, '($1');
+  if (d.length <= 6)  return d.replace(/(\d{2})(\d+)/, '($1) $2');
+  if (d.length <= 10) return d.replace(/(\d{2})(\d{4})(\d+)/, '($1) $2-$3');
+  return d.replace(/(\d{2})(\d{5})(\d{4})/, '($1) $2-$3');
+}
+function _applyCPFMask(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 3)  return d;
+  if (d.length <= 6)  return d.replace(/(\d{3})(\d+)/, '$1.$2');
+  if (d.length <= 9)  return d.replace(/(\d{3})(\d{3})(\d+)/, '$1.$2.$3');
+  return d.replace(/(\d{3})(\d{3})(\d{3})(\d+)/, '$1.$2.$3-$4');
+}
+function _validateCPF(cpf: string): boolean {
+  const d = cpf.replace(/\D/g, '');
+  if (d.length !== 11 || /^(\d)\1+$/.test(d)) return false;
+  const calc = (len: number) => {
+    let sum = 0;
+    for (let i = 0; i < len; i++) sum += parseInt(d[i]) * (len + 1 - i);
+    const rem = (sum * 10) % 11;
+    return rem === 10 ? 0 : rem;
+  };
+  return calc(9) === parseInt(d[9]) && calc(10) === parseInt(d[10]);
+}
+
+// ── Banner de cadastro incompleto ────────────────────────────────────────────
+const ContactDataBanner: React.FC<{ onUpdate: () => void; onDismiss: () => void }> = ({ onUpdate, onDismiss }) => (
+  <div
+    style={{
+      background: '#FEF3C7',
+      borderBottom: '1px solid #FCD34D',
+      padding: '10px 20px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      fontSize: 13,
+      color: '#92400E',
+    }}
+  >
+    <ShieldCheck size={16} style={{ color: '#D97706', flexShrink: 0 }} />
+    <span style={{ flex: 1 }}>
+      <strong>Cadastro incompleto:</strong> adicione seu telefone e CPF para proteger sua conta e permitir recuperação de acesso sem e-mail.
+    </span>
+    <button
+      onClick={onUpdate}
+      style={{
+        background: '#D97706',
+        color: 'white',
+        border: 'none',
+        borderRadius: 8,
+        padding: '5px 14px',
+        fontWeight: 700,
+        fontSize: 12,
+        cursor: 'pointer',
+        flexShrink: 0,
+      }}
+    >
+      Atualizar dados
+    </button>
+    <button
+      onClick={onDismiss}
+      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400E', padding: 4, flexShrink: 0 }}
+      aria-label="Fechar"
+    >
+      <X size={14} />
+    </button>
+  </div>
+);
+
+// ── Modal de atualização de contato ──────────────────────────────────────────
+const ContactDataModal: React.FC<{
+  userId: string;
+  onSave: (phone: string, cpf: string) => Promise<void>;
+  onClose: () => void;
+}> = ({ onSave, onClose }) => {
+  const [phone, setPhone] = React.useState('');
+  const [cpf, setCpf]     = React.useState('');
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr]     = React.useState('');
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr('');
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (phoneDigits.length < 10) { setErr('Informe um telefone/WhatsApp válido com DDD.'); return; }
+    if (!_validateCPF(cpf))       { setErr('CPF inválido. Verifique e tente novamente.'); return; }
+    setLoading(true);
+    try {
+      await onSave(phone.trim(), cpf.replace(/\D/g, ''));
+    } catch {
+      setErr('Erro ao salvar. Tente novamente.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 9999, padding: 16,
+    }}>
+      <div style={{
+        background: 'white', borderRadius: 16, padding: 32,
+        width: '100%', maxWidth: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+      }}>
+        <h2 style={{ fontWeight: 800, fontSize: 18, color: '#111827', margin: '0 0 6px' }}>
+          Completar cadastro
+        </h2>
+        <p style={{ fontSize: 13, color: '#6B7280', margin: '0 0 20px' }}>
+          Esses dados protegem sua conta e permitem recuperação de acesso sem e-mail.
+        </p>
+        <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+              Telefone / WhatsApp
+            </label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={e => setPhone(_applyPhoneMask(e.target.value))}
+              placeholder="(11) 99999-9999"
+              required
+              inputMode="numeric"
+              style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #D1D5DB', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+              CPF
+            </label>
+            <input
+              type="text"
+              value={cpf}
+              onChange={e => setCpf(_applyCPFMask(e.target.value))}
+              placeholder="000.000.000-00"
+              required
+              inputMode="numeric"
+              style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #D1D5DB', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+          {err && (
+            <p style={{ fontSize: 12, color: '#DC2626', background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8, padding: '8px 12px', margin: 0 }}>
+              {err}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+            <button
+              type="submit"
+              disabled={loading}
+              style={{ flex: 1, padding: '11px', borderRadius: 10, border: 'none', background: '#1F4E5F', color: 'white', fontWeight: 700, fontSize: 14, cursor: loading ? 'wait' : 'pointer' }}
+            >
+              {loading ? 'Salvando...' : 'Salvar'}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ padding: '11px 18px', borderRadius: 10, border: '1.5px solid #E5E7EB', background: 'white', color: '#374151', fontWeight: 600, fontSize: 14, cursor: 'pointer' }}
+            >
+              Agora não
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
 
 // --- Mock Data ---
 const INITIAL_SCHOOLS: SchoolConfig[] = [
@@ -243,6 +426,9 @@ const App: React.FC = () => {
   };
   // E-mail pré-preenchido vindo do redirect pós-pagamento da Kiwify (?activate=1&email=...)
   const [activationEmail, setActivationEmail] = useState('');
+  // Banner para usuárias antigas sem phone/cpf cadastrados
+  const [showContactBanner, setShowContactBanner] = useState(false);
+  const [showContactModal, setShowContactModal] = useState(false);
 
   const [tenantSummary, setTenantSummary] = useState<any | null>(null);
   const [effectivePlans, setEffectivePlans] = useState<any[]>([]);
@@ -465,6 +651,11 @@ const App: React.FC = () => {
     setIsAuthenticated(true);
     const isCeo = profile.isAdmin || String(profile.role ?? '').toUpperCase() === 'CEO';
 
+    // Banner discreto para usuárias sem phone/cpf (não bloqueia uso)
+    if (!isCeo && !DEMO_MODE && !profile.phone && !profile.cpf) {
+      setShowContactBanner(true);
+    }
+
     // Upgrade pendente (fluxo login-first) — redireciona para Kiwify ANTES de mostrar o dashboard
     const pendingPlan = localStorage.getItem(PENDING_PLAN_KEY) as 'PRO' | 'MASTER' | null;
     if (pendingPlan && profile.tenant_id) {
@@ -478,7 +669,12 @@ const App: React.FC = () => {
       } catch { /* fallback — continua fluxo normal */ }
     }
 
-    setView(isCeo ? 'admin' : needsLGPD ? 'settings' : 'dashboard');
+    // Força troca de senha antes de qualquer outra tela (exceto CEO)
+    if (!isCeo && profile.must_change_password) {
+      setView('force_change_password');
+    } else {
+      setView(isCeo ? 'admin' : needsLGPD ? 'settings' : 'dashboard');
+    }
 
     // ── Verifica compra aprovada pelo e-mail (pós-pagamento sem tenant_id) ─
     // Cobre: login normal, login com Google, retorno após confirmação de e-mail.
@@ -497,9 +693,16 @@ const App: React.FC = () => {
               const subInfo = await getActiveSubscription(profile.tenant_id).catch(() => null);
               if (subInfo) {
                 setActiveSubscription(subInfo);
-                const { resolvePlanTier } = await import('./types');
-                const newPlan = resolvePlanTier(subInfo.planCode);
-                setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status, plan: newPlan }));
+                setUser(prev => ({
+                  ...prev,
+                  subscriptionStatus: subInfo.status,
+                  plan: resolvePlanTier(subInfo.planCode),
+                }));
+              }
+              // Notifica o usuário que o plano foi ativado automaticamente
+              if (result.reason !== 'already_activated') {
+                const planLabel = result.plan === 'MASTER' ? 'Master' : result.plan ?? 'pago';
+                showToast(`Encontramos sua assinatura. Plano ${planLabel} ativado com sucesso!`, 'success');
               }
             }
           }
@@ -524,8 +727,12 @@ const App: React.FC = () => {
     setActiveSubscription(subInfo);
     setServiceRecords(serviceRecordsDb);
     setAppointments(appointmentsDb);
-    if (subInfo?.status) {
-      setUser(prev => ({ ...prev, subscriptionStatus: subInfo.status }));
+    if (subInfo) {
+      setUser(prev => ({
+        ...prev,
+        subscriptionStatus: subInfo.status,
+        plan: resolvePlanTier(subInfo.planCode),
+      }));
     }
 
     // Referral pendente
@@ -569,7 +776,7 @@ const App: React.FC = () => {
   };
 
   // --- Cadastro ---
-  const handleRegister = async (name: string, email: string, pass: string) => {
+  const handleRegister = async (name: string, email: string, pass: string, phone: string, cpf: string) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password: pass,
@@ -593,6 +800,14 @@ const App: React.FC = () => {
     }
     if (!profile) {
       throw new Error('Perfil em processamento. Aguarde alguns segundos e faça login.');
+    }
+
+    // Salva phone/cpf na tabela users (após trigger ter criado a linha)
+    if (phone || cpf) {
+      await supabase.from('users').update({
+        phone: phone || null,
+        cpf:   cpf   || null,
+      }).eq('id', userId).catch(() => {/* não bloqueia cadastro */});
     }
 
     await _loadAfterAuth(profile);
@@ -700,24 +915,56 @@ const App: React.FC = () => {
 
   const saveStudent = async (studentData: Student) => {
     try {
-      if (editingStudent && editingStudent.id) {
-        await databaseService.saveStudent(studentData);
-        setStudents(students.map(s => (s.id === studentData.id ? studentData : s)));
-        setViewingStudent(studentData);
-      } else {
-        if (!checkPermission('add_student')) return triggerUpgrade();
-        await databaseService.saveStudent(studentData);
-        const fresh = await databaseService.getStudents();
-        setStudents(fresh);
+      if (import.meta.env.DEV) {
+        console.info('[App.saveStudent] payload recebido', {
+          ...studentData,
+          documents: studentData.documents?.map(doc => ({
+            id: (doc as any).id,
+            name: doc.name,
+            type: doc.type,
+            path: doc.path,
+            hasUrl: !!doc.url,
+          })),
+        });
       }
+
+      // Aluno de outro tenant → cria cópia local (nunca edita o original).
+      // isCrossTenant depende do tenant_id preservado no formData pelo StudentForm.
+      const isCrossTenant = !!(
+        editingStudent?.tenant_id &&
+        user?.tenant_id &&
+        editingStudent.tenant_id !== user.tenant_id
+      );
+
+      if (!(editingStudent && editingStudent.id && !isCrossTenant)) {
+        if (!checkPermission('add_student')) return triggerUpgrade();
+      }
+
+      const savedRow = await databaseService.saveStudent(studentData);
+      if (import.meta.env.DEV) {
+        console.info('[App.saveStudent] retorno databaseService.saveStudent', savedRow);
+      }
+
+      const fresh = await databaseService.getStudents(user.id);
+      setStudents(fresh);
+      const savedId = (savedRow as any)?.id ?? studentData.id;
+      const refreshedStudent = fresh.find(s => s.id === savedId) ?? null;
+      if (refreshedStudent) setViewingStudent(refreshedStudent);
+      const alreadyImported = !!(savedRow as any)?.__alreadyImported;
 
       if (!DEMO_MODE && user?.id) {
         const summaryDb = await databaseService.getTenantSummary(user.id);
         setTenantSummary(summaryDb);
       }
 
+      showToast(
+        alreadyImported
+          ? 'Este aluno já foi importado para sua escola. Abrindo cadastro existente.'
+          : 'Aluno salvo com sucesso.',
+        'success',
+      );
       setEditingStudent(null);
-      setView('students');
+      setView(alreadyImported && refreshedStudent ? 'student_profile' : 'students');
     } catch (e: any) {
       if (e instanceof DuplicateStudentError) {
         // Código duplicado — mostra mensagem amigável em vez do erro SQL bruto.
@@ -950,6 +1197,7 @@ const App: React.FC = () => {
     }
 
     try {
+      const { generateProtocolAI } = await import('./services/geminiService');
       const jsonString = await generateProtocolAI(activeDocumentType, student, user, docContent, studentContext);
       let structuredData: DocumentData;
       try {
@@ -1115,34 +1363,71 @@ const App: React.FC = () => {
         />
       );
 
+    if (view === 'forgot_password')
+      return (
+        <React.Suspense fallback={<PageLoader />}>
+          <ForgotPasswordView onBack={() => setView('login')} />
+        </React.Suspense>
+      );
+
     if (view === 'login')
       return (
-        <LoginScreen
-          onLogin={handleLogin}
-          onRegister={handleRegister}
-          onGoogleLogin={handleGoogleLogin}
-          pendingPlanLabel={pendingPlanLabel}
-          initialTab={loginInitialTab}
-        />
+        <React.Suspense fallback={<PageLoader />}>
+          <LoginScreen
+            onLogin={handleLogin}
+            onRegister={handleRegister}
+            onGoogleLogin={handleGoogleLogin}
+            pendingPlanLabel={pendingPlanLabel}
+            initialTab={loginInitialTab}
+            onForgotPassword={() => setView('forgot_password')}
+          />
+        </React.Suspense>
       );
     return (
       <>
-        <LandingPage
-          onLogin={() => {
-            window.history.pushState({ view: 'login', tab: 'login' }, '', '/login');
-            setLoginInitialTab('login');
-            setView('login');
-          }}
-          onRegister={() => {
-            window.history.pushState({ view: 'login', tab: 'register' }, '', '/cadastro?plan=free');
-            setLoginInitialTab('register');
-            setView('login');
-          }}
-          onAudit={() => setView('audit')}
-          onUpgradeClick={handleUpgradeClick}
-        />
+        <React.Suspense fallback={<PageLoader />}>
+          <LandingPage
+            onLogin={() => {
+              window.history.pushState({ view: 'login', tab: 'login' }, '', '/login');
+              setLoginInitialTab('login');
+              setView('login');
+            }}
+            onRegister={() => {
+              window.history.pushState({ view: 'login', tab: 'register' }, '', '/cadastro?plan=free');
+              setLoginInitialTab('register');
+              setView('login');
+            }}
+            onAudit={() => setView('audit')}
+            onUpgradeClick={handleUpgradeClick}
+          />
+        </React.Suspense>
         <WhatsAppFloatButton />
       </>
+    );
+  }
+
+  // ── Troca de senha obrigatória — bloqueia acesso ao sistema ─────────────
+  if (view === 'force_change_password') {
+    return (
+      <React.Suspense fallback={<PageLoader />}>
+        <ForceChangePasswordView
+          userId={user.id}
+          userEmail={user.email}
+          onPasswordChanged={() => {
+            setUser(prev => ({ ...prev, must_change_password: false }));
+            setView('dashboard');
+          }}
+        />
+      </React.Suspense>
+    );
+  }
+
+  // ── Recuperação de senha self-service (acessível pré-login) ──────────────
+  if (view === 'forgot_password') {
+    return (
+      <React.Suspense fallback={<PageLoader />}>
+        <ForgotPasswordView onBack={() => setView('login')} />
+      </React.Suspense>
     );
   }
 
@@ -1177,7 +1462,9 @@ const App: React.FC = () => {
     return (
       <ErrorBoundary>
         {showLGPD && <LGPDModal onAccept={handleLGPDAccept} />}
-        <AdminDashboard user={user} onLogout={handleLogout} />
+        <React.Suspense fallback={<PageLoader />}>
+          <AdminDashboard user={user} onLogout={handleLogout} />
+        </React.Suspense>
       </ErrorBoundary>
     );
   }
@@ -1261,6 +1548,29 @@ const App: React.FC = () => {
               />
             )}
 
+            {/* Banner: cadastro incompleto (sem phone/cpf) — discreto, não bloqueia */}
+            {showContactBanner && !showContactModal && (
+              <ContactDataBanner
+                onUpdate={() => setShowContactModal(true)}
+                onDismiss={() => setShowContactBanner(false)}
+              />
+            )}
+
+            {/* Modal de atualização de telefone/CPF */}
+            {showContactModal && (
+              <ContactDataModal
+                userId={user.id}
+                onSave={async (phone, cpf) => {
+                  await supabase.from('users').update({ phone, cpf }).eq('id', user.id);
+                  setUser(prev => ({ ...prev, phone, cpf }));
+                  setShowContactModal(false);
+                  setShowContactBanner(false);
+                }}
+                onClose={() => setShowContactModal(false)}
+              />
+            )}
+
+            <React.Suspense fallback={<PageLoader />}>
             <div className={view === 'incluilab' || view === 'incluilab_library' ? 'flex-1 min-h-0 overflow-hidden' : 'p-4 lg:p-8'}>
             {view === 'dashboard' && (
               <DashboardView
@@ -1408,6 +1718,7 @@ const App: React.FC = () => {
                   regentName={user.name}
                   availableSchools={user.schoolConfigs}
                   userPlan={user.plan}
+                  tenantId={user.tenant_id}
                 />
               ))}
 
@@ -1562,18 +1873,21 @@ const App: React.FC = () => {
               <HelpCenterView onNavigate={handleSetView} />
             )}
             </div>{/* /p-4 lg:p-8 */}
+            </React.Suspense>
           </main>
         </div>
       </div>
 
       {/* ── Enrollment Wizard — modal global ── */}
       {showEnrollmentWizard && (
-        <EnrollmentWizard
-          user={user}
-          initialTipo={enrollmentTipo}
-          onSave={saveStudentFromWizard}
-          onClose={() => setShowEnrollmentWizard(false)}
-        />
+        <React.Suspense fallback={null}>
+          <EnrollmentWizard
+            user={user}
+            initialTipo={enrollmentTipo}
+            onSave={saveStudentFromWizard}
+            onClose={() => setShowEnrollmentWizard(false)}
+          />
+        </React.Suspense>
       )}
 
       {/* WhatsApp Float Button — persistente em todas as telas autenticadas */}

@@ -114,6 +114,146 @@ function mapDocStatus(status: string | null | undefined): 'FINAL' | 'DRAFT' {
   return FINAL_VALUES.has(s) ? 'FINAL' : 'DRAFT';
 }
 
+function emptyToNull(value: unknown) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  return value ?? null;
+}
+
+function textFromMaybeArray(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    const text = value.map(v => String(v ?? '').trim()).filter(Boolean).join('\n');
+    return text || null;
+  }
+  const normalized = emptyToNull(value);
+  return normalized === null ? null : String(normalized);
+}
+
+function debugStudentPersistence(label: string, payload: unknown) {
+  if (!import.meta.env.DEV) return;
+  console.info(`[StudentPersistence] ${label}`, payload);
+}
+
+function summarizeStudentPayload(student: any) {
+  return {
+    id: student?.id,
+    tenant_id: student?.tenant_id,
+    name: student?.name ?? student?.full_name,
+    schoolName: student?.schoolName ?? student?.school_name,
+    guardianName: student?.guardianName ?? student?.guardian_name,
+    guardianPhone: student?.guardianPhone ?? student?.guardian_phone,
+    diagnosis: student?.diagnosis ?? student?.primary_diagnosis,
+    cid: student?.cid ?? student?.cid_codes,
+    sociofamilyData: !!student?.sociofamilyData,
+    priorKnowledge: !!student?.priorKnowledge,
+    documents: Array.isArray(student?.documents)
+      ? student.documents.map((doc: any) => ({
+          id: doc?.id,
+          name: doc?.name,
+          type: doc?.type ?? doc?.document_type,
+          path: doc?.path ?? doc?.file_path,
+          hasUrl: !!(doc?.url ?? doc?.file_url),
+        }))
+      : undefined,
+  };
+}
+
+async function syncStudentDocumentsForSavedStudent(args: {
+  student: any;
+  savedStudent: any;
+  tenantId: string;
+  uploadedBy: string;
+}) {
+  const docs = Array.isArray(args.student?.documents) ? args.student.documents : null;
+  if (!docs || docs.length === 0) return;
+
+  const studentId = args.savedStudent?.id;
+  if (!studentId) {
+    throw new Error('Aluno salvo sem ID retornado pelo banco; não foi possível persistir anexos.');
+  }
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from('student_documents')
+    .select('id, name, file_url, file_path')
+    .eq('tenant_id', args.tenantId)
+    .eq('student_id', studentId);
+
+  if (existingError) throw existingError;
+
+  const existing = existingRows ?? [];
+  const keptIds = new Set<string>();
+
+  for (const doc of docs) {
+    const name = String(doc?.name ?? '').trim();
+    if (!name) continue;
+
+    const filePath = emptyToNull(doc?.path ?? doc?.file_path) as string | null;
+    const fileUrl = emptyToNull(doc?.url ?? doc?.file_url) as string | null;
+    const documentType = String(doc?.type ?? doc?.document_type ?? 'Outro');
+
+    const matchingRow = existing.find((row: any) => {
+      if (doc?.id && row.id === doc.id) return true;
+      if (filePath && row.file_path === filePath) return true;
+      if (fileUrl && row.file_url === fileUrl && row.name === name) return true;
+      return false;
+    });
+
+    const rowPayload = {
+      tenant_id:     args.tenantId,
+      student_id:    studentId,
+      name,
+      document_type: documentType,
+      file_url:      fileUrl,
+      file_path:     filePath,
+      file_size:     doc?.fileSize ?? doc?.file_size ?? null,
+      mime_type:     doc?.mimeType ?? doc?.mime_type ?? null,
+      uploaded_by:   doc?.uploadedBy ?? doc?.uploaded_by ?? args.uploadedBy,
+      notes:         doc?.notes ?? null,
+    };
+
+    if (matchingRow) {
+      const { error } = await supabase
+        .from('student_documents')
+        .update(rowPayload)
+        .eq('id', matchingRow.id)
+        .eq('tenant_id', args.tenantId);
+      if (error) throw error;
+      keptIds.add(matchingRow.id);
+    } else {
+      const { data, error } = await supabase
+        .from('student_documents')
+        .insert(rowPayload)
+        .select('id')
+        .single();
+      if (error) throw error;
+      if (data?.id) keptIds.add(data.id);
+    }
+  }
+
+  const idsToDelete = existing
+    .filter((row: any) => !keptIds.has(row.id))
+    .map((row: any) => row.id);
+
+  if (idsToDelete.length > 0) {
+    const { error } = await supabase
+      .from('student_documents')
+      .delete()
+      .eq('tenant_id', args.tenantId)
+      .eq('student_id', studentId)
+      .in('id', idsToDelete);
+    if (error) throw error;
+  }
+
+  debugStudentPersistence('student_documents sincronizados', {
+    studentId,
+    tenantId: args.tenantId,
+    received: docs.length,
+    deleted: idsToDelete.length,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // INTERNAL HELPERS
 // ---------------------------------------------------------------------------
@@ -175,10 +315,10 @@ export const databaseService = {
     const uid = userId ?? (await requireAuthUserId());
 
     // Colunas REAIS confirmadas pelo schema (CSVs exportados do Supabase).
-    // users: id, tenant_id, nome, full_name, email, role, is_super_admin, is_active
+    const PROFILE_COLS = 'id, tenant_id, nome, full_name, email, role, is_super_admin, is_active, phone, cpf, cargo, profile_photo_url, cep, rua, numero, complemento, bairro, cidade, estado, display_name, professional_signature, doc_phone, created_at, must_change_password, password_changed_at';
     let { data: userRow, error: userErr } = await supabase
       .from('users')
-      .select('id, tenant_id, nome, full_name, email, role, is_super_admin, is_active')
+      .select(PROFILE_COLS)
       .eq('id', uid)
       .maybeSingle();
 
@@ -187,7 +327,7 @@ export const databaseService = {
     if (userErr?.code === '42703') {
       const fallback = await supabase
         .from('users')
-        .select('id, tenant_id, full_name, email, role, is_super_admin, is_active')
+        .select(PROFILE_COLS.replace('nome, ', ''))
         .eq('id', uid)
         .maybeSingle();
       userErr = fallback.error;
@@ -258,6 +398,23 @@ export const databaseService = {
       subscriptionStatus,
       schoolConfigs: [],
       aiUsage: [],
+      phone:                  (userRow as any).phone                  ?? null,
+      cpf:                    (userRow as any).cpf                    ?? null,
+      cargo:                  (userRow as any).cargo                  ?? null,
+      profilePhoto:           (userRow as any).profile_photo_url      ?? undefined,
+      cep:                    (userRow as any).cep                    ?? null,
+      rua:                    (userRow as any).rua                    ?? null,
+      numero:                 (userRow as any).numero                 ?? null,
+      complemento:            (userRow as any).complemento            ?? null,
+      bairro:                 (userRow as any).bairro                 ?? null,
+      cidade:                 (userRow as any).cidade                 ?? null,
+      estado:                 (userRow as any).estado                 ?? null,
+      display_name:           (userRow as any).display_name           ?? null,
+      professional_signature: (userRow as any).professional_signature ?? null,
+      doc_phone:              (userRow as any).doc_phone              ?? null,
+      created_at:             (userRow as any).created_at             ?? null,
+      must_change_password:   (userRow as any).must_change_password   ?? false,
+      password_changed_at:    (userRow as any).password_changed_at    ?? null,
     };
 
     // LGPD: sem coluna no banco → usa localStorage como fallback
@@ -321,7 +478,9 @@ export const databaseService = {
   // =========================
   async saveStudent(student: any) {
     const uid = await requireAuthUserId();
-    const tenantId = student?.tenant_id ?? (await getTenantIdForUser(uid));
+    // Sempre usa o tenant do usuário autenticado — nunca o tenant_id do aluno de origem.
+    // Isso garante que alunos de outra escola nunca violem RLS ao serem salvos.
+    const tenantId = await getTenantIdForUser(uid);
 
     // ── WHITELIST — colunas REAIS da tabela `students` (schema confirmado) ──
     // students: id, tenant_id, created_by, full_name, birth_date, gender, cpf,
@@ -361,24 +520,30 @@ export const databaseService = {
       'sociofamily_data',
       'primary_contact_name', 'primary_contact_phone',
       'emergency_contact_name', 'emergency_contact_phone',
+      // import tracking cross-tenant (migration 20260514000001+):
+      'imported_from_student_id', 'imported_from_tenant_id', 'imported_at', 'imported_by',
+      'imported_from_unique_code',
+      // escola de origem (migration 20260514000003):
+      'imported_from_school_name',
     ]);
 
     // 2. dbPayload: mapeamento camelCase/legado → nomes reais das colunas
+    debugStudentPersistence('payload recebido pelo databaseService.saveStudent', summarizeStudentPayload(student));
     const rawDiagnosis = student?.primary_diagnosis ?? student?.diagnosis ?? null;
     const dbPayload: Record<string, any> = {
       tenant_id:           tenantId,
       // full_name: aceita student.name (legado) ou student.full_name (real)
-      full_name:           student?.full_name          ?? student?.name           ?? null,
-      birth_date:          student?.birth_date          ?? student?.birthDate      ?? null,
-      gender:              student?.gender              ?? null,
-      cpf:                 student?.cpf                 ?? null,
+      full_name:           emptyToNull(student?.full_name          ?? student?.name),
+      birth_date:          emptyToNull(student?.birth_date          ?? student?.birthDate),
+      gender:              emptyToNull(student?.gender),
+      cpf:                 emptyToNull(student?.cpf),
       // school_name: text — form resolve via schoolId→schoolName antes de chamar onSave
-      school_name:         student?.school_name         ?? student?.schoolName     ?? null,
+      school_name:         emptyToNull(student?.school_name         ?? student?.schoolName),
       // school_year: aceita grade (legado) mapeado para ano escolar
-      school_year:         student?.school_year         ?? student?.grade          ?? student?.gradeLevel ?? null,
-      class_name:          student?.class_name          ?? student?.className       ?? null,
+      school_year:         emptyToNull(student?.school_year         ?? student?.grade          ?? student?.gradeLevel),
+      class_name:          emptyToNull(student?.class_name          ?? student?.className),
       // teacher_name: aceita regent_teacher (legado) mapeado para professor regente
-      teacher_name:        student?.teacher_name        ?? student?.regent_teacher ?? student?.regentTeacher ?? null,
+      teacher_name:        emptyToNull(student?.teacher_name        ?? student?.regent_teacher ?? student?.regentTeacher),
       // primary_diagnosis: aceita diagnosis (legado) — se for array, usa primeiro elemento
       primary_diagnosis:   Array.isArray(rawDiagnosis)
                              ? (rawDiagnosis[0] ?? null)
@@ -397,13 +562,13 @@ export const databaseService = {
                                  ? [student.cid]
                                  : [],
       // learning_needs: aceita dificuldades/estratégias (legado) concatenados
-      learning_needs:      student?.learning_needs      ?? student?.difficulties   ?? null,
-      behavioral_notes:    student?.behavioral_notes    ?? student?.observations   ?? null,
-      medical_notes:       student?.medical_notes       ?? student?.medication     ?? null,
-      guardian_name:       student?.guardian_name       ?? student?.guardianName   ?? null,
-      guardian_phone:      student?.guardian_phone      ?? student?.guardianPhone  ?? null,
-      guardian_email:      student?.guardian_email      ?? student?.guardianEmail  ?? null,
-      guardian_relationship: student?.guardian_relationship ?? null,
+      learning_needs:      textFromMaybeArray(student?.learning_needs ?? student?.difficulties),
+      behavioral_notes:    textFromMaybeArray(student?.behavioral_notes ?? student?.observations),
+      medical_notes:       textFromMaybeArray(student?.medical_notes ?? student?.medication),
+      guardian_name:       emptyToNull(student?.guardian_name       ?? student?.guardianName),
+      guardian_phone:      emptyToNull(student?.guardian_phone      ?? student?.guardianPhone),
+      guardian_email:      emptyToNull(student?.guardian_email      ?? student?.guardianEmail),
+      guardian_relationship: emptyToNull(student?.guardian_relationship),
       is_active:           student?.is_active ?? true,
     };
 
@@ -428,20 +593,20 @@ export const databaseService = {
 
     dbPayload.is_external              = isExternal;
     // Quando is_external = false → todos os campos externos são null
-    dbPayload.external_school_name     = isExternal ? (student?.externalSchoolName   || student?.external_school_name   || null) : null;
-    dbPayload.external_school_city     = isExternal ? (student?.externalSchoolCity   || student?.external_school_city   || null) : null;
-    dbPayload.external_professional    = isExternal ? (student?.externalProfessional || student?.external_professional  || null) : null;
+    dbPayload.external_school_name     = isExternal ? emptyToNull(student?.externalSchoolName   ?? student?.external_school_name) : null;
+    dbPayload.external_school_city     = isExternal ? emptyToNull(student?.externalSchoolCity   ?? student?.external_school_city) : null;
+    dbPayload.external_professional    = isExternal ? emptyToNull(student?.externalProfessional ?? student?.external_professional) : null;
     dbPayload.external_referral_source = isExternal ? safeReferral : null;
 
     // Campos clínicos e pedagógicos adicionais
-    dbPayload.support_level   = student?.supportLevel   ?? student?.support_level   ?? null;
-    dbPayload.shift            = student?.shift           ?? null;
-    dbPayload.aee_teacher      = student?.aeeTeacher      ?? student?.aee_teacher     ?? null;
-    dbPayload.coordinator      = student?.coordinator     ?? null;
-    dbPayload.family_context   = student?.familyContext   ?? student?.family_context  ?? null;
-    dbPayload.school_history   = student?.schoolHistory   ?? student?.school_history  ?? null;
-    dbPayload.observations     = student?.observations    ?? null;
-    dbPayload.photo_url        = student?.photoUrl        ?? student?.photo_url       ?? null;
+    dbPayload.support_level   = emptyToNull(student?.supportLevel   ?? student?.support_level);
+    dbPayload.shift            = emptyToNull(student?.shift);
+    dbPayload.aee_teacher      = emptyToNull(student?.aeeTeacher      ?? student?.aee_teacher);
+    dbPayload.coordinator      = emptyToNull(student?.coordinator);
+    dbPayload.family_context   = emptyToNull(student?.familyContext   ?? student?.family_context);
+    dbPayload.school_history   = emptyToNull(student?.schoolHistory   ?? student?.school_history);
+    dbPayload.observations     = emptyToNull(student?.observations);
+    dbPayload.photo_url        = emptyToNull(student?.photoUrl        ?? student?.photo_url);
     dbPayload.professionals    = Array.isArray(student?.professionals) ? student.professionals : [];
     dbPayload.communication    = Array.isArray(student?.communication) ? student.communication : [];
 
@@ -477,19 +642,100 @@ export const databaseService = {
     if (student?.sociofamilyData !== undefined) {
       dbPayload.sociofamily_data = student.sociofamilyData ?? null;
     }
-    if (student?.primaryContactName  !== undefined) dbPayload.primary_contact_name   = student.primaryContactName   ?? null;
-    if (student?.primaryContactPhone !== undefined) dbPayload.primary_contact_phone  = student.primaryContactPhone  ?? null;
-    if (student?.emergencyContactName  !== undefined) dbPayload.emergency_contact_name  = student.emergencyContactName  ?? null;
-    if (student?.emergencyContactPhone !== undefined) dbPayload.emergency_contact_phone = student.emergencyContactPhone ?? null;
+    if (student?.primaryContactName  !== undefined) dbPayload.primary_contact_name   = emptyToNull(student.primaryContactName);
+    if (student?.primaryContactPhone !== undefined) dbPayload.primary_contact_phone  = emptyToNull(student.primaryContactPhone);
+    if (student?.emergencyContactName  !== undefined) dbPayload.emergency_contact_name  = emptyToNull(student.emergencyContactName);
+    if (student?.emergencyContactPhone !== undefined) dbPayload.emergency_contact_phone = emptyToNull(student.emergencyContactPhone);
 
-    if (student?.id) dbPayload.id = student.id;
+    // Detecta se o aluno pertence a outro tenant (aluno vinculado de outra escola).
+    // Regra de produto: nunca editar o registro original — criar cópia local.
+    const isCrossTenant = !!(
+      student?.id &&
+      student?.tenant_id &&
+      student.tenant_id !== tenantId
+    );
+
+    const generateStudentCode = () => {
+      const code = generateStudentCode();
+      return code;
+    };
+
+    let existingImportedStudent: any = null;
+    const originCode = student?.unique_code ?? student?.student_code ?? null;
+
+    if (isCrossTenant) {
+      const duplicateFilters = [`imported_from_student_id.eq.${student.id}`];
+      if (originCode) duplicateFilters.push(`imported_from_unique_code.eq.${originCode}`);
+
+      const { data: existingImport, error: existingImportError } = await supabase
+        .from('students')
+        .select('id, unique_code, imported_at, imported_by')
+        .eq('tenant_id', tenantId)
+        .is('deleted_at', null)
+        .or(duplicateFilters.join(','))
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existingImportError) {
+        const missingImportColumn =
+          (existingImportError as any)?.code === '42703' ||
+          String(existingImportError.message ?? '').includes('imported_from_');
+        if (missingImportColumn) {
+          console.warn('[saveStudent] Colunas de importação cross-tenant ausentes; não foi possível checar duplicidade local.');
+        } else {
+          throw existingImportError;
+        }
+      }
+
+      existingImportedStudent = existingImport ?? null;
+    }
+
+    if (isCrossTenant) {
+      // Não incluir id → DB gera novo UUID → sem conflito de PK com o registro original.
+      if (existingImportedStudent?.id) {
+        dbPayload.id = existingImportedStudent.id;
+      }
+      dbPayload.imported_from_student_id = student.id;
+      dbPayload.imported_from_tenant_id  = student.tenant_id;
+      dbPayload.imported_at              = existingImportedStudent?.imported_at ?? new Date().toISOString();
+      dbPayload.imported_by              = existingImportedStudent?.imported_by ?? uid;
+      // Preserva o código de origem como referência (coluna added by migration 20260514+).
+      // Se a coluna ainda não existir, o isMissingColumn fallback vai ignorá-la sem quebrar.
+      if (originCode) dbPayload.imported_from_unique_code = originCode;
+      // Preserva o nome da escola de origem (migration 20260514000003).
+      // O campo importedFromSchoolName vem do StudentForm quando isCrossTenantEdit = true.
+      const originSchool = student?.importedFromSchoolName ?? student?.imported_from_school_name ?? null;
+      if (originSchool) dbPayload.imported_from_school_name = originSchool;
+      // SEMPRE gera novo unique_code — NUNCA reutiliza o código da escola de origem.
+      // unique_code tem constraint UNIQUE global; reaproveitá-lo geraria erro 23505.
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      let code = 'INC-';
+      for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * 36)];
+      code += '-';
+      for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * 36)];
+      dbPayload.unique_code = existingImportedStudent?.unique_code || code;
+    } else if (student?.id) {
+      dbPayload.id = student.id;
+    }
+
     // created_by é NOT NULL — usa o ID do usuário autenticado como fallback
     dbPayload.created_by = student?.created_by ?? uid;
 
     // Tentativa 1: upsert com payload completo (inclui colunas da migration)
+    debugStudentPersistence('payload final enviado ao Supabase.students', dbPayload);
     const { data, error } = await supabase.from('students').upsert(dbPayload).select().single();
 
-    if (!error) return data;
+    if (!error) {
+      debugStudentPersistence('retorno Supabase.students', data);
+      await syncStudentDocumentsForSavedStudent({
+        student,
+        savedStudent: data,
+        tenantId,
+        uploadedBy: uid,
+      });
+      return existingImportedStudent?.id ? { ...data, __alreadyImported: true } : data;
+    }
 
     // Se o erro for "coluna não existe" (migration ainda não foi rodada),
     // tenta novamente com apenas as colunas originais do schema base.
@@ -523,6 +769,11 @@ export const databaseService = {
         // sociofamily (schema_v_sociofamily):
         'sociofamily_data','primary_contact_name','primary_contact_phone',
         'emergency_contact_name','emergency_contact_phone',
+        // cross-tenant import tracking (migration 20260514000001+):
+        'imported_from_student_id','imported_from_tenant_id','imported_at','imported_by',
+        'imported_from_unique_code',
+        // escola de origem (migration 20260514000003):
+        'imported_from_school_name',
       ]);
       const corePayload = Object.fromEntries(
         Object.entries(dbPayload).filter(([k]) => !EXTRA_COLUMNS.has(k))
@@ -540,7 +791,14 @@ export const databaseService = {
         }
         throw error2;
       }
-      return data2;
+      debugStudentPersistence('retorno Supabase.students fallback schema base', data2);
+      await syncStudentDocumentsForSavedStudent({
+        student,
+        savedStudent: data2,
+        tenantId,
+        uploadedBy: uid,
+      });
+      return existingImportedStudent?.id ? { ...data2, __alreadyImported: true } : data2;
     }
 
     throw error;
@@ -549,10 +807,41 @@ export const databaseService = {
   // =========================
   // USER PATCHES
   // =========================
-  async updateUserProfile(userId: string, patch: { name?: string; email?: string }) {
+  async updateUserProfile(userId: string, patch: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    cpf?: string;
+    cargo?: string;
+    profilePhotoUrl?: string;
+    cep?: string;
+    rua?: string;
+    numero?: string;
+    complemento?: string;
+    bairro?: string;
+    cidade?: string;
+    estado?: string;
+    displayName?: string;
+    professionalSignature?: string;
+    docPhone?: string;
+  }) {
     const safe: any = {};
-    if (typeof patch.name === 'string') safe.nome = patch.name;
+    if (typeof patch.name  === 'string') safe.nome  = patch.name;
     if (typeof patch.email === 'string') safe.email = patch.email;
+    if (patch.phone                !== undefined) safe.phone                  = patch.phone;
+    if (patch.cpf                  !== undefined) safe.cpf                    = patch.cpf;
+    if (patch.cargo                !== undefined) safe.cargo                  = patch.cargo;
+    if (patch.profilePhotoUrl      !== undefined) safe.profile_photo_url      = patch.profilePhotoUrl;
+    if (patch.cep                  !== undefined) safe.cep                    = patch.cep;
+    if (patch.rua                  !== undefined) safe.rua                    = patch.rua;
+    if (patch.numero               !== undefined) safe.numero                 = patch.numero;
+    if (patch.complemento          !== undefined) safe.complemento            = patch.complemento;
+    if (patch.bairro               !== undefined) safe.bairro                 = patch.bairro;
+    if (patch.cidade               !== undefined) safe.cidade                 = patch.cidade;
+    if (patch.estado               !== undefined) safe.estado                 = patch.estado;
+    if (patch.displayName          !== undefined) safe.display_name           = patch.displayName;
+    if (patch.professionalSignature !== undefined) safe.professional_signature = patch.professionalSignature;
+    if (patch.docPhone             !== undefined) safe.doc_phone              = patch.docPhone;
     if (Object.keys(safe).length === 0) return;
     const { error } = await supabase.from('users').update(safe).eq('id', userId);
     if (error) throw error;
@@ -717,6 +1006,42 @@ export const databaseService = {
     }
 
     // ── 3. Normaliza ambas as listas com o mesmo mapeamento legado ──────────
+    const studentRows = [...(ownedData ?? []), ...linkedRows];
+    const docRowsByStudentId = new Map<string, any[]>();
+    const studentIds = studentRows.map((r: any) => r.id).filter(Boolean);
+
+    if (studentIds.length > 0) {
+      const { data: docRows, error: docErr } = await supabase
+        .from('student_documents')
+        .select('id, student_id, name, document_type, file_url, file_path, file_size, mime_type, uploaded_by, notes, created_at')
+        .eq('tenant_id', tenantId)
+        .in('student_id', studentIds)
+        .order('created_at', { ascending: false });
+
+      if (docErr) {
+        console.warn('[getStudents] Erro ao carregar student_documents:', docErr.message);
+      } else {
+        for (const doc of docRows ?? []) {
+          const normalizedDoc = {
+            id:         doc.id,
+            name:       doc.name,
+            date:       doc.created_at ? new Date(doc.created_at).toLocaleDateString('pt-BR') : '',
+            type:       doc.document_type ?? 'Outro',
+            url:        doc.file_url ?? undefined,
+            path:       doc.file_path ?? undefined,
+            fileSize:   doc.file_size ?? undefined,
+            mimeType:   doc.mime_type ?? undefined,
+            uploadedBy: doc.uploaded_by ?? undefined,
+            notes:      doc.notes ?? undefined,
+            fromBank:   true,
+          };
+          const list = docRowsByStudentId.get(doc.student_id) ?? [];
+          list.push(normalizedDoc);
+          docRowsByStudentId.set(doc.student_id, list);
+        }
+      }
+    }
+
     const normalize = (r: any): any => ({
       ...r,
       name:             r.full_name        ?? r.name         ?? '',
@@ -735,7 +1060,7 @@ export const databaseService = {
       abilities:        Array.isArray(r.skills)               ? r.skills               : (Array.isArray(r.abilities)    ? r.abilities    : []),
       difficulties:     Array.isArray(r.student_difficulties) ? r.student_difficulties : (Array.isArray(r.difficulties) ? r.difficulties : []),
       strategies:       Array.isArray(r.student_strategies)   ? r.student_strategies   : (Array.isArray(r.strategies)   ? r.strategies   : []),
-      documents:        Array.isArray(r.documents)            ? r.documents            : [],
+      documents:        docRowsByStudentId.get(r.id) ?? (Array.isArray(r.documents) ? r.documents : []),
       cid:              Array.isArray(r.cid_codes)            ? r.cid_codes            : (Array.isArray(r.cid) ? r.cid : (r.cid ? [r.cid] : [])),
       isExternalStudent:    r.is_external              ?? r.isExternalStudent    ?? false,
       externalSchoolName:   r.external_school_name     ?? r.externalSchoolName   ?? '',
@@ -767,6 +1092,8 @@ export const databaseService = {
       isPreRegistered:      !!(r.is_pre_registered    ?? r.isPreRegistered ?? false),
       missingRequiredFields: r.missing_required_fields ?? r.missingRequiredFields ?? [],
       priorKnowledge:         r.prior_knowledge          ?? r.priorKnowledge          ?? undefined,
+      // Cross-tenant import tracking
+      importedFromSchoolName: r.imported_from_school_name ?? r.importedFromSchoolName ?? undefined,
       // Dados sociofamiliares (schema_v_sociofamily.sql)
       sociofamilyData:        normalizeSociofamilyData(r.sociofamily_data ?? r.sociofamilyData),
       primaryContactName:     r.primary_contact_name     ?? r.primaryContactName      ?? undefined,
@@ -775,7 +1102,7 @@ export const databaseService = {
       emergencyContactPhone:  r.emergency_contact_phone  ?? r.emergencyContactPhone   ?? undefined,
     });
 
-    return [...(ownedData ?? []), ...linkedRows].map(normalize) as any;
+    return studentRows.map(normalize) as any;
   },
 
   async deleteStudent(studentId: string) {

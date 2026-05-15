@@ -11,7 +11,7 @@ import React from 'react';
 type Variant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'amber';
 type Size = 'sm' | 'md';
 
-const BASE = 'inline-flex items-center gap-1.5 font-semibold rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:opacity-50 disabled:pointer-events-none';
+const BASE = 'inline-flex items-center gap-1.5 font-medium rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:opacity-50 disabled:pointer-events-none';
 
 const VARIANT_CLS: Record<Variant, string> = {
   primary:     'bg-[#1F4E5F] text-white hover:bg-[#153846] focus-visible:ring-[#1F4E5F]',

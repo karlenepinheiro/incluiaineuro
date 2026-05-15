@@ -179,25 +179,44 @@ export const SubscriptionService = {
     if (error) throw error;
   },
 
-  /** Altera o plano de uma assinatura (admin) */
+  /** Altera o plano de uma assinatura (admin) — atualiza subscriptions + tenants + profiles + credits_wallet */
   async changePlan(tenantId: string, newPlanCode: string): Promise<void> {
-    // Resolve plan_id pelo nome
+    const planCode = newPlanCode.toUpperCase();
+
+    // Resolve plan_id + créditos mensais do novo plano
     const { data: planRow } = await supabase
       .from('plans')
-      .select('id')
-      .eq('name', newPlanCode.toUpperCase())
+      .select('id, ai_credits_per_month, max_students')
+      .eq('name', planCode)
       .maybeSingle();
 
-    if (!planRow?.id) throw new Error(`Plano "${newPlanCode}" não encontrado.`);
+    if (!planRow?.id) throw new Error(`Plano "${newPlanCode}" não encontrado na tabela plans.`);
 
+    // 1. subscriptions.plan_id
     const { error } = await supabase
       .from('subscriptions')
-      .update({ plan_id: planRow.id })
+      .update({ plan_id: planRow.id, status: 'ACTIVE' })
       .eq('tenant_id', tenantId);
     if (error) throw error;
 
-    // Também atualiza tenants.plan_id
+    // 2. tenants.plan_id
     await supabase.from('tenants').update({ plan_id: planRow.id }).eq('id', tenantId);
+
+    // 3. profiles.plan — garante que o usuário veja o plano correto imediatamente após reload
+    const { error: profileErr } = await supabase
+      .from('profiles')
+      .update({ plan: planCode })
+      .eq('tenant_id', tenantId);
+    if (profileErr) console.warn('[changePlan] profiles.plan update failed:', profileErr.message);
+
+    // 4. credits_wallet — reseta balance para o limite do novo plano (mesmo comportamento do activate_purchase_for_user)
+    const planCredits = Number(planRow.ai_credits_per_month ?? 0);
+    if (planCredits > 0) {
+      const { error: walletErr } = await supabase
+        .from('credits_wallet')
+        .upsert({ tenant_id: tenantId, balance: planCredits, updated_at: new Date().toISOString() }, { onConflict: 'tenant_id' });
+      if (walletErr) console.warn('[changePlan] credits_wallet upsert failed:', walletErr.message);
+    }
   },
 
   /** Cancela uma assinatura */

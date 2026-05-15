@@ -1,26 +1,145 @@
-import React, { useMemo, useState } from 'react';
-import { Edit, Trash2, Plus, Search, Users, UserPlus, Globe, Upload, AlertCircle, LayoutGrid, List } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import {
+  Edit, Trash2, Plus, Search, Users, UserPlus, Globe,
+  Upload, AlertCircle, LayoutGrid, List, Sparkles, Eye, ChevronDown,
+} from 'lucide-react';
 import { Student, PlanTier, getPlanLimits, type User } from '../types';
 import { StudentCodeSearchModal } from '../components/StudentCodeSearchModal';
 import { StudentImportModal } from '../components/StudentImportModal';
+import { getStudentBasicCompletionStatus } from '../services/csvImportService';
 
+// ── TEA icon (Puzzle) ─────────────────────────────────────────────────────────
+const PuzzleIcon = (
+  <svg width="20" height="20" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg"
+    style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}>
+    <rect x="1"    y="1"    width="8.5" height="8.5" rx="1.5" fill="#EF4444"/>
+    <rect x="12.5" y="1"    width="8.5" height="8.5" rx="1.5" fill="#3B82F6"/>
+    <rect x="1"    y="12.5" width="8.5" height="8.5" rx="1.5" fill="#22C55E"/>
+    <rect x="12.5" y="12.5" width="8.5" height="8.5" rx="1.5" fill="#F59E0B"/>
+    <circle cx="11"    cy="5.75"  r="2.1" fill="#EF4444"/>
+    <circle cx="11"    cy="16.25" r="2.1" fill="#22C55E"/>
+    <circle cx="5.75"  cy="11"    r="2.1" fill="#EF4444"/>
+    <circle cx="16.25" cy="11"    r="2.1" fill="#3B82F6"/>
+  </svg>
+);
+
+// ── Neuro icon (Sunflower) ────────────────────────────────────────────────────
+const SunflowerIcon = (
+  <svg width="20" height="20" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg"
+    style={{ display: 'inline-block', verticalAlign: 'middle', flexShrink: 0 }}>
+    <ellipse cx="11" cy="3"  rx="2"   ry="3.2" fill="#FBBF24"/>
+    <ellipse cx="11" cy="19" rx="2"   ry="3.2" fill="#FBBF24"/>
+    <ellipse cx="3"  cy="11" rx="3.2" ry="2"   fill="#FBBF24"/>
+    <ellipse cx="19" cy="11" rx="3.2" ry="2"   fill="#FBBF24"/>
+    <ellipse cx="5.5"  cy="5.5"  rx="2" ry="3" fill="#FBBF24" transform="rotate(-45 5.5 5.5)"/>
+    <ellipse cx="16.5" cy="5.5"  rx="2" ry="3" fill="#FBBF24" transform="rotate(45 16.5 5.5)"/>
+    <ellipse cx="5.5"  cy="16.5" rx="2" ry="3" fill="#FBBF24" transform="rotate(45 5.5 16.5)"/>
+    <ellipse cx="16.5" cy="16.5" rx="2" ry="3" fill="#FBBF24" transform="rotate(-45 16.5 16.5)"/>
+    <circle cx="11" cy="11" r="4.2" fill="#92400E"/>
+    <circle cx="11" cy="11" r="2.5" fill="#78350F" opacity="0.6"/>
+  </svg>
+);
+
+// ── Support visual helper (exported — usado em StudentProfile.tsx) ─────────────
+type SupportVisual = {
+  type: 'tea' | 'neuro';
+  icon: React.ReactNode;
+  tooltip: string;
+  label: string;
+  color: string;
+} | null;
+
+export function getStudentSupportVisual(student: Student): SupportVisual {
+  const hasDiagnosis =
+    (student.diagnosis?.length ?? 0) > 0 ||
+    (Array.isArray(student.cid) ? student.cid.some(c => c?.trim()) : !!student.cid?.toString().trim());
+
+  if (!hasDiagnosis) return null;
+
+  const diagText = [
+    ...(student.diagnosis ?? []),
+    ...(Array.isArray(student.cid) ? student.cid : student.cid ? [String(student.cid)] : []),
+  ].join(' ').toLowerCase();
+
+  const isAutism = /tea|autis|f84|espectro autista|tgd/.test(diagText);
+
+  return isAutism
+    ? { type: 'tea',   icon: PuzzleIcon,    tooltip: 'Aluno com TEA — suporte específico',              label: 'TEA',   color: '#3B82F6' }
+    : { type: 'neuro', icon: SunflowerIcon, tooltip: 'Aluno com neurodivergência — suporte específico',  label: 'Neuro', color: '#F59E0B' };
+}
+
+// ── Color palette ──────────────────────────────────────────────────────────────
 const C = {
-  bg: '#F6F4EF',
-  surface: '#FFFFFF',
-  text: '#1F2937',
-  textSec: '#667085',
-  petrol: '#1F4E5F',
-  dark: '#2E3A59',
-  gold: '#C69214',
-  goldLight: '#FDF6E3',
-  border: '#E7E2D8',
-  borderMid: '#C9C3B5',
-  red: '#DC2626',
-  redLight: '#FEF2F2',
-  amber: '#D97706',
+  bg:         '#F6F4EF',
+  surface:    '#FFFFFF',
+  text:       '#0F172A',
+  textSec:    '#475569',
+  textMuted:  '#94A3B8',
+  petrol:     '#1F4E5F',
+  dark:       '#2E3A59',
+  gold:       '#C69214',
+  goldLight:  '#FDF6E3',
+  border:     '#E7E2D8',
+  borderMid:  '#C9C3B5',
+  red:        '#DC2626',
+  redLight:   '#FEF2F2',
+  amber:      '#D97706',
   amberLight: '#FFFBEB',
+  tealLight:  '#EEF6F9',
 };
 
+// ── Pagination constants ───────────────────────────────────────────────────────
+const INITIAL_VISIBLE  = 10;
+const LOAD_MORE_STEP   = 10;
+const VIEW_MODE_KEY    = 'studentsViewMode';
+
+// ── Date / field helpers ───────────────────────────────────────────────────────
+function fmtDate(dateStr?: string | null): string {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr.includes('T') ? dateStr : dateStr + 'T00:00:00');
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('pt-BR');
+  } catch { return '—'; }
+}
+
+function fmtBirthDate(dateStr?: string | null): string {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr.includes('T') ? dateStr : dateStr + 'T00:00:00');
+    if (isNaN(d.getTime())) return '—';
+    const today = new Date();
+    let age = today.getFullYear() - d.getFullYear();
+    const m = today.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
+    return `${d.toLocaleDateString('pt-BR')} (${age}a)`;
+  } catch { return '—'; }
+}
+
+function guardianName(s: Student): string {
+  return (
+    s.guardianName?.trim() ||
+    s.sociofamilyData?.guardian1?.fullName?.trim() ||
+    s.primaryContactName?.trim() ||
+    '—'
+  );
+}
+
+function guardianPhone(s: Student): string {
+  return (
+    s.guardianPhone?.trim() ||
+    s.sociofamilyData?.guardian1?.phone?.trim() ||
+    s.primaryContactPhone?.trim() ||
+    '—'
+  );
+}
+
+function diagnosisText(s: Student): string {
+  const parts = (s.diagnosis ?? []).filter(Boolean);
+  return parts.length ? parts.join(', ') : '—';
+}
+
+// ── Props / types ──────────────────────────────────────────────────────────────
 interface StudentsListViewProps {
   students: Student[];
   planMaxStudents?: number;
@@ -37,6 +156,7 @@ interface StudentsListViewProps {
 
 type FilterType = 'all' | 'em_triagem' | 'com_laudo' | 'externo' | 'incompleto' | 'importado_incompleto';
 
+// ── Main view ──────────────────────────────────────────────────────────────────
 export const StudentsListView: React.FC<StudentsListViewProps> = ({
   students,
   planMaxStudents,
@@ -50,57 +170,74 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
   onStudentImported,
   onImportStudents,
 }) => {
-  const [search, setSearch]             = useState('');
-  const [filter, setFilter]             = useState<FilterType>('all');
-  const [viewMode, setViewMode]         = useState<'grid' | 'compact'>('grid');
+  const [search, setSearch]   = useState('');
+  const [filter, setFilter]   = useState<FilterType>('all');
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const [showCodeSearch, setShowCodeSearch] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_MODE_KEY);
+      return saved === 'list' ? 'list' : 'grid';
+    } catch { return 'grid'; }
+  });
+
+  const handleSetViewMode = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch {}
+  };
+
+  // Reset pagination when filter or search changes
+  useEffect(() => { setVisibleCount(INITIAL_VISIBLE); }, [search, filter]);
 
   const maxStudents = planMaxStudents && planMaxStudents > 0
     ? planMaxStudents
     : getPlanLimits(userPlan).students;
 
-  const filtered = useMemo(() => {
-    return students.filter(s => {
-      const matchSearch = (s.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
-        (s.diagnosis || []).join(' ').toLowerCase().includes(search.toLowerCase());
-      if (!matchSearch) return false;
-      if (filter === 'em_triagem')  return s.tipo_aluno === 'em_triagem';
-      if (filter === 'com_laudo')   return s.tipo_aluno === 'com_laudo';
-      if (filter === 'externo')     return s.isExternalStudent === true;
-      if (filter === 'incompleto')          return s.registrationStatus === 'incomplete' || s.registrationStatus === 'pre_registered' || s.isPreRegistered === true;
-      if (filter === 'importado_incompleto') return s.importSource === 'csv' && (s.registrationStatus === 'incomplete' || s.registrationStatus === 'pre_registered' || s.isPreRegistered === true);
-      return true;
-    });
-  }, [students, search, filter]);
+  const filtered = useMemo(() => students.filter(s => {
+    const matchSearch =
+      (s.name ?? '').toLowerCase().includes(search.toLowerCase()) ||
+      (s.diagnosis ?? []).join(' ').toLowerCase().includes(search.toLowerCase());
+    if (!matchSearch) return false;
+    if (filter === 'em_triagem')          return s.tipo_aluno === 'em_triagem';
+    if (filter === 'com_laudo')           return s.tipo_aluno === 'com_laudo';
+    if (filter === 'externo')             return s.isExternalStudent === true;
+    if (filter === 'incompleto')          return getStudentBasicCompletionStatus(s) === 'invalid';
+    if (filter === 'importado_incompleto') return s.importSource === 'csv' && getStudentBasicCompletionStatus(s) === 'invalid';
+    return true;
+  }), [students, search, filter]);
+
+  const visibleStudents = filtered.slice(0, visibleCount);
 
   const counts = useMemo(() => ({
-    total:      students.length,
-    triagem:    students.filter(s => s.tipo_aluno === 'em_triagem').length,
-    laudo:      students.filter(s => s.tipo_aluno === 'com_laudo').length,
-    externo:    students.filter(s => s.isExternalStudent).length,
-    incompleto:           students.filter(s => s.registrationStatus === 'incomplete' || s.registrationStatus === 'pre_registered' || s.isPreRegistered).length,
-    importado_incompleto: students.filter(s => s.importSource === 'csv' && (s.registrationStatus === 'incomplete' || s.registrationStatus === 'pre_registered' || s.isPreRegistered)).length,
+    total:                students.length,
+    triagem:              students.filter(s => s.tipo_aluno === 'em_triagem').length,
+    laudo:                students.filter(s => s.tipo_aluno === 'com_laudo').length,
+    externo:              students.filter(s => s.isExternalStudent).length,
+    incompleto:           students.filter(s => getStudentBasicCompletionStatus(s) === 'invalid').length,
+    importado_incompleto: students.filter(s => s.importSource === 'csv' && getStudentBasicCompletionStatus(s) === 'invalid').length,
   }), [students]);
 
   const usagePct = maxStudents > 0 ? Math.min(100, (students.length / maxStudents) * 100) : 0;
 
   const filterTabs: { id: FilterType; label: string; count: number; alert?: boolean }[] = [
-    { id: 'all',        label: 'Todos',      count: counts.total },
-    { id: 'com_laudo',  label: 'Com Laudo',  count: counts.laudo },
-    { id: 'em_triagem', label: 'Em Triagem', count: counts.triagem },
-    { id: 'externo',    label: 'Externos',   count: counts.externo },
-    { id: 'incompleto',           label: 'Incompletos',          count: counts.incompleto,           alert: true },
+    { id: 'all',                 label: 'Todos',               count: counts.total },
+    { id: 'com_laudo',           label: 'Com Laudo',           count: counts.laudo },
+    { id: 'em_triagem',          label: 'Em Triagem',          count: counts.triagem },
+    { id: 'externo',             label: 'Externos',            count: counts.externo },
+    { id: 'incompleto',          label: 'Incompletos',         count: counts.incompleto,           alert: true },
     { id: 'importado_incompleto', label: 'Importado Incompleto', count: counts.importado_incompleto, alert: true },
   ];
 
   return (
     <div className="min-h-screen p-6" style={{ background: C.bg }}>
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
+
+        {/* ── Header ── */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-2xl font-bold" style={{ color: C.dark }}>Meus Alunos</h1>
+            <h1 className="text-xl font-semibold" style={{ color: C.dark }}>Meus Alunos</h1>
             <p className="text-sm mt-0.5" style={{ color: C.textSec }}>
               {students.length} de {maxStudents} vagas utilizadas
             </p>
@@ -109,62 +246,50 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
             {user && (
               <button
                 onClick={() => setShowCodeSearch(true)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
-                style={{
-                  background: '#EFF6FF',
-                  color: '#1D4ED8',
-                  border: '1.5px solid #BFDBFE',
-                }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition"
+                style={{ background: '#F8FAFF', color: '#3B82F6', border: '1px solid #DBEAFE' }}
                 title="Buscar aluno de outra escola pelo código único"
               >
-                <Globe size={15} /> Buscar por Código
+                <Globe size={14} /> Buscar por Código
               </button>
             )}
             <button
               onClick={() => setShowImportModal(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
-              style={{
-                background: '#F0F9FF',
-                color: '#0369A1',
-                border: '1.5px solid #BAE6FD',
-              }}
-              title="Importar lista de alunos por arquivo CSV"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition"
+              style={{ background: '#F5F3FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}
+              title="Cadastrar vários alunos de uma vez via planilha"
             >
-              <Upload size={15} /> Importar CSV
+              <Sparkles size={14} /> Cadastro Inteligente ✨
             </button>
             <button
               onClick={onCreateTriagem}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition"
-              style={{
-                background: C.goldLight,
-                color: C.gold,
-                border: `1.5px solid ${C.gold}`,
-              }}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition"
+              style={{ background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' }}
             >
-              <Search size={15} /> Em Triagem
+              <Plus size={14} /> Novo Aluno em Triagem
             </button>
             <button
               onClick={onCreateComLaudo}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm text-white transition"
-              style={{ background: C.petrol, boxShadow: '0 4px 12px rgba(31,78,95,0.25)' }}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm text-white transition"
+              style={{ background: C.petrol, boxShadow: '0 2px 8px rgba(31,78,95,0.18)' }}
             >
-              <Plus size={15} /> Com Laudo
+              <Plus size={14} /> Novo Aluno com Laudo
             </button>
           </div>
         </div>
 
-        {/* Progress bar */}
+        {/* ── Progress bar ── */}
         <div
-          className="rounded-2xl p-5 mb-6 flex items-center gap-5"
-          style={{ background: C.surface, border: `1.5px solid ${C.border}` }}
+          className="rounded-2xl p-4 mb-5 flex items-center gap-4"
+          style={{ background: C.surface, border: `1px solid ${C.border}` }}
         >
-          <Users size={20} style={{ color: C.petrol, flexShrink: 0 }} />
+          <Users size={16} style={{ color: C.petrol, flexShrink: 0, opacity: 0.7 }} />
           <div className="flex-1">
-            <div className="flex justify-between text-xs font-semibold mb-1.5" style={{ color: C.dark }}>
-              <span>Capacidade utilizada</span>
+            <div className="flex justify-between text-xs font-medium mb-1.5" style={{ color: C.textSec }}>
+              <span>Vagas utilizadas</span>
               <span>{students.length} / {maxStudents}</span>
             </div>
-            <div className="w-full h-2.5 rounded-full overflow-hidden" style={{ background: C.border }}>
+            <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: '#F3F4F6' }}>
               <div
                 className="h-full rounded-full transition-all duration-700"
                 style={{
@@ -176,15 +301,12 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
               />
             </div>
           </div>
-          <span
-            className="text-sm font-bold shrink-0"
-            style={{ color: usagePct > 80 ? '#EF4444' : C.petrol }}
-          >
+          <span className="text-xs font-medium shrink-0" style={{ color: usagePct > 80 ? '#EF4444' : C.textSec }}>
             {Math.round(usagePct)}%
           </span>
         </div>
 
-        {/* Search + filters */}
+        {/* ── Search + view toggle + filters ── */}
         <div className="flex flex-col sm:flex-row gap-3 mb-5">
           <div
             className="flex items-center gap-2 flex-1 rounded-xl px-4 py-2.5"
@@ -200,68 +322,64 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
             />
           </div>
 
-          {/* Toggle de visualização */}
+          {/* View mode toggle */}
           <div
             className="flex rounded-xl overflow-hidden shrink-0"
             style={{ border: `1.5px solid ${C.border}`, background: C.surface }}
           >
-            {(['grid', 'compact'] as const).map(mode => (
+            {(['grid', 'list'] as const).map(mode => (
               <button
                 key={mode}
-                onClick={() => setViewMode(mode)}
+                onClick={() => handleSetViewMode(mode)}
                 className="px-3 py-2 transition"
-                title={mode === 'grid' ? 'Visualização em grade' : 'Visualização compacta'}
-                style={viewMode === mode
-                  ? { background: C.petrol, color: '#fff' }
-                  : { color: C.textSec }}
+                title={mode === 'grid' ? 'Visualização em quadro' : 'Visualização em lista'}
+                style={viewMode === mode ? { background: C.petrol, color: '#fff' } : { color: C.textSec }}
               >
                 {mode === 'grid' ? <LayoutGrid size={15} /> : <List size={15} />}
               </button>
             ))}
           </div>
 
+          {/* Filter tabs */}
           <div
-            className="flex rounded-xl overflow-hidden"
-            style={{ border: `1.5px solid ${C.border}`, background: C.surface }}
+            className="flex rounded-xl overflow-hidden overflow-x-auto"
+            style={{ border: `1px solid ${C.border}`, background: C.surface }}
           >
-            {filterTabs.map(tab => (
-              // Oculta o tab "Incompletos" se não houver nenhum
-              (tab.id === 'incompleto' && tab.count === 0) ? null : (
-              <button
-                key={tab.id}
-                onClick={() => setFilter(tab.id)}
-                className="px-3 py-2 text-xs font-bold transition flex items-center gap-1"
-                style={
-                  filter === tab.id
-                    ? { background: tab.alert ? C.red : C.petrol, color: '#fff' }
-                    : { color: tab.alert && tab.count > 0 ? C.red : C.textSec }
-                }
-              >
-                {tab.alert && tab.count > 0 && filter !== tab.id && (
-                  <AlertCircle size={11} />
-                )}
-                {tab.label}
-                {tab.count > 0 && (
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded-full ml-1"
-                    style={
-                      filter === tab.id
-                        ? { background: 'rgba(255,255,255,0.2)', color: '#fff' }
-                        : tab.alert
-                          ? { background: C.redLight, color: C.red }
-                          : { background: C.border, color: C.textSec }
-                    }
-                  >
-                    {tab.count}
-                  </span>
-                )}
-              </button>
+            {filterTabs.map(tab =>
+              tab.id === 'incompleto' && tab.count === 0 ? null : (
+                <button
+                  key={tab.id}
+                  onClick={() => setFilter(tab.id)}
+                  className="px-3 py-2 text-xs font-medium transition flex items-center gap-1 whitespace-nowrap"
+                  style={
+                    filter === tab.id
+                      ? { background: tab.alert ? C.red : C.petrol, color: '#fff' }
+                      : { color: tab.alert && tab.count > 0 ? C.red : C.textSec }
+                  }
+                >
+                  {tab.alert && tab.count > 0 && filter !== tab.id && <AlertCircle size={11} />}
+                  {tab.label}
+                  {tab.count > 0 && (
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded-full ml-1"
+                      style={
+                        filter === tab.id
+                          ? { background: 'rgba(255,255,255,0.2)', color: '#fff' }
+                          : tab.alert
+                            ? { background: C.redLight, color: C.red }
+                            : { background: '#F3F4F6', color: '#9CA3AF' }
+                      }
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
               )
-            ))}
+            )}
           </div>
         </div>
 
-        {/* Grid */}
+        {/* ── Content ── */}
         {filtered.length === 0 ? (
           <div
             className="rounded-2xl p-12 flex flex-col items-center"
@@ -272,25 +390,20 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
               {search || filter !== 'all' ? 'Nenhum aluno encontrado' : 'Nenhum aluno cadastrado ainda'}
             </p>
             <p className="text-xs mt-1" style={{ color: C.borderMid }}>
-              {search ? 'Tente outros termos' : 'Clique em "+ Com Laudo" ou "Em Triagem" para começar'}
+              {search ? 'Tente outros termos' : 'Use os botões acima para cadastrar o primeiro aluno'}
             </p>
           </div>
-        ) : viewMode === 'compact' ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-            {filtered.map(s => (
-              <StudentCardCompact
-                key={s.id}
-                student={s}
-                onSelect={onSelect}
-                onEdit={onEdit}
-                onDelete={onDelete}
-              />
-            ))}
-          </div>
+        ) : viewMode === 'list' ? (
+          <StudentListView
+            students={visibleStudents}
+            onSelect={onSelect}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map(s => (
-              <StudentCard
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {visibleStudents.map(s => (
+              <StudentGridCard
                 key={s.id}
                 student={s}
                 onSelect={onSelect}
@@ -300,9 +413,38 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
             ))}
           </div>
         )}
+
+        {/* ── Ver mais / counter ── */}
+        {filtered.length > 0 && (
+          <div className="mt-8 flex flex-col items-center gap-3">
+            <p className="text-sm" style={{ color: C.textMuted }}>
+              Mostrando {Math.min(visibleCount, filtered.length)} de {filtered.length} aluno{filtered.length !== 1 ? 's' : ''}
+            </p>
+            {filtered.length > visibleCount && (
+              <button
+                onClick={() => setVisibleCount(v => v + LOAD_MORE_STEP)}
+                className="flex items-center gap-2 px-6 py-2.5 rounded-xl font-medium text-sm transition"
+                style={{
+                  background: C.surface,
+                  color: C.petrol,
+                  border: `1.5px solid ${C.petrol}`,
+                  boxShadow: '0 1px 4px rgba(31,78,95,0.08)',
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLButtonElement).style.background = C.tealLight;
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLButtonElement).style.background = C.surface;
+                }}
+              >
+                <ChevronDown size={16} /> Ver mais {Math.min(LOAD_MORE_STEP, filtered.length - visibleCount)} alunos
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Modal de busca por código entre escolas */}
+      {/* Modals */}
       {showCodeSearch && user && (
         <StudentCodeSearchModal
           user={user}
@@ -313,8 +455,6 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
           onClose={() => setShowCodeSearch(false)}
         />
       )}
-
-      {/* Modal de importação CSV */}
       {showImportModal && user && (
         <StudentImportModal
           tenantId={user.tenant_id}
@@ -330,27 +470,112 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
   );
 };
 
-// ── Helpers de status compartilhados ─────────────────────────────────────────
+// ── Shared: student status flags ───────────────────────────────────────────────
 function studentStatus(s: Student) {
+  const basicStatus          = getStudentBasicCompletionStatus(s);
   const isTriagem            = s.tipo_aluno === 'em_triagem';
-  const isIncomplete         = s.registrationStatus === 'incomplete'
-                               || s.registrationStatus === 'pre_registered'
-                               || s.isPreRegistered === true;
+  const isIncomplete         = basicStatus === 'invalid';
+  const isValidBasic         = basicStatus === 'valid_basic';
   const isImportedIncomplete = isIncomplete && s.importSource === 'csv';
   const accentColor = isImportedIncomplete ? '#7F1D1D'
-    : isIncomplete ? C.red
-    : isTriagem    ? '#F59E0B'
+    : isIncomplete  ? C.red
+    : isTriagem     ? '#F59E0B'
     : C.petrol;
   const avatarBg = isImportedIncomplete
     ? 'linear-gradient(135deg,#7F1D1D,#B91C1C)'
     : isIncomplete
       ? `linear-gradient(135deg,${C.red},#F87171)`
       : `linear-gradient(135deg,${isTriagem ? '#F59E0B' : C.petrol},${isTriagem ? '#FCD34D' : C.dark})`;
-  return { isTriagem, isIncomplete, isImportedIncomplete, accentColor, avatarBg };
+  return { isTriagem, isIncomplete, isImportedIncomplete, isValidBasic, accentColor, avatarBg };
 }
 
-// ── Modo grade (padrão) — versão limpa ───────────────────────────────────────
-function StudentCard({
+// ── Shared: avatar ─────────────────────────────────────────────────────────────
+function Avatar({ student: s, size = 44 }: { student: Student; size?: number }) {
+  const { avatarBg } = studentStatus(s);
+  return (
+    <div
+      className="rounded-full flex items-center justify-center overflow-hidden shrink-0 font-semibold text-white"
+      style={{
+        width: size,
+        height: size,
+        fontSize: size * 0.38,
+        background: s.photoUrl ? undefined : avatarBg,
+      }}
+    >
+      {s.photoUrl
+        ? <img src={s.photoUrl} className="w-full h-full object-cover" alt={s.name} />
+        : (s.name ?? '?').charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+// ── Shared: status badges ──────────────────────────────────────────────────────
+function StatusBadges({ student: s }: { student: Student }) {
+  const { isTriagem, isIncomplete, isImportedIncomplete } = studentStatus(s);
+  const badges: React.ReactNode[] = [];
+
+  if (s.tipo_aluno === 'com_laudo' && !isIncomplete && !isTriagem) {
+    badges.push(
+      <span key="laudo" className="text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap"
+        style={{ background: C.tealLight, color: C.petrol, border: `1px solid ${C.petrol}30` }}>
+        Com Laudo
+      </span>
+    );
+  }
+  if (isTriagem) {
+    badges.push(
+      <span key="triagem" className="text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap"
+        style={{ background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' }}>
+        Em Triagem
+      </span>
+    );
+  }
+  if (s.isExternalStudent) {
+    badges.push(
+      <span key="ext" className="text-[10px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap"
+        style={{ background: C.goldLight, color: '#92400E', border: '1px solid #FDE68A' }}>
+        Externo
+      </span>
+    );
+  }
+  if (isImportedIncomplete) {
+    badges.push(
+      <span key="csv" className="text-[10px] font-medium px-2 py-0.5 rounded-full flex items-center gap-0.5 whitespace-nowrap"
+        style={{ background: '#FEE2E2', color: '#7F1D1D', border: '1px solid #B91C1C40' }}>
+        <Upload size={9} /> CSV incompleto
+      </span>
+    );
+  } else if (isIncomplete) {
+    badges.push(
+      <span key="inc" className="text-[10px] font-medium px-2 py-0.5 rounded-full flex items-center gap-0.5 whitespace-nowrap"
+        style={{ background: C.redLight, color: C.red, border: `1px solid ${C.red}40` }}>
+        <AlertCircle size={9} /> Incompleto
+      </span>
+    );
+  }
+
+  return <div className="flex flex-wrap gap-1">{badges}</div>;
+}
+
+// ── Shared: info cell (label + value) ─────────────────────────────────────────
+function InfoCell({ label, value, span2 = false }: { label: string; value: string; span2?: boolean }) {
+  const isEmpty = !value || value === '—';
+  return (
+    <div style={span2 ? { gridColumn: '1 / -1' } : {}}>
+      <p style={{ fontSize: '10px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 2 }}>
+        {label}
+      </p>
+      <p className="truncate" style={{ fontSize: '12px', color: isEmpty ? '#CBD5E1' : C.text, fontWeight: 400 }}>
+        {isEmpty ? '—' : value}
+      </p>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALIZAÇÃO QUADRO — StudentGridCard
+// ══════════════════════════════════════════════════════════════════════════════
+function StudentGridCard({
   student: s,
   onSelect,
   onEdit,
@@ -361,225 +586,381 @@ function StudentCard({
   onEdit: (s: Student) => void;
   onDelete: (id: string) => void;
 }) {
-  const { isTriagem, isIncomplete, isImportedIncomplete, accentColor, avatarBg } = studentStatus(s);
+  const { isTriagem, isIncomplete, isImportedIncomplete, accentColor } = studentStatus(s);
+  const supportVisual = getStudentSupportVisual(s);
+  const diagText = diagnosisText(s);
+
+  const topBarColor = isImportedIncomplete
+    ? 'linear-gradient(90deg,#7F1D1D,#DC2626)'
+    : isIncomplete
+      ? `linear-gradient(90deg,${C.red},#F87171)`
+      : isTriagem
+        ? 'linear-gradient(90deg,#F59E0B,#FCD34D)'
+        : `linear-gradient(90deg,${C.petrol},${C.dark})`;
 
   return (
     <div
-      onClick={() => onSelect(s)}
-      className="rounded-2xl cursor-pointer group transition"
+      className="rounded-2xl cursor-pointer group flex flex-col transition-all duration-150"
       style={{
         background: C.surface,
-        border: `1.5px solid ${isIncomplete ? accentColor + '50' : C.border}`,
-        boxShadow: '0 2px 8px rgba(31,78,95,0.05)',
+        border: `1px solid ${isIncomplete ? accentColor + '40' : C.border}`,
+        boxShadow: '0 1px 4px rgba(15,23,42,0.04)',
       }}
+      onClick={() => onSelect(s)}
       onMouseEnter={e => {
-        (e.currentTarget as HTMLDivElement).style.borderColor = accentColor;
-        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 6px 24px rgba(31,78,95,0.12)';
+        (e.currentTarget as HTMLDivElement).style.borderColor = isIncomplete ? accentColor : C.petrol + '55';
+        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 6px 20px rgba(15,23,42,0.10)';
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-1px)';
       }}
       onMouseLeave={e => {
-        (e.currentTarget as HTMLDivElement).style.borderColor = isIncomplete ? accentColor + '50' : C.border;
-        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 8px rgba(31,78,95,0.05)';
+        (e.currentTarget as HTMLDivElement).style.borderColor = isIncomplete ? accentColor + '40' : C.border;
+        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 4px rgba(15,23,42,0.04)';
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)';
       }}
     >
-      {/* Faixa de status */}
-      <div className="h-1 rounded-t-2xl" style={{
-        background: isImportedIncomplete ? 'linear-gradient(90deg,#7F1D1D,#DC2626)'
-          : isIncomplete               ? `linear-gradient(90deg,${C.red},#F87171)`
-          : isTriagem                  ? 'linear-gradient(90deg,#F59E0B,#FCD34D)'
-          : `linear-gradient(90deg,${C.petrol},${C.dark})`,
-      }} />
+      {/* Top color bar */}
+      <div className="h-1 rounded-t-2xl" style={{ background: topBarColor }} />
 
-      <div className="p-4">
-        {/* Avatar + nome */}
-        <div className="flex items-center gap-3 mb-3">
-          <div
-            className="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden shrink-0 text-base font-bold text-white"
-            style={{ background: s.photoUrl ? undefined : avatarBg }}
-          >
-            {s.photoUrl
-              ? <img src={s.photoUrl} className="w-full h-full object-cover" alt={s.name} />
-              : (s.name ?? '?').charAt(0).toUpperCase()}
-          </div>
+      <div className="p-4 flex flex-col flex-1">
 
+        {/* Header: avatar + name + support icon */}
+        <div className="flex items-start gap-3 mb-3">
+          <Avatar student={s} size={44} />
           <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-sm truncate" style={{ color: C.dark }}>{s.name}</h3>
-
-            {/* Subtítulo: diagnóstico (se houver) ou série */}
-            {s.diagnosis?.length ? (
-              <p className="text-xs truncate mt-0.5" style={{ color: C.textSec }}>
-                {s.diagnosis.join(', ')}
-              </p>
-            ) : s.grade ? (
-              <p className="text-xs truncate mt-0.5" style={{ color: C.textSec }}>{s.grade}{s.shift ? ` · ${s.shift}` : ''}</p>
-            ) : null}
-
-            {/* Badges — só os que agregam informação */}
-            <div className="flex gap-1 mt-1.5 flex-wrap">
-              {isTriagem && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                  style={{ background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' }}>
-                  Em Triagem
+            <div className="flex items-center gap-1.5 min-w-0">
+              <h3
+                className="font-semibold text-sm leading-tight"
+                style={{
+                  color: C.text,
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                {s.name}
+              </h3>
+              {supportVisual && (
+                <span
+                  title={supportVisual.tooltip}
+                  className="shrink-0 cursor-default select-none leading-none"
+                  style={{ display: 'inline-flex', alignItems: 'center', opacity: 0.9, marginTop: 1 }}
+                >
+                  {supportVisual.icon}
                 </span>
               )}
-              {s.isExternalStudent && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-                  style={{ background: C.goldLight, color: C.gold, border: `1px solid ${C.borderMid}` }}>
-                  Externo
-                </span>
-              )}
-              {isImportedIncomplete ? (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5"
-                  style={{ background: '#FEE2E2', color: '#7F1D1D', border: '1px solid #B91C1C40' }}>
-                  <Upload size={9} /> CSV incompleto
-                </span>
-              ) : isIncomplete ? (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5"
-                  style={{ background: C.redLight, color: C.red, border: `1px solid ${C.red}40` }}>
-                  <AlertCircle size={9} /> Incompleto
-                </span>
-              ) : null}
             </div>
+            {(s.unique_code || s.registrationDate) && (
+              <p style={{ fontSize: 10, color: C.textMuted, marginTop: 3, lineHeight: 1.3 }}>
+                {s.unique_code ? `#${s.unique_code}` : ''}
+                {s.unique_code && s.registrationDate ? ' · ' : ''}
+                {s.registrationDate ? fmtDate(s.registrationDate) : ''}
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Linha de info — só se houver conteúdo e não foi exibido no subtítulo */}
-        {s.diagnosis?.length > 0 && (s.grade || s.shift || s.regentTeacher) && (
-          <p className="text-[11px] mb-3 truncate" style={{ color: C.textSec }}>
-            {[s.grade, s.shift, s.regentTeacher].filter(Boolean).join(' · ')}
+        {/* Diagnosis */}
+        <div className="mb-2.5">
+          <p
+            className="text-xs leading-snug"
+            style={{
+              color: diagText === '—' ? '#CBD5E1' : C.textSec,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+            title={diagText !== '—' ? diagText : undefined}
+          >
+            {diagText}
           </p>
-        )}
+        </div>
 
-        {/* Banner incompleto — comprimido a uma linha */}
-        {isIncomplete && (
-          <div className="mb-3 px-3 py-2 rounded-xl text-xs flex items-center gap-2"
-            style={{ background: isImportedIncomplete ? '#FEE2E2' : C.redLight,
-                     border: `1px solid ${accentColor}30` }}>
-            {isImportedIncomplete
-              ? <Upload size={11} style={{ color: '#7F1D1D', flexShrink: 0 }} />
-              : <AlertCircle size={11} style={{ color: C.red, flexShrink: 0 }} />}
-            <span className="truncate font-medium" style={{ color: accentColor }}>
-              {isImportedIncomplete ? 'Importado via CSV — complete o cadastro' : 'Complete o cadastro para liberar documentos'}
-            </span>
-          </div>
-        )}
+        {/* Badges */}
+        <div className="mb-3">
+          <StatusBadges student={s} />
+        </div>
 
-        {/* Rodapé: ações */}
-        <div className="flex items-center justify-between pt-3" style={{ borderTop: `1px solid ${C.border}` }}>
-          <div className="flex gap-0.5">
-            <button onClick={e => { e.stopPropagation(); onEdit(s); }}
+        {/* Info grid */}
+        <div
+          className="flex-1 grid gap-x-3 gap-y-2.5 mb-3 pt-3"
+          style={{
+            gridTemplateColumns: '1fr 1fr',
+            borderTop: `1px solid ${C.border}`,
+          }}
+        >
+          <InfoCell label="Série / Ano" value={s.grade || '—'} />
+          <InfoCell label="Turno"       value={s.shift || '—'} />
+          <InfoCell label="Aniversário" value={fmtBirthDate(s.birthDate)} />
+          <InfoCell label="Telefone"    value={guardianPhone(s)} />
+          <InfoCell label="Responsável" value={guardianName(s)} span2 />
+        </div>
+
+        {/* Footer actions */}
+        <div
+          className="flex items-center justify-between pt-3"
+          style={{ borderTop: `1px solid ${C.border}` }}
+        >
+          <button
+            onClick={e => { e.stopPropagation(); onSelect(s); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition"
+            style={{ background: C.tealLight, color: C.petrol }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.petrol; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = C.tealLight; (e.currentTarget as HTMLButtonElement).style.color = C.petrol; }}
+          >
+            <Eye size={12} /> Ver detalhes
+          </button>
+
+          <div className="flex gap-1">
+            <button
+              onClick={e => { e.stopPropagation(); onEdit(s); }}
               className="p-1.5 rounded-lg transition"
-              style={{ color: C.textSec }}
-              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.petrol + '18'; (e.currentTarget as HTMLButtonElement).style.color = C.petrol; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = C.textSec; }}>
+              title="Editar"
+              style={{ color: '#CBD5E1' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.petrol + '14'; (e.currentTarget as HTMLButtonElement).style.color = C.petrol; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#CBD5E1'; }}
+            >
               <Edit size={14} />
             </button>
-            <button onClick={e => { e.stopPropagation(); onDelete(s.id); }}
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(s.id); }}
               className="p-1.5 rounded-lg transition"
-              style={{ color: C.textSec }}
+              title="Excluir"
+              style={{ color: '#CBD5E1' }}
               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#FEF2F2'; (e.currentTarget as HTMLButtonElement).style.color = '#EF4444'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = C.textSec; }}>
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#CBD5E1'; }}
+            >
               <Trash2 size={14} />
             </button>
           </div>
-          <span className="text-[11px] font-semibold opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: C.petrol }}>
-            Ver ficha →
-          </span>
         </div>
+
       </div>
     </div>
   );
 }
 
-// ── Modo compacto — avatar grande + nome, sem texto extra ────────────────────
-function StudentCardCompact({
+// ══════════════════════════════════════════════════════════════════════════════
+// VISUALIZAÇÃO LISTA — StudentListView + StudentListRow
+// ══════════════════════════════════════════════════════════════════════════════
+function StudentListView({
+  students,
+  onSelect,
+  onEdit,
+  onDelete,
+}: {
+  students: Student[];
+  onSelect: (s: Student) => void;
+  onEdit: (s: Student) => void;
+  onDelete: (id: string) => void;
+}) {
+  const TH: React.CSSProperties = {
+    padding: '10px 14px',
+    textAlign: 'left',
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    color: C.textMuted,
+    whiteSpace: 'nowrap',
+    background: '#F8F9FA',
+    borderBottom: `1px solid ${C.border}`,
+  };
+
+  return (
+    <div
+      className="rounded-2xl overflow-hidden"
+      style={{ border: `1px solid ${C.border}`, boxShadow: '0 1px 6px rgba(15,23,42,0.04)' }}
+    >
+      <div className="overflow-x-auto">
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
+          <thead>
+            <tr>
+              <th style={{ ...TH, paddingLeft: 20, minWidth: 230 }}>Aluno</th>
+              <th style={{ ...TH, minWidth: 130 }}>Status</th>
+              <th style={{ ...TH, minWidth: 80 }}>Série</th>
+              <th style={{ ...TH, minWidth: 80 }}>Turno</th>
+              <th style={{ ...TH, minWidth: 130 }}>Aniversário</th>
+              <th style={{ ...TH, minWidth: 120 }}>Telefone</th>
+              <th style={{ ...TH, minWidth: 140 }}>Responsável</th>
+              <th style={{ ...TH, minWidth: 80, textAlign: 'right', paddingRight: 16 }}>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {students.map((s, i) => (
+              <StudentListRow
+                key={s.id}
+                student={s}
+                isLast={i === students.length - 1}
+                onSelect={onSelect}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function StudentListRow({
   student: s,
+  isLast,
   onSelect,
   onEdit,
   onDelete,
 }: {
   student: Student;
+  isLast: boolean;
   onSelect: (s: Student) => void;
   onEdit: (s: Student) => void;
   onDelete: (id: string) => void;
 }) {
-  const { isTriagem, isIncomplete, isImportedIncomplete, accentColor, avatarBg } = studentStatus(s);
+  const [hovered, setHovered] = useState(false);
+  const supportVisual = getStudentSupportVisual(s);
+  const diagText = diagnosisText(s);
+
+  const TD: React.CSSProperties = {
+    padding: '12px 14px',
+    fontSize: 13,
+    color: C.text,
+    borderBottom: isLast ? 'none' : `1px solid ${C.border}`,
+    verticalAlign: 'middle',
+    background: hovered ? '#F8FCFD' : C.surface,
+    transition: 'background 0.12s',
+  };
+
+  const muted: React.CSSProperties = { color: '#CBD5E1' };
 
   return (
-    <div
+    <tr
+      style={{ cursor: 'pointer' }}
       onClick={() => onSelect(s)}
-      className="relative rounded-2xl cursor-pointer group transition flex flex-col items-center gap-2.5 p-4"
-      style={{
-        background: C.surface,
-        border: `1.5px solid ${isIncomplete ? accentColor + '40' : C.border}`,
-        boxShadow: '0 1px 4px rgba(31,78,95,0.04)',
-      }}
-      onMouseEnter={e => {
-        (e.currentTarget as HTMLDivElement).style.borderColor = accentColor;
-        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 4px 16px rgba(31,78,95,0.1)';
-      }}
-      onMouseLeave={e => {
-        (e.currentTarget as HTMLDivElement).style.borderColor = isIncomplete ? accentColor + '40' : C.border;
-        (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 4px rgba(31,78,95,0.04)';
-      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
     >
-      {/* Avatar com anel de status */}
-      <div className="relative">
-        <div
-          className="w-14 h-14 rounded-full flex items-center justify-center overflow-hidden text-xl font-bold text-white"
-          style={{
-            background: s.photoUrl ? undefined : avatarBg,
-            outline: isIncomplete ? `2.5px solid ${accentColor}` : isTriagem ? '2.5px solid #F59E0B' : 'none',
-            outlineOffset: 2,
-          }}
-        >
-          {s.photoUrl
-            ? <img src={s.photoUrl} className="w-full h-full object-cover" alt={s.name} />
-            : (s.name ?? '?').charAt(0).toUpperCase()}
+      {/* Aluno */}
+      <td style={{ ...TD, paddingLeft: 20 }}>
+        <div className="flex items-center gap-3">
+          <Avatar student={s} size={36} />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span
+                className="font-medium text-sm truncate"
+                style={{ color: C.text, maxWidth: 170, display: 'inline-block' }}
+                title={s.name}
+              >
+                {s.name}
+              </span>
+              {supportVisual && (
+                <span title={supportVisual.tooltip} style={{ display: 'inline-flex', alignItems: 'center', opacity: 0.85, flexShrink: 0 }}>
+                  {supportVisual.icon}
+                </span>
+              )}
+            </div>
+            {diagText !== '—' && (
+              <p
+                className="text-xs truncate"
+                style={{ color: C.textSec, maxWidth: 200, marginTop: 1 }}
+                title={diagText}
+              >
+                {diagText}
+              </p>
+            )}
+            {(s.unique_code || s.registrationDate) && (
+              <p style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>
+                {s.unique_code ? `#${s.unique_code}` : ''}
+                {s.unique_code && s.registrationDate ? ' · ' : ''}
+                {s.registrationDate ? fmtDate(s.registrationDate) : ''}
+              </p>
+            )}
+          </div>
         </div>
-        {/* Dot indicador de status */}
-        {isIncomplete && (
-          <div className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white"
-            style={{ background: accentColor }} />
-        )}
-        {!isIncomplete && isTriagem && (
-          <div className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white bg-amber-400" />
-        )}
-      </div>
+      </td>
 
-      {/* Nome + subtítulo */}
-      <div className="text-center w-full min-w-0">
-        <p className="text-xs font-bold leading-snug" style={{ color: C.dark,
-          display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-          {s.name}
-        </p>
-        {(s.diagnosis?.[0] || s.grade) && (
-          <p className="text-[10px] mt-0.5 truncate" style={{ color: C.textSec }}>
-            {s.diagnosis?.[0] || s.grade}
-          </p>
-        )}
-      </div>
+      {/* Status badges */}
+      <td style={TD}>
+        <StatusBadges student={s} />
+      </td>
 
-      {/* Ações — visíveis só no hover */}
-      <div className="absolute top-2 right-2 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={e => { e.stopPropagation(); onEdit(s); }}
-          className="p-1 rounded-md transition"
-          style={{ background: C.bg, color: C.textSec }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = C.petrol; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textSec; }}
-        >
-          <Edit size={12} />
-        </button>
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(s.id); }}
-          className="p-1 rounded-md transition"
-          style={{ background: C.bg, color: C.textSec }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#EF4444'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = C.textSec; }}
-        >
-          <Trash2 size={12} />
-        </button>
-      </div>
-    </div>
+      {/* Série */}
+      <td style={TD}>
+        <span style={s.grade ? {} : muted}>{s.grade || '—'}</span>
+      </td>
+
+      {/* Turno */}
+      <td style={TD}>
+        <span style={s.shift ? {} : muted}>{s.shift || '—'}</span>
+      </td>
+
+      {/* Aniversário */}
+      <td style={TD}>
+        <span className="text-xs whitespace-nowrap" style={{ color: C.textSec }}>
+          {fmtBirthDate(s.birthDate)}
+        </span>
+      </td>
+
+      {/* Telefone */}
+      <td style={TD}>
+        {(() => {
+          const phone = guardianPhone(s);
+          return <span className="text-xs" style={phone === '—' ? muted : { color: C.textSec }}>{phone}</span>;
+        })()}
+      </td>
+
+      {/* Responsável */}
+      <td style={TD}>
+        {(() => {
+          const gn = guardianName(s);
+          return (
+            <span
+              className="text-xs truncate"
+              style={{ color: gn === '—' ? '#CBD5E1' : C.textSec, maxWidth: 140, display: 'inline-block' }}
+              title={gn !== '—' ? gn : undefined}
+            >
+              {gn}
+            </span>
+          );
+        })()}
+      </td>
+
+      {/* Ações */}
+      <td style={{ ...TD, textAlign: 'right', paddingRight: 16 }}>
+        <div className="flex items-center justify-end gap-1">
+          <button
+            onClick={e => { e.stopPropagation(); onSelect(s); }}
+            className="p-1.5 rounded-lg transition"
+            title="Ver detalhes"
+            style={{ color: '#CBD5E1' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.tealLight; (e.currentTarget as HTMLButtonElement).style.color = C.petrol; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#CBD5E1'; }}
+          >
+            <Eye size={14} />
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); onEdit(s); }}
+            className="p-1.5 rounded-lg transition"
+            title="Editar"
+            style={{ color: '#CBD5E1' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = C.petrol + '14'; (e.currentTarget as HTMLButtonElement).style.color = C.petrol; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#CBD5E1'; }}
+          >
+            <Edit size={14} />
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); onDelete(s.id); }}
+            className="p-1.5 rounded-lg transition"
+            title="Excluir"
+            style={{ color: '#CBD5E1' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#FEF2F2'; (e.currentTarget as HTMLButtonElement).style.color = '#EF4444'; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#CBD5E1'; }}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }

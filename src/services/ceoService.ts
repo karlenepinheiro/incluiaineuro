@@ -77,6 +77,81 @@ export interface CeoSubscriber {
   flag_low_credits: boolean;
   flag_expiring_7d: boolean;
   tenant_created_at: string;
+  // Campos de contato — populados por query separada em getCeoSubscribersContacts
+  user_phone?: string | null;
+  user_cpf?: string | null;
+}
+
+// ─── Contatos dos subscribers (phone/cpf) ─────────────────────────────────────
+
+export interface SubscriberContactInfo {
+  email: string;
+  phone: string | null;
+  cpf:   string | null;
+}
+
+/**
+ * Carrega phone/cpf de todos os usuários da tabela users.
+ * Retorna um Map indexado por e-mail para merge com a lista de subscribers.
+ */
+export async function getCeoSubscribersContacts(): Promise<Map<string, SubscriberContactInfo>> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('email, phone, cpf')
+    .not('email', 'is', null);
+
+  if (error) {
+    console.warn('[CEO] getCeoSubscribersContacts error:', error.message);
+    return new Map();
+  }
+
+  const map = new Map<string, SubscriberContactInfo>();
+  for (const row of (data ?? [])) {
+    if (row.email) {
+      map.set(row.email as string, {
+        email: row.email as string,
+        phone: (row.phone as string | null) ?? null,
+        cpf:   (row.cpf   as string | null) ?? null,
+      });
+    }
+  }
+  return map;
+}
+
+/**
+ * Atualiza phone/cpf de uma usuária via RPC SECURITY DEFINER.
+ * Registra auditoria automaticamente no backend.
+ */
+export async function adminUpdateUserContact(
+  targetEmail: string,
+  phone: string | null,
+  cpf:   string | null,
+  adminUser: AdminUser,
+): Promise<void> {
+  const { data, error } = await supabase.rpc('admin_update_user_contact', {
+    p_target_email: targetEmail,
+    p_phone:        phone || null,
+    p_cpf:          cpf   || null,
+  });
+
+  if (error) throw error;
+
+  const result = data as { success: boolean; error?: string } | null;
+  if (result && !result.success) {
+    throw new Error(result.error ?? 'Erro ao atualizar contato.');
+  }
+
+  // Auditoria adicional no admin_audit_log
+  await logAction(
+    adminUser,
+    'USER_PROFILE_UPDATED_BY_ADMIN',
+    'user_contact',
+    targetEmail,
+    targetEmail,
+    undefined,
+    { phone_updated: phone !== null, cpf_updated: cpf !== null },
+    `Contato atualizado pelo admin: ${adminUser.name}`,
+  );
 }
 
 export async function getCeoSubscribers(opts?: {
@@ -100,10 +175,78 @@ export async function getCeoSubscribers(opts?: {
     q = q.or(`tenant_name.ilike.${s},user_email.ilike.${s},user_name.ilike.${s}`);
   }
 
-  q = q.order('tenant_created_at', { ascending: false }).limit(opts?.limit ?? 300);
+  // NOTA: tenant_created_at não existe na view — usa subscription_status (ativos primeiro) + tenant_name
+  q = q.order('subscription_status', { ascending: true }).order('tenant_name', { ascending: true }).limit(opts?.limit ?? 500);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as CeoSubscriber[];
+}
+
+// ─── Tenants inativos (is_active = false) ─────────────────────────────────────
+
+export interface InactiveTenantRow {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+/**
+ * Retorna tenants com is_active = false — excluídos da view v_ceo_subscribers.
+ * Contas internas (is_internal = true) são omitidas por padrão.
+ */
+export async function getCeoInactiveTenants(): Promise<InactiveTenantRow[]> {
+  const { data, error } = await supabase
+    .from('tenants')
+    .select('id, name, created_at')
+    .eq('is_active', false)
+    .eq('is_internal', false)
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) {
+    console.warn('[CEO] getCeoInactiveTenants error:', error.message);
+    return [];
+  }
+  return (data ?? []) as InactiveTenantRow[];
+}
+
+/** Retorna tenants marcados como internos (is_internal = true). */
+export async function getCeoInternalTenants(): Promise<InactiveTenantRow[]> {
+  const { data, error } = await supabase
+    .from('tenants')
+    .select('id, name, created_at')
+    .eq('is_internal', true)
+    .order('created_at', { ascending: false })
+    .limit(200);
+  if (error) {
+    console.warn('[CEO] getCeoInternalTenants error:', error.message);
+    return [];
+  }
+  return (data ?? []) as InactiveTenantRow[];
+}
+
+// ─── Gerenciamento de flag is_internal ────────────────────────────────────────
+
+/**
+ * Marca ou desmarca um tenant como interno.
+ * Contas internas são excluídas de todas as métricas e listas do CEO.
+ */
+export async function setTenantInternal(
+  tenantId: string,
+  isInternal: boolean,
+  adminUser: AdminUser,
+): Promise<void> {
+  const { error } = await supabase
+    .from('tenants')
+    .update({ is_internal: isInternal })
+    .eq('id', tenantId);
+  if (error) throw error;
+  await logAction(
+    adminUser,
+    isInternal ? 'tenant_mark_internal' : 'tenant_unmark_internal',
+    'tenant', tenantId, tenantId,
+    undefined, { is_internal: isInternal },
+    `Tenant ${isInternal ? 'marcado' : 'desmarcado'} como interno`,
+  );
 }
 
 // ─── Kiwify Products ─────────────────────────────────────────────────────────
@@ -246,6 +389,104 @@ export function buildCouponShareLink(coupon: CeoCoupon, appUrl = 'https://inclui
     : `R$ ${coupon.discount_value.toFixed(2).replace('.', ',')} de desconto`;
   const waText = `Olá! Use o cupom *${coupon.code}* para obter ${discount} no ${planLabel} do IncluiAI.\n\nAcesse: ${link}`;
   return { link, waText, waUrl: `https://wa.me/?text=${encodeURIComponent(waText)}` };
+}
+
+// ─── Kiwify Purchases (auditoria CEO) ────────────────────────────────────────
+
+export interface KiwifyPurchaseRow {
+  id: string;
+  email: string;
+  product_key: string | null;
+  plan_code: string | null;
+  credits_amount: number;
+  provider_order_id: string | null;
+  status: 'APPROVED' | 'PENDING' | 'CANCELED';
+  /** Coluna GERADA: PENDING_ACCOUNT | PENDING_ACTIVATION | ACTIVATED | null */
+  activation_status: 'PENDING_ACCOUNT' | 'PENDING_ACTIVATION' | 'ACTIVATED' | null;
+  paid_at: string | null;
+  activated_at: string | null;
+  tenant_id: string | null;
+  created_at: string;
+}
+
+/**
+ * Carrega todos os registros de kiwify_purchases para auditoria no painel CEO.
+ * Ordenado por data DESC — inclui compras sem tenant vinculado.
+ */
+export async function getKiwifyPurchases(): Promise<KiwifyPurchaseRow[]> {
+  const { data, error } = await supabase
+    .from('kiwify_purchases')
+    .select('id,email,product_key,plan_code,credits_amount,provider_order_id,status,activation_status,paid_at,activated_at,tenant_id,created_at')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) throw error;
+  return (data ?? []) as KiwifyPurchaseRow[];
+}
+
+// ─── Alertas de Compras Kiwify ────────────────────────────────────────────────
+
+export interface KiwifyPurchaseAlerts {
+  /** Compras APPROVED sem tenant vinculado (usuário ainda não criou conta ou email não encontrado) */
+  noAccount: KiwifyPurchaseRow[];
+  /** Compras APPROVED com tenant mas activated_at IS NULL (webhook falhou na ativação) */
+  notActivated: KiwifyPurchaseRow[];
+  /** Compras APPROVED onde product_key = 'UNKNOWN' (produto não reconhecido pelo webhook) */
+  unknownProduct: KiwifyPurchaseRow[];
+}
+
+/**
+ * Deriva 3 categorias de alerta a partir de kiwify_purchases.
+ * A 4ª categoria (plano divergente) é calculada no SubscribersTab via computeDivergence.
+ */
+export function computeKiwifyAlerts(purchases: KiwifyPurchaseRow[]): KiwifyPurchaseAlerts {
+  const approved = purchases.filter(p => p.status === 'APPROVED');
+  return {
+    noAccount:      approved.filter(p => !p.tenant_id && !p.activated_at),
+    notActivated:   approved.filter(p => p.tenant_id && !p.activated_at),
+    unknownProduct: approved.filter(p => p.product_key === 'UNKNOWN'),
+  };
+}
+
+/**
+ * Gera texto de instrução para enviar ao comprador que ainda não criou conta.
+ * Retorna o texto pronto para copiar ou enviar via WhatsApp.
+ */
+export function buildPendingAccountInstructions(purchase: KiwifyPurchaseRow, appUrl = 'https://app.incluiai.com'): {
+  whatsappUrl: string;
+  text: string;
+  signupUrl: string;
+} {
+  const planLabel = purchase.plan_code === 'MASTER' ? 'Master' : purchase.plan_code ?? 'pago';
+  const signupUrl = `${appUrl}/cadastro`;
+  const text =
+    `Olá! Identificamos sua compra do Plano ${planLabel} no IncluiAI.\n\n` +
+    `Para ativar seu acesso, basta criar sua conta usando o mesmo e-mail da compra (${purchase.email}):\n\n` +
+    `${signupUrl}\n\n` +
+    `Após criar a conta, o plano será ativado automaticamente — sem precisar entrar em contato com o suporte.\n\n` +
+    `Qualquer dúvida, estamos aqui!`;
+  return {
+    text,
+    signupUrl,
+    whatsappUrl: `https://wa.me/?text=${encodeURIComponent(text)}`,
+  };
+}
+
+export interface ReconcileResult {
+  purchase_email: string;
+  purchase_plan:  string | null;
+  found_tenant_id: string | null;
+  result_action: string;
+}
+
+/**
+ * Chama a RPC reconcile_pending_activations() para reprocessar todas as compras
+ * aprovadas com activated_at = null que já têm usuário no sistema.
+ * Requer papel service_role ou super_admin (a RPC tem SECURITY DEFINER).
+ */
+export async function reconcilePendingPurchases(): Promise<ReconcileResult[]> {
+  const { data, error } = await supabase.rpc('reconcile_pending_activations');
+  if (error) throw error;
+  return (data ?? []) as ReconcileResult[];
 }
 
 // ─── Admin Audit Log ─────────────────────────────────────────────────────────

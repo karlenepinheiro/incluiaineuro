@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
+import { waUrl } from '../../config/contact';
 
-const WA_NUMBER = '5511999999999'; // TODO: substituir pelo número real do suporte
-const WA_MESSAGE = encodeURIComponent('Olá! Vim pelo IncluiAI e gostaria de ajuda.');
-const WA_URL = `https://wa.me/${WA_NUMBER}?text=${WA_MESSAGE}`;
+const WA_URL = waUrl('Olá! Vim pelo IncluiAI e gostaria de ajuda.');
 
 const WA_ICON = (
   <svg width="27" height="27" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">

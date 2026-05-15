@@ -168,12 +168,14 @@ const SUGGESTIONS: Record<string, string[]> = {
 
 // ─── Função para encontrar sugestões pelo contexto ─────────────────────────────
 function getChips(fieldId: string, customChips?: string[]): string[] {
-  if (customChips && customChips.length > 0) return customChips;
+  // customChips !== undefined significa que o chamador quer controle total (mesmo array vazio)
+  if (customChips !== undefined) return customChips;
   // Busca direta
   if (SUGGESTIONS[fieldId]) return SUGGESTIONS[fieldId];
-  // Busca por sufixo
+  // Busca por sufixo após '_' (ex: 'pt_estrat' → 'estrat' → tenta 'estrategias')
+  const suffix = fieldId.includes('_') ? fieldId.split('_').pop()! : fieldId;
   const keys = Object.keys(SUGGESTIONS);
-  const match = keys.find(k => fieldId.includes(k) || k.includes(fieldId));
+  const match = keys.find(k => k.startsWith(suffix) || suffix.startsWith(k) || k.includes(suffix));
   if (match) return SUGGESTIONS[match];
   // Fallback genérico
   return SUGGESTIONS.observacoes_equipe;
@@ -224,7 +226,7 @@ export const AudioEnhancedTextarea: React.FC<AudioEnhancedTextareaProps> = ({
   );
 
   const chips = useMemo(() => getChips(fieldId, suggestionChips), [fieldId, suggestionChips]);
-  const visibleChips = showAllChips ? chips : chips.slice(0, 2);
+  const visibleChips = showAllChips ? chips : chips.slice(0, 3);
 
   const addChip = (text: string) => {
     if (disabled) return;
@@ -398,7 +400,7 @@ export const AudioEnhancedTextarea: React.FC<AudioEnhancedTextareaProps> = ({
               </button>
             ))}
           </div>
-          {chips.length > 2 && (
+          {chips.length > 3 && (
             <button
               type="button"
               onClick={() => setShowAllChips(v => !v)}
@@ -407,7 +409,7 @@ export const AudioEnhancedTextarea: React.FC<AudioEnhancedTextareaProps> = ({
               {showAllChips ? (
                 <><ChevronUp size={10} /> Menos sugestões</>
               ) : (
-                <><ChevronDown size={10} /> +{chips.length - 2} sugestões</>
+                <><ChevronDown size={10} /> +{chips.length - 3} sugestões</>
               )}
             </button>
           )}

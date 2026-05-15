@@ -367,20 +367,62 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ students, onUpdateStud
     }
     setGeneratingParecer(true);
     try {
+      const s = selectedStudent;
       const avgScore = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : '0';
-      const criteriaContext = scores.map((s, i) => `${CRITERIA[i].name}: ${s}/5`).join(', ');
-      const instruction = `Você é um especialista em educação inclusiva (AEE).
-Gere um PARECER DESCRITIVO profissional e conciso para o Relatório Evolutivo do aluno abaixo.
+      const criteriaLines = scores.map((sc, i) => `  • ${CRITERIA[i].name}: ${sc}/5 — ${CRITERIA[i].desc}`).join('\n');
 
-Aluno: ${selectedStudent.name}
-Diagnóstico(s): ${(selectedStudent.diagnosis || []).join(', ') || 'Não informado'}
-Nível de suporte: ${selectedStudent.supportLevel || 'Não informado'}
+      // Calcula idade a partir da data de nascimento
+      let idade = 'Não informada';
+      if (s.birthDate) {
+        const diff = Date.now() - new Date(s.birthDate).getTime();
+        const anos = Math.floor(diff / (365.25 * 24 * 3600 * 1000));
+        if (anos >= 0 && anos < 30) idade = `${anos} anos`;
+      }
 
-Pontuações por critério: ${criteriaContext}
+      const cid = Array.isArray(s.cid)
+        ? s.cid.filter(Boolean).join(', ')
+        : (s.cid || '');
+
+      const fmt = (arr?: string[]) =>
+        arr?.filter(Boolean).length ? arr.filter(Boolean).join('; ') : 'Não informado';
+
+      const instruction = `Você é um especialista em Atendimento Educacional Especializado (AEE) e educação inclusiva.
+Gere um PARECER DESCRITIVO do Perfil Cognitivo para o aluno abaixo, baseado EXCLUSIVAMENTE nos dados fornecidos.
+NÃO invente informações clínicas, laudos ou dados que não estejam listados.
+NÃO mencione INSS, perícia ou avaliação para benefícios.
+Escreva em primeira pessoa do plural (ex: "Observamos que…"). Use linguagem técnica e acessível.
+O parecer deve ter 4–6 parágrafos cobrindo: perfil geral, pontos fortes, áreas de atenção por critério, estratégias eficazes e recomendações pedagógicas.
+
+===== DADOS DO ALUNO =====
+Nome: ${s.name}
+Idade: ${idade}
+Série/Turma: ${s.grade || 'Não informada'}
+Turno: ${s.shift || 'Não informado'}
+Diagnóstico(s): ${fmt(s.diagnosis)}
+CID: ${cid || 'Não informado'}
+Nível de suporte: ${s.supportLevel || 'Não informado'}
+Escola: ${s.schoolName || 'Não informada'}
+
+===== PERFIL COGNITIVO (escala 1–5) =====
 Média geral: ${avgScore}/5
+${criteriaLines}
 
-Gere um parecer em 3–5 parágrafos destacando: pontos fortes, áreas de atenção, evolução observada e recomendações pedagógicas.
-Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex: "Observamos que...").`;
+===== POTENCIALIDADES =====
+${fmt(s.abilities)}
+
+===== DIFICULDADES E BARREIRAS =====
+${fmt(s.difficulties)}
+
+===== FORMAS DE COMUNICAÇÃO =====
+${fmt(s.communication)}
+
+===== ESTRATÉGIAS EFICAZES JÁ IDENTIFICADAS =====
+${fmt(s.strategies)}
+
+===== OBSERVAÇÕES PEDAGÓGICAS =====
+${s.observations || 'Nenhuma observação registrada.'}
+${observation ? `\nObservação atual do relatório:\n${observation}` : ''}
+=========================`;
 
       const parecer = await AIService.generateReport('', instruction, currentUser, reportModelId);
       setObservation(prev => prev ? `${prev}\n\n---\n[Gerado por IA — ${modelCfg.name}]\n${parecer}` : parecer);
@@ -716,192 +758,7 @@ Use linguagem técnica mas acessível. Escreva em primeira pessoa do plural (ex:
               </button>
             )}
 
-            {/* ── PAINEL: GERAR RELATÓRIO TÉCNICO ────────────────────────── */}
-            {selectedStudent && (
-              <>
-              <div
-                className="rounded-2xl overflow-hidden"
-                style={{ border: '2px solid #1F4E5F' }}
-              >
-                {/* Header do painel */}
-                <div
-                  className="px-5 py-4 flex items-center justify-between"
-                  style={{ background: 'linear-gradient(135deg, #1F4E5F 0%, #2E3A59 100%)' }}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.12)' }}>
-                      <Brain size={18} color="#C69214" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-white text-sm">Relatório Técnico com IA</h3>
-                      <p className="text-[10px] text-white/60 mt-0.5">Documento profissional pronto para INSS, saúde e órgãos públicos</p>
-                    </div>
-                  </div>
-                  {relatorioResultado && !showRelatorio && (
-                    <button
-                      onClick={() => setShowRelatorio(true)}
-                      className="text-[#C69214] hover:text-white transition text-[10px] font-bold"
-                      style={{ background: 'rgba(198,146,20,0.15)', padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(198,146,20,0.3)' }}
-                    >
-                      Ver preview
-                    </button>
-                  )}
-                </div>
-
-                {/* Seletor de modo — aparece só quando não há resultado gerado */}
-                {!relatorioResultado && (
-                  <div className="p-5 bg-white">
-                    {/* Toggle simples/completo */}
-                    <div className="mb-4">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-2">
-                        Tipo de Relatório
-                      </label>
-                      <div className="grid grid-cols-2 gap-3">
-                        {[
-                          {
-                            id: 'simples' as ReportMode,
-                            icon: <FileText size={16} />,
-                            title: 'Relatório Simples',
-                            desc: '1–2 páginas · INSS, saúde, órgãos públicos · Linguagem objetiva',
-                          },
-                          {
-                            id: 'completo' as ReportMode,
-                            icon: <ClipboardCheck size={16} />,
-                            title: 'Relatório Completo',
-                            desc: '3–5 páginas · Multidisciplinar · Gráficos + checklist visual',
-                          },
-                        ].map(opt => {
-                          const isSel = reportMode === opt.id;
-                          return (
-                            <button
-                              key={opt.id}
-                              onClick={() => setReportMode(opt.id)}
-                              className="flex flex-col items-start gap-2 p-4 rounded-xl text-left transition"
-                              style={{
-                                border: `2px solid ${isSel ? '#1F4E5F' : '#E7E2D8'}`,
-                                background: isSel ? '#1F4E5F' : '#FAFAFA',
-                              }}
-                            >
-                              <div style={{ color: isSel ? '#C69214' : '#1F4E5F' }}>{opt.icon}</div>
-                              <span className="text-xs font-bold" style={{ color: isSel ? '#fff' : '#1C2033' }}>
-                                {opt.title}
-                              </span>
-                              <span className="text-[10px] leading-relaxed" style={{ color: isSel ? 'rgba(255,255,255,0.65)' : '#6B7280' }}>
-                                {opt.desc}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Seletor de modelo */}
-                    <div className="mb-4">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-2">
-                        Qualidade da IA
-                      </label>
-                      <ReportModelSelector selectedId={reportModelId} onChange={setReportModelId} />
-                    </div>
-
-                    {/* Erro */}
-                    {relatorioError && (
-                      <div className="mb-3 px-4 py-3 rounded-xl text-xs text-red-700 bg-red-50 border border-red-200">
-                        {relatorioError}
-                      </div>
-                    )}
-
-                    {/* Botão gerar */}
-                    <button
-                      onClick={handleGerarRelatorio}
-                      disabled={generatingRelatorio || !selectedStudent}
-                      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition disabled:opacity-60 text-white"
-                      style={{ background: '#C69214' }}
-                    >
-                      {generatingRelatorio
-                        ? <><Loader size={16} className="animate-spin" /> Gerando relatório técnico…</>
-                        : <><Sparkles size={16} /> Gerar Relatório Técnico</>}
-                    </button>
-                  </div>
-                )}
-
-                {/* Banner compacto quando relatório foi gerado mas preview está fechado */}
-                {relatorioResultado && !showRelatorio && (
-                  <div className="p-4 bg-white">
-                    <div className="rounded-xl border border-green-100 bg-green-50 px-4 py-3 flex items-center gap-3">
-                      <CheckCircle size={16} className="text-green-500 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-green-700">Relatório gerado</p>
-                        <p className="text-[10px] font-mono text-gray-500 truncate">{relatorioResultado.codigoDoc}</p>
-                      </div>
-                      <button
-                        onClick={() => setShowRelatorio(true)}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white transition shrink-0"
-                        style={{ background: '#1F4E5F' }}
-                      >
-                        <FileText size={12} /> Ver Preview
-                      </button>
-                      <button
-                        onClick={() => setRelatorioResultado(null)}
-                        className="text-gray-400 hover:text-red-500 transition shrink-0"
-                        title="Descartar resultado"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* ── Histórico de relatórios técnicos salvos ── */}
-              {savedRelatorios.length > 0 && (
-                <div className="p-4 bg-white border-t border-gray-100">
-                  <button
-                    onClick={() => setShowRelatorioHistory(v => !v)}
-                    className="flex items-center gap-1.5 text-xs font-bold text-gray-500 hover:text-gray-700 transition w-full"
-                  >
-                    <History size={13} />
-                    Relatórios salvos ({savedRelatorios.length})
-                    {showRelatorioHistory ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                  </button>
-                  {showRelatorioHistory && (
-                    <div className="mt-3 space-y-2">
-                      {savedRelatorios.map(doc => (
-                        <div key={doc.id} className="flex items-center gap-2 p-2.5 rounded-xl bg-gray-50 border border-gray-100">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-gray-700 truncate">
-                              {doc.title ?? `Relatório — ${selectedStudent?.name}`}
-                            </p>
-                            <p className="text-[10px] text-gray-400 font-mono">
-                              {doc.audit_code ?? '—'} · {new Date(doc.created_at).toLocaleDateString('pt-BR')}
-                            </p>
-                          </div>
-                          <div className="flex gap-1 shrink-0">
-                            <button
-                              title="Abrir relatório"
-                              onClick={() => handleOpenSavedRelatorio(doc)}
-                              className="p-1.5 rounded-lg text-gray-500 hover:bg-white hover:text-[#1F4E5F] transition border border-transparent hover:border-gray-200"
-                            >
-                              <Eye size={13} />
-                            </button>
-                            <button
-                              title="Excluir relatório"
-                              onClick={() => handleDeleteRelatorio(doc.id)}
-                              disabled={deletingRelatorioId === doc.id}
-                              className="p-1.5 rounded-lg text-gray-500 hover:bg-white hover:text-red-600 transition border border-transparent hover:border-gray-200 disabled:opacity-40"
-                            >
-                              {deletingRelatorioId === doc.id
-                                ? <span className="w-3 h-3 border-2 border-gray-400 border-t-red-500 rounded-full animate-spin inline-block" />
-                                : <Trash2 size={13} />}
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              </>
-            )}
+            {/* Relatório Técnico com IA disponível em: Ficha do Aluno → Documentos → Relatórios */}
           </div>
         </div>
       )}

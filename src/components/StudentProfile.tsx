@@ -22,12 +22,14 @@ import {
   ObservationFormService, StudentProfileService, GeneratedActivityService,
 } from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
+import { getStudentBasicCompletionStatus } from '../services/csvImportService';
 import { formatDateBR, calculateAge } from '../utils/dateUtils';
 import { QuickDocModal, QuickDocType } from './QuickDocModal';
 import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
 import { DocumentService } from '../services/documentService';
 import { IntelligentProfileTab } from './IntelligentProfileTab';
 import { ActionPlanTab } from './ActionPlanTab';
+import { getStudentSupportVisual } from '../views/StudentsListView';
 
 // ── Critérios do perfil evolutivo (10 dimensões) ─────────────────────────────
 const CRITERIA = [
@@ -828,9 +830,9 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
       {/* ── Hero Card ── */}
       {(() => {
-        const isIncomplete = student.registrationStatus === 'incomplete'
-          || student.registrationStatus === 'pre_registered'
-          || student.isPreRegistered === true;
+        const basicStatus          = getStudentBasicCompletionStatus(student);
+        const isIncomplete         = basicStatus === 'invalid';
+        const isValidBasic         = basicStatus === 'valid_basic';
         const isImportedIncomplete = isIncomplete && student.importSource === 'csv';
         const accentBar = isImportedIncomplete
           ? 'linear-gradient(90deg,#7F1D1D,#B91C1C,#DC2626)'
@@ -869,7 +871,17 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-brand-100 text-brand-700">{student.supportLevel}</span>
               )}
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">{student.name}</h1>
+            <div className="flex items-center gap-2 mb-1">
+              <h1 className="text-2xl font-bold text-gray-900">{student.name}</h1>
+              {(() => {
+                const sv = getStudentSupportVisual(student);
+                return sv ? (
+                  <span title={sv.tooltip} className="leading-none cursor-default select-none" style={{ opacity: 0.9, display: 'inline-flex', alignItems: 'center' }}>
+                    {sv.icon}
+                  </span>
+                ) : null;
+              })()}
+            </div>
             <div className="flex flex-wrap gap-4 text-xs text-gray-500">
               <span className="flex items-center gap-1"><Calendar size={12}/> {calculateAge(student.birthDate)} anos · {formatDateBR(student.birthDate)}</span>
               <span className="flex items-center gap-1"><User size={12}/> Resp: {student.guardianName}</span>
@@ -892,7 +904,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
         </div>
 
-        {/* Banner de cadastro incompleto — visível na ficha */}
+        {/* Banner de cadastro inválido — sem nome ou dados mínimos */}
         {isIncomplete && (
           <div
             className="mx-6 mb-4 px-4 py-3 rounded-xl flex items-start gap-3 text-sm"
@@ -921,6 +933,29 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               style={{ background: isImportedIncomplete ? '#7F1D1D' : '#DC2626' }}
             >
               Completar
+            </button>
+          </div>
+        )}
+
+        {/* Banner de perfil pedagógico pendente — cadastro básico ok, sem vermelho */}
+        {isValidBasic && (
+          <div
+            className="mx-6 mb-4 px-4 py-3 rounded-xl flex items-start gap-3 text-sm"
+            style={{ background: '#FFFBEB', border: '1px solid #D9770640' }}
+          >
+            <Sparkles size={15} style={{ color: '#D97706', flexShrink: 0, marginTop: 1 }} />
+            <div>
+              <p className="font-bold" style={{ color: '#D97706' }}>Cadastro básico concluído</p>
+              <p className="text-xs mt-0.5" style={{ color: '#B45309' }}>
+                Para que a IA gere relatórios mais completos e personalizados, preencha também os dados pedagógicos, diagnósticos, barreiras, potencialidades e contexto familiar. Faça no seu tempo, professor(a).
+              </p>
+            </div>
+            <button
+              onClick={onEdit}
+              className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition"
+              style={{ background: '#D97706' }}
+            >
+              Enriquecer
             </button>
           </div>
         )}

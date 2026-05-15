@@ -40,7 +40,7 @@ let MOCK_SITE_CONFIG: SiteConfig = {
     extra_student: 14.90,
     extra_credits_10: 19.90,
   },
-  contactPhone: '(11) 99999-9999',
+  contactPhone: '(99) 98416-7490',
   heroImage: 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80',
 };
 
@@ -132,7 +132,7 @@ export const AdminService = {
       const { data, error } = await supabase
         .from('v_ceo_subscribers')
         .select('*')
-        .limit(200);
+        .limit(500);
       if (error) throw error;
       return (data ?? []).map(mapToSubscriber);
     } catch {
@@ -144,7 +144,7 @@ export const AdminService = {
     const { data, error } = await supabase
       .from('v_ceo_subscribers')
       .select('*')
-      .limit(200);
+      .limit(500);
     if (error) throw error;
     return data ?? [];
   },
@@ -741,6 +741,63 @@ export const AdminService = {
       if (error) throw error;
     }
     AdminService.logAction(adminUser, 'EXTEND_SUBSCRIPTION', tenantId, `Prorrogou vencimento para ${newDate}`);
+  },
+
+  // ── RESET DE SENHA (via Edge Function admin-reset-password) ──────────────
+
+  async resetUserPassword(params: {
+    targetEmail: string;
+    newPassword: string;
+    mustChangePassword: boolean;
+    adminUser: AdminUser;
+  }): Promise<void> {
+    if (!['super_admin', 'operacional'].includes(params.adminUser.role)) {
+      throw new Error('Apenas super_admin e operacional podem redefinir senhas.');
+    }
+
+    if (DEMO_MODE) {
+      AdminService.logAction(
+        params.adminUser,
+        'PASSWORD_RESET_BY_ADMIN',
+        params.targetEmail,
+        `Senha redefinida — must_change: ${params.mustChangePassword} [DEMO]`,
+      );
+      return;
+    }
+
+    const SUPABASE_URL = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
+    if (!SUPABASE_URL) throw new Error('VITE_SUPABASE_URL não configurado.');
+
+    const { createClient } = await import('@supabase/supabase-js');
+    const ANON_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+    const _client = createClient(SUPABASE_URL, ANON_KEY);
+    const { data: { session } } = await _client.auth.getSession();
+    if (!session?.access_token) throw new Error('Sessão expirada. Faça login novamente.');
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-reset-password`, {
+      method:  'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({
+        targetEmail:        params.targetEmail,
+        newPassword:        params.newPassword,
+        mustChangePassword: params.mustChangePassword,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error ?? 'Erro ao redefinir senha.');
+    }
+
+    AdminService.logAction(
+      params.adminUser,
+      'PASSWORD_RESET_BY_ADMIN',
+      params.targetEmail,
+      `Senha redefinida — must_change: ${params.mustChangePassword}`,
+    );
   },
 
   async sendCustomAlert(tenantId: string, message: string, adminUser: AdminUser): Promise<void> {

@@ -12,6 +12,12 @@ export interface FichaConfig {
   enderecoCompleto: boolean;
   codigoUnico: boolean;
 
+  // PERFIL PEDAGÓGICO E FAMÍLIA
+  perfilPedagogico: boolean;
+  conhecimentoPrevio: boolean;
+  dadosSociofamiliares: boolean;
+  responsaveisContatos: boolean;
+
   // AVALIAÇÃO E ACOMPANHAMENTO
   ultimaAvaliacao: boolean;
   agendamentos: boolean;
@@ -29,6 +35,10 @@ const DEFAULT_CONFIG: FichaConfig = {
   logoEscola: true,
   enderecoCompleto: false,
   codigoUnico: true,
+  perfilPedagogico: true,
+  conhecimentoPrevio: true,
+  dadosSociofamiliares: true,
+  responsaveisContatos: true,
   ultimaAvaliacao: true,
   agendamentos: true,
   controleAtendimento: true,
@@ -37,7 +47,7 @@ const DEFAULT_CONFIG: FichaConfig = {
   fichasComplementares: true,
 };
 
-const STORAGE_KEY = 'incluiai_ficha_config_v3';
+const STORAGE_KEY = 'incluiai_ficha_config_v4';
 
 type SectionItem = { key: keyof FichaConfig; label: string; desc: string };
 type ConfigSection = { title: string; items: SectionItem[] };
@@ -51,6 +61,15 @@ const SECTIONS: ConfigSection[] = [
       { key: 'logoEscola',       label: 'Logo e nome da escola',   desc: 'Logotipo institucional no cabeçalho e capa' },
       { key: 'enderecoCompleto', label: 'Endereço completo',       desc: 'Rua, bairro, cidade e CEP do aluno' },
       { key: 'codigoUnico',      label: 'Código interno do documento', desc: 'Código de identificação interno — não é link público de validação' },
+    ],
+  },
+  {
+    title: 'PERFIL PEDAGÓGICO E FAMÍLIA',
+    items: [
+      { key: 'perfilPedagogico',     label: 'Perfil Pedagógico',         desc: 'Habilidades, dificuldades, comunicação, estratégias e adaptações necessárias' },
+      { key: 'conhecimentoPrevio',   label: 'Conhecimento Prévio',       desc: 'Scores por área (leitura, escrita, autonomia, atenção etc.) e observações pedagógicas' },
+      { key: 'dadosSociofamiliares', label: 'Dados Sociofamiliares',     desc: 'Contexto familiar, benefícios sociais e situação de moradia' },
+      { key: 'responsaveisContatos', label: 'Responsáveis e Contatos',   desc: 'Responsável legal, guardião 1 e 2 com vínculo, telefone e endereço completo' },
     ],
   },
   {
@@ -168,8 +187,8 @@ export const FichaConfigModal: React.FC<FichaConfigModalProps> = ({ studentName,
             Gerando ficha para: <strong style={{ color: '#111827' }}>{studentName}</strong>
           </p>
           <p style={{ margin: '4px 0 0 0', fontSize: 10, color: '#9CA3AF' }}>
-            A ficha inclui automaticamente: Identificação · Perfil Pedagógico · Resumo Pedagógico · Assinaturas.
-            As seções abaixo são adicionais e opcionais.
+            A ficha inclui automaticamente: Identificação · Resumo do Aluno · Equipe Escolar · Assinaturas.
+            As seções abaixo são opcionais — selecione o que deve aparecer no PDF.
           </p>
         </div>
 

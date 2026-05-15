@@ -20,9 +20,22 @@ export default defineConfig(({ mode }) => {
         sourcemap: false,
         rollupOptions: {
           output: {
-            manualChunks: {
-              vendor: ['react', 'react-dom'],
-              supabase: ['@supabase/supabase-js'],
+            manualChunks(id) {
+              if (!id.includes('node_modules')) return undefined;
+              // React core — cacheável separado, necessário sempre
+              if (
+                id.includes('/react/') ||
+                id.includes('/react-dom/') ||
+                id.includes('react/jsx-runtime') ||
+                id.includes('/scheduler/')
+              ) return 'vendor-react';
+              // Supabase — necessário para auth no carregamento inicial
+              if (id.includes('@supabase/')) return 'vendor-supabase';
+              // Tudo mais fica co-localizado com os chunks lazy que o usam.
+              // Isso evita dependências circulares entre vendor chunks e garante
+              // que bibliotecas pesadas (jsPDF, Gemini SDK, @xyflow) só carreguem
+              // quando a feature que as usa for acessada.
+              return undefined;
             },
           },
         },

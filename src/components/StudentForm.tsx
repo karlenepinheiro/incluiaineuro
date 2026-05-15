@@ -55,20 +55,88 @@ const PEDAGOGICAL_AI_LABELS: Record<PedagogicalProfileSuggestionKey, string> = {
   observacoes_pedagogicas: 'Observações pedagógicas gerais',
 };
 
+type SociofamilyManualFields = {
+  guardian1FullName: boolean;
+  guardian1Phone: boolean;
+  mainGuardianName: boolean;
+  schoolPrimaryPhone: boolean;
+  guardian1Address: boolean;
+};
+
+const EMPTY_SOCIOFAMILY_MANUAL_FIELDS: SociofamilyManualFields = {
+  guardian1FullName: false,
+  guardian1Phone: false,
+  mainGuardianName: false,
+  schoolPrimaryPhone: false,
+  guardian1Address: false,
+};
+
+const deriveSociofamilyManualFields = (
+  data: SociofamilyData,
+  guardianName?: string,
+  guardianPhone?: string,
+  student?: Partial<Student> | null,
+): SociofamilyManualFields => ({
+  guardian1FullName: !!data.guardian1.fullName && data.guardian1.fullName !== (guardianName || ''),
+  guardian1Phone: !!data.guardian1.phone && data.guardian1.phone !== (guardianPhone || ''),
+  mainGuardianName: !!data.familyStatus.mainGuardianName && data.familyStatus.mainGuardianName !== (guardianName || ''),
+  schoolPrimaryPhone: !!data.familyStatus.schoolPrimaryPhone && data.familyStatus.schoolPrimaryPhone !== (guardianPhone || ''),
+  guardian1Address: (() => {
+    const address = data.guardian1.address;
+    const hasAddress = Object.values(address).some(Boolean);
+    if (!hasAddress) return false;
+    const topAddress = {
+      cep: student?.zipcode || '',
+      street: student?.street || '',
+      number: student?.streetNumber || '',
+      complement: student?.complement || '',
+      district: student?.neighborhood || '',
+      city: student?.city || '',
+      state: student?.state || '',
+    };
+    const matchesTopAddress =
+      address.cep === topAddress.cep &&
+      address.street === topAddress.street &&
+      address.number === topAddress.number &&
+      address.complement === topAddress.complement &&
+      address.district === topAddress.district &&
+      address.city === topAddress.city &&
+      address.state === topAddress.state;
+    return !matchesTopAddress;
+  })(),
+});
+
+const studentAddressFieldToGuardian1Address: Partial<Record<keyof Student, keyof SociofamilyData['guardian1']['address']>> = {
+  zipcode: 'cep',
+  street: 'street',
+  streetNumber: 'number',
+  complement: 'complement',
+  neighborhood: 'district',
+  city: 'city',
+  state: 'state',
+};
+
 interface Props {
   initialData?: Student | null;
-  onSave: (student: Student) => void;
+  onSave: (student: Student) => void | Promise<void>;
   onCancel: () => void;
   regentName: string;
   availableSchools: SchoolConfig[];
-  userPlan: PlanTier; 
+  userPlan: PlanTier;
+  tenantId?: string;
 }
 
-export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, regentName, availableSchools = [], userPlan }) => {
+export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, regentName, availableSchools = [], userPlan, tenantId }) => {
   const defaultSchoolId = availableSchools && availableSchools.length > 0 ? availableSchools[0].id : '';
 
-  // Texto livre da escola — inicializa do dado existente ou do primeiro da lista
+  // Texto livre da escola — inicializa do dado existente ou do primeiro da lista.
+  // Para alunos de outro tenant (cross-tenant), SEMPRE usa a escola atual do tenant
+  // para evitar que o nome da escola de origem sobreponha a escola atual.
   const resolveInitialSchoolName = () => {
+    const _isCrossTenant = !!(
+      initialData?.tenant_id && tenantId && initialData.tenant_id !== tenantId
+    );
+    if (_isCrossTenant) return availableSchools[0]?.schoolName ?? '';
     if (initialData?.schoolName) return initialData.schoolName;
     if (initialData?.schoolId) {
       const found = availableSchools.find(s => s.id === initialData.schoolId);
@@ -87,9 +155,21 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
     return `INC-${code}`;
   };
 
+  // Detecta se o aluno editado pertence a outro tenant (cross-tenant import).
+  // Quando verdadeiro, o código original NÃO deve ser salvo como unique_code local.
+  const isCrossTenantEdit = !!(
+    initialData?.tenant_id &&
+    tenantId &&
+    initialData.tenant_id !== tenantId
+  );
+
   const [formData, setFormData] = useState<Student>({
     id: initialData?.id || crypto.randomUUID(),
+    // Para cross-tenant, preserva o unique_code apenas como referência visual;
+    // databaseService regenerará um código novo ao salvar.
     unique_code: initialData?.unique_code || generateUniqueCode(),
+    // Preserva tenant_id do aluno original para que databaseService.isCrossTenant funcione.
+    tenant_id: initialData?.tenant_id,
     name: initialData?.name || '',
     birthDate: initialData?.birthDate || '',
     gender: initialData?.gender || '',
@@ -138,10 +218,21 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
   const [sociofamilyData, setSociofamilyData] = useState<SociofamilyData>(
     normalizeSociofamilyData(initialData?.sociofamilyData)
   );
+  const [sociofamilyManualFields, setSociofamilyManualFields] = useState<SociofamilyManualFields>(() =>
+    initialData
+        ? deriveSociofamilyManualFields(
+          normalizeSociofamilyData(initialData.sociofamilyData),
+          initialData.guardianName,
+          initialData.guardianPhone,
+          initialData,
+        )
+      : EMPTY_SOCIOFAMILY_MANUAL_FIELDS
+  );
 
   const [cidInput, setCidInput] = useState('');
   const [cidList, setCidList] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [docUploadType, setDocUploadType] = useState<'Laudo' | 'Relatorio' | 'Outro'>('Laudo');
 
   const [generatingAI, setGeneratingAI] = useState<Partial<Record<PedagogicalProfileSuggestionKey, boolean>>>({});
@@ -242,7 +333,42 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         cid: normalizedCid,
         priorKnowledge: initialData.priorKnowledge ?? undefined,
       }));
-      setSociofamilyData(normalizeSociofamilyData(initialData.sociofamilyData));
+
+      const normalized = normalizeSociofamilyData(initialData.sociofamilyData);
+      // Auto-fill inicial: propaga guardianName/guardianPhone para sociofamily
+      // apenas se os campos destino estiverem vazios (alunos criados antes do módulo).
+      const g1 = normalized.guardian1;
+      const fs = normalized.familyStatus;
+      const hasGuardian1Address = Object.values(g1.address).some(Boolean);
+      const initialSociofamily = {
+        ...normalized,
+        guardian1: {
+          ...g1,
+          fullName: g1.fullName || initialData.guardianName || '',
+          phone:    g1.phone    || initialData.guardianPhone || '',
+          address: hasGuardian1Address
+            ? g1.address
+            : {
+                ...g1.address,
+                cep:        initialData.zipcode      || '',
+                street:     initialData.street       || '',
+                number:     initialData.streetNumber || '',
+                complement: initialData.complement   || '',
+                district:   initialData.neighborhood || '',
+                city:       initialData.city         || '',
+                state:      initialData.state        || '',
+              },
+        },
+        familyStatus: {
+          ...fs,
+          mainGuardianName:   fs.mainGuardianName   || initialData.guardianName  || '',
+          schoolPrimaryPhone: fs.schoolPrimaryPhone  || initialData.guardianPhone || '',
+        },
+      };
+      setSociofamilyData(initialSociofamily);
+      setSociofamilyManualFields(
+        deriveSociofamilyManualFields(initialSociofamily, initialData.guardianName, initialData.guardianPhone, initialData)
+      );
     }
   }, [initialData]);
 
@@ -257,6 +383,71 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     if (name === 'zipcode') setCepError('');
+
+    // Auto-fill: Responsável Legal → Responsável 1 (sociofamily) apenas se campo destino estiver vazio.
+    // Nunca sobrescreve campos que o usuário já editou manualmente.
+    if (name === 'guardianName') {
+      setSociofamilyData(prev => ({
+        ...prev,
+        guardian1: {
+          ...prev.guardian1,
+          fullName: sociofamilyManualFields.guardian1FullName ? prev.guardian1.fullName : value,
+        },
+        familyStatus: {
+          ...prev.familyStatus,
+          mainGuardianName: sociofamilyManualFields.mainGuardianName ? prev.familyStatus.mainGuardianName : value,
+        },
+      }));
+    }
+    if (name === 'guardianPhone') {
+      setSociofamilyData(prev => ({
+        ...prev,
+        guardian1: {
+          ...prev.guardian1,
+          phone: sociofamilyManualFields.guardian1Phone ? prev.guardian1.phone : value,
+        },
+        familyStatus: {
+          ...prev.familyStatus,
+          schoolPrimaryPhone: sociofamilyManualFields.schoolPrimaryPhone ? prev.familyStatus.schoolPrimaryPhone : value,
+        },
+      }));
+    }
+
+    const addressKey = studentAddressFieldToGuardian1Address[name as keyof Student];
+    if (addressKey && !sociofamilyManualFields.guardian1Address) {
+      setSociofamilyData(prev => ({
+        ...prev,
+        guardian1: {
+          ...prev.guardian1,
+          address: {
+            ...prev.guardian1.address,
+            [addressKey]: value,
+          },
+        },
+      }));
+    }
+  };
+
+  const handleSociofamilyManualChange = (nextValue: SociofamilyData) => {
+    const next = normalizeSociofamilyData(nextValue);
+    const prev = sociofamilyData;
+    const addressChanged =
+      next.guardian1.address.cep        !== prev.guardian1.address.cep ||
+      next.guardian1.address.street     !== prev.guardian1.address.street ||
+      next.guardian1.address.number     !== prev.guardian1.address.number ||
+      next.guardian1.address.complement !== prev.guardian1.address.complement ||
+      next.guardian1.address.district   !== prev.guardian1.address.district ||
+      next.guardian1.address.city       !== prev.guardian1.address.city ||
+      next.guardian1.address.state      !== prev.guardian1.address.state;
+
+    setSociofamilyManualFields(current => ({
+      guardian1FullName: current.guardian1FullName || next.guardian1.fullName !== prev.guardian1.fullName,
+      guardian1Phone: current.guardian1Phone || next.guardian1.phone !== prev.guardian1.phone,
+      mainGuardianName: current.mainGuardianName || next.familyStatus.mainGuardianName !== prev.familyStatus.mainGuardianName,
+      schoolPrimaryPhone: current.schoolPrimaryPhone || next.familyStatus.schoolPrimaryPhone !== prev.familyStatus.schoolPrimaryPhone,
+      guardian1Address: current.guardian1Address || addressChanged,
+    }));
+    setSociofamilyData(next);
   };
 
   const handleCepBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
@@ -279,6 +470,23 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         city:         data.localidade || prev.city,
         state:        data.uf         || prev.state,
       }));
+      // Endereço do aluno → endereço do Responsável 1 se ainda não preenchido
+      if (!sociofamilyManualFields.guardian1Address) {
+        setSociofamilyData(prev => ({
+          ...prev,
+          guardian1: {
+            ...prev.guardian1,
+            address: {
+              ...prev.guardian1.address,
+              cep:      e.target.value || raw,
+              street:   data.logradouro || prev.guardian1.address.street,
+              district: data.bairro     || prev.guardian1.address.district,
+              city:     data.localidade || prev.guardian1.address.city,
+              state:    data.uf         || prev.guardian1.address.state,
+            },
+          },
+        }));
+      }
     } catch {
       setCepError('Não foi possível buscar o CEP. Preencha o endereço manualmente.');
     } finally {
@@ -335,7 +543,10 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
       setIsUploading(true);
       try {
           const cleanName = file.name.replace(/[^a-zA-Z0-9.]/g, '_');
-          const path = `${formData.id}/${Date.now()}_${cleanName}`;
+          const ownerSegment = isCrossTenantEdit && tenantId
+            ? `${tenantId}/imported/${formData.id}`
+            : formData.id;
+          const path = `${ownerSegment}/${Date.now()}_${cleanName}`;
           
           const uploadedPath = await StorageService.uploadFile(file, 'laudos', path);
 
@@ -346,13 +557,16 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
                   date: new Date().toLocaleDateString(),
                   type: docUploadType as any,
                   url: publicUrl ?? undefined,
-                  path: uploadedPath
+                  path: uploadedPath,
+                  fileSize: file.size,
+                  mimeType: file.type,
+                  uploadedBy: regentName,
               };
               setFormData(prev => ({
                   ...prev,
                   documents: [...(prev.documents || []), newDoc]
               }));
-              alert("Documento anexado! A IA pode usar este arquivo para analisar o caso.");
+              alert("Documento anexado ao cadastro. Clique em Salvar Aluno para guardar o vínculo no banco.");
           } else {
               throw new Error("Falha ao processar arquivo.");
           }
@@ -373,7 +587,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
       }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name) {
         alert("Preencha o campo obrigatório: Nome do aluno.");
@@ -384,9 +598,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
     const matchedSchool = availableSchools.find(
       s => s.schoolName.trim().toLowerCase() === schoolNameInput.trim().toLowerCase()
     );
-    const resolvedSchoolName = formData.isExternalStudent
-      ? (formData.externalSchoolName || '')
-      : (schoolNameInput.trim() || matchedSchool?.schoolName || '');
+    const resolvedSchoolName = schoolNameInput.trim() || matchedSchool?.schoolName || availableSchools[0]?.schoolName || '';
     const resolvedSchoolId = matchedSchool?.id || formData.schoolId || '';
     // Espelha contatos principais para campos indexáveis
     const sf = sociofamilyData;
@@ -395,16 +607,44 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
     const emergencyContactName  = sf.familyStatus.emergencyContactName  || undefined;
     const emergencyContactPhone = sf.familyStatus.emergencyContactPhone || undefined;
 
-    onSave({
+    // Para alunos cross-tenant: preserva o nome da escola de origem em campo separado.
+    // A escola atual (resolvedSchoolName) é sempre a escola do tenant corrente.
+    const importedFromSchoolName = isCrossTenantEdit
+      ? (initialData?.schoolName || undefined)
+      : undefined;
+
+    const payload: Student = {
       ...formData,
       schoolId: resolvedSchoolId,
       schoolName: resolvedSchoolName,
+      importedFromSchoolName,
       sociofamilyData: sf,
       primaryContactName,
       primaryContactPhone,
       emergencyContactName,
       emergencyContactPhone,
-    });
+    };
+
+    if (import.meta.env.DEV) {
+      console.info('[StudentForm] payload enviado ao onSave', {
+        ...payload,
+        documents: payload.documents?.map(doc => ({
+          id: (doc as any).id,
+          name: doc.name,
+          type: doc.type,
+          path: doc.path,
+          hasUrl: !!doc.url,
+        })),
+      });
+    }
+
+    setIsSaving(true);
+    try {
+      await onSave(payload);
+    } finally {
+      setIsSaving(false);
+    }
+
   };
 
   const Tooltip = ({text}: {text: string}) => (
@@ -491,11 +731,29 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
                 {formData.unique_code && (
                   <div className="md:col-span-2">
                     <label className="label">Código Único do Aluno</label>
-                    <div className="flex items-center gap-2">
-                      <input readOnly value={formData.unique_code} className="input-field font-mono text-xs bg-gray-50 text-petrol font-bold tracking-widest cursor-default" />
-                      <button type="button" onClick={() => navigator.clipboard.writeText(formData.unique_code!)} className="text-xs text-gray-400 hover:text-petrol border rounded px-2 py-1 whitespace-nowrap">Copiar</button>
-                    </div>
-                    <p className="text-[10px] text-gray-400 mt-1">Este código é único e imutável. A busca de alunos entre escolas ainda não está disponível, mas será liberada em breve em uma próxima atualização.</p>
+                    {isCrossTenantEdit ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="input-field font-mono text-xs font-medium cursor-default flex items-center gap-2"
+                            style={{ background: '#FFFBEB', color: '#92400E', borderColor: '#FCD34D' }}
+                          >
+                            Será gerado automaticamente novo código ao salvar
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          Código de origem (outra escola): <span className="font-mono font-semibold">{formData.unique_code}</span> — não será reutilizado.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <input readOnly value={formData.unique_code} className="input-field font-mono text-xs bg-gray-50 text-petrol font-bold tracking-widest cursor-default" />
+                          <button type="button" onClick={() => navigator.clipboard.writeText(formData.unique_code!)} className="text-xs text-gray-400 hover:text-petrol border rounded px-2 py-1 whitespace-nowrap">Copiar</button>
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1">Este código é único e imutável. A busca de alunos entre escolas ainda não está disponível, mas será liberada em breve em uma próxima atualização.</p>
+                      </>
+                    )}
                   </div>
                 )}
             </div>
@@ -858,7 +1116,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
 
                     <label className={`cursor-pointer bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-gray-50 flex items-center gap-2 ${!canUpload ? 'opacity-50 cursor-not-allowed' : ''}`}>
                          <Upload size={16}/> {isUploading ? 'Enviando...' : 'Anexar Documento'}
-                         <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={handleLaudoUpload} disabled={isUploading} />
+                         <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png" onChange={handleLaudoUpload} disabled={isUploading || isSaving} />
                     </label>
                     {!canUpload && <span className="text-xs text-orange-600 font-bold bg-orange-50 px-2 py-1 rounded flex items-center gap-1"><Lock size={10}/> Recurso PRO/Master</span>}
                 </div>
@@ -948,12 +1206,14 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         {/* Dados Sociofamiliares */}
         <SociofamilySection
           value={sociofamilyData}
-          onChange={setSociofamilyData}
+          onChange={handleSociofamilyManualChange}
         />
 
         <div className="flex justify-end gap-3 pt-6 border-t border-gray-200">
           <button type="button" onClick={onCancel} className="btn-secondary">Cancelar</button>
-          <button type="submit" className="btn-primary">Salvar Aluno</button>
+          <button type="submit" className="btn-primary disabled:opacity-60 disabled:cursor-not-allowed" disabled={isSaving || isUploading}>
+            {isSaving ? 'Salvando...' : 'Salvar Aluno'}
+          </button>
         </div>
       </form>
       <style>{`

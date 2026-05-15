@@ -234,6 +234,23 @@ export interface User {
   subscriptionStatus: SubscriptionStatus;
   lgpdConsent?: LGPDConsent;
   aiUsage?: AIUsageLog[];
+
+  must_change_password?: boolean;
+  password_changed_at?: string | null;
+  phone?: string | null;
+  cpf?: string | null;
+  cargo?: string | null;
+  cep?: string | null;
+  rua?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  display_name?: string | null;
+  professional_signature?: string | null;
+  doc_phone?: string | null;
+  created_at?: string | null;
 }
 
 export interface AIUsageLog {
@@ -579,12 +596,28 @@ export interface Student {
   missingRequiredFields?: string[];
   isPreRegistered?: boolean;
 
-  documents?: { name: string; date: string; type: 'Laudo' | 'Relatorio' | 'Outro'; url?: string; path?: string }[];
+  documents?: {
+    id?: string;
+    name: string;
+    date: string;
+    type: 'Laudo' | 'Relatorio' | 'Outro';
+    url?: string;
+    path?: string;
+    fileSize?: number;
+    mimeType?: string;
+    uploadedBy?: string;
+    notes?: string;
+    fromBank?: boolean;
+  }[];
   documentAnalyses?: DocumentAnalysis[];
   collaborators?: CollaboratorInvite[];
   evolutions?: StudentEvolution[];
   fichasComplementares?: FichaComplementar[];
   priorKnowledge?: PriorKnowledgeProfile;
+
+  // ── Importação cross-tenant ────────────────────────────────────────────────
+  /** Nome da escola de origem quando o aluno foi copiado de outro tenant */
+  importedFromSchoolName?: string;
 
   // ── Dados Sociofamiliares (LGPD: uso interno escolar) ──────────────────────
   sociofamilyData?: SociofamilyData;

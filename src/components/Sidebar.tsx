@@ -220,7 +220,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               Geral
             </div>
             <NavItem viewId="dashboard"    icon={Home}     label="Dashboard" iconColor="#1F4E5F" />
-            <NavItem viewId="students"     icon={Users}    label="Alunos" iconColor="#2563EB" />
+            <NavItem viewId="students"     icon={Users}    label="Alunos (anamnese)" iconColor="#2563EB" />
             <NavItem viewId="appointments" icon={Calendar} label="Agenda" iconColor="#0D9488" />
 
             {/* Documentação pedagógica */}
