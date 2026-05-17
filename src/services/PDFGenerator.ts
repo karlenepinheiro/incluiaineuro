@@ -34,7 +34,7 @@ const ML = 15;
 const MR = 15;
 const MB = 10;
 const FOOTER_H  = 14;   // maior para 3 linhas de rodapé
-const RUN_HDR_H = 12;   // cabeçalho de página com cidade/estado
+const RUN_HDR_H = 15;   // cabeçalho de página — 15 mm = 4 mm de respiro acima do corpo
 
 // Hierarquia tipográfica (jsPDF usa pontos tipográficos)
 const TITLE_SIZE   = 16;   // Título principal do documento
@@ -981,6 +981,7 @@ function addSignatureBlock(
   auditCode: string,
   userName: string,
   opts?: SignatureAreaOpts,
+  aeeNames?: string,
 ): number {
   const isValidation = _currentDocKind === 'validation';
   const H    = doc.internal.pageSize.getHeight();
@@ -1062,7 +1063,34 @@ function addSignatureBlock(
   }
 
   y -= 5;
-  
+
+  // ── Assinatura AEE (opcional — um ou múltiplos profissionais) ─────────────
+  if (aeeNames) {
+    const aeeList = aeeNames.split(/[;,]/).map(s => s.trim()).filter(Boolean);
+    if (aeeList.length > 0) {
+      const H2 = doc.internal.pageSize.getHeight();
+      if (y > cBot(H2) - 35) { y = onNewPage(); }
+      const colW2 = (maxW - 20) / 2;
+      const aeeRole = aeeList.length === 1 ? 'Professor(a) AEE' : 'Profissionais AEE';
+      const cx = x + maxW / 2;
+      const sx2 = cx - colW2 / 2;
+      sd(doc, DARK); doc.setLineWidth(0.2);
+      doc.line(sx2, y + 10, sx2 + colW2, y + 10);
+      doc.setFont(_docFont, 'bold'); doc.setFontSize(SMALL_SIZE + 0.5); sc(doc, DARK);
+      doc.text(aeeList.length === 1 ? aeeList[0] : '', cx, y + 15, { align: 'center' });
+      doc.setFont(_docFont, 'normal'); doc.setFontSize(SMALL_SIZE); sc(doc, GRAY);
+      doc.text(aeeRole, cx, y + 19, { align: 'center' });
+      if (aeeList.length > 1) {
+        doc.setFontSize(TINY_SIZE + 0.5); sc(doc, GRAY);
+        const joined = aeeList.slice(0, 4).join(' | ') + (aeeList.length > 4 ? ' ...' : '');
+        doc.text(joined, cx, y + 23, { align: 'center' });
+      }
+      doc.setFontSize(TINY_SIZE + 0.5); sc(doc, GRAY);
+      doc.text('Matrícula/CR: _______________', cx, y + (aeeList.length > 1 ? 27 : 23), { align: 'center' });
+      y += 35;
+    }
+  }
+
   sd(doc, BORDER);
   doc.setLineWidth(0.3);
   doc.line(x, y, x + maxW, y);
@@ -1091,9 +1119,6 @@ function addSignatureBlock(
   doc.text(`Documento gerado em ${auditDate} por ${cleanName}`, x, y);
   doc.text(isValidation ? `Valide este documento em: ${INCLUIAI_SITE}/validar` : `Registro interno: ${INCLUIAI_SITE}`, x, y + 4);
   
-  doc.setFont('courier', 'bold');
-  doc.text(`${codeLabel().toUpperCase()}: ${auditCode}`, x + maxW, y + 4, { align: 'right' });
-
   return y + 10;
 }
 
@@ -1120,7 +1145,7 @@ function addFooter(doc: any): void {
   doc.setFont(_docFont, 'normal');
   doc.setFontSize(TINY_SIZE);
   sc(doc, GRAY);
-  doc.text(`IncluiAI - ${INCLUIAI_SITE} - ${footerCodeLabel} ${_currentAuditCode}`, ML, fY + 4.5);
+  doc.text(`IncluiAI · ${INCLUIAI_SITE}`, ML, fY + 4.5);
 
   doc.setFont(_docFont, 'bold');
   sc(doc, PETROL);
@@ -1852,7 +1877,10 @@ function renderEstudoCasoPremium(
     for (const p of pats) {
       const f = sec.fields.find(ff => p.test(ff.label));
       const v = f?.value;
-      if (v !== undefined && v !== null && String(v).trim()) return String(v).trim();
+      if (v !== undefined && v !== null) {
+        const s = String(v).trim();
+        if (s && s.toLowerCase() !== 'não informado' && s !== '—') return s;
+      }
     }
     return '';
   };
@@ -1860,7 +1888,10 @@ function renderEstudoCasoPremium(
   const allF = (sec: S | undefined): Array<{ label: string; value: string }> =>
     sec
       ? sec.fields
-          .filter(f => f.value !== undefined && f.value !== null && String(f.value).trim())
+          .filter(f => {
+            const s = String(f.value ?? '').trim();
+            return s !== '' && s.toLowerCase() !== 'não informado' && s !== '—';
+          })
           .map(f => ({ label: f.label, value: String(f.value).trim() }))
       : [];
 
@@ -1870,22 +1901,10 @@ function renderEstudoCasoPremium(
     y = sectionBanner(doc, `${roman}. ${title}`, x, y, maxW);
   };
 
-  // Campo texto: se vazio mostra "Não informado" inline e compacto
+  // Campo texto: silencioso se vazio — PDFs preenchidos via IA não mostram "Não informado"
   const field = (label: string, value: string): void => {
     const val = (value || '').trim();
-    if (!val) {
-      if (y > bot() - 7) y = newPage();
-      doc.setFont(_docFont, 'bold');
-      doc.setFontSize(SMALL_SIZE);
-      sc(doc, GRAY);
-      doc.text(`${label}:`, x, y);
-      const lw = doc.getTextWidth(`${label}: `);
-      doc.setFont(_docFont, 'italic');
-      sc(doc, [185, 185, 185] as [number, number, number]);
-      doc.text('Não informado', x + lw, y);
-      y += LINE_H + 1;
-      return;
-    }
+    if (!val || val.toLowerCase() === 'não informado') return;
     y = renderField(doc, label, val, x, y, maxW, newPage);
   };
 
@@ -2011,37 +2030,32 @@ function renderEstudoCasoPremium(
   // ─────────────────────────────────────────────────────────────────────────────
   // III. MOTIVO DO ESTUDO DE CASO / DEMANDA
   // ─────────────────────────────────────────────────────────────────────────────
-  head('III', 'MOTIVO DO ESTUDO DE CASO / DEMANDA');
-  field('Descrição da Demanda', motivo);
-  markConsumed(secIdent);
-  y += 2;
+  if (motivo) {
+    head('III', 'MOTIVO DO ESTUDO DE CASO / DEMANDA');
+    field('Descrição da Demanda', motivo);
+    markConsumed(secIdent);
+    y += 2;
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // IV. HISTÓRICO DE ESCOLARIZAÇÃO
   // ─────────────────────────────────────────────────────────────────────────────
-  head('IV', 'HISTÓRICO DE ESCOLARIZAÇÃO');
   if (histF.length) {
+    head('IV', 'HISTÓRICO DE ESCOLARIZAÇÃO');
     for (const { label, value } of histF) fieldOpt(label, value);
-  } else {
-    field('Trajetória Escolar', '');
-    field('Percepção do Estudante sobre a Escola', '');
-    field('Registros de Frequência, Adaptação ou Permanência', '');
+    markConsumed(secHist);
+    y += 2;
   }
-  markConsumed(secHist);
-  y += 2;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // V. ENTREVISTA COM RESPONSÁVEL / FAMÍLIA
   // ─────────────────────────────────────────────────────────────────────────────
-  head('V', 'ENTREVISTA COM RESPONSÁVEL / FAMÍLIA');
   if (entrevF.length) {
+    head('V', 'ENTREVISTA COM RESPONSÁVEL / FAMÍLIA');
     for (const { label, value } of entrevF) fieldOpt(label, value);
-  } else {
-    field('Informações trazidas pela família', '');
-    field('Análise pedagógica da fala dos responsáveis', '');
+    markConsumed(secEntrev);
+    y += 2;
   }
-  markConsumed(secEntrev);
-  y += 2;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // VI. FONTES DE INFORMAÇÃO UTILIZADAS
@@ -2060,174 +2074,176 @@ function renderEstudoCasoPremium(
   // ─────────────────────────────────────────────────────────────────────────────
   // VII. INFORMAÇÕES DE SAÚDE
   // ─────────────────────────────────────────────────────────────────────────────
-  head('VII', 'INFORMAÇÕES DE SAÚDE');
-  if (saudeF.length) {
-    for (const { label, value } of saudeF) fieldOpt(label, value);
-  } else {
+  {
     const diagStr = (student.diagnosis || []).join(', ');
-    field('Diagnósticos Clínicos e Interpretação Clínico-Pedagógica', diagStr);
-    field('Medicações em Uso', (student as any).medication || '');
-    field('Histórico de Saúde, Gestação, Nascimento e Desenvolvimento', '');
-    field('Profissionais de Saúde que Acompanham o Aluno', '');
+    const hasSaudeContent = saudeF.length > 0 || !!diagStr || !!(student as any).medication;
+    if (hasSaudeContent) {
+      head('VII', 'INFORMAÇÕES DE SAÚDE');
+      if (saudeF.length) {
+        for (const { label, value } of saudeF) fieldOpt(label, value);
+      } else {
+        if (diagStr) field('Diagnósticos Clínicos', diagStr);
+        if ((student as any).medication) field('Medicações em Uso', (student as any).medication);
+      }
+      markConsumed(secSaude);
+      y += 2;
+    }
   }
-  markConsumed(secSaude);
-  y += 2;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // VIII. SÍNTESE DAS NECESSIDADES DE APOIO
   // ─────────────────────────────────────────────────────────────────────────────
-  head('VIII', 'SÍNTESE DAS NECESSIDADES DE APOIO', 60);
-  const needsAreas: Array<{ area: string; sec: S | undefined }> = [
-    { area: 'Atenção',           sec: secAtenc },
-    { area: 'Comunicação',       sec: secCom },
-    { area: 'Leitura e Escrita', sec: secLeit ?? secEscr },
-    { area: 'Matemática',        sec: undefined },
-    { area: 'Autonomia',         sec: secAutonom },
-    { area: 'Interação Social',  sec: secInterSoc },
-  ];
-  const needsRows: string[][] = needsAreas.map(({ area, sec }) => {
-    const need   = fv(sec, /tempo|qualidade|n[ií]vel|atual|comunica|intera|autonom|observad/i);
-    const impact = fv(sec, /impacto|barreira|compromet|dificuld/i);
-    const apoio  = fv(sec, /estrat[eé]gia|apoio|interven/i);
-    return [area, need || '—', impact || '—', apoio || '—'];
-  });
-  y = renderTable(
-    doc,
-    ['Área', 'Necessidade Observada', 'Impacto Escolar', 'Apoio Indicado'],
-    [28, 52, 50, 50],
-    needsRows,
-    x, y, newPage,
-  );
-  y += 3;
+  {
+    const needsAreas: Array<{ area: string; sec: S | undefined }> = [
+      { area: 'Atenção',           sec: secAtenc },
+      { area: 'Comunicação',       sec: secCom },
+      { area: 'Leitura e Escrita', sec: secLeit ?? secEscr },
+      { area: 'Matemática',        sec: undefined },
+      { area: 'Autonomia',         sec: secAutonom },
+      { area: 'Interação Social',  sec: secInterSoc },
+    ];
+    const needsRows: string[][] = needsAreas.map(({ area, sec }) => {
+      const need   = fv(sec, /tempo|qualidade|n[ií]vel|atual|comunica|intera|autonom|observad/i);
+      const impact = fv(sec, /impacto|barreira|compromet|dificuld/i);
+      const apoio  = fv(sec, /estrat[eé]gia|apoio|interven/i);
+      return [area, need || '—', impact || '—', apoio || '—'];
+    });
+    const hasNeedsData = needsRows.some(r => r.slice(1).some(c => c !== '—'));
+    if (hasNeedsData) {
+      head('VIII', 'SÍNTESE DAS NECESSIDADES DE APOIO', 60);
+      y = renderTable(
+        doc,
+        ['Área', 'Necessidade Observada', 'Impacto Escolar', 'Apoio Indicado'],
+        [28, 52, 50, 50],
+        needsRows,
+        x, y, newPage,
+      );
+      y += 3;
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // IX. DADOS PEDAGÓGICOS
   // ─────────────────────────────────────────────────────────────────────────────
-  head('IX', 'DADOS PEDAGÓGICOS');
-  const pedSecs: Array<S | undefined> = [
-    secPed, secCom, secAtenc, secAutonom, secEngaj,
-    secLing, secLeit, secEscr, secSobre, secBehav, secInterSoc,
-  ];
-  const usedPedLabels = new Set<string>();
-  let hasPedContent = false;
-  for (const sec of pedSecs) {
-    for (const { label, value } of allF(sec)) {
-      if (!usedPedLabels.has(label)) {
-        fieldOpt(label, value);
-        usedPedLabels.add(label);
-        hasPedContent = true;
+  {
+    const pedSecs: Array<S | undefined> = [
+      secPed, secCom, secAtenc, secAutonom, secEngaj,
+      secLing, secLeit, secEscr, secSobre, secBehav, secInterSoc,
+    ];
+    const usedPedLabels = new Set<string>();
+    const pedItems: Array<{ label: string; value: string }> = [];
+    for (const sec of pedSecs) {
+      for (const { label, value } of allF(sec)) {
+        if (!usedPedLabels.has(label)) {
+          pedItems.push({ label, value });
+          usedPedLabels.add(label);
+        }
       }
+      markConsumed(sec);
     }
-    markConsumed(sec);
+    if (pedItems.length) {
+      head('IX', 'DADOS PEDAGÓGICOS');
+      for (const { label, value } of pedItems) fieldOpt(label, value);
+      y += 2;
+    }
   }
-  if (!hasPedContent) {
-    field('Habilidades e Potencialidades Pedagógicas', '');
-    field('Dificuldades e Barreiras Observadas', '');
-    field('Comunicação', '');
-    field('Autonomia e Autorregulação', '');
-    field('Estratégias Pedagógicas já Eficazes', '');
-    field('Adaptações e Recursos Necessários', '');
-  }
-  y += 2;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // X. CONHECIMENTO PRÉVIO E PERFIL DE APRENDIZAGEM
   // ─────────────────────────────────────────────────────────────────────────────
-  head('X', 'CONHECIMENTO PRÉVIO E PERFIL DE APRENDIZAGEM', 55);
-  if (y > bot() - 8) y = newPage();
-  doc.setFont(_docFont, 'italic'); doc.setFontSize(TINY_SIZE); sc(doc, GRAY);
-  doc.text(
-    'Escala: 1 = Muito Inicial  |  2 = Inicial  |  3 = Em Desenvolvimento  |  4 = Adequado com Apoio  |  5 = Adequado / Autônomo',
-    x, y,
-  );
-  y += 6;
+  // pk declarado fora do bloco para ficar acessível na Seção XIV (gaps)
   const pk = (student as any).priorKnowledge ?? {};
-  const pkRows: Array<[string, number]> = [
-    ['Leitura',             pk.reading            ?? 0],
-    ['Escrita',             pk.writing            ?? 0],
-    ['Compreensão',         pk.comprehension      ?? 0],
-    ['Autonomia',           pk.autonomy           ?? 0],
-    ['Atenção',             pk.attention          ?? 0],
-    ['Raciocínio Lógico',   pk.logical_reasoning  ?? 0],
-  ];
-  for (const [label, val] of pkRows) scaleRow(label, val);
-  y += 3;
+  {
+    const pkRows: Array<[string, number]> = [
+      ['Leitura',             pk.reading            ?? 0],
+      ['Escrita',             pk.writing            ?? 0],
+      ['Compreensão',         pk.comprehension      ?? 0],
+      ['Autonomia',           pk.autonomy           ?? 0],
+      ['Atenção',             pk.attention          ?? 0],
+      ['Raciocínio Lógico',   pk.logical_reasoning  ?? 0],
+    ];
+    if (pkRows.some(([, v]) => v > 0)) {
+      head('X', 'CONHECIMENTO PRÉVIO E PERFIL DE APRENDIZAGEM', 55);
+      if (y > bot() - 8) y = newPage();
+      doc.setFont(_docFont, 'italic'); doc.setFontSize(TINY_SIZE); sc(doc, GRAY);
+      doc.text(
+        'Escala: 1 = Muito Inicial  |  2 = Inicial  |  3 = Em Desenvolvimento  |  4 = Adequado com Apoio  |  5 = Adequado / Autônomo',
+        x, y,
+      );
+      y += 6;
+      for (const [label, val] of pkRows) scaleRow(label, val);
+      y += 3;
+    }
+  }
 
   // ─────────────────────────────────────────────────────────────────────────────
   // XI. ANÁLISE PEDAGÓGICA INTEGRADA
   // ─────────────────────────────────────────────────────────────────────────────
-  head('XI', 'ANÁLISE PEDAGÓGICA INTEGRADA');
-  const analSecs: Array<S | undefined> = [secAnal, secSintese];
-  const analUsed = new Set<string>();
-  let hasAnal = false;
-  for (const sec of analSecs) {
-    for (const { label, value } of allF(sec)) {
-      if (!analUsed.has(label)) {
-        fieldOpt(label, value);
-        analUsed.add(label);
-        hasAnal = true;
+  {
+    const analSecs: Array<S | undefined> = [secAnal, secSintese];
+    const analUsed = new Set<string>();
+    const analItems: Array<{ label: string; value: string }> = [];
+    for (const sec of analSecs) {
+      for (const { label, value } of allF(sec)) {
+        if (!analUsed.has(label)) {
+          analItems.push({ label, value });
+          analUsed.add(label);
+        }
       }
+      markConsumed(sec);
     }
-    markConsumed(sec);
-  }
-  // Seções da IA que não foram consumidas ainda — renderiza aqui
-  for (const sec of sections) {
-    if (consumed.has(sec)) continue;
-    for (const { label, value } of allF(sec)) {
-      if (!analUsed.has(label)) {
-        fieldOpt(label, value);
-        analUsed.add(label);
-        hasAnal = true;
+    // Seções da IA que não foram consumidas ainda — renderiza aqui
+    for (const sec of sections) {
+      if (consumed.has(sec)) continue;
+      for (const { label, value } of allF(sec)) {
+        if (!analUsed.has(label)) {
+          analItems.push({ label, value });
+          analUsed.add(label);
+        }
       }
+      consumed.add(sec);
     }
-    consumed.add(sec);
+    if (analItems.length) {
+      head('XI', 'ANÁLISE PEDAGÓGICA INTEGRADA');
+      for (const { label, value } of analItems) fieldOpt(label, value);
+      y += 2;
+    }
   }
-  if (!hasAnal) {
-    field('Análise das Barreiras à Aprendizagem', '');
-    field('Relação entre Potencialidades e Estratégias de Ensino', '');
-    field('Hipótese Pedagógica Central', '');
-  }
-  y += 2;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // XII. ESTRATÉGIAS PEDAGÓGICAS RECOMENDADAS
   // ─────────────────────────────────────────────────────────────────────────────
-  head('XII', 'ESTRATÉGIAS PEDAGÓGICAS RECOMENDADAS');
-  const estratF = allF(secEstrat);
-  if (estratF.length) {
-    for (const { label, value } of estratF) {
-      if (value.trim()) y = renderHighlight(doc, label, value, x, y, maxW, newPage);
+  {
+    const estratF = allF(secEstrat);
+    if (estratF.length) {
+      head('XII', 'ESTRATÉGIAS PEDAGÓGICAS RECOMENDADAS');
+      for (const { label, value } of estratF) {
+        if (value.trim()) y = renderHighlight(doc, label, value, x, y, maxW, newPage);
+      }
+      markConsumed(secEstrat);
+      y += 2;
     }
-    markConsumed(secEstrat);
-  } else {
-    field('Estratégias Iniciais Recomendadas', '');
   }
-  y += 2;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // XIII. ENCAMINHAMENTOS
   // ─────────────────────────────────────────────────────────────────────────────
-  head('XIII', 'ENCAMINHAMENTOS', 55);
-  const encamF = allF(secEncam);
-  let encamRows: string[][];
-  if (encamF.length) {
-    encamRows = encamF.map(({ label, value }) => ['—', label, '—', value.slice(0, 80)]);
-    markConsumed(secEncam);
-  } else {
-    encamRows = [
-      ['Alta',  'Avaliação psicopedagógica',   'Prof. AEE / Equipe',        '—'],
-      ['Alta',  'Reunião com família',          'Coordenação Pedagógica',    '—'],
-      ['Média', '—',                            '—',                         '—'],
-    ];
+  {
+    const encamF = allF(secEncam);
+    if (encamF.length) {
+      head('XIII', 'ENCAMINHAMENTOS', 55);
+      const encamRows = encamF.map(({ label, value }) => ['—', label, '—', value.slice(0, 80)]);
+      markConsumed(secEncam);
+      y = renderTable(
+        doc,
+        ['Prioridade', 'Encaminhamento', 'Responsável', 'Documento / Ação'],
+        [26, 60, 46, 48],
+        encamRows,
+        x, y, newPage,
+      );
+      y += 3;
+    }
   }
-  y = renderTable(
-    doc,
-    ['Prioridade', 'Encaminhamento', 'Responsável', 'Documento / Ação'],
-    [26, 60, 46, 48],
-    encamRows,
-    x, y, newPage,
-  );
-  y += 3;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // XIV. INFORMAÇÕES PENDENTES (somente se houver lacunas relevantes)
@@ -2249,15 +2265,15 @@ function renderEstudoCasoPremium(
   // ─────────────────────────────────────────────────────────────────────────────
   // XV. CONCLUSÃO TÉCNICA PEDAGÓGICA
   // ─────────────────────────────────────────────────────────────────────────────
-  head('XV', 'CONCLUSÃO TÉCNICA PEDAGÓGICA');
-  const concF = allF(secConc);
-  if (concF.length) {
-    for (const { label, value } of concF) fieldOpt(label, value);
-    markConsumed(secConc);
-  } else {
-    field('Conclusão do Estudo de Caso', '');
+  {
+    const concF = allF(secConc);
+    if (concF.length) {
+      head('XV', 'CONCLUSÃO TÉCNICA PEDAGÓGICA');
+      for (const { label, value } of concF) fieldOpt(label, value);
+      markConsumed(secConc);
+      y += 2;
+    }
   }
-  y += 2;
 
   // ─────────────────────────────────────────────────────────────────────────────
   // XVI. BASE LEGAL E OBSERVAÇÕES INSTITUCIONAIS
@@ -2277,7 +2293,7 @@ function renderEstudoCasoPremium(
   // ─────────────────────────────────────────────────────────────────────────────
   // XVII. ASSINATURAS
   // ─────────────────────────────────────────────────────────────────────────────
-  y = addSignatureBlock(doc, x, y, maxW, newPage, 'ESTUDO_CASO', auditCode, user.name, sigOpts);
+  y = addSignatureBlock(doc, x, y, maxW, newPage, 'ESTUDO_CASO', auditCode, user.name, sigOpts, profAEE || student.aeeTeacher || '');
 
   return y;
 }
@@ -2375,7 +2391,7 @@ export const PDFGenerator = {
         }
 
         // V. Validação
-        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts, student.aeeTeacher || '');
         break;
       }
 
@@ -2412,7 +2428,7 @@ export const PDFGenerator = {
         y += iLs.length * LINE_H + 4;
 
         // V. Validação
-        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts, student.aeeTeacher || '');
         break;
       }
 
@@ -2441,7 +2457,7 @@ export const PDFGenerator = {
         }
 
         // IV. Validação
-        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts, student.aeeTeacher || '');
         break;
       }
 
@@ -2469,7 +2485,7 @@ export const PDFGenerator = {
         ], ML, y, maxW);
 
         // IV. Validação
-        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts, student.aeeTeacher || '');
         break;
       }
 
@@ -2497,7 +2513,7 @@ export const PDFGenerator = {
         y += LINE_H + 4;
 
         // IV. Validação
-        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts, student.aeeTeacher || '');
         break;
       }
 
@@ -2531,7 +2547,7 @@ export const PDFGenerator = {
         y = kvGrid(doc, [['Data de Emissão:', filledData.data || dateStr]], ML, y, maxW);
 
         // V. Validação
-        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts, student.aeeTeacher || '');
         break;
       }
 
@@ -2562,7 +2578,7 @@ export const PDFGenerator = {
         y += LINE_H + 4;
 
         // IV. Validação
-        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts, student.aeeTeacher || '');
         break;
       }
 
@@ -2576,7 +2592,7 @@ export const PDFGenerator = {
             y = renderField(doc, label, val, ML, y, maxW, newPage);
           }
         }
-        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+        y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts, student.aeeTeacher || '');
         break;
       }
     }
@@ -2633,32 +2649,8 @@ export const PDFGenerator = {
 
     const circularPhoto = student.photoUrl ? await resolvePhotoUrl(student.photoUrl).catch(() => undefined) : undefined;
 
-    if (isEstudoCasoDocType(docType)) {
-      let y = addEstudoCasoProtocolHeader(doc, docTitle, subtitle, auditCode, sName);
-      const newPage = (): number => {
-        doc.addPage();
-        return addRunningHeader(doc, auditCode, school);
-      };
-      y = renderEstudoCasoCompactProtocol(
-        doc,
-        sections,
-        student,
-        user,
-        school,
-        circularPhoto,
-        ML,
-        maxW,
-        y,
-        newPage,
-        auditCode,
-        sigOpts,
-      );
-      const firstPageQr = _currentQrDataUrl;
-      _currentQrDataUrl = undefined;
-      addFooterAllPages(doc);
-      _currentQrDataUrl = firstPageQr;
-      return doc.output('blob') as Blob;
-    }
+    // [SPRINT 1] renderEstudoCasoCompactProtocol era chamado aqui e retornava prematuramente,
+    // impedindo renderEstudoCasoPremium de executar. Bloco removido — fluxo cai no premium abaixo.
 
     let y = addCoverBlock(doc, docTitle, subtitle, auditCode, qrUrl, sName);
 
@@ -2747,7 +2739,10 @@ export const PDFGenerator = {
       }
     }
 
-    y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts);
+    const secInstitForSig = sections.find(s => /dados.?institu|institu/i.test(s.title));
+    const aeeFromSec = secInstitForSig?.fields.find(f => /aee/i.test(f.label))?.value;
+    const aeeForSig = (typeof aeeFromSec === 'string' && aeeFromSec.trim()) ? aeeFromSec : student.aeeTeacher || '';
+    y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts, aeeForSig);
     addFooterAllPages(doc);
     return doc.output('blob') as Blob;
   },
@@ -2831,7 +2826,7 @@ export const PDFGenerator = {
       }
     }
 
-    y = addSignatureBlock(doc, ML, y, maxW, newPage, 'FICHA', auditCode, user.name);
+    y = addSignatureBlock(doc, ML, y, maxW, newPage, 'FICHA', auditCode, user.name, undefined, student.aeeTeacher || '');
     addFooterAllPages(doc);
     return doc.output('blob') as Blob;
   },

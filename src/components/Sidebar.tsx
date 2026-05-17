@@ -16,12 +16,15 @@ import {
   Calendar,
   FlaskConical,
   MessageSquare,
+  MessageCircle,
   History,
   LifeBuoy,
+  Printer,
 } from 'lucide-react';
 import { BrandLogo } from './BrandLogo';
 
 import { User, getPlanLimits, PlanTier } from '../types';
+import { waUrl } from '../config/contact';
 import { cn } from '@/src/lib/utils';
 import { Badge } from '@/src/components/ui/badge';
 import { Progress } from '@/src/components/ui/progress';
@@ -235,6 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ? <NavItem viewId="school_templates" icon={LayoutTemplate} label="Meus Modelos" iconColor="#C69214" />
               : <LockedNavItemPro icon={LayoutTemplate} label="Meus Modelos" />
             }
+            <NavItem viewId="printable_templates" icon={Printer} label="Modelos Imprimíveis" iconColor="#0D9488" />
 
             {/* Ferramentas IA */}
             <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
@@ -276,6 +280,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 badge={unreadMessages > 0 ? String(unreadMessages > 9 ? '9+' : unreadMessages) : undefined}
                 iconColor="#2563EB"
               />
+              <a
+                href={waUrl('Olá! Vim pelo IncluiAI e gostaria de ajuda.')}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 text-gray-500 hover:bg-petrol/10 hover:text-petrol no-underline"
+                style={{ textDecoration: 'none' }}
+              >
+                <MessageCircle size={18} className="shrink-0" style={{ color: '#25D366' }} />
+                <span className="whitespace-nowrap flex-1 text-left">Suporte Humanizado</span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
+                  WA
+                </span>
+              </a>
               {user.isAdmin && (
                 <NavItem viewId="admin" icon={PieChart} label="Painel CEO" iconColor="#B45309" />
               )}

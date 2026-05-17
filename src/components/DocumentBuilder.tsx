@@ -22,6 +22,39 @@ import { SchoolTemplate } from '../services/templateService';
 import { DocumentPrintPreview } from './docs/DocumentPrintPreview';
 import type { DocType } from './docs/DocComponents';
 import { ensureDocumentCode, getDocumentCodeKind, isValidatedDocumentType } from '../utils/documentCodes';
+import type { SchoolConfig } from '../types';
+
+/**
+ * Resolve a escola correta para o PDF de um aluno.
+ * Ordem: escola por ID → escola por nome → SchoolConfig mínimo com nome → primeira do tenant.
+ */
+function resolveStudentSchool(
+  student: Student | null,
+  configs: SchoolConfig[] | undefined,
+): SchoolConfig | null {
+  if (!configs?.length && !student?.schoolName) return null;
+  // 1. Match por schoolId (FK)
+  if (student?.schoolId && configs?.length) {
+    const byId = configs.find(s => s.id === student.schoolId);
+    if (byId) return byId;
+  }
+  // 2. Match por nome (case-insensitive)
+  if (student?.schoolName && configs?.length) {
+    const lower = student.schoolName.trim().toLowerCase();
+    const byName = configs.find(s => s.schoolName.trim().toLowerCase() === lower);
+    if (byName) return byName;
+  }
+  // 3. SchoolConfig mínimo construído do schoolName do aluno
+  if (student?.schoolName) {
+    return {
+      id: student.schoolId ?? '',
+      schoolName: student.schoolName,
+      contact: '', managerName: '', aeeRepresentative: '',
+    } as SchoolConfig;
+  }
+  // 4. Fallback: primeira escola do tenant
+  return configs?.[0] ?? null;
+}
 
 // Seções esperadas por tipo de documento — contexto para análise via upload
 const STANDARD_DOC_FIELDS: Record<string, string> = {
@@ -1642,7 +1675,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
     if (!selectedStudent || sections.length === 0) { window.print(); return; }
     setGeneratingPDF(true);
     try {
-      const school = user.schoolConfigs?.[0] ?? null;
+      const school = resolveStudentSchool(selectedStudent, user.schoolConfigs);
       const auditCode = ensureDocumentCodeForType(type, currentAuditCode);
       if (auditCode !== currentAuditCode) setCurrentAuditCode(auditCode);
       const pdfSections = sections.map(sec => ({
@@ -1689,7 +1722,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
     if (!selectedStudent || sections.length === 0) { alert('Nenhum conteúdo para exportar.'); return; }
     setGeneratingPDF(true);
     try {
-      const school = user.schoolConfigs?.[0] ?? null;
+      const school = resolveStudentSchool(selectedStudent, user.schoolConfigs);
       const auditCode = ensureDocumentCodeForType(type, currentAuditCode);
       if (auditCode !== currentAuditCode) setCurrentAuditCode(auditCode);
       const pdfSections = sections.map(sec => ({

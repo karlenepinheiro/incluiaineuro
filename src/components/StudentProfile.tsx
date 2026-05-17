@@ -29,6 +29,7 @@ import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
 import { DocumentService } from '../services/documentService';
 import { IntelligentProfileTab } from './IntelligentProfileTab';
 import { ActionPlanTab } from './ActionPlanTab';
+import { CareRoutineTab } from './CareRoutineTab';
 import { getStudentSupportVisual } from '../views/StudentsListView';
 
 // ── Critérios do perfil evolutivo (10 dimensões) ─────────────────────────────
@@ -325,7 +326,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   onNavigateTo,
   onRefreshProtocols,
 }) => {
-  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades' | 'perfil_inteligente' | 'plano_acao';
+  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades' | 'perfil_inteligente' | 'plano_acao' | 'rotina';
   const [activeTab, setActiveTab] = useState<Tab>('ficha');
   const [fichas, setFichas] = useState<FichaComplementar[]>(student.fichasComplementares || []);
   const [quickDocType, setQuickDocType] = useState<QuickDocType | null>(null);
@@ -784,6 +785,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     { id: 'plano_acao',   label: 'Plano de Ação',      icon: <ClipboardList size={13}/>, highlight: true },
     { id: 'ficha',        label: 'Ficha do Aluno',      icon: <User size={13}/> },
     { id: 'evolucao',     label: 'Evolução',             icon: <TrendingUp size={13}/> },
+    { id: 'rotina',       label: 'Cuidadoras e Rotina', icon: <Users size={13}/> },
     { id: 'agenda',       label: 'Agenda',               icon: <Calendar size={13}/> },
     { id: 'documentos',   label: 'Documentos',           icon: <FileText size={13}/> },
     { id: 'atividades',   label: 'Atividades Geradas',   icon: <Zap size={13}/> },
@@ -2260,6 +2262,11 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
          ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'plano_acao' && (
         <ActionPlanTab student={student} user={user as any} />
+      )}
+
+      {/* ── TAB: Cuidadoras e Rotina ── */}
+      {activeTab === 'rotina' && (
+        <CareRoutineTab student={student} user={user} />
       )}
 
       {/* ── Modal: Documento Complementar (Sprint 5B) ── */}

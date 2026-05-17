@@ -525,6 +525,8 @@ export const databaseService = {
       'imported_from_unique_code',
       // escola de origem (migration 20260514000003):
       'imported_from_school_name',
+      // escola FK (sprint 3 — aponta para schools.id):
+      'school_id',
     ]);
 
     // 2. dbPayload: mapeamento camelCase/legado → nomes reais das colunas
@@ -539,6 +541,8 @@ export const databaseService = {
       cpf:                 emptyToNull(student?.cpf),
       // school_name: text — form resolve via schoolId→schoolName antes de chamar onSave
       school_name:         emptyToNull(student?.school_name         ?? student?.schoolName),
+      // school_id: FK → schools.id (sprint 3 — salvo após ensureSchoolExists em App.tsx)
+      school_id:           emptyToNull(student?.schoolId            ?? student?.school_id) || null,
       // school_year: aceita grade (legado) mapeado para ano escolar
       school_year:         emptyToNull(student?.school_year         ?? student?.grade          ?? student?.gradeLevel),
       class_name:          emptyToNull(student?.class_name          ?? student?.className),
@@ -805,6 +809,77 @@ export const databaseService = {
   },
 
   // =========================
+  // SCHOOLS
+  // =========================
+
+  /**
+   * Garante que uma escola com este nome exista para o tenant.
+   * Insere com status='incomplete' e source='student_form' se não existir.
+   * Nunca duplica: verifica por nome (case-insensitive) antes de inserir.
+   */
+  async ensureSchoolExists(tenantId: string, schoolName: string): Promise<import('../types').SchoolConfig | null> {
+    const cleanName = (schoolName || '').trim();
+    if (!cleanName || !tenantId) return null;
+
+    try {
+      // 1. Busca escola existente por nome (case-insensitive)
+      const { data: existing } = await supabase
+        .from('schools')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .ilike('name', cleanName)
+        .maybeSingle();
+
+      const mapRow = (r: any): import('../types').SchoolConfig => ({
+        id:               r.id               ?? '',
+        schoolName:       r.name             ?? '',
+        inepCode:         r.inep_code        ?? '',
+        cnpj:             r.cnpj             ?? '',
+        contact:          r.phone            ?? '',
+        email:            r.email            ?? '',
+        instagram:        r.instagram        ?? '',
+        logoUrl:          r.logo_url         ?? '',
+        address:          r.address          ?? '',
+        neighborhood:     r.neighborhood     ?? '',
+        city:             r.city             ?? '',
+        state:            r.state            ?? '',
+        zipcode:          r.zipcode          ?? '',
+        principalName:    r.principal_name   ?? '',
+        managerName:      r.manager_name     ?? '',
+        coordinatorName:  r.coordinator_name ?? '',
+        aeeRepresentative: r.aee_representative ?? '',
+        aeeRepName:       r.aee_rep_name     ?? '',
+        team:             [],
+      });
+
+      if (existing) return mapRow(existing);
+
+      // 2. Insere nova escola com cadastro incompleto
+      const { data: inserted, error } = await supabase
+        .from('schools')
+        .insert({
+          tenant_id: tenantId,
+          name:      cleanName,
+          status:    'incomplete',
+          source:    'student_form',
+          active:    true,
+        })
+        .select()
+        .single();
+
+      if (error || !inserted) {
+        console.warn('[ensureSchoolExists] insert failed:', error?.message);
+        return null;
+      }
+
+      return mapRow(inserted);
+    } catch (err) {
+      console.warn('[ensureSchoolExists] error:', err);
+      return null;
+    }
+  },
+
+  // =========================
   // USER PATCHES
   // =========================
   async updateUserProfile(userId: string, patch: {
@@ -1048,6 +1123,7 @@ export const databaseService = {
       birthDate:        r.birth_date       ?? r.birthDate    ?? '',
       grade:            r.school_year      ?? r.grade        ?? '',
       schoolName:       r.school_name      ?? r.schoolName   ?? '',
+      schoolId:         r.school_id        ?? r.schoolId     ?? '',
       regentTeacher:    r.teacher_name     ?? r.regentTeacher?? '',
       aeeTeacher:       r.aee_teacher      ?? r.aeeTeacher   ?? '',
       guardianName:     r.guardian_name    ?? r.guardianName ?? '',
@@ -1100,6 +1176,7 @@ export const databaseService = {
       primaryContactPhone:    r.primary_contact_phone    ?? r.primaryContactPhone     ?? undefined,
       emergencyContactName:   r.emergency_contact_name   ?? r.emergencyContactName    ?? undefined,
       emergencyContactPhone:  r.emergency_contact_phone  ?? r.emergencyContactPhone   ?? undefined,
+      updatedAt:              r.updated_at               ?? undefined,
     });
 
     return studentRows.map(normalize) as any;

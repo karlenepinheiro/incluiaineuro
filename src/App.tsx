@@ -15,6 +15,7 @@ const StudentsListView      = React.lazy(() => import('./views/StudentsListView'
 const ReportsView           = React.lazy(() => import('./views/ReportsView').then(m => ({ default: m.ReportsView })));
 const AppointmentsView      = React.lazy(() => import('./views/AppointmentsView').then(m => ({ default: m.AppointmentsView })));
 const SchoolTemplatesView   = React.lazy(() => import('./views/SchoolTemplatesView').then(m => ({ default: m.SchoolTemplatesView })));
+const PrintableTemplatesView = React.lazy(() => import('./views/PrintableTemplatesView').then(m => ({ default: m.PrintableTemplatesView })));
 const FichasComplementaresView = React.lazy(() => import('./views/FichasComplementaresView').then(m => ({ default: m.FichasComplementaresView })));
 const FichasHistoricosView  = React.lazy(() => import('./views/FichasHistoricosView').then(m => ({ default: m.FichasHistoricosView })));
 const TriagemView           = React.lazy(() => import('./views/TriagemView').then(m => ({ default: m.TriagemView })));
@@ -940,7 +941,26 @@ const App: React.FC = () => {
         if (!checkPermission('add_student')) return triggerUpgrade();
       }
 
-      const savedRow = await databaseService.saveStudent(studentData);
+      // Sprint 3 — Auto-registrar escola nova digitada pelo professor.
+      // Se o schoolId do aluno não bate com nenhuma escola em memória,
+      // garante que exista na tabela schools antes de salvar o aluno.
+      let studentToSave = studentData;
+      if (studentData.schoolName && user?.tenant_id && !isCrossTenant) {
+        const alreadyLinked = user.schoolConfigs?.some(s => s.id && s.id === studentData.schoolId);
+        if (!alreadyLinked) {
+          const registeredSchool = await databaseService.ensureSchoolExists(
+            user.tenant_id, studentData.schoolName,
+          );
+          if (registeredSchool?.id) {
+            studentToSave = { ...studentData, schoolId: registeredSchool.id };
+            if (!user.schoolConfigs?.find(s => s.id === registeredSchool.id)) {
+              setUser(u => ({ ...u, schoolConfigs: [...(u.schoolConfigs ?? []), registeredSchool] }));
+            }
+          }
+        }
+      }
+
+      const savedRow = await databaseService.saveStudent(studentToSave);
       if (import.meta.env.DEV) {
         console.info('[App.saveStudent] retorno databaseService.saveStudent', savedRow);
       }
@@ -1788,6 +1808,10 @@ const App: React.FC = () => {
                 user={user}
                 tenantSummary={tenantSummary}
               />
+            )}
+
+            {view === 'printable_templates' && (
+              <PrintableTemplatesView user={user} />
             )}
 
             {view === 'fichas' && (

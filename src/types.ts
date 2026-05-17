@@ -626,6 +626,9 @@ export interface Student {
   primaryContactPhone?: string;
   emergencyContactName?: string;
   emergencyContactPhone?: string;
+
+  /** ISO timestamp da última alteração — mapeado de updated_at do DB */
+  updatedAt?: string;
 }
 
 // ── Plano de Ação do Professor Regente ────────────────────────────────────────

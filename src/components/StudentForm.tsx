@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Student, SchoolConfig, PlanTier, getPlanLimits, PriorKnowledgeProfile, SociofamilyData, DEFAULT_SOCIOFAMILY_DATA, normalizeSociofamilyData } from '../types';
-import { Save, ArrowLeft, Upload, FileText, Trash2, Plus, AlertCircle, Lock, Stethoscope, BookOpen, Users, HelpCircle, X, Paperclip, Sparkles } from 'lucide-react';
+import { Save, ArrowLeft, Upload, FileText, Trash2, Plus, AlertCircle, Lock, Stethoscope, BookOpen, Users, HelpCircle, X, Paperclip, Sparkles, Clock } from 'lucide-react';
 import { SociofamilySection } from './SociofamilySection';
 import { MultiSelect } from './MultiSelect';
 import { SmartTextarea } from './SmartTextarea'; 
@@ -233,6 +233,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
   const [cidList, setCidList] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [docUploadType, setDocUploadType] = useState<'Laudo' | 'Relatorio' | 'Outro'>('Laudo');
 
   const [generatingAI, setGeneratingAI] = useState<Partial<Record<PedagogicalProfileSuggestionKey, boolean>>>({});
@@ -641,6 +642,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
     setIsSaving(true);
     try {
       await onSave(payload);
+      setLastSavedAt(new Date().toISOString());
     } finally {
       setIsSaving(false);
     }
@@ -658,15 +660,34 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
 
   const isModoTriagem = formData.tipo_aluno === 'em_triagem';
 
+  const fmtDateTime = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        + ' às '
+        + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    } catch { return iso; }
+  };
+
+  const displayUpdatedAt = lastSavedAt || initialData?.updatedAt || null;
+  const displayUpdatedBy = lastSavedAt ? regentName : null;
+
   return (
     <div className="max-w-5xl mx-auto pb-20">
-      
+
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
             <button onClick={onCancel} className="text-gray-500 hover:text-gray-700"><ArrowLeft size={24} /></button>
             <div>
                 <h2 className="text-2xl font-bold text-gray-800">{initialData ? 'Editar Aluno' : 'Novo Cadastro'}</h2>
                 <p className="text-sm text-gray-500">Preencha os dados completos para gerar documentos automáticos.</p>
+                {displayUpdatedAt && (
+                  <p className="text-xs text-[#1F5F6B] mt-1 flex items-center gap-1 font-medium">
+                    <Clock size={11} />
+                    Última atualização: {fmtDateTime(displayUpdatedAt)}
+                    {displayUpdatedBy && ` por ${displayUpdatedBy}`}
+                  </p>
+                )}
             </div>
         </div>
       </div>
@@ -705,10 +726,10 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 space-y-8">
+      <form onSubmit={handleSubmit} className="rounded-2xl p-5 space-y-5" style={{background:'#F8FAFC', border:'1px solid #E2E8F0'}}>
         
         {/* Identificação */}
-        <div className="flex flex-col md:flex-row gap-8 items-start">
+        <div className="section-card flex flex-col md:flex-row gap-8 items-start">
             <div className="flex flex-col items-center space-y-3">
                 <div className="w-32 h-32 bg-gray-100 rounded-full border-4 border-white shadow-md overflow-hidden flex items-center justify-center relative group">
                      {formData.photoUrl ? <img src={formData.photoUrl} className="w-full h-full object-cover" /> : <span className="text-gray-400 text-xs">Foto</span>}
@@ -760,7 +781,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         </div>
 
         {/* Endereço */}
-        <section>
+        <section className="section-card">
           <h3 className="section-title">📍 Endereço Residencial</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -806,7 +827,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         </section>
 
         {/* Dados Escolares & Vínculos */}
-        <section>
+        <section className="section-card">
           <h3 className="section-title">
             <BookOpen size={20} className="text-brand-600"/>
             Dados Escolares & Equipe
@@ -1013,14 +1034,14 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
 
             {/* Prof. AEE */}
             <div>
-              <label className="label">Prof. AEE / Especialista</label>
+              <label className="label">Prof. AEE / Especialista <span style={{fontWeight:'normal',color:'#888',fontSize:'0.78em'}}>(múltiplos: separar por ;)</span></label>
               <input
                 list="aees"
                 name="aeeTeacher"
                 value={formData.aeeTeacher}
                 onChange={handleChange}
                 className="input-field"
-                placeholder="Selecione ou digite..."
+                placeholder="Ex: Maria Silva; João Santos"
               />
               <datalist id="aees">
                 {aees.map(r => <option key={r.id} value={r.name}/>)}
@@ -1048,7 +1069,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
 
         {/* Dados Clínicos — oculto para triagem */}
         {!isModoTriagem && (
-        <section>
+        <section className="section-card">
           <h3 className="section-title"><Stethoscope size={20} className="text-brand-600"/> Dados Clínicos e de Saúde</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="md:col-span-3">
@@ -1149,7 +1170,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         )} {/* fim !isModoTriagem */}
 
         {/* Histórico e Contexto */}
-        <section>
+        <section className="section-card">
           <h3 className="section-title"><Users size={20} className="text-brand-600"/> Contexto e Histórico</h3>
           <div className="space-y-6">
              {isModoTriagem && (
@@ -1177,7 +1198,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         </section>
 
         {/* Habilidades e Dificuldades */}
-        <section>
+        <section className="section-card">
             <h3 className="section-title"><AlertCircle size={20} className="text-brand-600"/> Perfil Pedagógico</h3>
             <div className="space-y-4">
                 <MultiSelect
@@ -1196,20 +1217,24 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         </section>
 
         {/* Conhecimento Prévio e Perfil Pedagógico Inicial */}
-        <PedagogicalProfileSection
-          data={formData.priorKnowledge}
-          onChange={(pk) => setFormData(prev => ({ ...prev, priorKnowledge: pk }))}
-          onSuggestAI={handleSuggestAI}
-          generatingAreas={generatingAI}
-        />
+        <div className="section-card">
+          <PedagogicalProfileSection
+            data={formData.priorKnowledge}
+            onChange={(pk) => setFormData(prev => ({ ...prev, priorKnowledge: pk }))}
+            onSuggestAI={handleSuggestAI}
+            generatingAreas={generatingAI}
+          />
+        </div>
 
         {/* Dados Sociofamiliares */}
-        <SociofamilySection
-          value={sociofamilyData}
-          onChange={handleSociofamilyManualChange}
-        />
+        <div className="section-card">
+          <SociofamilySection
+            value={sociofamilyData}
+            onChange={handleSociofamilyManualChange}
+          />
+        </div>
 
-        <div className="flex justify-end gap-3 pt-6 border-t border-gray-200">
+        <div className="flex justify-end gap-3 pt-5" style={{borderTop:'1px solid #E2E8F0'}}>
           <button type="button" onClick={onCancel} className="btn-secondary">Cancelar</button>
           <button type="submit" className="btn-primary disabled:opacity-60 disabled:cursor-not-allowed" disabled={isSaving || isUploading}>
             {isSaving ? 'Salvando...' : 'Salvar Aluno'}
@@ -1217,14 +1242,17 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
         </div>
       </form>
       <style>{`
-        .label { display: block; font-size: 0.875rem; font-weight: 600; color: #374151; margin-bottom: 0.25rem; }
-        .input-field { width: 100%; border-radius: 0.5rem; border: 1px solid #d1d5db; padding: 0.625rem; outline: none; transition: border-color 0.2s; }
-        .input-field:focus { border-color: #0d9488; ring: 2px; ring-color: #0d9488; }
-        .section-title { font-size: 1.125rem; font-weight: 700; color: #1f2937; border-bottom: 1px solid #f3f4f6; padding-bottom: 0.5rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
-        .btn-primary { background-color: #0f766e; color: white; padding: 0.625rem 1.5rem; border-radius: 0.5rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; transition: background-color 0.2s; }
-        .btn-primary:hover { background-color: #115e59; }
-        .btn-secondary { border: 1px solid #d1d5db; color: #374151; padding: 0.625rem 1.5rem; border-radius: 0.5rem; font-weight: 600; background-color: white; transition: background-color 0.2s; }
-        .btn-secondary:hover { background-color: #f9fafb; }
+        .label { display: block; font-size: 0.8125rem; font-weight: 600; color: #475569; margin-bottom: 0.375rem; letter-spacing: 0.01em; }
+        .input-field { width: 100%; border-radius: 0.5rem; border: 1px solid #E2E8F0; padding: 0.625rem 0.75rem; outline: none; transition: border-color 0.15s, box-shadow 0.15s; box-shadow: 0 1px 2px rgba(15,23,42,0.04); background: #ffffff; font-size: 0.9rem; color: #1e293b; }
+        .input-field:hover { border-color: #cbd5e1; }
+        .input-field:focus { border-color: #1F5F6B; box-shadow: 0 0 0 3px rgba(31,95,107,0.10), 0 1px 2px rgba(15,23,42,0.04); }
+        .section-title { font-size: 1rem; font-weight: 700; color: #1F4E5F; border-bottom: 1px solid #EEF2F7; padding-bottom: 0.75rem; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.5rem; }
+        .section-card { background: #ffffff; border: 1px solid #E8EDF4; border-radius: 1rem; padding: 1.5rem 1.75rem; box-shadow: 0 2px 8px rgba(15,23,42,0.04), 0 8px 24px rgba(15,23,42,0.05); transition: box-shadow 0.2s; }
+        .section-card:focus-within { box-shadow: 0 2px 8px rgba(15,23,42,0.06), 0 12px 32px rgba(31,95,107,0.07); }
+        .btn-primary { background-color: #1F4E5F; color: white; padding: 0.625rem 1.5rem; border-radius: 0.5rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; transition: background-color 0.2s; }
+        .btn-primary:hover { background-color: #174050; }
+        .btn-secondary { border: 1px solid #E2E8F0; color: #374151; padding: 0.625rem 1.5rem; border-radius: 0.5rem; font-weight: 600; background-color: white; transition: background-color 0.2s; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+        .btn-secondary:hover { background-color: #f8fafc; border-color: #cbd5e1; }
       `}</style>
     </div>
   );
