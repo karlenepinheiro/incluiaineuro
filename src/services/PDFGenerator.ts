@@ -3578,6 +3578,7 @@ export function getDocTitle(docType: string): string {
     PAEE:                      'Plano de Atendimento Educacional Especializado (PAEE)',
     PDI:                       'Plano de Desenvolvimento Individual (PDI)',
     ESTUDO_CASO:               'Estudo de Caso',
+    PLANO_ACAO_AEE:            'Plano de Ação do AEE',
   };
   return map[docType] || docType;
 }
@@ -3590,6 +3591,7 @@ export function getDocSubtitle(docType: string): string | null {
     PAEE:                      `SALA DE RECURSOS MULTIFUNCIONAIS (SRM) — ANO LETIVO ${ano}`,
     PDI:                       `PLANO DE DESENVOLVIMENTO INDIVIDUAL — ANO LETIVO ${ano}`,
     ESTUDO_CASO:               'DOCUMENTO CONFIDENCIAL — CIRCULAÇÃO RESTRITA À EQUIPE PEDAGÓGICA',
+    PLANO_ACAO_AEE:            'ATENDIMENTO EDUCACIONAL ESPECIALIZADO — PLANEJAMENTO PRÁTICO DE INTERVENÇÃO',
     // Fichas e checklists
     checklist_4laudas:         'FICHA DE OBSERVAÇÃO PEDAGÓGICA — AEE',
     // Documentos administrativos

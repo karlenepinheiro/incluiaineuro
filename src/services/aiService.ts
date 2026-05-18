@@ -112,6 +112,8 @@ export const CREDIT_COSTS: Record<string, number> = {
   PEI:                  AI_CREDIT_COSTS.PEI,
   PAEE:                 AI_CREDIT_COSTS.PAEE,
   PDI:                  AI_CREDIT_COSTS.PDI,
+  PLANO_ACAO:           AI_CREDIT_COSTS.PLANO_ACAO,
+  PLANO_ACAO_AEE:       AI_CREDIT_COSTS.PLANO_ACAO_AEE,
   ATIVIDADE:            AI_CREDIT_COSTS.ATIVIDADE_TEXTO,
   ATIVIDADE_IMAGEM:     AI_CREDIT_COSTS.ATIVIDADE_IMAGEM,
   INCLUILAB_IMAGE:      AI_CREDIT_COSTS.IMAGEM_PREMIUM,
@@ -125,6 +127,7 @@ export const CREDIT_COSTS: Record<string, number> = {
   NEURODESIGN_REDESIGN: AI_CREDIT_COSTS.NEURODESIGN_REDESIGN,
   NEURODESIGN_IMAGEM:   AI_CREDIT_COSTS.NEURODESIGN_IMAGEM,
   TEMPLATE:             AI_CREDIT_COSTS.TEMPLATE,
+  PERFIL_INTELIGENTE:   AI_CREDIT_COSTS.PERFIL_INTELIGENTE,
 };
 
 // ─── Modelos de IA ────────────────────────────────────────────────────────────
@@ -404,11 +407,12 @@ IMPORTANTE: "Nome do aluno" refere-se APENAS ao estudante. "Responsável legal" 
 
 ${ctxBlock}`;
 
-    const typeUpper   = String(type).toUpperCase().replace(/\s+/g, '_');
-    const isPEI       = typeUpper.includes('PEI');
-    const isEstudoCaso = typeUpper.includes('ESTUDO');
-    const isPAEE      = typeUpper.includes('PAEE');
-    const isPDI       = typeUpper.includes('PDI');
+    const typeUpper      = String(type).toUpperCase().replace(/\s+/g, '_');
+    const isPEI          = typeUpper.includes('PEI') && !typeUpper.includes('PLANO');
+    const isEstudoCaso   = typeUpper.includes('ESTUDO');
+    const isPAEE         = typeUpper.includes('PAEE');
+    const isPDI          = typeUpper.includes('PDI') && !typeUpper.includes('PLANO');
+    const isPlanoAcaoAEE = typeUpper.includes('PLANO_ACAO') || typeUpper.includes('PLANO_DE_ACAO');
 
     const familyBlock = buildFamilyBlock(student);
 
@@ -438,6 +442,7 @@ REGRAS DE GERAÇÃO — aplique a cada campo:
 5. Nunca repita o mesmo texto entre disciplinas. Cada área tem conteúdo diferenciado.
 6. Para Ensino Religioso e Educação Física: gere apenas se houver dados suficientes; caso contrário, deixe os campos com string vazia.
 7. Linguagem técnica formal. Português brasileiro. Sem "não informado" ou "a definir" em campos de conteúdo.
+8. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use-as para embasar estratégias concretas e comportamentos observados. Cite como "conforme observações em sala" ou "segundo registro do professor regente". Nunca transforme observação pedagógica em diagnóstico clínico. Diferencie: laudo clínico (profissional de saúde) ≠ observação pedagógica (professor/AEE) ≠ registro de rotina (cuidadora).
 
 RETORNE SOMENTE o JSON válido. Os campos "value" devem conter CONTEÚDO REAL — não instruções nem placeholders:
 {
@@ -612,6 +617,7 @@ REGRAS DE GERAÇÃO:
 5. Inclua adaptações para: ambiente físico, comunicação, material didático, avaliação, interação social.
 6. Se há perfil cognitivo ou laudos no contexto, use para justificar cada adaptação proposta.
 7. A seção de família deve orientar como reforçar a comunicação aumentativa ou estratégias de inclusão no contexto domiciliar.
+8. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use barreiras identificadas em sala e alertas de rotina para embasar as adaptações propostas. Cite como "conforme observações do professor regente" ou "segundo registro de rotina escolar". Nunca transforme comportamento observado em diagnóstico clínico.
 
 RETORNE SOMENTE o JSON válido. Os campos "value" devem conter conteúdo REAL:
 {
@@ -697,6 +703,7 @@ REGRAS DE GERAÇÃO:
 6. Identifique PADRÕES: o que o aluno avança, o que regride, sob quais condições cada um ocorre.
 7. Mencione outros profissionais que acompanham o aluno e como articular o trabalho (fonoaudiologia, psicologia, TO).
 8. Linguagem técnica formal. Nunca capacitista. Português brasileiro.
+9. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use-as para identificar padrões de progresso e barreiras recorrentes. Cite como "conforme registros escolares" ou "observado em sala/rotina". Diferencie laudo clínico de observação pedagógica — não transforme comportamento observado em diagnóstico.
 
 RETORNE SOMENTE o JSON válido com estas seções obrigatórias:
 {
@@ -763,6 +770,7 @@ REGRAS DE GERAÇÃO:
 3. IDENTIFIQUE padrões: o que evolui, o que regride, em quais condições cada movimento ocorre.
 4. CONECTE dados: perfil cognitivo ↔ laudos ↔ fichas de observação ↔ fala familiar.
 5. Linguagem técnico-científica. Português brasileiro formal. Sem frases genéricas.
+6. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", integre-as na análise pedagógica e nas seções de atenção, engajamento e comunicação. Cite a origem: "observação em sala (professor regente)" ou "registro de rotina escolar (cuidadora)". Nunca apresente observação pedagógica como diagnóstico. Estratégias que funcionaram devem aparecer na seção de encaminhamentos.
 
 RETORNE SOMENTE o JSON válido com estas seções:
 {
@@ -835,6 +843,236 @@ RETORNE SOMENTE o JSON válido com estas seções:
 }
 
 Preencha TODOS os campos "value" com análise real, técnica e específica. Deixe vazio apenas o que for genuinamente desconhecido. Português brasileiro formal.`;
+
+    // ── Plano de Ação AEE ────────────────────────────────────────────────────────
+    } else if (isPlanoAcaoAEE) {
+      const anoAtual = new Date().getFullYear();
+      prompt = `Você é professor especialista em Atendimento Educacional Especializado (AEE) conforme a Resolução CNE/CEB nº 4/2009 e a Lei Brasileira de Inclusão (Lei 13.146/2015).
+
+FINALIDADE: Gere um Plano de Ação do AEE — documento de EXECUÇÃO, operacional e direto — que diz exatamente o que o profissional do AEE deve fazer com este aluno no período. Não é o PAEE (norteador/técnico). É o plano prático de intervenção: o que fazer, com quais recursos, como aplicar, como registrar, qual o próximo passo.
+
+ORIENTAÇÕES ÉTICAS DA IA:
+- Todo conteúdo deve ser específico para ESTE aluno — nunca genérico.
+- Não invente diagnósticos, laudos ou dados ausentes.
+- Não use linguagem clínica como se fosse médico. Foco pedagógico/AEE.
+- Se um dado estiver ausente, infira com base no diagnóstico e no nível de suporte.
+- Não faça prescrição terapêutica. Não prometa cura.
+- Tom: técnico-pedagógico, claro, direto, orientado para ação.
+
+PROIBIDO — nunca gere frases como:
+- "usar estratégias inclusivas"
+- "adaptar atividades conforme necessário"
+- "promover participação do aluno"
+
+OBRIGATÓRIO — substitua por ações concretas como:
+- "usar cartões visuais com as etapas numeradas (1, 2, 3) antes de cada atividade"
+- "dividir a tarefa em blocos de 3 itens com pausa de 2 minutos entre blocos"
+- "usar timer visual de 5 minutos para delimitar início e fim da atividade"
+- "iniciar com jogo de pareamento de figuras antes da proposta principal"
+- "oferecer escolha entre duas opções antes de cada etapa ('você quer o cartão azul ou o verde?')"
+- "usar prancha de comunicação com os símbolos: 'quero', 'não quero', 'ajuda', 'pausa'"
+- "registrar se realizou com autonomia, com mediação verbal ou recusou a proposta"
+
+EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para preencher os campos de recursos e ações concretas, e use barreiras identificadas para preencher "barreira_prioritaria" e "barreiras_perfil". Cite como "conforme observações em sala" ou "segundo registros escolares". Nunca transforme observação pedagógica em diagnóstico clínico.
+
+${studentDataBlock}
+${familyBlock}
+
+RETORNE SOMENTE o JSON válido abaixo. Os campos "value" devem conter CONTEÚDO REAL gerado especificamente para este aluno.
+- Seções 1 a 10: preencha TODOS os campos com conteúdo real e concreto.
+- Checklists de "barreira_prioritaria" e "recursos_materiais": selecione os itens relevantes para este aluno.
+- Checklists de "resposta_aluno" e "proximos_passos": deixe value = [] (serão preenchidos APÓS o atendimento pelo profissional).
+- Seção de assinaturas: deixe value vazio.
+- Português brasileiro formal.
+
+{
+  "sections": [
+    {
+      "id": "header",
+      "title": "Identificação",
+      "fields": [
+        { "id": "nome_aluno",       "label": "Nome do Aluno",          "type": "text",   "value": "${student.name}" },
+        { "id": "escola",           "label": "Escola",                 "type": "text",   "value": "${student.schoolName || ''}" },
+        { "id": "serie",            "label": "Série/Ano",              "type": "text",   "value": "${student.grade || ''}" },
+        { "id": "turno",            "label": "Turno",                  "type": "text",   "value": "${student.shift || ''}" },
+        { "id": "profissional_aee", "label": "Profissional AEE",       "type": "text",   "value": "${student.aeeTeacher || ''}" },
+        { "id": "prof_regente",     "label": "Professor(a) Regente",   "type": "text",   "value": "${student.regentTeacher || ''}" },
+        { "id": "periodo_plano",    "label": "Período do Plano",       "type": "select", "value": "Mensal", "options": ["Semanal", "Quinzenal", "Mensal", "Bimestral"] },
+        { "id": "data_inicio",      "label": "Data de Início",         "type": "text",   "value": "${new Date().toLocaleDateString('pt-BR')}" },
+        { "id": "data_revisao",     "label": "Data de Revisão",        "type": "text",   "value": "" }
+      ]
+    },
+    {
+      "id": "perfil_aluno",
+      "title": "Síntese do Perfil do Aluno",
+      "fields": [
+        { "id": "diagnostico",       "label": "Diagnóstico/Condição",        "type": "text",     "value": "${diagnosis}" },
+        { "id": "nivel_suporte",     "label": "Nível de Suporte",            "type": "text",     "value": "${student.supportLevel || ''}" },
+        { "id": "potencialidades",   "label": "Principais Potencialidades",  "type": "textarea", "value": "" },
+        { "id": "barreiras_perfil",  "label": "Principais Barreiras",        "type": "textarea", "value": "" },
+        { "id": "obs_relevantes",    "label": "Observações Relevantes",      "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "barreira_prioritaria",
+      "title": "Barreira Prioritária do Período",
+      "fields": [
+        {
+          "id": "checklist_barreira",
+          "label": "Área Prioritária (selecione a principal barreira deste período)",
+          "type": "checklist",
+          "value": [],
+          "options": [
+            "Comunicação", "Atenção/concentração", "Autonomia", "Interação social",
+            "Regulação emocional", "Leitura/escrita", "Raciocínio lógico-matemático",
+            "Sensorial", "Organização da rotina", "Acessibilidade/tecnologia assistiva",
+            "Motricidade", "Participação nas atividades"
+          ]
+        },
+        { "id": "descricao_barreira", "label": "Descrição da Barreira Prioritária", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "objetivo_pratico",
+      "title": "Objetivo Prático do AEE",
+      "fields": [
+        { "id": "objetivo_principal", "label": "Objetivo Principal do Período",  "type": "textarea", "value": "" },
+        { "id": "habilidade_alvo",    "label": "Habilidade-Alvo",               "type": "text",     "value": "" },
+        { "id": "resultado_esperado", "label": "Resultado Esperado",            "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "acoes_aee",
+      "title": "Ações do AEE",
+      "fields": [
+        { "id": "acao1",       "label": "Ação 1",               "type": "textarea", "value": "" },
+        { "id": "acao2",       "label": "Ação 2",               "type": "textarea", "value": "" },
+        { "id": "acao3",       "label": "Ação 3",               "type": "textarea", "value": "" },
+        { "id": "frequencia",  "label": "Frequência",            "type": "text",     "value": "" },
+        { "id": "duracao",     "label": "Duração Aproximada",    "type": "text",     "value": "" },
+        { "id": "responsavel", "label": "Responsável",           "type": "text",     "value": "${student.aeeTeacher || ''}" }
+      ]
+    },
+    {
+      "id": "recursos_materiais",
+      "title": "Recursos e Materiais",
+      "fields": [
+        {
+          "id": "checklist_recursos",
+          "label": "Recursos Selecionados para este Atendimento",
+          "type": "checklist",
+          "value": [],
+          "options": [
+            "Prancha visual", "Cartões de rotina", "Cartões de comunicação",
+            "Material concreto", "Jogos pedagógicos", "Alfabeto móvel",
+            "Material dourado", "Sequência visual", "Tecnologia assistiva",
+            "Vídeo curto", "Música", "História social", "Objeto de referência",
+            "Timer visual", "Recurso tátil/sensorial"
+          ]
+        },
+        { "id": "outros_recursos", "label": "Outros Recursos", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "sugestoes_praticas",
+      "title": "Sugestões Práticas para o Atendimento",
+      "fields": [
+        { "id": "jogo_sugerido",      "label": "Jogo Sugerido",                          "type": "text",     "value": "" },
+        { "id": "video_sugerido",     "label": "Vídeo Sugerido",                         "type": "text",     "value": "" },
+        { "id": "dinamica_sugerida",  "label": "Dinâmica Sugerida",                      "type": "textarea", "value": "" },
+        { "id": "atividade_pratica",  "label": "Atividade Prática",                      "type": "textarea", "value": "" },
+        { "id": "material_necessario","label": "Material Necessário",                    "type": "text",     "value": "" },
+        { "id": "como_aplicar",       "label": "Como Aplicar (passo a passo)",           "type": "textarea", "value": "" },
+        { "id": "como_adaptar",       "label": "Como Adaptar se Necessário",             "type": "textarea", "value": "" },
+        { "id": "tempo_estimado",     "label": "Tempo Estimado",                         "type": "text",     "value": "" },
+        { "id": "como_observar",      "label": "Como Observar a Resposta do Aluno",      "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "roteiro_atendimento",
+      "title": "Roteiro do Atendimento",
+      "fields": [
+        { "id": "acolhimento",         "label": "Acolhimento Inicial",                           "type": "textarea", "value": "" },
+        { "id": "apresentacao_rotina", "label": "Apresentação da Rotina",                        "type": "textarea", "value": "" },
+        { "id": "ativ_principal",      "label": "Atividade Principal",                           "type": "textarea", "value": "" },
+        { "id": "pausa",               "label": "Pausa/Autorregulação (se necessário)",          "type": "textarea", "value": "" },
+        { "id": "reg_resposta",        "label": "Registro da Resposta",                          "type": "textarea", "value": "" },
+        { "id": "encerramento",        "label": "Encerramento",                                  "type": "textarea", "value": "" },
+        { "id": "orient_sala",         "label": "Orientação para Sala Comum/Família (se aplicável)", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "orientacoes_professor",
+      "title": "Orientações para o Professor Regente",
+      "fields": [
+        { "id": "continuar_estrategia", "label": "Como Continuar a Estratégia na Sala Comum", "type": "textarea", "value": "" },
+        { "id": "adaptacao_sugerida",   "label": "Adaptação Sugerida",                        "type": "textarea", "value": "" },
+        { "id": "cuidado_importante",   "label": "Cuidado Importante",                        "type": "textarea", "value": "" },
+        { "id": "evidencia_observar",   "label": "Evidência que o Professor Deve Observar",   "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "orientacoes_familia",
+      "title": "Orientações para a Família",
+      "fields": [
+        { "id": "atividade_casa",     "label": "Atividade Simples para Casa",  "type": "textarea", "value": "" },
+        { "id": "orient_rotina",      "label": "Orientação de Rotina",         "type": "textarea", "value": "" },
+        { "id": "cuidado_obs",        "label": "Cuidado/Observação",           "type": "textarea", "value": "" },
+        { "id": "comunic_escola",     "label": "Comunicação com a Escola",     "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "resposta_aluno",
+      "title": "Registro da Resposta do Aluno",
+      "fields": [
+        {
+          "id": "checklist_resposta",
+          "label": "Comportamento Observado (preencher APÓS o atendimento)",
+          "type": "checklist",
+          "value": [],
+          "options": [
+            "Realizou com autonomia", "Realizou com mediação verbal", "Realizou com apoio visual",
+            "Precisou de apoio físico", "Demonstrou interesse", "Demonstrou resistência",
+            "Necessitou de pausa", "Apresentou melhora durante a atividade", "Recusou a proposta",
+            "Oscilou atenção", "Comunicou necessidade", "Interagiu com o recurso",
+            "Generalizou parcialmente para outra situação"
+          ]
+        },
+        { "id": "obs_resposta", "label": "Observações sobre a Resposta do Aluno", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "proximos_passos",
+      "title": "Próximos Passos",
+      "fields": [
+        {
+          "id": "checklist_proximos",
+          "label": "Encaminhamento (preencher APÓS o atendimento)",
+          "type": "checklist",
+          "value": [],
+          "options": [
+            "Manter estratégia", "Ajustar recurso", "Trocar atividade", "Reforçar habilidade",
+            "Orientar professor regente", "Orientar família", "Registrar nova observação",
+            "Reavaliar no próximo atendimento", "Encaminhar para discussão com equipe"
+          ]
+        },
+        { "id": "encaminhamento_final", "label": "Encaminhamento Final", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "assinaturas",
+      "title": "Assinaturas",
+      "fields": [
+        { "id": "ass_aee",         "label": "Profissional AEE",                  "type": "text", "value": "" },
+        { "id": "ass_regente",     "label": "Professor(a) Regente (se aplicável)", "type": "text", "value": "" },
+        { "id": "ass_coord",       "label": "Coordenação",                        "type": "text", "value": "" },
+        { "id": "ass_responsavel", "label": "Responsável Legal (se necessário)",  "type": "text", "value": "" }
+      ]
+    }
+  ]
+}
+
+Ano de referência: ${anoAtual}. Preencha TODOS os campos "value" das seções 1–10 com conteúdo real, específico e prático. Português brasileiro formal.`;
 
     // ── Genérico (FICHA, outros tipos) ───────────────────────────────────────────
     } else {
@@ -1449,7 +1687,7 @@ Retorne SOMENTE a atividade adaptada, pronta para uso, em português brasileiro.
     try {
       const canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
       if (CanonicalStudentContextService.hasData(canonicalCtx)) {
-        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'ficha_aluno');
+        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'perfil_inteligente');
       }
     } catch {
       try {
@@ -1497,6 +1735,7 @@ REGRAS OBRIGATÓRIAS
 8. O campo incluiLabPrompt deve ser um prompt pronto para usar no IncluiLAB — específico, com o nome do aluno e suas características.
 9. Português brasileiro formal. Sem markdown no interior dos textos (sem asteriscos, sem #).
 10. RETORNE SOMENTE o JSON válido abaixo. Sem markdown, sem \`\`\`json, sem texto antes ou depois.
+11. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para preencher "bestLearningStrategies" e as ações do "neuropsychologicalReport". Use observações principais para embasar "humanizedIntroduction" e "pedagogicalReport". Cite como "observado em sala" — nunca como laudo clínico.
 
 ═══════════════════════════════════════════════════
 ESTRUTURA JSON OBRIGATÓRIA
@@ -1695,7 +1934,7 @@ ESTRUTURA JSON OBRIGATÓRIA
     try {
       const canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
       if (CanonicalStudentContextService.hasData(canonicalCtx)) {
-        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'ficha_aluno');
+        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'plano_acao_regente');
       }
     } catch { /* contexto é opcional */ }
 
@@ -1707,24 +1946,16 @@ ESTRUTURA JSON OBRIGATÓRIA
       period === 'bimestral' ? 'BIMESTRAL (próximo bimestre letivo)'  :
       'MACRO ANUAL (referência ampla)';
 
-    const prompt = `Você é uma especialista em educação inclusiva e AEE (Atendimento Educacional Especializado).
+    const prompt = `Você é especialista em educação inclusiva e Atendimento Educacional Especializado (AEE) conforme a Resolução CNE/CEB nº 4/2009 e a Lei Brasileira de Inclusão (Lei 13.146/2015).
 
-Sua tarefa: gerar um PLANO DE AÇÃO DO PROFESSOR REGENTE para o período ${periodLabel} para o aluno abaixo.
-
-REGRAS CRÍTICAS:
-- Cada bloco deve ter entre 5 e 8 itens de checklist
-- Itens DEVEM ser ações práticas, específicas, observáveis — NÃO texto teórico
-- Linguagem direta ao professor: use verbos no infinitivo ou imperativo
-- Considere especificamente o diagnóstico, nível de suporte e estratégias já mapeadas
-- NÃO repita itens entre blocos
-- Retorne SOMENTE JSON válido, sem explicações fora do JSON
+Sua tarefa: gerar um PLANO DE AÇÃO DO PROFESSOR REGENTE — documento PRÁTICO, DIRETO e APLICÁVEL para o período ${periodLabel}. Este plano é o guia de bolso do professor de sala comum. Cada item deve ser executável imediatamente.
 
 ═══════════════════════════════════════
 DADOS DO ALUNO
 ═══════════════════════════════════════
 Nome: ${student.name}
 Diagnóstico(s): ${diagnosis}${cid ? ` (CID: ${cid})` : ''}
-Nível de Suporte (DSM-5): ${student.supportLevel || 'Não informado'}
+Nível de Suporte: ${student.supportLevel || 'Não informado'}
 Série/Turno: ${student.grade || '—'} / ${student.shift || '—'}
 Professor Regente: ${student.regentTeacher || '—'}
 Professor AEE: ${student.aeeTeacher || '—'}
@@ -1736,8 +1967,37 @@ ${pkBlock}
 ${ctxBlock ? `\n═══ CONTEXTO PEDAGÓGICO ADICIONAL ═══\n${ctxBlock}` : ''}
 
 ═══════════════════════════════════════
-ESTRUTURA DO JSON (retorne EXATAMENTE neste formato)
+REGRAS CRÍTICAS — LEIA ANTES DE GERAR
 ═══════════════════════════════════════
+PROIBIDO — nunca gere frases como:
+- "trabalhar inclusão de forma colaborativa"
+- "adaptar atividades conforme necessário"
+- "usar recursos lúdicos e atrativos"
+- "promover participação do aluno"
+- "aplicar estratégias inclusivas"
+
+OBRIGATÓRIO — substitua por ações concretas como:
+- "Dividir a atividade em 3 blocos de 4 questões, com pausa de 2 min entre blocos"
+- "Posicionar ${student.name} na primeira fila, próximo ao professor"
+- "Apresentar o cartão de rotina visual antes de cada transição de atividade"
+- "Usar timer visual de 5 minutos para delimitar início e fim de cada tarefa"
+- "Oferecer a atividade com metade das questões da turma, mas com os mesmos objetivos"
+- "Registrar se concluiu com autonomia, com mediação verbal ou recusou a proposta"
+
+MANDATÓRIO NESTE PLANO:
+- "suggestedGames" deve ter pelo menos 2 jogos concretos com nome e como usar
+- "suggestedVideos" deve ter pelo menos 1 vídeo com tipo, duração máx. 3 min e objetivo
+- "suggestedMaterials" deve ter pelo menos 4 materiais com como usar cada um
+- "suggestedDynamics" deve ter pelo menos 2 dinâmicas com passos de como aplicar
+- Os 6 blocos principais devem ter 5 a 8 itens cada, todos concretos e específicos
+
+EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para preencher "suggestedStrategies" e os blocos de ação em sala, e use barreiras identificadas para embasar "mainBarrier" e "focusPlan". Cite como "conforme observações do professor regente em sala" quando aplicável. Nunca transforme observação pedagógica em diagnóstico clínico.
+
+═══════════════════════════════════════
+ESTRUTURA JSON OBRIGATÓRIA
+═══════════════════════════════════════
+Retorne SOMENTE o JSON abaixo. Preencha TODOS os campos "text" com conteúdo real e específico para ${student.name}. Nunca repita itens entre blocos. Nenhum placeholder.
+
 {
   "period": "${period}",
   "generatedAt": "${new Date().toISOString()}",
@@ -1745,70 +2005,170 @@ ESTRUTURA DO JSON (retorne EXATAMENTE neste formato)
   "generatedByName": "${(user as any)?.name ?? (user as any)?.email ?? 'Profissional'}",
   "registrationNumber": "",
   "version": ${versionNumber},
+
+  "practicalObjective": "Objetivo prático curto e direto do período — máx. 2 linhas. Ex: Concluir atividades de leitura com apoio visual e mediação verbal, mantendo participação por blocos de 10 minutos.",
+
+  "focusPlan": {
+    "title": "Foco do Plano",
+    "items": [
+      { "id": "fp1", "text": "Área prioritária 1 — ex: Atenção/concentração durante atividades longas", "done": false },
+      { "id": "fp2", "text": "Área prioritária 2", "done": false },
+      { "id": "fp3", "text": "Área prioritária 3 (se aplicável)", "done": false }
+    ]
+  },
+
+  "mainBarrier": {
+    "title": "Barreira Principal em Sala",
+    "items": [
+      { "id": "mb1", "text": "Barreira observada: [descrição específica da barreira]", "done": false },
+      { "id": "mb2", "text": "Impacto na aprendizagem: [como a barreira afeta a participação e aprendizagem]", "done": false },
+      { "id": "mb3", "text": "Momento em que mais aparece: [ex: durante atividades escritas longas, em transições, atividades coletivas]", "done": false }
+    ]
+  },
+
   "beforeClass": {
     "title": "Antes da Aula",
     "items": [
-      { "id": "bc1", "text": "SUBSTITUA por ação real para ${student.name}", "done": false },
-      { "id": "bc2", "text": "SUBSTITUA por ação real de organização do ambiente", "done": false },
-      { "id": "bc3", "text": "SUBSTITUA por ação de comunicação prévia", "done": false },
-      { "id": "bc4", "text": "SUBSTITUA por ação sobre materiais adaptados", "done": false },
-      { "id": "bc5", "text": "SUBSTITUA por ação sobre rotina visual/agenda", "done": false }
+      { "id": "bc1", "text": "Ação concreta de preparação do ambiente para ${student.name}", "done": false },
+      { "id": "bc2", "text": "Ação sobre organização dos materiais adaptados", "done": false },
+      { "id": "bc3", "text": "Ação de comunicação prévia (antecipar rotina/mudança)", "done": false },
+      { "id": "bc4", "text": "Ação sobre posicionamento ou agrupamento da turma", "done": false },
+      { "id": "bc5", "text": "Ação sobre agenda visual ou rotina do dia", "done": false }
     ]
   },
+
   "duringClass": {
     "title": "Durante a Aula",
     "items": [
-      { "id": "dc1", "text": "SUBSTITUA por estratégia de acolhimento", "done": false },
-      { "id": "dc2", "text": "SUBSTITUA por adaptação de instrução", "done": false },
-      { "id": "dc3", "text": "SUBSTITUA por suporte à atenção/foco", "done": false },
-      { "id": "dc4", "text": "SUBSTITUA por manejo de comportamento", "done": false },
-      { "id": "dc5", "text": "SUBSTITUA por estratégia de participação", "done": false },
-      { "id": "dc6", "text": "SUBSTITUA por uso de recurso alternativo", "done": false }
+      { "id": "dc1", "text": "Estratégia de acolhimento específica no início da aula", "done": false },
+      { "id": "dc2", "text": "Como dar as instruções (frases curtas, modelo visual, etc.)", "done": false },
+      { "id": "dc3", "text": "Suporte à atenção/foco — ex: toque no ombro, nome, timer visual", "done": false },
+      { "id": "dc4", "text": "Como lidar com recusa ou resistência neste período", "done": false },
+      { "id": "dc5", "text": "Estratégia de participação — ex: oferecer escolha entre duas opções", "done": false },
+      { "id": "dc6", "text": "Uso de recurso alternativo concreto durante a tarefa", "done": false }
     ]
   },
+
   "activitiesStrategies": {
     "title": "Atividades e Estratégias",
     "items": [
-      { "id": "as1", "text": "SUBSTITUA por tipo de atividade prioritária", "done": false },
-      { "id": "as2", "text": "SUBSTITUA por adaptação de tarefa/avaliação", "done": false },
-      { "id": "as3", "text": "SUBSTITUA por recurso pedagógico específico", "done": false },
-      { "id": "as4", "text": "SUBSTITUA por estratégia de trabalho em grupo", "done": false },
-      { "id": "as5", "text": "SUBSTITUA por atividade de generalização", "done": false }
+      { "id": "as1", "text": "Tipo de atividade prioritária com como aplicar", "done": false },
+      { "id": "as2", "text": "Adaptação concreta da tarefa escrita/avaliação", "done": false },
+      { "id": "as3", "text": "Recurso pedagógico específico para usar neste período", "done": false },
+      { "id": "as4", "text": "Estratégia de trabalho em grupo ou em dupla", "done": false },
+      { "id": "as5", "text": "Atividade de generalização — aplicar habilidade em novo contexto", "done": false }
     ]
   },
+
   "assessment": {
     "title": "Avaliação",
     "items": [
-      { "id": "av1", "text": "SUBSTITUA por forma de avaliação adaptada", "done": false },
-      { "id": "av2", "text": "SUBSTITUA por critério observável de progresso", "done": false },
-      { "id": "av3", "text": "SUBSTITUA por tipo de registro a manter", "done": false },
-      { "id": "av4", "text": "SUBSTITUA por indicador de avanço a reportar", "done": false },
-      { "id": "av5", "text": "SUBSTITUA por ajuste de meta para o período", "done": false }
+      { "id": "av1", "text": "Forma de avaliação adaptada — ex: oral, por apontar, por desenho", "done": false },
+      { "id": "av2", "text": "Critério observável de progresso para o período", "done": false },
+      { "id": "av3", "text": "Tipo de registro a manter — ex: foto, anotação, checklist diário", "done": false },
+      { "id": "av4", "text": "Indicador de avanço concreto a reportar ao AEE", "done": false },
+      { "id": "av5", "text": "Ajuste de meta caso o aluno supere ou não alcance o esperado", "done": false }
     ]
   },
+
   "attentionObservations": {
     "title": "Atenção e Observações",
     "items": [
-      { "id": "ao1", "text": "SUBSTITUA por sinal de sobrecarga a observar", "done": false },
-      { "id": "ao2", "text": "SUBSTITUA por gatilho a evitar/monitorar", "done": false },
-      { "id": "ao3", "text": "SUBSTITUA por estratégia de pausa/saída", "done": false },
-      { "id": "ao4", "text": "SUBSTITUA por atenção sobre saúde/medicação", "done": false },
-      { "id": "ao5", "text": "SUBSTITUA por observação sobre transições", "done": false }
+      { "id": "ao1", "text": "Sinal específico de sobrecarga a observar em ${student.name}", "done": false },
+      { "id": "ao2", "text": "Gatilho a evitar ou monitorar neste período", "done": false },
+      { "id": "ao3", "text": "Estratégia de pausa/saída — quando e como oferecer", "done": false },
+      { "id": "ao4", "text": "Observação sobre transições entre atividades ou ambientes", "done": false },
+      { "id": "ao5", "text": "Ponto de atenção sobre saúde, medicação ou rotina familiar", "done": false }
     ]
   },
+
   "communicationTeam": {
-    "title": "Comunicação com AEE / Coordenação / Família",
+    "title": "Comunicação com AEE / Família",
     "items": [
-      { "id": "ct1", "text": "SUBSTITUA por ponto a comunicar ao AEE", "done": false },
-      { "id": "ct2", "text": "SUBSTITUA por informação para a família", "done": false },
-      { "id": "ct3", "text": "SUBSTITUA por situação para a coordenação", "done": false },
-      { "id": "ct4", "text": "SUBSTITUA por próximo encaminhamento", "done": false },
-      { "id": "ct5", "text": "SUBSTITUA por registro no diário/caderneta", "done": false }
+      { "id": "ct1", "text": "Ponto concreto a comunicar ao professor AEE esta semana/mês", "done": false },
+      { "id": "ct2", "text": "Informação ou orientação específica para a família", "done": false },
+      { "id": "ct3", "text": "Situação que requer atenção da coordenação pedagógica", "done": false },
+      { "id": "ct4", "text": "Próximo encaminhamento ou articulação com equipe", "done": false },
+      { "id": "ct5", "text": "O que registrar no diário/caderneta de comunicação", "done": false }
     ]
-  }
+  },
+
+  "suggestedGames": {
+    "title": "Jogos Sugeridos",
+    "items": [
+      { "id": "g1", "text": "Jogo 1: [Nome específico do jogo] — Como usar: [passo a passo em 2 frases] — Objetivo: [o que trabalha]", "done": false },
+      { "id": "g2", "text": "Jogo 2: [Nome específico] — Como usar: [passo a passo] — Objetivo: [o que trabalha]", "done": false },
+      { "id": "g3", "text": "Jogo 3 (opcional): [Nome] — Como usar: [passo a passo]", "done": false }
+    ]
+  },
+
+  "suggestedVideos": {
+    "title": "Vídeos Sugeridos",
+    "items": [
+      { "id": "v1", "text": "Tipo de vídeo: [descrição do conteúdo visual, ex: rotina de início/meio/fim de atividade] — Duração: máx. 3 min — Quando exibir: [antes da atividade principal] — Objetivo: [o que o vídeo ajuda a trabalhar]", "done": false },
+      { "id": "v2", "text": "Tipo de vídeo 2 (opcional): [descrição] — Duração: máx. 3 min — Quando usar: [contexto]", "done": false }
+    ]
+  },
+
+  "suggestedMaterials": {
+    "title": "Materiais Sugeridos",
+    "items": [
+      { "id": "m1", "text": "Material: [nome] — Como usar: [instrução concreta de uso]", "done": false },
+      { "id": "m2", "text": "Material: [nome] — Como usar: [instrução concreta]", "done": false },
+      { "id": "m3", "text": "Material: [nome] — Como usar: [instrução]", "done": false },
+      { "id": "m4", "text": "Material: [nome] — Como usar: [instrução]", "done": false }
+    ]
+  },
+
+  "suggestedDynamics": {
+    "title": "Dinâmicas Sugeridas",
+    "items": [
+      { "id": "d1", "text": "Dinâmica: [nome] — Passos: 1) [passo] 2) [passo] 3) [passo] — Duração: [tempo]", "done": false },
+      { "id": "d2", "text": "Dinâmica: [nome] — Passos: 1) [passo] 2) [passo] — Duração: [tempo]", "done": false }
+    ]
+  },
+
+  "adaptations": {
+    "title": "Adaptações da Atividade",
+    "items": [
+      { "id": "ad1", "text": "Reduzir quantidade de questões — de X para Y, mantendo o objetivo", "done": false },
+      { "id": "ad2", "text": "Dividir em etapas numeradas com cartões visuais", "done": false },
+      { "id": "ad3", "text": "Usar fonte maior e mais espaçada nas folhas", "done": false },
+      { "id": "ad4", "text": "Oferecer exemplo já resolvido antes da atividade", "done": false },
+      { "id": "ad5", "text": "Permitir resposta por apontar, desenhar ou oral", "done": false },
+      { "id": "ad6", "text": "Dar tempo ampliado sem pressão de finalizar junto com a turma", "done": false }
+    ]
+  },
+
+  "evidenceRecording": {
+    "title": "Como Registrar Evidências",
+    "items": [
+      { "id": "ev1", "text": "Tirar foto da atividade concluída (com ou sem auxílio)", "done": false },
+      { "id": "ev2", "text": "Registrar no caderno: atividade, nível de ajuda, resposta do aluno", "done": false },
+      { "id": "ev3", "text": "Usar checklist diário: autonomia / mediação / recusa / pausa", "done": false },
+      { "id": "ev4", "text": "Anotar tempo de permanência na tarefa antes de dispersar", "done": false },
+      { "id": "ev5", "text": "Comparar antes/depois: registrar como era na semana 1 e como está agora", "done": false }
+    ]
+  },
+
+  "studentResponse": {
+    "title": "Resposta do Aluno (preencher após o atendimento)",
+    "items": [
+      { "id": "sr1", "text": "Realizou com autonomia", "done": false },
+      { "id": "sr2", "text": "Realizou com mediação verbal", "done": false },
+      { "id": "sr3", "text": "Precisou de apoio visual", "done": false },
+      { "id": "sr4", "text": "Necessitou de pausa", "done": false },
+      { "id": "sr5", "text": "Demonstrou interesse e engajamento", "done": false },
+      { "id": "sr6", "text": "Apresentou resistência ou recusa", "done": false },
+      { "id": "sr7", "text": "Melhorou com a adaptação utilizada", "done": false },
+      { "id": "sr8", "text": "Precisou de apoio constante durante toda a atividade", "done": false }
+    ]
+  },
+
+  "nextStep": "Próximo passo concreto — ex: Manter estratégia e registrar evolução / Ajustar duração dos blocos / Conversar com família sobre rotina em casa / Encaminhar ao AEE para discussão"
 }
 
-IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específicas para ${student.name}.`;
+IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específicas para ${student.name} com base no diagnóstico e no perfil pedagógico. Nunca repita item entre blocos. Português brasileiro formal.`;
 
     const t0 = Date.now();
     const auditId = await AiAuditService.logRequest({
@@ -1837,6 +2197,269 @@ IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específica
     let plan: import('../types').ActionPlanJSON;
     try {
       plan = JSON.parse(cleaned) as import('../types').ActionPlanJSON;
+    } catch {
+      if (!serverDebited) await this.deductCredits(user, Math.ceil(cost / 2));
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: 'JSON parse error' });
+      throw new Error('Resposta da IA em formato inválido. Tente novamente.');
+    }
+
+    if (!serverDebited) await this.deductCredits(user, cost);
+    if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'json', content: JSON.stringify(plan).slice(0, 300) });
+
+    return plan;
+  },
+
+  // ── Plano de Ação AEE ─────────────────────────────────────────────────────────
+
+  async generateAEEActionPlan(
+    student: Student,
+    user: User,
+    period: import('../types').AEEActionPlanPeriod,
+    paeeContent: string,
+    versionNumber: number,
+  ): Promise<import('../types').AEEActionPlanJSON> {
+    const cost = AI_CREDIT_COSTS.PLANO_ACAO_AEE;
+    if (!(await this.checkCredits(user, cost))) {
+      throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
+    }
+
+    const diagnosis    = (student.diagnosis || []).join(', ') || 'Não informado';
+    const cid          = Array.isArray(student.cid) ? student.cid.join(', ') : (student.cid || '');
+    const abilities    = (student.abilities || []).join('; ') || '';
+    const difficulties = (student.difficulties || []).join('; ') || '';
+    const strategies   = (student.strategies || []).join('; ') || '';
+
+    let ctxBlock = '';
+    try {
+      const canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
+      if (CanonicalStudentContextService.hasData(canonicalCtx)) {
+        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'plano_acao_aee');
+      }
+    } catch { /* contexto é opcional */ }
+
+    const pkBlock = buildPKBlock(student);
+
+    const periodLabel =
+      period === 'semanal'   ? 'SEMANAL (1 semana de atendimentos AEE)'   :
+      period === 'quinzenal' ? 'QUINZENAL (2 semanas de atendimentos AEE)' :
+      period === 'mensal'    ? 'MENSAL (próximo mês de atendimentos AEE)'  :
+      period === 'bimestral' ? 'BIMESTRAL (próximo bimestre de atendimentos AEE)' :
+      'SEMESTRAL (próximo semestre de atendimentos AEE)';
+
+    const prompt = `Você é especialista em Atendimento Educacional Especializado (AEE) conforme a Resolução CNE/CEB nº 4/2009 e a Lei Brasileira de Inclusão (Lei 13.146/2015).
+
+Sua tarefa: gerar um PLANO DE AÇÃO AEE — roteiro prático das sessões de Atendimento Educacional Especializado para o período ${periodLabel}. Este plano é o guia de campo do professor AEE na sala de recursos. Cada item deve ser executável durante o atendimento.
+
+═══════════════════════════════════════
+DADOS DO ALUNO
+═══════════════════════════════════════
+Nome: ${student.name}
+Diagnóstico(s): ${diagnosis}${cid ? ` (CID: ${cid})` : ''}
+Nível de Suporte: ${student.supportLevel || 'Não informado'}
+Série/Turno: ${student.grade || '—'} / ${student.shift || '—'}
+Professor AEE: ${student.aeeTeacher || '—'}
+Professor Regente: ${student.regentTeacher || '—'}
+Habilidades: ${abilities || 'Não informado'}
+Dificuldades: ${difficulties || 'Não informado'}
+Estratégias que funcionam: ${strategies || 'Não informado'}
+Comunicação: ${(student.communication || []).join('; ') || 'Não informado'}
+${pkBlock}
+${paeeContent ? `\n═══ PAEE — DOCUMENTO NORTEADOR ═══\n${paeeContent}` : ''}
+${ctxBlock ? `\n═══ CONTEXTO PEDAGÓGICO ADICIONAL ═══\n${ctxBlock}` : ''}
+
+═══════════════════════════════════════
+REGRAS CRÍTICAS — LEIA ANTES DE GERAR
+═══════════════════════════════════════
+PROIBIDO — nunca gere frases genéricas como:
+- "aplicar atividades lúdicas e inclusivas"
+- "estimular o aluno de forma contextualizada"
+- "usar materiais adaptados conforme necessidade"
+- "promover interação e aprendizagem significativa"
+
+OBRIGATÓRIO — substitua por ações concretas do AEE como:
+- "Usar prancha de comunicação com 6 figuras: saudação, água, banheiro, pausa, não entendi, sim"
+- "Iniciar sessão com rotina visual de 3 cartões: chegada → atividade → encerramento"
+- "Jogo 'Memória das Letras' — embaralhar 12 pares, aluno escolhe e nomeia a letra encontrada"
+- "Registrar: autônomo / com mediação verbal / com apoio físico / recusou / precisou de pausa"
+- "Timer visual de 8 minutos para cada bloco de atividade"
+- "Se recusar: oferecer escolha entre duas opções e aguardar 30 segundos antes de intervir"
+
+MANDATÓRIO NESTE PLANO AEE:
+- "gamesResources" deve ter pelo menos 2 jogos concretos com nome e como usar no AEE
+- "videosResources" deve ter pelo menos 1 vídeo com tipo, duração máx. 3 min e objetivo pedagógico
+- "materials" deve ter pelo menos 5 materiais com como usar cada um no AEE
+- "sessionScript" deve ter 6 a 8 itens descrevendo passo a passo da sessão (início→atividade→pausa→retomada→encerramento→registro)
+- "responseRecord" deve ter exatamente 8 itens de registro possível da resposta do aluno
+- "welcomeRoutine" deve ter 4 a 6 itens de como receber e acolher o aluno
+
+FONTES: use o PAEE como norteador principal. Use as habilidades e estratégias do perfil para embasar jogos e atividades concretas. Use as dificuldades para embasar a barreira prioritária. Nunca invente diagnóstico clínico.
+
+═══════════════════════════════════════
+ESTRUTURA JSON OBRIGATÓRIA
+═══════════════════════════════════════
+Retorne SOMENTE o JSON abaixo. Preencha TODOS os campos com conteúdo real e específico para ${student.name}. Nunca repita itens entre blocos. Nenhum placeholder.
+
+{
+  "period": "${period}",
+  "generatedAt": "${new Date().toISOString()}",
+  "generatedBy": "${(user as any)?.id ?? ''}",
+  "generatedByName": "${(user as any)?.name ?? (user as any)?.email ?? 'Profissional AEE'}",
+  "registrationNumber": "",
+  "version": ${versionNumber},
+
+  "sessionObjective": "Objetivo prático do atendimento AEE neste período — máx. 2 linhas. Ex: Ampliar o uso da prancha de comunicação e consolidar o reconhecimento das letras do próprio nome com mediação decrescente.",
+
+  "welcomeRoutine": {
+    "title": "Acolhida e Rotina do AEE",
+    "items": [
+      { "id": "wr1", "text": "Como receber ${student.name} na chegada à sala de recursos — ritual específico", "done": false },
+      { "id": "wr2", "text": "Como apresentar a rotina visual do dia — sequência de cartões, agenda ou prancha", "done": false },
+      { "id": "wr3", "text": "Como reduzir resistência ou ansiedade inicial — estratégia específica para este aluno", "done": false },
+      { "id": "wr4", "text": "Transição entre chegada e início da atividade — como fazer", "done": false },
+      { "id": "wr5", "text": "Sinal ou combinado de início — ex: timer visual, cartão 'vamos começar'", "done": false }
+    ]
+  },
+
+  "priorityBarrier": {
+    "title": "Barreira Prioritária do Período",
+    "items": [
+      { "id": "pb1", "text": "Barreira principal identificada no PAEE/perfil: [descrição específica]", "done": false },
+      { "id": "pb2", "text": "Como esta barreira se manifesta na sala de recursos AEE", "done": false },
+      { "id": "pb3", "text": "Objetivo AEE específico para esta barreira neste período", "done": false },
+      { "id": "pb4", "text": "Indicador observável de progresso — como saber se está avançando", "done": false }
+    ]
+  },
+
+  "sessionScript": {
+    "title": "Roteiro do Atendimento AEE",
+    "items": [
+      { "id": "ss1", "text": "Início (0-5 min): [o que fazer nos primeiros minutos]", "done": false },
+      { "id": "ss2", "text": "Atividade principal (5-20 min): [atividade com nome, materiais e como conduzir]", "done": false },
+      { "id": "ss3", "text": "Pausa de regulação (20-25 min): [como oferecer pausa — atividade sensorial, água, movimento]", "done": false },
+      { "id": "ss4", "text": "Retomada (25-35 min): [segunda atividade ou continuação, foco e como conduzir]", "done": false },
+      { "id": "ss5", "text": "Encerramento (35-40 min): [ritual de finalização — cartão 'ótimo trabalho', guardar materiais]", "done": false },
+      { "id": "ss6", "text": "Registro (pós-sessão): [o que registrar sobre o atendimento — ficha, app, diário AEE]", "done": false }
+    ]
+  },
+
+  "gamesResources": {
+    "title": "Jogos Sugeridos para o AEE",
+    "items": [
+      { "id": "gr1", "text": "Jogo 1: [Nome do jogo] — Objetivo AEE: [o que trabalha] — Como usar na sala de recursos: [passo a passo]", "done": false },
+      { "id": "gr2", "text": "Jogo 2: [Nome do jogo] — Objetivo AEE: [o que trabalha] — Como usar: [passo a passo]", "done": false },
+      { "id": "gr3", "text": "Jogo 3 (opcional): [Nome] — Como usar: [passo a passo]", "done": false }
+    ]
+  },
+
+  "videosResources": {
+    "title": "Vídeos Sugeridos",
+    "items": [
+      { "id": "vr1", "text": "Tipo de vídeo: [conteúdo visual — ex: rotina social animada, história com CAA] — Duração: máx. 3 min — Quando exibir: [antes da atividade] — Objetivo AEE: [o que ajuda]", "done": false },
+      { "id": "vr2", "text": "Tipo de vídeo 2 (opcional): [conteúdo] — Duração: máx. 3 min — Quando usar: [contexto]", "done": false }
+    ]
+  },
+
+  "printedActivities": {
+    "title": "Atividades Impressas Sugeridas",
+    "items": [
+      { "id": "pa1", "text": "Atividade impressa 1: [tipo — ex: ficha de sequência, jogo de associação] — Objetivo: [o que trabalha] — Como adaptar para ${student.name}", "done": false },
+      { "id": "pa2", "text": "Atividade impressa 2 (opcional): [tipo] — Objetivo: [o que trabalha]", "done": false }
+    ]
+  },
+
+  "digitalResources": {
+    "title": "Atividade/Jogo no Computador",
+    "items": [
+      { "id": "dr1", "text": "Recurso digital: [nome ou tipo de app/site/jogo] — Objetivo AEE: [o que trabalha] — Como usar com ${student.name}: [instruções]", "done": false }
+    ]
+  },
+
+  "dynamicsResources": {
+    "title": "Dinâmicas Sugeridas",
+    "items": [
+      { "id": "dy1", "text": "Dinâmica 1: [nome] — Passos: 1) [passo] 2) [passo] 3) [passo] — Duração: [tempo] — Objetivo: [o que trabalha]", "done": false },
+      { "id": "dy2", "text": "Dinâmica 2 (opcional): [nome] — Passos: [descrever] — Duração: [tempo]", "done": false }
+    ]
+  },
+
+  "materials": {
+    "title": "Materiais Necessários",
+    "items": [
+      { "id": "mt1", "text": "Material: [nome] — Como usar no AEE com ${student.name}: [instrução específica]", "done": false },
+      { "id": "mt2", "text": "Material: [nome] — Como usar: [instrução]", "done": false },
+      { "id": "mt3", "text": "Material: [nome] — Como usar: [instrução]", "done": false },
+      { "id": "mt4", "text": "Material: [nome] — Como usar: [instrução]", "done": false },
+      { "id": "mt5", "text": "Material: [nome] — Como usar: [instrução]", "done": false }
+    ]
+  },
+
+  "applicationGuide": {
+    "title": "Como Aplicar",
+    "items": [
+      { "id": "ag1", "text": "Instrução de aplicação 1 — ex: apresentar material antes de pedir resposta", "done": false },
+      { "id": "ag2", "text": "Instrução de aplicação 2 — ex: usar frases curtas e vocabulário conhecido", "done": false },
+      { "id": "ag3", "text": "Instrução de aplicação 3 — como lidar com recusa ou sobrecarga", "done": false },
+      { "id": "ag4", "text": "Instrução de aplicação 4 — como usar apoio visual ou CAA durante a atividade", "done": false },
+      { "id": "ag5", "text": "Instrução de aplicação 5 — pacing e tempo de espera antes de intervir", "done": false }
+    ]
+  },
+
+  "adaptationsGuide": {
+    "title": "Como Adaptar",
+    "items": [
+      { "id": "adg1", "text": "Adaptação 1: se o aluno apresentar dificuldade — [o que fazer]", "done": false },
+      { "id": "adg2", "text": "Adaptação 2: se o aluno concluir rapidamente — [como avançar]", "done": false },
+      { "id": "adg3", "text": "Adaptação 3: se houver sobrecarga sensorial — [como reagir]", "done": false },
+      { "id": "adg4", "text": "Adaptação 4: reduzir complexidade — ex: de 6 para 3 opções", "done": false }
+    ]
+  },
+
+  "responseRecord": {
+    "title": "Como Registrar a Resposta do Aluno",
+    "items": [
+      { "id": "rr1", "text": "Realizou com autonomia", "done": false },
+      { "id": "rr2", "text": "Realizou com mediação verbal", "done": false },
+      { "id": "rr3", "text": "Precisou de apoio visual (prancha, cartão, imagem)", "done": false },
+      { "id": "rr4", "text": "Necessitou de pausa durante a atividade", "done": false },
+      { "id": "rr5", "text": "Demonstrou interesse e engajamento ativo", "done": false },
+      { "id": "rr6", "text": "Apresentou resistência ou recusa inicial", "done": false },
+      { "id": "rr7", "text": "Generalizou parcialmente a habilidade trabalhada", "done": false },
+      { "id": "rr8", "text": "Precisou de apoio físico ou gestual constante", "done": false }
+    ]
+  },
+
+  "nextStep": "Próximo passo concreto para o AEE — ex: Avançar para comunicação com 8 figuras / Introduzir leitura silábica na próxima sessão / Relatar evolução ao professor regente / Conversar com família sobre continuidade em casa"
+}
+
+IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específicas para ${student.name} com base no diagnóstico, no PAEE e no perfil pedagógico. Nunca repita item entre blocos. Português brasileiro formal.`;
+
+    const t0 = Date.now();
+    const auditId = await AiAuditService.logRequest({
+      tenantId: (user as any).tenant_id ?? '', userId: user.id,
+      requestType: 'plano_acao_aee', model: 'gemini-2.5-flash',
+      creditsConsumed: cost,
+      inputData: { studentId: student.id, studentName: student.name, period, versionNumber },
+    });
+
+    let raw: string;
+    let serverDebited = false;
+    try {
+      const { result, creditsRemaining } = await callAIGateway({
+        task: 'json', prompt,
+        creditsRequired: cost,
+        requestType: 'plano_acao_aee',
+      });
+      raw = result;
+      serverDebited = creditsRemaining !== undefined;
+    } catch (e) {
+      if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: String(e) });
+      throw e;
+    }
+
+    const cleaned = cleanJsonString(raw);
+    let plan: import('../types').AEEActionPlanJSON;
+    try {
+      plan = JSON.parse(cleaned) as import('../types').AEEActionPlanJSON;
     } catch {
       if (!serverDebited) await this.deductCredits(user, Math.ceil(cost / 2));
       if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: 'JSON parse error' });

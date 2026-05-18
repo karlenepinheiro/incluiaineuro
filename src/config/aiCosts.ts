@@ -19,6 +19,7 @@ export const AI_CREDIT_COSTS = {
   PEI: 3,
   PAEE: 3,
   PDI: 3,
+  PLANO_ACAO_AEE: 10,
   
   // Perfil Inteligente do Aluno
   PERFIL_INTELIGENTE: 5,

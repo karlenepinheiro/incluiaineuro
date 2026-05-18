@@ -10,6 +10,7 @@ import {
   Printer, CheckCircle, FilePlus, AlertCircle, Save, Sparkles, FileSearch,
   ClipboardCheck, Trash2, X, Download, Paperclip, BookOpen, BarChart2,
   TrendingUp, Users, Tag, Send, LogOut, Zap, Image, Copy, RefreshCw, ClipboardList,
+  ListChecks, Plus,
 } from 'lucide-react';
 import { DocButton, DocIconButton } from './ui/DocButton';
 import { SmartTextarea } from './SmartTextarea';
@@ -29,7 +30,12 @@ import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
 import { DocumentService } from '../services/documentService';
 import { IntelligentProfileTab } from './IntelligentProfileTab';
 import { ActionPlanTab } from './ActionPlanTab';
+import { AEEActionPlanTab } from './AEEActionPlanTab';
 import { CareRoutineTab } from './CareRoutineTab';
+import { ChecklistRegenteForm } from './ChecklistRegenteForm';
+import { ChecklistCuidadoraForm } from './ChecklistCuidadoraForm';
+import { ChecklistUploadModal } from './ChecklistUploadModal';
+import { printRegenteEnem, printCuidadoraEnem } from './ChecklistEnemPDF';
 import { getStudentSupportVisual } from '../views/StudentsListView';
 
 // ── Critérios do perfil evolutivo (10 dimensões) ─────────────────────────────
@@ -307,8 +313,9 @@ interface StudentProfileProps {
   appointments?: Appointment[];
   onAddServiceRecord?: (record: ServiceRecord) => void;
   onUpdateStudent?: (s: Student) => void;
-  onNavigateTo?: (view: string) => void; // para abrir FichasComplementaresView
+  onNavigateTo?: (view: string) => void;
   onRefreshProtocols?: () => Promise<void>;
+  onCreateDocument?: (type: DocumentType) => void;
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -325,12 +332,14 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   onUpdateStudent,
   onNavigateTo,
   onRefreshProtocols,
+  onCreateDocument,
 }) => {
-  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades' | 'perfil_inteligente' | 'plano_acao' | 'rotina';
+  type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades' | 'perfil_inteligente' | 'plano_acao' | 'plano_acao_aee' | 'rotina' | 'observacao_regente';
   const [activeTab, setActiveTab] = useState<Tab>('ficha');
   const [fichas, setFichas] = useState<FichaComplementar[]>(student.fichasComplementares || []);
   const [quickDocType, setQuickDocType] = useState<QuickDocType | null>(null);
   const [showFichaConfig, setShowFichaConfig] = useState(false);
+  const [showChecklistUpload, setShowChecklistUpload] = useState<'checklist_regente' | 'checklist_cuidadora' | null>(null);
 
   // ── Documentos: carregados do banco (student_documents), não do student.documents legado ──
   const [dbDocs, setDbDocs] = useState<any[]>([]);
@@ -781,15 +790,17 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode; highlight?: boolean }[] = [
-    { id: 'perfil_inteligente', label: 'Perfil Inteligente', icon: <Brain size={13}/> },
-    { id: 'plano_acao',   label: 'Plano de Ação',      icon: <ClipboardList size={13}/>, highlight: true },
-    { id: 'ficha',        label: 'Ficha do Aluno',      icon: <User size={13}/> },
-    { id: 'evolucao',     label: 'Evolução',             icon: <TrendingUp size={13}/> },
-    { id: 'rotina',       label: 'Cuidadoras e Rotina', icon: <Users size={13}/> },
-    { id: 'agenda',       label: 'Agenda',               icon: <Calendar size={13}/> },
-    { id: 'documentos',   label: 'Documentos',           icon: <FileText size={13}/> },
-    { id: 'atividades',   label: 'Atividades Geradas',   icon: <Zap size={13}/> },
-    { id: 'timeline',     label: 'Linha do Tempo',       icon: <Activity size={13}/> },
+    { id: 'ficha',              label: 'Ficha do Aluno',                    icon: <User size={13}/> },
+    { id: 'perfil_inteligente', label: 'Perfil Inteligente',                icon: <Brain size={13}/> },
+    { id: 'observacao_regente', label: 'Observação em Sala',                icon: <Eye size={13}/> },
+    { id: 'plano_acao',         label: 'Plano de Ação — Regente',           icon: <ClipboardList size={13}/> },
+    { id: 'plano_acao_aee',     label: 'Plano de Ação — AEE',               icon: <ListChecks size={13}/>, highlight: true },
+    { id: 'rotina',             label: 'Rotina da Semana — Cuidadora',      icon: <Users size={13}/> },
+    { id: 'evolucao',           label: 'Evolução',                          icon: <TrendingUp size={13}/> },
+    { id: 'agenda',             label: 'Agenda',                            icon: <Calendar size={13}/> },
+    { id: 'documentos',         label: 'Documentos',                        icon: <FileText size={13}/> },
+    { id: 'atividades',         label: 'Atividades Geradas',                icon: <Zap size={13}/> },
+    { id: 'timeline',           label: 'Linha do Tempo',                    icon: <Activity size={13}/> },
   ];
 
   return (
@@ -982,11 +993,20 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               {t.highlight && (
                 <span className="ml-1 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">NOVO</span>
               )}
-              {t.id === 'documentos' && dbDocs.length + studentProtocols.length + (dbObsForms.length || fichas.length) > 0 && (
-                <span className="ml-1 text-[9px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full font-bold">
-                  {dbDocs.length + studentProtocols.length + (dbObsForms.length || fichas.length)}
+              {t.id === 'plano_acao_aee' && studentProtocols.filter(p => p.type === DocumentType.PLANO_ACAO_AEE).length > 0 && (
+                <span className="ml-1 text-[9px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded-full font-bold">
+                  {studentProtocols.filter(p => p.type === DocumentType.PLANO_ACAO_AEE).length}
                 </span>
               )}
+              {t.id === 'documentos' && (() => {
+                const nonAeeDocs = studentProtocols.filter(p => p.type !== DocumentType.PLANO_ACAO_AEE);
+                const total = dbDocs.length + nonAeeDocs.length + (dbObsForms.length || fichas.length);
+                return total > 0 ? (
+                  <span className="ml-1 text-[9px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full font-bold">
+                    {total}
+                  </span>
+                ) : null;
+              })()}
             </button>
           ))}
         </div>
@@ -2258,15 +2278,201 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════
+          TAB — OBSERVAÇÃO EM SALA — PROFESSOR REGENTE
+         ══════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'observacao_regente' && (
+        <div className="space-y-5">
+          {/* Cabeçalho da ferramenta */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+            <div className="flex flex-col md:flex-row md:items-start gap-4 justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Eye size={20} style={{ color: '#1F4E5F' }} />
+                  <h2 className="text-lg font-bold text-gray-800">Observação em Sala — Professor Regente</h2>
+                </div>
+                <p className="text-sm text-gray-500 max-w-2xl">
+                  Registre evidências observadas em sala e gere um parecer pedagógico estruturado.
+                  O parecer é salvo no dossiê do aluno e alimenta futuros documentos (PEI, PAEE, Estudo de Caso).
+                </p>
+              </div>
+              {/* Ações rápidas: upload + download */}
+              <div className="flex flex-wrap gap-2 shrink-0">
+                <button
+                  onClick={() => setShowChecklistUpload('checklist_regente')}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border border-brand-200 text-brand-700 bg-brand-50 hover:bg-brand-100 transition"
+                >
+                  <FileSearch size={14}/> Ler ficha preenchida
+                </button>
+                <button
+                  onClick={() => printRegenteEnem(student, (user as any)?.schoolConfigs?.[0] ?? null)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 transition"
+                  title="Ficha com gabarito ENEM-like, para scan automático pela IA"
+                >
+                  <Download size={14}/> Baixar ficha (leitura automática)
+                </button>
+                <button
+                  onClick={() => {
+                    const w = window.open('', '_blank', 'width=900,height=750');
+                    if (!w) return;
+                    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ficha de Observação — Regente</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:11px;padding:20mm 15mm;color:#111}
+h1{font-size:14px;color:#1F4E5F;border-bottom:2px solid #1F4E5F;padding-bottom:6px;margin-bottom:12px}
+h2{font-size:11px;color:#2E3A59;margin:14px 0 6px}
+.field{border-bottom:1px solid #ccc;min-height:22px;margin-bottom:8px}
+.check-row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+.box{width:12px;height:12px;border:1px solid #555;display:inline-block;flex-shrink:0}
+.meta{display:flex;gap:20px;margin-bottom:12px}
+.meta-item{flex:1}label{font-size:9px;color:#666;display:block;margin-bottom:2px}
+@media print{body{padding:10mm 12mm}}</style></head><body>
+<h1>Ficha de Observação em Sala — Professor Regente</h1>
+<div class="meta">
+  <div class="meta-item"><label>Aluno(a)</label><div class="field">${student.name}</div></div>
+  <div class="meta-item"><label>Série / Turma</label><div class="field"></div></div>
+  <div class="meta-item"><label>Data da observação</label><div class="field"></div></div>
+</div>
+<div class="meta">
+  <div class="meta-item"><label>Professor(a)</label><div class="field"></div></div>
+  <div class="meta-item"><label>Contexto observado</label><div class="field"></div></div>
+</div>
+<h2>1. Atenção e Participação</h2>
+${['Mantém atenção por curtos períodos','Distrai-se facilmente','Participa quando mediado','Participa com autonomia','Evita atividades grupais','Busca apoio do professor','Engaja-se em atividades práticas','Apresenta resistência a tarefas escritas','Demonstra interesse por temas específicos'].map(i=>`<div class="check-row"><span class="box"></span>${i}</div>`).join('')}
+<h2>2. Comunicação</h2>
+${['Comunica-se verbalmente','Usa gestos para comunicar','Usa recursos de CAA','Apresenta dificuldade para se expressar','Solicita ajuda quando necessário','Responde a perguntas simples','Inicia interações verbais','Apresenta ecolalia','Comunica necessidades básicas com autonomia'].map(i=>`<div class="check-row"><span class="box"></span>${i}</div>`).join('')}
+<h2>3. Observações livres</h2>
+<div class="field" style="min-height:60px"></div>
+<p style="margin-top:24px;font-size:8px;color:#999">IncluiAI · Ficha comum para preenchimento manual</p>
+</body></html>`);
+                    w.document.close();
+                    w.onload = () => w.print();
+                  }}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 transition"
+                  title="Ficha simples para impressão e preenchimento à mão"
+                >
+                  <Printer size={14}/> Baixar ficha comum
+                </button>
+              </div>
+            </div>
+
+            {/* Nota explicativa dos dois tipos de ficha */}
+            <div className="mt-4 grid md:grid-cols-2 gap-3">
+              <div className="rounded-xl p-3 text-xs" style={{ background: '#F0F9FF', border: '1px solid #BAE6FD' }}>
+                <p className="font-bold text-sky-700 mb-1">Ficha comum</p>
+                <p className="text-sky-600">Checklist simples para preenchimento à mão. Imprima, preencha e depois suba pela opção "Ler ficha preenchida".</p>
+              </div>
+              <div className="rounded-xl p-3 text-xs" style={{ background: '#F0FDF4', border: '1px solid #BBF7D0' }}>
+                <p className="font-bold text-green-700 mb-1">Ficha para leitura automática</p>
+                <p className="text-green-600">Formato com códigos padronizados (A1, C3…). A IA lê e preenche o checklist automaticamente ao fazer upload — mais preciso.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Formulário de observação digital */}
+          <ChecklistRegenteForm
+            student={student}
+            user={user as any}
+            school={(user as any)?.schoolConfigs?.[0] ?? null}
+            onSaved={() => {
+              ObservationFormService.getForStudent(student.id)
+                .then(setDbObsForms)
+                .catch(() => {});
+            }}
+          />
+        </div>
+      )}
+
+      {/* Modal de upload/leitura de checklist preenchido */}
+      {showChecklistUpload && (
+        <ChecklistUploadModal
+          students={[student]}
+          user={user as any}
+          defaultStudentId={student.id}
+          defaultChecklistType={showChecklistUpload}
+          onClose={() => setShowChecklistUpload(null)}
+          onSaved={() => {
+            setShowChecklistUpload(null);
+            ObservationFormService.getForStudent(student.id)
+              .then(setDbObsForms)
+              .catch(() => {});
+          }}
+        />
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════════
           TAB — PLANO DE AÇÃO DO PROFESSOR REGENTE
          ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'plano_acao' && (
         <ActionPlanTab student={student} user={user as any} />
       )}
 
-      {/* ── TAB: Cuidadoras e Rotina ── */}
+      {/* ══════════════════════════════════════════════════════════════════════
+          TAB — PLANO DE AÇÃO AEE
+         ══════════════════════════════════════════════════════════════════════ */}
+      {activeTab === 'plano_acao_aee' && (
+        <AEEActionPlanTab
+          student={student}
+          user={user as any}
+          protocols={studentProtocols}
+        />
+      )}
+
+      {/* ── TAB: Rotina da Semana — Cuidadora ── */}
       {activeTab === 'rotina' && (
-        <CareRoutineTab student={student} user={user} />
+        <div className="space-y-5">
+          {/* Cabeçalho */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+            <div className="flex flex-col md:flex-row md:items-start gap-4 justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <Users size={20} style={{ color: '#1F4E5F' }} />
+                  <h2 className="text-lg font-bold text-gray-800">Rotina da Semana — Cuidadora</h2>
+                </div>
+                <p className="text-sm text-gray-500 max-w-2xl">
+                  Registre chegada, alimentação, higiene, deslocamento, comunicação, regulação emocional,
+                  interação social, transições e alertas da semana. O parecer é salvo no dossiê do aluno.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 shrink-0">
+                <button
+                  onClick={() => setShowChecklistUpload('checklist_cuidadora')}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border border-brand-200 text-brand-700 bg-brand-50 hover:bg-brand-100 transition"
+                >
+                  <FileSearch size={14}/> Ler ficha preenchida
+                </button>
+                <button
+                  onClick={() => printCuidadoraEnem(student, (user as any)?.schoolConfigs?.[0] ?? null)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 transition"
+                  title="Ficha com gabarito ENEM-like para scan automático"
+                >
+                  <Download size={14}/> Baixar ficha (leitura automática)
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Checklist semanal da cuidadora */}
+          <ChecklistCuidadoraForm
+            student={student}
+            user={user as any}
+            school={(user as any)?.schoolConfigs?.[0] ?? null}
+            onSaved={() => {
+              ObservationFormService.getForStudent(student.id)
+                .then(setDbObsForms)
+                .catch(() => {});
+            }}
+          />
+
+          {/* Seções de rotina livres (custom sections) */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2" style={{ background: '#F6F4EF' }}>
+              <Users size={15} style={{ color: '#1F4E5F' }} />
+              <span className="font-bold text-sm" style={{ color: '#1F4E5F' }}>Anotações de Rotina — Seções Livres</span>
+              <span className="ml-2 text-xs text-gray-400">Adicione seções e campos personalizados para a cuidadora</span>
+            </div>
+            <div className="p-4">
+              <CareRoutineTab student={student} user={user} />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Modal: Documento Complementar (Sprint 5B) ── */}

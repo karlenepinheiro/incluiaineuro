@@ -26,6 +26,9 @@ import { RelatorioPreview } from '../components/RelatorioPreview';
 import type { RelatorioResultado } from '../services/reportService';
 import type { ActionPlanRecord } from '../types';
 import { generateDocumentCode } from '../utils/documentCodes';
+import { ChecklistRegenteForm, buildChecklistPrintHtml } from '../components/ChecklistRegenteForm';
+import { ChecklistCuidadoraForm, buildCuidadoraPrintHtml } from '../components/ChecklistCuidadoraForm';
+import { ChecklistUploadModal } from '../components/ChecklistUploadModal';
 
 interface Props {
   students: Student[];
@@ -318,7 +321,9 @@ type HistoryKind =
   | 'obs_regente'
   | 'analise_aee'
   | 'escuta_familia'
-  | 'plano_acao';
+  | 'plano_acao'
+  | 'checklist_regente'
+  | 'checklist_cuidadora';
 
 interface HistoryCardData {
   id: HistoryKind;
@@ -405,6 +410,10 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const pendingUploadDocType = useRef<string | null>(null);
+
+  const [uploadModal, setUploadModal] = useState<{
+    type: 'checklist_regente' | 'checklist_cuidadora';
+  } | null>(null);
 
   // SignaturePad do responsável
   const [showSignaturePad, setShowSignaturePad] = useState(false);
@@ -770,6 +779,8 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
       fichaCard('obs_regente', 'Observação do Professor', 'Registro pedagógico', 'Observações do professor da sala comum.', 'obs_regente', '#7C3AED', '#F5F3FF', <BookOpen size={18} />),
       fichaCard('analise_aee', 'Análise de AEE', 'Registro pedagógico exportável', 'Parecer do atendimento educacional especializado.', 'analise_aee', '#0891B2', '#ECFEFF', <ClipboardList size={18} />),
       fichaCard('escuta_familia', 'Escuta da Família', 'Registro de escuta', 'Registro de conversa com responsável ou família.', 'escuta_familia', '#0D9488', '#F0FDFA', <UserRound size={18} />),
+      fichaCard('checklist_regente', 'Checklist do Professor Regente', 'Checklist estruturado', 'Observação em sala com 8 dimensões + parecer pedagógico da IA.', 'checklist_regente', '#1F4E5F', '#EFF6FF', <ClipboardCheck size={18} />),
+      fichaCard('checklist_cuidadora', 'Checklist da Cuidadora', 'Rotina semanal', 'Registro de rotina com 10 dimensões + parecer pedagógico da IA.', 'checklist_cuidadora', '#0D9488', '#F0FDFA', <ClipboardList size={18} />),
     ];
 
     if (latestPlan) {
@@ -956,6 +967,25 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
 
     if (card.source === 'ficha') {
       if (!card.record) { alert('Preencha e salve esta ficha antes de gerar o PDF.'); return; }
+      // Checklist do professor regente tem seu próprio gerador de print
+      if (card.formType === 'checklist_regente' && selectedStudent) {
+        const html = buildChecklistPrintHtml(card.record.fields_data ?? {}, selectedStudent, school);
+        const win = window.open('', '_blank', 'width=900,height=750');
+        if (!win) { alert('Permita pop-ups para imprimir.'); return; }
+        win.document.write(html);
+        win.document.close();
+        win.onload = () => win.print();
+        return;
+      }
+      if (card.formType === 'checklist_cuidadora' && selectedStudent) {
+        const html = buildCuidadoraPrintHtml(card.record.fields_data ?? {}, selectedStudent, school);
+        const win = window.open('', '_blank', 'width=900,height=750');
+        if (!win) { alert('Permita pop-ups para imprimir.'); return; }
+        win.document.write(html);
+        win.document.close();
+        win.onload = () => win.print();
+        return;
+      }
       await handlePdfFichaRecord(card.record);
       return;
     }
@@ -1344,6 +1374,144 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
 
       {activeTab === 'fichas' && (
         <div className="space-y-4">
+          {/* ── Checklist do Professor Regente (card especial) ── */}
+          {(() => {
+            const fichaId = 'checklist_regente';
+            const isOpen  = expandedFicha === fichaId;
+            const isSaved = allFichaRecords.some((r: any) => r.form_type === fichaId);
+            return (
+              <div
+                className="rounded-2xl overflow-hidden shadow-sm transition-all"
+                style={{ background: '#fff', border: '1px solid #E7E2D8' }}
+              >
+                <div className="h-1" style={{ background: 'linear-gradient(90deg, #1F4E5F, #C69214)' }} />
+                <button
+                  className="w-full flex items-center justify-between p-5 text-left hover:bg-[#F6F4EF]/60 transition"
+                  onClick={() => setExpandedFicha(isOpen ? null : fichaId)}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">📝</span>
+                    <div>
+                      <h3 className="font-bold text-base text-[#1F4E5F]">
+                        Checklist de Observação em Sala — Professor Regente
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Registro estruturado com 8 dimensões observacionais + parecer pedagógico da IA.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isSaved && (
+                      <span className="flex items-center gap-1 text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                        <ShieldCheck size={10} /> Salvo
+                      </span>
+                    )}
+                    {isOpen ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+                  </div>
+                </button>
+
+                {isOpen && (
+                  <div className="bg-blue-50 border-t border-[#E7E2D8] p-5">
+                    <div className="mb-4 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setUploadModal({ type: 'checklist_regente' })}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-[#1F4E5F]/30 text-[#1F4E5F] hover:bg-white/70 transition"
+                      >
+                        <Upload size={13} /> Ler checklist preenchido
+                      </button>
+                    </div>
+                    {!selectedStudent ? (
+                      <div className="text-center py-6 text-sm text-gray-500">
+                        ↑ Selecione um aluno acima para preencher este checklist.
+                      </div>
+                    ) : (
+                      <ChecklistRegenteForm
+                        student={selectedStudent}
+                        user={user}
+                        school={school}
+                        onSaved={() => {
+                          ObservationFormService.getForStudent(selectedStudent.id)
+                            .then(forms => setAllFichaRecords(forms))
+                            .catch(() => {});
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ── Checklist da Cuidadora (card especial) ── */}
+          {(() => {
+            const fichaId = 'checklist_cuidadora';
+            const isOpen  = expandedFicha === fichaId;
+            const isSaved = allFichaRecords.some((r: any) => r.form_type === fichaId);
+            return (
+              <div
+                className="rounded-2xl overflow-hidden shadow-sm transition-all"
+                style={{ background: '#fff', border: '1px solid #E7E2D8' }}
+              >
+                <div className="h-1" style={{ background: 'linear-gradient(90deg, #0D9488, #C69214)' }} />
+                <button
+                  className="w-full flex items-center justify-between p-5 text-left hover:bg-[#F6F4EF]/60 transition"
+                  onClick={() => setExpandedFicha(isOpen ? null : fichaId)}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">🧡</span>
+                    <div>
+                      <h3 className="font-bold text-base text-[#0D9488]">
+                        Análise de Rotina Semanal — Cuidadora
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Registro de chegada, alimentação, higiene, deslocamento, regulação e mais — 10 dimensões + parecer da IA.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isSaved && (
+                      <span className="flex items-center gap-1 text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                        <ShieldCheck size={10} /> Salvo
+                      </span>
+                    )}
+                    {isOpen ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+                  </div>
+                </button>
+
+                {isOpen && (
+                  <div className="bg-teal-50 border-t border-[#E7E2D8] p-5">
+                    <div className="mb-4 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setUploadModal({ type: 'checklist_cuidadora' })}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-[#0D9488]/30 text-[#0D9488] hover:bg-white/70 transition"
+                      >
+                        <Upload size={13} /> Ler checklist preenchido
+                      </button>
+                    </div>
+                    {!selectedStudent ? (
+                      <div className="text-center py-6 text-sm text-gray-500">
+                        ↑ Selecione um aluno acima para preencher este checklist.
+                      </div>
+                    ) : (
+                      <ChecklistCuidadoraForm
+                        student={selectedStudent}
+                        user={user}
+                        school={school}
+                        onSaved={() => {
+                          ObservationFormService.getForStudent(selectedStudent.id)
+                            .then(forms => setAllFichaRecords(forms))
+                            .catch(() => {});
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {FICHAS.map(ficha => {
             const colors = COLOR_MAP[ficha.color];
             const isOpen = expandedFicha === ficha.id;
@@ -2115,6 +2283,25 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
         className="hidden"
         onChange={handleUploadChange}
       />
+
+      {/* ── Modal de upload de checklist preenchido ── */}
+      {uploadModal && (
+        <ChecklistUploadModal
+          students={students}
+          user={user}
+          defaultStudentId={selectedStudentId || undefined}
+          defaultChecklistType={uploadModal.type}
+          onClose={() => setUploadModal(null)}
+          onSaved={() => {
+            setUploadModal(null);
+            if (selectedStudentId) {
+              ObservationFormService.getForStudent(selectedStudentId)
+                .then(forms => setAllFichaRecords(forms))
+                .catch(() => {});
+            }
+          }}
+        />
+      )}
 
       {/* ── Modal SignaturePad do Responsável ── */}
       {showSignaturePad && signingDocType && (

@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auditoria 03 — PEI / PAEE / PDI · IncluiAI</title>
+<style>
+  :root {
+    --petrol: #1F4E5F;
+    --petrol-light: #2a6b82;
+    --petrol-pale: #e8f3f7;
+    --dark: #2E3A59;
+    --gold: #C69214;
+    --gold-pale: #fdf6e3;
+    --bg: #F6F4EF;
+    --surface: #FFFFFF;
+    --border: #E7E2D8;
+    --red: #c0392b;
+    --red-pale: #fdecea;
+    --orange: #d35400;
+    --orange-pale: #fef0e7;
+    --yellow: #f39c12;
+    --yellow-pale: #fefce8;
+    --green: #27ae60;
+    --green-pale: #edfbf3;
+    --gray: #6b7280;
+    --gray-pale: #f3f4f6;
+    --text: #1a1a2e;
+    --text-muted: #4b5563;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-size: 15px;
+  }
+
+  /* ── Header ── */
+  .page-header {
+    background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%);
+    color: white;
+    padding: 48px 48px 36px;
+    position: relative;
+    overflow: hidden;
+  }
+  .page-header::after {
+    content: '';
+    position: absolute;
+    right: -60px; top: -60px;
+    width: 300px; height: 300px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 50%;
+  }
+  .page-header .badge {
+    display: inline-block;
+    background: var(--gold);
+    color: #1a1a00;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin-bottom: 16px;
+  }
+  .page-header h1 {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+  }
+  .page-header p {
+    font-size: 15px;
+    opacity: 0.75;
+  }
+  .page-header .meta {
+    margin-top: 20px;
+    display: flex;
+    gap: 24px;
+    font-size: 13px;
+    opacity: 0.65;
+  }
+  .page-header .meta span { display: flex; align-items: center; gap: 6px; }
+
+  /* ── Layout ── */
+  .container { max-width: 1100px; margin: 0 auto; padding: 40px 32px; }
+
+  /* ── Section titles ── */
+  .section-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--petrol);
+    margin: 48px 0 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--petrol-pale);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title .num {
+    background: var(--petrol);
+    color: white;
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  /* ── Alert boxes ── */
+  .alert {
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    border-left: 4px solid;
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+  }
+  .alert .icon { font-size: 20px; flex-shrink: 0; margin-top: 1px; }
+  .alert-body { flex: 1; }
+  .alert-title { font-weight: 700; font-size: 14px; margin-bottom: 4px; }
+  .alert-text { font-size: 13.5px; color: var(--text-muted); }
+  .alert.critical { background: var(--red-pale); border-color: var(--red); }
+  .alert.critical .alert-title { color: var(--red); }
+  .alert.high { background: var(--orange-pale); border-color: var(--orange); }
+  .alert.high .alert-title { color: var(--orange); }
+  .alert.medium { background: var(--yellow-pale); border-color: var(--yellow); }
+  .alert.medium .alert-title { color: #92400e; }
+  .alert.low { background: var(--green-pale); border-color: var(--green); }
+  .alert.low .alert-title { color: var(--green); }
+  .alert.info { background: var(--petrol-pale); border-color: var(--petrol); }
+  .alert.info .alert-title { color: var(--petrol); }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; margin-bottom: 20px; border-radius: 10px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  thead tr { background: var(--petrol); color: white; }
+  thead th { padding: 12px 16px; text-align: left; font-weight: 600; font-size: 12px; letter-spacing: 0.5px; white-space: nowrap; }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--bg); }
+  tbody td { padding: 11px 16px; vertical-align: top; line-height: 1.5; }
+  tbody td:first-child { font-weight: 600; color: var(--dark); white-space: nowrap; }
+  .cell-center { text-align: center; }
+
+  /* ── Status badges ── */
+  .badge-ok { background: var(--green-pale); color: var(--green); padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .badge-warn { background: var(--orange-pale); color: var(--orange); padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .badge-dead { background: var(--gray-pale); color: var(--gray); padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .badge-none { background: var(--red-pale); color: var(--red); padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .badge-info { background: var(--petrol-pale); color: var(--petrol); padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .sev-critical { color: var(--red); font-weight: 700; }
+  .sev-high { color: var(--orange); font-weight: 700; }
+  .sev-medium { color: #92400e; font-weight: 700; }
+  .sev-low { color: var(--green); font-weight: 700; }
+
+  /* ── Code blocks ── */
+  pre {
+    background: #1e2333;
+    color: #cdd6f4;
+    border-radius: 8px;
+    padding: 16px 20px;
+    font-size: 13px;
+    overflow-x: auto;
+    line-height: 1.6;
+    margin: 12px 0;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+  code { font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace; }
+  .hl-comment { color: #6c7086; }
+  .hl-keyword { color: #cba6f7; }
+  .hl-string { color: #a6e3a1; }
+  .hl-fn { color: #89b4fa; }
+  .hl-warn { color: #fab387; }
+
+  /* ── Sprint cards ── */
+  .sprint-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .sprint-grid { grid-template-columns: 1fr; } }
+  .sprint-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .sprint-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: var(--petrol);
+  }
+  .sprint-card.s1::before { background: var(--red); }
+  .sprint-card.s2::before { background: var(--orange); }
+  .sprint-card.s3::before { background: var(--yellow); }
+  .sprint-card.s4::before { background: var(--petrol); }
+  .sprint-card.s5::before { background: var(--green); }
+  .sprint-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+  .sprint-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--dark);
+    margin-bottom: 12px;
+  }
+  .sprint-items { list-style: none; }
+  .sprint-items li {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    padding: 4px 0;
+    padding-left: 18px;
+    position: relative;
+  }
+  .sprint-items li::before {
+    content: '›';
+    position: absolute;
+    left: 0;
+    color: var(--petrol);
+    font-weight: 700;
+  }
+  .sprint-files {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .sprint-files strong { color: var(--petrol); }
+
+  /* ── Pedagogy cards ── */
+  .ped-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .ped-grid { grid-template-columns: 1fr; } }
+  .ped-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    border-top: 4px solid var(--petrol);
+  }
+  .ped-card.pei { border-top-color: #3b82f6; }
+  .ped-card.paee { border-top-color: #8b5cf6; }
+  .ped-card.pdi { border-top-color: #10b981; }
+  .ped-type { font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px; }
+  .pei .ped-type { color: #3b82f6; }
+  .paee .ped-type { color: #8b5cf6; }
+  .pdi .ped-type { color: #10b981; }
+  .ped-card h3 { font-size: 14px; font-weight: 700; color: var(--dark); margin-bottom: 8px; }
+  .ped-card p { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; }
+  .ped-ok, .ped-warn { font-size: 13px; padding: 2px 0; display: flex; gap: 6px; align-items: flex-start; }
+  .ped-ok::before { content: '✓'; color: var(--green); font-weight: 700; flex-shrink: 0; }
+  .ped-warn::before { content: '⚠'; color: var(--yellow); font-weight: 700; flex-shrink: 0; }
+
+  /* ── Divider ── */
+  .divider { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  /* ── Summary boxes ── */
+  .summary-box {
+    background: var(--petrol);
+    color: white;
+    border-radius: 12px;
+    padding: 28px 32px;
+    margin-bottom: 32px;
+  }
+  .summary-box h2 { font-size: 18px; margin-bottom: 16px; opacity: 0.9; }
+  .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 600px) { .summary-grid { grid-template-columns: 1fr; } }
+  .summary-item { background: rgba(255,255,255,0.08); border-radius: 8px; padding: 14px 16px; }
+  .summary-item .label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; opacity: 0.65; margin-bottom: 6px; }
+  .summary-item .value { font-size: 14px; }
+  .summary-item .value.good { color: #6ee7b7; }
+  .summary-item .value.bad { color: #fca5a5; }
+
+  /* ── Footer ── */
+  .page-footer {
+    background: var(--dark);
+    color: rgba(255,255,255,0.5);
+    text-align: center;
+    padding: 24px;
+    font-size: 12px;
+    margin-top: 60px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════ HEADER -->
+<div class="page-header">
+  <div class="badge">Auditoria 03</div>
+  <h1>PEI · PAEE · PDI</h1>
+  <p>Arquitetura de Renderização Documental — IncluiAI</p>
+  <div class="meta">
+    <span>📅 2026-05-18</span>
+    <span>🏗 Arquitetura React + jsPDF</span>
+    <span>📋 Documentos pedagógicos</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ═══════════════════════════════════════════════ DIAGNÓSTICO CENTRAL -->
+  <div class="summary-box" style="margin-top: 40px;">
+    <h2>Diagnóstico Central</h2>
+    <div class="summary-grid">
+      <div class="summary-item">
+        <div class="label">Camada de IA (prompts)</div>
+        <div class="value good">✓ Bem estruturada — prompts distintos e pedagogicamente corretos para cada tipo</div>
+      </div>
+      <div class="summary-item">
+        <div class="label">Camada de saída (PDF/Print)</div>
+        <div class="value bad">✗ Genérica — PEI, PAEE e PDI usam o mesmo loop sem distinção alguma</div>
+      </div>
+      <div class="summary-item">
+        <div class="label">Renderer dedicado</div>
+        <div class="value bad">✗ Só Estudo de Caso tem renderEstudoCasoPremium(). PEI/PAEE/PDI não têm equivalente.</div>
+      </div>
+      <div class="summary-item">
+        <div class="label">Enriquecimento automático de dados</div>
+        <div class="value bad">✗ Bloqueado explicitamente para PEI/PAEE/PDI — só funciona para Estudo de Caso</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 1. TABELA COMPARATIVA -->
+  <div class="section-title"><span class="num">1</span>Tabela Comparativa — Preview / PDF / Print / Save</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Dimensão</th>
+          <th>PEI</th>
+          <th>PAEE</th>
+          <th>PDI</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Preview</td>
+          <td>DocumentBuilder + DocumentPrintPreview (HTML genérico)</td>
+          <td>idem</td>
+          <td>idem</td>
+        </tr>
+        <tr>
+          <td>Gerar PDF</td>
+          <td colspan="3" style="text-align:center; color: var(--orange); font-weight:600;">PDFGenerator.generateFromSections() — loop genérico idêntico para os três</td>
+        </tr>
+        <tr>
+          <td>Imprimir</td>
+          <td colspan="3" style="text-align:center; color: var(--orange); font-weight:600;">window.print() sobre o DOM do preview HTML — diverge do PDF gerado</td>
+        </tr>
+        <tr>
+          <td>Salvar</td>
+          <td colspan="3" style="text-align:center">databaseService.saveDocument() → tabela <code>documents</code></td>
+        </tr>
+        <tr>
+          <td>Renderer especial</td>
+          <td><span class="badge-none">✗ Nenhum</span></td>
+          <td><span class="badge-none">✗ Nenhum</span></td>
+          <td><span class="badge-none">✗ Nenhum</span></td>
+        </tr>
+        <tr>
+          <td>Enriquecimento automático</td>
+          <td><span class="badge-none">✗ Bloqueado</span></td>
+          <td><span class="badge-none">✗ Bloqueado</span></td>
+          <td><span class="badge-none">✗ Bloqueado</span></td>
+        </tr>
+        <tr>
+          <td>Validação de seções esperadas</td>
+          <td><span class="badge-none">✗ Não ocorre</span></td>
+          <td><span class="badge-none">✗ Não ocorre</span></td>
+          <td><span class="badge-none">✗ Não ocorre</span></td>
+        </tr>
+        <tr>
+          <td>Branch no PDFGenerator</td>
+          <td><span class="badge-none">✗ Nenhum</span></td>
+          <td><span class="badge-none">✗ Nenhum</span></td>
+          <td><span class="badge-none">✗ Nenhum</span></td>
+        </tr>
+        <tr>
+          <td>Código de auditoria</td>
+          <td><span class="badge-info">VAL-...</span></td>
+          <td><span class="badge-info">VAL-...</span></td>
+          <td><span class="badge-warn">⚠ Verificar</span></td>
+        </tr>
+        <tr>
+          <td>Prompts de IA</td>
+          <td><span class="badge-ok">✓ 14 seções, BNCC</span></td>
+          <td><span class="badge-ok">✓ 6 seções, acessibilidade</span></td>
+          <td><span class="badge-ok">✓ 6 seções, longitudinal</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 2. ARQUIVOS ENVOLVIDOS -->
+  <div class="section-title"><span class="num">2</span>Arquivos Envolvidos</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Arquivo</th><th>Responsabilidade</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>src/components/DocumentBuilder.tsx</code></td>
+          <td>Controller: geração de conteúdo via IA, preview, botões PDF / Print / Save</td>
+        </tr>
+        <tr>
+          <td><code>src/services/PDFGenerator.ts</code></td>
+          <td>Renderização jsPDF — <code>generateFromSections()</code> usada pelos três docs</td>
+        </tr>
+        <tr>
+          <td><code>src/services/aiService.ts</code></td>
+          <td>Prompts e geração de JSON para PEI / PAEE / PDI / Estudo de Caso</td>
+        </tr>
+        <tr>
+          <td><code>src/services/databaseService.ts</code></td>
+          <td>Persistência na tabela <code>documents</code> com normalização de <code>doc_type</code></td>
+        </tr>
+        <tr>
+          <td><code>src/types.ts</code></td>
+          <td><code>DocumentType</code> enum, <code>Protocol</code>, <code>DocSection</code>, <code>DocField</code></td>
+        </tr>
+        <tr>
+          <td><code>src/utils/documentCodes.ts</code></td>
+          <td>Geração de códigos <code>VAL-</code> / <code>REG-</code>, normalização de tipos</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="alert info">
+    <span class="icon">ℹ️</span>
+    <div class="alert-body">
+      <div class="alert-title">Arquivos inexistentes</div>
+      <div class="alert-text">Não existe <code>src/services/exportService.ts</code> nem arquivos específicos de PEI, PAEE, PDI. Tudo passa pelo <code>DocumentBuilder</code> + <code>PDFGenerator</code> genéricos.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 3. RENDERIZADORES -->
+  <div class="section-title"><span class="num">3</span>Renderizadores Encontrados</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Renderizador</th><th>Arquivo</th><th>Estado</th><th>Documentos</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>renderEstudoCasoPremium()</code></td>
+          <td>PDFGenerator.ts ~L1854</td>
+          <td><span class="badge-ok">✅ Ativo</span></td>
+          <td>Estudo de Caso ONLY</td>
+        </tr>
+        <tr>
+          <td>Loop genérico <code>generateFromSections()</code></td>
+          <td>PDFGenerator.ts L2605–2748</td>
+          <td><span class="badge-warn">⚠ Ativo / Genérico</span></td>
+          <td><strong>PEI, PAEE, PDI, todos os outros</strong></td>
+        </tr>
+        <tr>
+          <td><code>renderEstudoCasoCompactProtocol()</code></td>
+          <td>PDFGenerator.ts ~L2652 (comentado)</td>
+          <td><span class="badge-dead">⚰ Morto</span></td>
+          <td>Nenhum</td>
+        </tr>
+        <tr>
+          <td><code>DocumentPrintPreview</code> (HTML)</td>
+          <td>DocumentBuilder.tsx ~L2680</td>
+          <td><span class="badge-ok">✅ Ativo</span></td>
+          <td>Todos — mas diverge do PDF</td>
+        </tr>
+        <tr>
+          <td><code>PDFGenerator.generate()</code></td>
+          <td>PDFGenerator.ts L2318–2602</td>
+          <td><span class="badge-ok">✅ Ativo</span></td>
+          <td>Fichas / formulários (não docs pedagógicos)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 4. INCONSISTÊNCIAS -->
+  <div class="section-title"><span class="num">4</span>Inconsistências e Riscos</div>
+
+  <!-- 4.1 -->
+  <div class="alert critical">
+    <span class="icon">🔴</span>
+    <div class="alert-body">
+      <div class="alert-title">4.1 Crítico — PDFGenerator sem branches para PEI / PAEE / PDI</div>
+      <div class="alert-text">O mesmo loop genérico renderiza os três documentos. PEI com 14 seções de BNCC e PAEE com seções de acessibilidade ficam visualmente idênticos no PDF. Não há identidade visual diferenciada nem validação de completude.</div>
+    </div>
+  </div>
+
+  <pre><span class="hl-comment">// PDFGenerator.ts L2668</span>
+<span class="hl-keyword">if</span> (<span class="hl-fn">isEstudoCasoDocType</span>(docType)) {
+  y = <span class="hl-fn">renderEstudoCasoPremium</span>(...);  <span class="hl-comment">// ← renderer rico, 17 seções canônicas</span>
+  <span class="hl-fn">addFooterAllPages</span>(doc);
+  <span class="hl-keyword">return</span> doc.<span class="hl-fn">output</span>(<span class="hl-string">'blob'</span>);          <span class="hl-comment">// ← return intencional ✓</span>
+}
+
+<span class="hl-comment">// L2674 — loop genérico para PEI, PAEE, PDI e TODOS os outros</span>
+<span class="hl-keyword">for</span> (<span class="hl-keyword">const</span> sec <span class="hl-keyword">of</span> sections) {
+  <span class="hl-fn">sectionBanner</span>(doc, sec.title, ML, y, maxW);  <span class="hl-comment">// ← sem distinção alguma ⚠</span>
+  <span class="hl-keyword">for</span> (<span class="hl-keyword">const</span> field <span class="hl-keyword">of</span> sec.fields) {
+    <span class="hl-comment">// renderiza campo genérico — igual para os três documentos</span>
+  }
+}</pre>
+
+  <!-- 4.2 -->
+  <div class="alert critical">
+    <span class="icon">🔴</span>
+    <div class="alert-body">
+      <div class="alert-title">4.2 Crítico — Print usa HTML do preview, não o PDF</div>
+      <div class="alert-text">O botão "Imprimir" chama <code>window.print()</code> sobre o DOM do <code>DocumentPrintPreview</code> (HTML/CSS). O botão "Gerar PDF" usa jsPDF. Os dois caminhos produzem documentos visualmente diferentes. O usuário não sabe que está imprimindo um documento diferente do PDF que baixa.</div>
+    </div>
+  </div>
+
+  <!-- 4.3 -->
+  <div class="alert high">
+    <span class="icon">🟠</span>
+    <div class="alert-body">
+      <div class="alert-title">4.3 Alto — Enriquecimento automático bloqueado para PEI / PAEE / PDI</div>
+      <div class="alert-text">O <code>useEffect</code> que injeta fichas, laudos e histórico do aluno nos campos do documento tem um <code>return</code> prematuro explícito para qualquer coisa que não seja Estudo de Caso. PEI, PAEE e PDI sempre abrem com seções vazias, mesmo que o aluno já tenha dados completos no banco.</div>
+    </div>
+  </div>
+
+  <pre><span class="hl-comment">// DocumentBuilder.tsx L393-397</span>
+<span class="hl-fn">useEffect</span>(() => {
+  <span class="hl-keyword">if</span> (step !== <span class="hl-string">'editor'</span>) <span class="hl-keyword">return</span>;
+  <span class="hl-keyword">if</span> (type !== DocumentType.<span class="hl-warn">ESTUDO_CASO</span>) <span class="hl-keyword">return</span>;  <span class="hl-comment">// ← BLOQUEIO EXPLÍCITO</span>
+  <span class="hl-keyword">if</span> (!selectedStudent?.id) <span class="hl-keyword">return</span>;
+
+  StudentContextService.<span class="hl-fn">buildContext</span>(selectedStudent.id).<span class="hl-fn">then</span>(ctx => {
+    <span class="hl-comment">// injeta fichas, laudos, perfil cognitivo — SÓ para Estudo de Caso</span>
+  });
+}, [step, selectedStudent?.id, type]);</pre>
+
+  <!-- 4.4 -->
+  <div class="alert high">
+    <span class="icon">🟠</span>
+    <div class="alert-body">
+      <div class="alert-title">4.4 Alto — <code>STANDARD_DOC_FIELDS</code> definido mas nunca usado</div>
+      <div class="alert-text">Há uma constante com as seções esperadas para PEI, PAEE e PDI, mas ela não é referenciada em nenhum outro lugar do arquivo. Documentos incompletos podem ser salvos como "APROVADOS" sem qualquer aviso.</div>
+    </div>
+  </div>
+
+  <pre><span class="hl-comment">// DocumentBuilder.tsx L60-66</span>
+<span class="hl-keyword">const</span> STANDARD_DOC_FIELDS: Record&lt;<span class="hl-keyword">string</span>, <span class="hl-keyword">string</span>&gt; = {
+  PEI:  <span class="hl-string">'Identificação do Aluno, Diagnóstico e CID, ..., Assinaturas'</span>,
+  PAEE: <span class="hl-string">'Identificação do Aluno, Demanda e Encaminhamento, ...'</span>,
+  PDI:  <span class="hl-string">'Identificação, Diagnóstico, Perfil de Aprendizagem, ...'</span>,
+};
+<span class="hl-comment">// ↑ NUNCA é referenciado em nenhum outro lugar — validator não existe</span></pre>
+
+  <!-- 4.5 -->
+  <div class="alert medium">
+    <span class="icon">🟡</span>
+    <div class="alert-body">
+      <div class="alert-title">4.5 Médio — PDI pode não gerar código VAL-</div>
+      <div class="alert-text"><code>VALIDATED_TYPES</code> em <code>documentCodes.ts</code> contém: PEI, PAEE, ESTUDO_CASO, PLANO_ACAO_AEE. O PDI <strong>não aparece na lista</strong>. Isso significa que PDI gera código <code>REG-</code> (registro) em vez de <code>VAL-</code> (validação). Verificar se isso é intencional.</div>
+    </div>
+  </div>
+
+  <!-- 4.6 -->
+  <div class="alert medium">
+    <span class="icon">🟡</span>
+    <div class="alert-body">
+      <div class="alert-title">4.6 Médio — Normalização de doc_type duplicada e inconsistente</div>
+      <div class="alert-text"><code>databaseService.ts</code> e <code>documentCodes.ts</code> fazem normalização de strings em direções opostas. Um converte espaço → underscore, o outro faz o inverso. A constante <code>VALIDATED_TYPES</code> aceita os dois formatos como proteção defensiva, mas o código está duplicado e frágil.</div>
+    </div>
+  </div>
+
+  <!-- 4.7 -->
+  <div class="alert low">
+    <span class="icon">🟢</span>
+    <div class="alert-body">
+      <div class="alert-title">4.7 Baixo — Renderizador morto sem remoção formal</div>
+      <div class="alert-text"><code>renderEstudoCasoCompactProtocol()</code> está comentado com nota "Sprint 1 removido". O bloco comentado ainda existe no arquivo e polui a leitura.</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 5. AUDITORIA PEDAGÓGICA -->
+  <div class="section-title"><span class="num">5</span>Auditoria Pedagógica dos Prompts de IA</div>
+
+  <div class="ped-grid">
+    <div class="ped-card pei">
+      <div class="ped-type">PEI</div>
+      <h3>Plano Educacional Individualizado</h3>
+      <p><strong>Foco:</strong> O QUE o aluno aprende (currículo)<br><strong>Público:</strong> Professor sala comum<br><strong>Seções:</strong> 14 (7 disciplinas + BNCC)</p>
+      <div class="ped-ok">Prompts com objetivos SMART e códigos BNCC reais</div>
+      <div class="ped-ok">Critérios observáveis de avaliação exigidos</div>
+      <div class="ped-ok">Legislação referenciada (Lei 13.146/2015, PNEEPEI)</div>
+      <div class="ped-warn">Seção "Recursos e Acessibilidade" duplica intenção do PAEE</div>
+      <div class="ped-warn">14 seções podem cortar em PDFs sem paginação inteligente</div>
+    </div>
+    <div class="ped-card paee">
+      <div class="ped-type">PAEE</div>
+      <h3>Plano de Atendimento Especializado</h3>
+      <p><strong>Foco:</strong> COMO o aluno acessa (acessibilidade)<br><strong>Público:</strong> Professor AEE / Sala de Recursos<br><strong>Seções:</strong> 6 (barreiras + TA + ambiente)</p>
+      <div class="ped-ok">Diferenciação explícita: PAEE = COMO acessa; PEI = O QUE aprende</div>
+      <div class="ped-ok">Tecnologia assistiva concreta exigida (não "será definido")</div>
+      <div class="ped-ok">Cada adaptação: recurso + barreira + responsável</div>
+      <div class="ped-warn">"Orientações à Família" duplica seção do PDI</div>
+      <div class="ped-warn">Sem articulação explícita com professor da sala comum</div>
+    </div>
+    <div class="ped-card pdi">
+      <div class="ped-type">PDI</div>
+      <h3>Plano de Desenvolvimento Individual</h3>
+      <p><strong>Foco:</strong> Integração global longitudinal<br><strong>Público:</strong> Equipe multidisciplinar + família<br><strong>Seções:</strong> 6 (baseline → meta → indicador)</p>
+      <div class="ped-ok">Análise longitudinal com padrões de progresso/regressão</div>
+      <div class="ped-ok">Cada meta: baseline → período → indicador observável</div>
+      <div class="ped-ok">Família como fator de suporte OU risco (não apenas parceiro)</div>
+      <div class="ped-warn">Risco de gerar cópia do PEI+PAEE sem análise integradora real</div>
+      <div class="ped-warn">Seção "Histórico" pode ficar vazia para alunos novos sem timeline</div>
+    </div>
+  </div>
+
+  <div style="margin-top: 24px;">
+    <div class="card">
+      <div class="card-title">Separação pedagógica — resumo</div>
+      <div class="table-wrap" style="margin-bottom:0; border:none;">
+        <table>
+          <thead>
+            <tr><th>Aspecto</th><th>PEI</th><th>PAEE</th><th>PDI</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Foco central</td><td>O QUE aprende (currículo)</td><td>COMO acessa (acessibilidade)</td><td>Integração global (longitudinal)</td></tr>
+            <tr><td>Público-alvo</td><td>Prof. sala comum</td><td>Prof. AEE</td><td>Equipe multi + família</td></tr>
+            <tr><td>Seções BNCC</td><td>✅ 7 disciplinas</td><td>✗ Não</td><td>✗ Não</td></tr>
+            <tr><td>Tecnologia Assistiva</td><td>Apenas referência</td><td>✅ Foco principal</td><td>Integrado nas metas</td></tr>
+            <tr><td>Indicadores de evolução</td><td>Por disciplina</td><td>Por barreira/recurso</td><td>✅ Baseline → indicador</td></tr>
+            <tr><td>Prompts bem diferenciados?</td><td><span class="badge-ok">✅ Sim</span></td><td><span class="badge-ok">✅ Sim</span></td><td><span class="badge-warn">⚠ Risco de cópia</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 6. FUNÇÕES CRÍTICAS -->
+  <div class="section-title"><span class="num">6</span>Mapa de Funções Críticas por Arquivo</div>
+
+  <div class="card">
+    <div class="card-title">DocumentBuilder.tsx — Funções de controle</div>
+    <div class="table-wrap" style="margin-bottom:0; border:none;">
+      <table>
+        <thead><tr><th>Função</th><th>Linhas aprox.</th><th>O que faz</th></tr></thead>
+        <tbody>
+          <tr><td><code>handleGeneratePDF()</code></td><td>~2213</td><td>Chama PDFGenerator.generateFromSections() — mesmo para PEI, PAEE e PDI</td></tr>
+          <tr><td><code>handlePrint()</code></td><td>~2223</td><td>window.print() sobre o DOM do preview HTML</td></tr>
+          <tr><td><code>handleSaveWrapper()</code></td><td>1303–1340</td><td>Prepara DocumentData e chama onSave() → databaseService.saveDocument()</td></tr>
+          <tr><td><code>useEffect enriquecimento</code></td><td>393–456</td><td>Injeção de contexto — bloqueada para PEI/PAEE/PDI</td></tr>
+          <tr><td><code>STANDARD_DOC_FIELDS</code></td><td>60–66</td><td>Mapa de seções esperadas — definido mas NUNCA usado</td></tr>
+          <tr><td><code>toDocType()</code></td><td>296–304</td><td>Mapper DocumentType → DocType (token visual)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">PDFGenerator.ts — Pipeline de saída</div>
+    <div class="table-wrap" style="margin-bottom:0; border:none;">
+      <table>
+        <thead><tr><th>Função</th><th>Linhas aprox.</th><th>Estado</th><th>Usada por</th></tr></thead>
+        <tbody>
+          <tr><td><code>generateFromSections()</code></td><td>2605–2748</td><td><span class="badge-warn">⚠ Genérico</span></td><td>PEI + PAEE + PDI + todos</td></tr>
+          <tr><td><code>renderEstudoCasoPremium()</code></td><td>~1854</td><td><span class="badge-ok">✅ Específico</span></td><td>Só Estudo de Caso</td></tr>
+          <tr><td><code>renderEstudoCasoCompactProtocol()</code></td><td>~2652 (comentado)</td><td><span class="badge-dead">⚰ Morto</span></td><td>Nenhum</td></tr>
+          <tr><td><code>addCoverBlock()</code></td><td>317–453</td><td><span class="badge-ok">✅ Ativo</span></td><td>Todos os docs</td></tr>
+          <tr><td><code>addRunningHeader()</code></td><td>248–304</td><td><span class="badge-ok">✅ Ativo</span></td><td>Todos os docs</td></tr>
+          <tr><td><code>sectionBanner()</code></td><td>456–468</td><td><span class="badge-ok">✅ Ativo</span></td><td>Todos os docs</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">aiService.ts — Geração de JSON por tipo</div>
+    <div class="table-wrap" style="margin-bottom:0; border:none;">
+      <table>
+        <thead><tr><th>Tipo</th><th>Linhas aprox.</th><th>Seções</th><th>Diferencial</th></tr></thead>
+        <tbody>
+          <tr><td><code>PEI</code></td><td>419–593</td><td>14 seções, 7 disciplinas</td><td>BNCC reais, objetivos SMART por disciplina</td></tr>
+          <tr><td><code>PAEE</code></td><td>595–680</td><td>6 seções</td><td>Recurso + barreira + responsável em cada adaptação</td></tr>
+          <tr><td><code>PDI</code></td><td>683–744</td><td>6 seções</td><td>Baseline → meta → indicador observável</td></tr>
+          <tr><td><code>ESTUDO_CASO</code></td><td>747–900</td><td>7 seções</td><td>Renderer premium dedicado no PDFGenerator</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 7. PLANO DE SPRINTS -->
+  <div class="section-title"><span class="num">7</span>Plano de Sprints</div>
+
+  <div class="sprint-grid">
+    <div class="sprint-card s1">
+      <div class="sprint-label">Sprint DOC-1</div>
+      <div class="sprint-title">Pipeline PDF/Print do PEI</div>
+      <ul class="sprint-items">
+        <li>Criar <code>renderPEIPremium()</code> no PDFGenerator</li>
+        <li>Branch <code>isPEIDocType()</code> em <code>generateFromSections()</code></li>
+        <li>Validar presença de seções de disciplinas (BNCC) antes de gerar PDF</li>
+        <li>Alinhar <code>window.print()</code> para usar blob do PDF</li>
+      </ul>
+      <div class="sprint-files"><strong>Arquivos:</strong> PDFGenerator.ts · DocumentBuilder.tsx</div>
+    </div>
+
+    <div class="sprint-card s2">
+      <div class="sprint-label">Sprint DOC-2</div>
+      <div class="sprint-title">Pipeline PDF/Print do PAEE</div>
+      <ul class="sprint-items">
+        <li>Criar <code>renderPAEEPremium()</code> com destaque visual de acessibilidade/TA</li>
+        <li>Branch <code>isPAEEDocType()</code> em <code>generateFromSections()</code></li>
+        <li>Validar presença de seções de barreiras e TA</li>
+        <li>Revisar sobreposição "Orientações Família" com PDI</li>
+      </ul>
+      <div class="sprint-files"><strong>Arquivos:</strong> PDFGenerator.ts · aiService.ts</div>
+    </div>
+
+    <div class="sprint-card s3">
+      <div class="sprint-label">Sprint DOC-3</div>
+      <div class="sprint-title">Pipeline PDF/Print do PDI</div>
+      <ul class="sprint-items">
+        <li>Criar <code>renderPDIPremium()</code> com indicadores de evolução e timeline</li>
+        <li>Branch <code>isPDIDocType()</code> em <code>generateFromSections()</code></li>
+        <li>Corrigir PDI para gerar código <code>VAL-</code> (adicionar em VALIDATED_TYPES)</li>
+        <li>Validar presença de seções de metas e baseline</li>
+      </ul>
+      <div class="sprint-files"><strong>Arquivos:</strong> PDFGenerator.ts · documentCodes.ts</div>
+    </div>
+
+    <div class="sprint-card s4">
+      <div class="sprint-label">Sprint DOC-4</div>
+      <div class="sprint-title">Cabeçalho, rodapé, escola e código</div>
+      <ul class="sprint-items">
+        <li>Cabeçalho consistente (escola do aluno = cadastro) para os três docs</li>
+        <li>Código <code>VAL-</code> visível nos três documentos</li>
+        <li>Rodapé com 3 linhas igual ao Estudo de Caso</li>
+        <li>Assinaturas não sobrepõem rodapé</li>
+        <li>Remover <code>renderEstudoCasoCompactProtocol()</code> comentado</li>
+        <li>Centralizar normalização de <code>doc_type</code> em uma única função</li>
+      </ul>
+      <div class="sprint-files"><strong>Arquivos:</strong> PDFGenerator.ts · documentCodes.ts · databaseService.ts</div>
+    </div>
+
+    <div class="sprint-card s5" style="grid-column: 1 / -1;">
+      <div class="sprint-label">Sprint DOC-5</div>
+      <div class="sprint-title">Estrutura pedagógica e enriquecimento automático</div>
+      <ul class="sprint-items" style="column-count: 2; gap: 20px;">
+        <li>Ativar <code>StudentContextService.buildContext()</code> para PEI, PAEE e PDI</li>
+        <li>Implementar <code>STANDARD_DOC_FIELDS</code> como validador antes de salvar/gerar PDF</li>
+        <li>Revisar prompt do PDI para forçar análise integradora real (não cópia de PEI+PAEE)</li>
+        <li>Diferenciar "Orientações Família" (PAEE) de "Papel da Família" (PDI)</li>
+        <li>Adicionar no prompt do PAEE: articulação explícita com professor sala comum</li>
+      </ul>
+      <div class="sprint-files"><strong>Arquivos:</strong> DocumentBuilder.tsx · aiService.ts</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════ 8. RESUMO DE RISCOS -->
+  <div class="section-title"><span class="num">8</span>Resumo de Riscos por Severidade</div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Severidade</th><th>Problema</th><th>Sprint</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="sev-critical">🔴 Crítico</span></td>
+          <td>PDF genérico idêntico para PEI, PAEE e PDI — sem identidade visual ou validação</td>
+          <td>DOC-1 a DOC-3</td>
+        </tr>
+        <tr>
+          <td><span class="sev-critical">🔴 Crítico</span></td>
+          <td>Print usa HTML do preview, não o PDF — documento diferente conforme o método usado</td>
+          <td>DOC-1 a DOC-3</td>
+        </tr>
+        <tr>
+          <td><span class="sev-high">🟠 Alto</span></td>
+          <td>Enriquecimento automático bloqueado para PEI / PAEE / PDI</td>
+          <td>DOC-5</td>
+        </tr>
+        <tr>
+          <td><span class="sev-high">🟠 Alto</span></td>
+          <td><code>STANDARD_DOC_FIELDS</code> definido mas nunca validado — docs incompletos podem ser aprovados</td>
+          <td>DOC-5</td>
+        </tr>
+        <tr>
+          <td><span class="sev-medium">🟡 Médio</span></td>
+          <td>PDI pode gerar código <code>REG-</code> em vez de <code>VAL-</code> (não está em VALIDATED_TYPES)</td>
+          <td>DOC-3</td>
+        </tr>
+        <tr>
+          <td><span class="sev-medium">🟡 Médio</span></td>
+          <td>Normalização de <code>doc_type</code> duplicada em dois arquivos com lógica inversa</td>
+          <td>DOC-4</td>
+        </tr>
+        <tr>
+          <td><span class="sev-medium">🟡 Médio</span></td>
+          <td>Sobreposição pedagógica PAEE ↔ PDI na seção de família</td>
+          <td>DOC-5</td>
+        </tr>
+        <tr>
+          <td><span class="sev-low">🟢 Baixo</span></td>
+          <td>Renderizador morto comentado no PDFGenerator — polui o arquivo</td>
+          <td>DOC-4</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div><!-- /container -->
+
+<div class="page-footer">
+  IncluiAI · Auditoria 03 — PEI / PAEE / PDI · 2026-05-18 · Gerado por Claude Code
+</div>
+
+</body>
+</html>

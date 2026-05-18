@@ -30,7 +30,77 @@ export type DocumentCategory =
   | 'paee'
   | 'pdi'
   | 'relatorio'
-  | 'atividade_adaptada';
+  | 'atividade_adaptada'
+  | 'plano_acao_regente'
+  | 'plano_acao_aee'
+  | 'perfil_inteligente';
+
+/** Documento pedagógico salvo (PEI, PAEE, PDI, Estudo de Caso etc.) da tabela `documents` */
+export interface SavedPedagogicalDocument {
+  id: string;
+  docType: string;
+  category: DocumentCategory;
+  title: string;
+  status: string;
+  createdAt: string;
+  updatedAt?: string;
+  auditCode?: string;
+  /** Resumo compacto extraído de structured_data.sections */
+  contentSummary: string;
+  /** Títulos das seções que têm conteúdo */
+  sectionsPresent: string[];
+}
+
+/** Plano de ação salvo (regente ou AEE) */
+export interface SavedActionPlan {
+  id: string;
+  source: 'regente' | 'aee';
+  planType: string;
+  title?: string;
+  contentSummary: string;
+  registerCode?: string;
+  versionNumber: number;
+  createdAt: string;
+}
+
+/** Versão mais recente do Perfil Inteligente salvo */
+export interface SavedIntelligentProfile {
+  id: string;
+  versionNumber: number;
+  createdAt: string;
+  hasPreviousVersions: boolean;
+  synthesis?: string;
+  pedagogical?: string;
+  bestStrategies?: string[];
+  challenges?: string[];
+  nextSteps?: string[];
+  observationPoints?: string[];
+  carePoints?: string[];
+}
+
+/** Atividade pedagógica gerada para o aluno */
+export interface ContextGeneratedActivity {
+  id: string;
+  title: string;
+  discipline?: string;
+  grade?: string;
+  createdAt: string;
+  contentSummary: string;
+}
+
+/** Evidência estruturada extraída de um checklist (regente ou cuidadora) */
+export interface ChecklistEvidence {
+  origin: 'regente' | 'cuidadora';
+  date: string;
+  professional: string;
+  title: string;
+  summary: string[];           // observações principais
+  strategiesWorked: string[];  // estratégias que funcionaram
+  barriers: string[];          // barreiras / dificuldades identificadas
+  alerts: string[];            // alertas que requerem atenção imediata
+  recommendations: string[];   // recomendações do profissional
+  parecer?: string;            // parecer pedagógico gerado pela IA (se disponível)
+}
 
 export interface TimelineEntry {
   date: string;
@@ -106,11 +176,20 @@ export interface EvidencePack {
   selectedForms: ObservationFormEntry[];
   selectedTimeline: TimelineEntry[];
   selectedAppointments: AppointmentEntry[];
+  // Evidências estruturadas de checklists (Sprint 14)
+  checklistEvidences: ChecklistEvidence[];
   // Camadas de prioridade (v2)
   priority: EvidenceLayer;
   complementary: EvidenceLayer;
   gaps: DataGap[];
   completenessAlerts: CompletenessAlert[];
+  // Documentos pedagógicos salvos (Sprint IA-1)
+  savedDocuments: SavedPedagogicalDocument[];
+  savedActionPlans: SavedActionPlan[];
+  savedAEEActionPlans: SavedActionPlan[];
+  savedIntelligentProfile: SavedIntelligentProfile | null;
+  generatedActivities: ContextGeneratedActivity[];
+  attachedDocuments: (AttachedDocumentEntry & { notes?: string })[];
 }
 
 /** Score por dimensão validada */
@@ -150,8 +229,15 @@ export interface CanonicalStudentContext {
   priorKnowledge: PriorKnowledgeProfile | null;
   timeline: TimelineEntry[];
   appointments: AppointmentEntry[];
+  checklistEvidences: ChecklistEvidence[];
   enriched: EnrichedData;
   loadedAt: string;
+  // Sprint IA-1: documentos pedagógicos e perfis salvos
+  savedDocuments: SavedPedagogicalDocument[];
+  savedActionPlans: SavedActionPlan[];
+  savedAEEActionPlans: SavedActionPlan[];
+  savedIntelligentProfile: SavedIntelligentProfile | null;
+  generatedActivities: ContextGeneratedActivity[];
 }
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
@@ -161,6 +247,40 @@ const COGNITIVE_DIMENSIONS = [
   'Autorregulação', 'Atenção Sustentada', 'Compreensão',
   'Motricidade Fina', 'Motricidade Grossa', 'Participação', 'Linguagem/Leitura',
 ];
+
+const CATEGORY_LABELS: Record<DocumentCategory, string> = {
+  ficha_aluno:        'Ficha do Aluno',
+  ficha_cognitiva:    'Ficha Cognitiva',
+  estudo_de_caso:     'Estudo de Caso',
+  pei:                'PEI (Plano Educacional Individualizado)',
+  paee:               'PAEE (Plano de AEE)',
+  pdi:                'PDI (Plano de Desenvolvimento Individual)',
+  relatorio:          'Relatório',
+  atividade_adaptada: 'Atividade Adaptada',
+  plano_acao_regente: 'Plano de Ação — Professor Regente',
+  plano_acao_aee:     'Plano de Ação AEE',
+  perfil_inteligente: 'Perfil Inteligente',
+};
+
+/** Quais categorias de documentos salvos são relevantes para cada tipo de documento gerado */
+function getRelevantDocTypes(docType: DocumentCategory): DocumentCategory[] {
+  switch (docType) {
+    case 'pei':
+      return ['estudo_de_caso', 'paee'];
+    case 'paee':
+      return ['estudo_de_caso'];
+    case 'pdi':
+      return ['pei', 'paee', 'estudo_de_caso'];
+    case 'plano_acao_regente':
+      return ['pei', 'estudo_de_caso', 'plano_acao_aee'];
+    case 'plano_acao_aee':
+      return ['paee', 'estudo_de_caso'];
+    case 'perfil_inteligente':
+      return ['pei', 'paee', 'pdi', 'estudo_de_caso', 'plano_acao_regente', 'plano_acao_aee', 'relatorio'];
+    default:
+      return ['estudo_de_caso'];
+  }
+}
 
 const GENERIC_PHRASES = [
   'de acordo com as necessidades',
@@ -249,7 +369,209 @@ function normalizeAttachedDocuments(raw: any[]): AttachedDocumentEntry[] {
     name: d.name,
     documentType: d.document_type ?? 'Laudo',
     uploadedAt: d.created_at ?? '',
+    notes: d.notes ?? undefined,
+  } as AttachedDocumentEntry & { notes?: string }));
+}
+
+// ─── Normalizers — documentos pedagógicos salvos (Sprint IA-1) ────────────────
+
+function summarizeSavedDocContent(structured_data: any): { summary: string; sections: string[] } {
+  if (!structured_data || typeof structured_data !== 'object') return { summary: '', sections: [] };
+  const sections: string[] = [];
+  const parts: string[] = [];
+  try {
+    const secs = Array.isArray(structured_data.sections)
+      ? structured_data.sections
+      : Array.isArray(structured_data.blocos) ? structured_data.blocos : [];
+    for (const sec of secs) {
+      const secTitle = sec.title ?? sec.titulo ?? '';
+      if (secTitle) sections.push(String(secTitle));
+      const fields = Array.isArray(sec.fields) ? sec.fields : Array.isArray(sec.campos) ? sec.campos : [];
+      for (const f of fields) {
+        const val = f.value ?? f.valor ?? '';
+        const label = f.label ?? f.rotulo ?? f.id ?? '';
+        if (typeof val === 'string' && val.trim().length > 10 && label) {
+          parts.push(`${label}: ${val.slice(0, 280)}`);
+        }
+      }
+    }
+  } catch { /* ignora erros de parsing */ }
+  return { summary: parts.slice(0, 10).join('\n'), sections: sections.filter(Boolean) };
+}
+
+function normalizeSavedDocuments(raw: any[]): SavedPedagogicalDocument[] {
+  return (raw ?? []).map(d => {
+    const { summary, sections } = summarizeSavedDocContent(d.structured_data);
+    return {
+      id: d.id,
+      docType: d.doc_type ?? '',
+      category: mapDocTypeToCategory(d.doc_type ?? ''),
+      title: d.title ?? d.doc_type ?? '',
+      status: d.status ?? 'APPROVED',
+      createdAt: d.created_at ?? '',
+      updatedAt: d.updated_at ?? undefined,
+      auditCode: d.audit_code ?? undefined,
+      contentSummary: summary,
+      sectionsPresent: sections,
+    };
+  });
+}
+
+function normalizeActionPlans(raw: any[], source: 'regente' | 'aee'): SavedActionPlan[] {
+  return (raw ?? []).map(r => {
+    const cj = r.content_json ?? {};
+    const parts: string[] = [];
+    for (const key of ['session_objective', 'next_step', 'summary']) {
+      if (cj[key] && typeof cj[key] === 'string') parts.push(`${key}: ${String(cj[key]).slice(0, 200)}`);
+    }
+    const planSummary = r.summary ?? '';
+    return {
+      id: r.id,
+      source,
+      planType: r.plan_type ?? 'mensal',
+      title: r.title ?? '',
+      contentSummary: planSummary || parts.slice(0, 4).join('\n'),
+      registerCode: r.register_code ?? undefined,
+      versionNumber: r.version_number ?? 1,
+      createdAt: r.created_at ?? '',
+    };
+  });
+}
+
+function normalizeIntelligentProfile(raw: any[]): SavedIntelligentProfile | null {
+  if (!raw || raw.length === 0) return null;
+  const latest = raw[0];
+  const pj = latest.profile_json ?? {};
+  return {
+    id: latest.id,
+    versionNumber: latest.version_number ?? 1,
+    createdAt: latest.created_at ?? '',
+    hasPreviousVersions: raw.length > 1,
+    synthesis:         pj.humanizedIntroduction?.text?.slice(0, 600) ?? undefined,
+    pedagogical:       pj.pedagogicalReport?.text?.slice(0, 600) ?? undefined,
+    bestStrategies:    Array.isArray(pj.bestLearningStrategies?.items)
+      ? pj.bestLearningStrategies.items.slice(0, 6) : undefined,
+    challenges:        Array.isArray(pj.challenges)
+      ? pj.challenges.map((c: any) => `${c.title ?? ''}: ${c.description ?? ''}`).slice(0, 3) : undefined,
+    nextSteps:         Array.isArray(pj.nextSteps) ? pj.nextSteps.slice(0, 4) : undefined,
+    observationPoints: Array.isArray(pj.observationPoints?.checklist)
+      ? pj.observationPoints.checklist.slice(0, 4) : undefined,
+    carePoints:        Array.isArray(pj.carePoints) ? pj.carePoints.slice(0, 3) : undefined,
+  };
+}
+
+function normalizeGeneratedActivities(raw: any[]): ContextGeneratedActivity[] {
+  return (raw ?? []).map(a => ({
+    id: a.id,
+    title: a.title ?? 'Atividade gerada',
+    discipline: a.discipline ?? a.content?.discipline ?? undefined,
+    grade: a.grade ?? a.content?.grade ?? undefined,
+    createdAt: a.created_at ?? '',
+    contentSummary: typeof a.content === 'string'
+      ? a.content.slice(0, 200)
+      : typeof a.content === 'object' && a.content
+      ? JSON.stringify(a.content).slice(0, 200)
+      : '',
   }));
+}
+
+// ─── Checklist parsing ─────────────────────────────────────────────────────────
+
+function arrFromField(fd: any, key: string): string[] {
+  const v = fd?.[key];
+  if (Array.isArray(v)) return v.filter(Boolean) as string[];
+  if (typeof v === 'string' && v.trim()) return [v];
+  return [];
+}
+
+/** Extrai evidência estruturada de um observation_form do tipo checklist */
+function parseChecklistEvidence(form: ObservationFormEntry): ChecklistEvidence {
+  const fd = form.fieldsData as any;
+  const isRegente = form.formType === 'checklist_regente';
+
+  const strategiesWorked = arrFromField(fd, 'estrategiasEficazes');
+
+  let summary: string[] = [];
+  let barriers: string[] = [];
+  let alerts: string[] = [];
+  let recommendations: string[] = [];
+
+  if (isRegente) {
+    summary = [
+      ...arrFromField(fd, 'atencaoParticipacao').slice(0, 2),
+      ...arrFromField(fd, 'aprendizagem').slice(0, 2),
+      ...arrFromField(fd, 'autonomia').slice(0, 1),
+    ].slice(0, 5);
+
+    barriers = [
+      ...arrFromField(fd, 'atencaoParticipacao').filter((i: string) =>
+        /distrai|evita|abandona|repetidos/i.test(i)),
+      ...arrFromField(fd, 'comunicacao').filter((i: string) =>
+        /dificuldade|ecolalia|não se comunica|apoio visual/i.test(i)),
+      ...arrFromField(fd, 'regulacaoComportamento').filter((i: string) =>
+        /agitação|ansied|irrit|chora|recusa/i.test(i)),
+      ...arrFromField(fd, 'interacaoSocial').filter((i: string) =>
+        /sozinho|conflitos|frustração/i.test(i)),
+    ].slice(0, 5);
+
+    recommendations = arrFromField(fd, 'recomendacoesImediatas').slice(0, 5);
+    alerts = arrFromField(fd, 'recomendacoesImediatas').filter((r: string) =>
+      /encaminhar|solicitar|família|estudo de caso/i.test(r));
+  } else {
+    // Cuidadora
+    summary = [
+      ...arrFromField(fd, 'regulacaoEmocional').slice(0, 2),
+      ...arrFromField(fd, 'comunicacaoNecessidades').slice(0, 2),
+      ...arrFromField(fd, 'alimentacao').slice(0, 1),
+    ].slice(0, 5);
+
+    barriers = [
+      ...arrFromField(fd, 'chegadaEscola').filter((i: string) =>
+        /choroso|agitado|Resistiu|cansaço/i.test(i)),
+      ...arrFromField(fd, 'regulacaoEmocional').filter((i: string) =>
+        /irritab|choro|gritos|crise|fuga/i.test(i)),
+      ...arrFromField(fd, 'transicoesRotina').filter((i: string) =>
+        /Resiste|crise|extra/i.test(i)),
+    ].slice(0, 5);
+
+    alerts = arrFromField(fd, 'alertasSemana').slice(0, 5);
+    recommendations = arrFromField(fd, 'alertasSemana').slice(0, 3);
+  }
+
+  const parecer = typeof fd?.parecer === 'string' && fd.parecer.trim()
+    ? fd.parecer
+    : undefined;
+
+  return {
+    origin: isRegente ? 'regente' : 'cuidadora',
+    date: form.createdAt,
+    professional: form.createdBy,
+    title: form.title,
+    summary,
+    strategiesWorked,
+    barriers,
+    alerts,
+    recommendations,
+    parecer,
+  };
+}
+
+/**
+ * Extrai e estrutura os últimos checklists a partir dos observation_forms já carregados.
+ * Limita a 3 regente + 2 cuidadora para controle de tokens.
+ */
+function extractChecklistEvidences(forms: ObservationFormEntry[]): ChecklistEvidence[] {
+  const checklists = forms.filter(f =>
+    f.formType === 'checklist_regente' || f.formType === 'checklist_cuidadora',
+  );
+  if (checklists.length === 0) return [];
+
+  const regente   = checklists.filter(f => f.formType === 'checklist_regente').slice(0, 3);
+  const cuidadora = checklists.filter(f => f.formType === 'checklist_cuidadora').slice(0, 2);
+
+  return [...regente, ...cuidadora]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map(parseChecklistEvidence);
 }
 
 // ─── Análise temporal ──────────────────────────────────────────────────────────
@@ -581,6 +903,35 @@ function buildEvidenceLayers(
       priority.timeline           = timeline.filter(t => t.eventType === 'evolucao').slice(0, 10);
       break;
 
+    case 'plano_acao_regente':
+      priority.cognitiveProfiles = cognitiveProfiles.slice(0, 1);
+      priority.forms             = observationForms.slice(0, 5);
+      priority.reports           = medicalReports.slice(0, 2);
+      priority.timeline          = timeline.filter(t => ['evolucao', 'nota'].includes(t.eventType)).slice(0, 8);
+      priority.appointments      = appointments.slice(-10);
+      complementary.cognitiveProfiles = cognitiveProfiles.slice(1, 3);
+      complementary.forms        = observationForms.slice(5, 8);
+      break;
+
+    case 'plano_acao_aee':
+      priority.reports           = medicalReports;
+      priority.forms             = observationForms.slice(0, 4);
+      priority.cognitiveProfiles = cognitiveProfiles.slice(0, 2);
+      priority.timeline          = timeline.filter(t => ['evolucao', 'protocolo'].includes(t.eventType)).slice(0, 10);
+      priority.appointments      = appointments.slice(-20);
+      complementary.cognitiveProfiles = cognitiveProfiles.slice(2);
+      complementary.forms        = observationForms.slice(4);
+      break;
+
+    case 'perfil_inteligente':
+      priority.cognitiveProfiles = cognitiveProfiles;
+      priority.reports           = medicalReports;
+      priority.forms             = observationForms.slice(0, 6);
+      priority.timeline          = timeline.slice(0, 15);
+      priority.appointments      = appointments;
+      complementary.forms        = observationForms.slice(6);
+      break;
+
     case 'atividade_adaptada':
       priority.cognitiveProfiles = cognitiveProfiles.slice(0, 1);
       priority.forms              = observationForms.slice(0, 2);
@@ -634,7 +985,15 @@ function selectEvidence(ctx: CanonicalStudentContext, docType: DocumentCategory)
     docType, student, enriched, priorKnowledge,
     selectedCognitiveProfiles, selectedReports, selectedForms,
     selectedTimeline, selectedAppointments,
+    checklistEvidences: ctx.checklistEvidences,
     priority, complementary, gaps, completenessAlerts: alerts,
+    // Sprint IA-1 — documentos pedagógicos e perfis salvos
+    savedDocuments:          ctx.savedDocuments,
+    savedActionPlans:        ctx.savedActionPlans,
+    savedAEEActionPlans:     ctx.savedAEEActionPlans,
+    savedIntelligentProfile: ctx.savedIntelligentProfile,
+    generatedActivities:     ctx.generatedActivities,
+    attachedDocuments:       ctx.attachedDocuments as (AttachedDocumentEntry & { notes?: string })[],
   };
 }
 
@@ -643,6 +1002,114 @@ function selectEvidence(ctx: CanonicalStudentContext, docType: DocumentCategory)
 export function hasPKScores(pk: PriorKnowledgeProfile): boolean {
   return !!(pk.leitura_score || pk.escrita_score || pk.entendimento_score ||
             pk.autonomia_score || pk.atencao_score || pk.raciocinio_score);
+}
+
+// ─── Builders de blocos de prompt — documentos salvos (Sprint IA-1) ───────────
+
+export function buildDocumentSummaryBlock(
+  docs: SavedPedagogicalDocument[],
+  docType: DocumentCategory,
+): string {
+  const relevantCategories = getRelevantDocTypes(docType);
+  const relevant = docs.filter(d => relevantCategories.includes(d.category));
+
+  const lines: string[] = ['\n=== DOCUMENTOS PEDAGÓGICOS EXISTENTES ==='];
+
+  if (relevant.length === 0) {
+    const missing = relevantCategories.map(c => CATEGORY_LABELS[c] ?? c).join(', ');
+    lines.push(`Nenhum documento relevante encontrado (esperados: ${missing}). Sinalize esta lacuna ao gerar.`);
+    return lines.join('\n');
+  }
+
+  lines.push('INSTRUÇÃO: Use os conteúdos abaixo para garantir coerência e continuidade pedagógica. Não contradiga documentos existentes sem justificativa explícita.');
+
+  for (const doc of relevant) {
+    const date = doc.createdAt ? new Date(doc.createdAt).toLocaleDateString('pt-BR') : '—';
+    lines.push(`\n[${CATEGORY_LABELS[doc.category] ?? doc.docType}] ${doc.title} (${date}) | Status: ${doc.status}${doc.auditCode ? ` | Cód: ${doc.auditCode}` : ''}`);
+    if (doc.sectionsPresent.length > 0) lines.push(`  Seções: ${doc.sectionsPresent.join(' | ')}`);
+    if (doc.contentSummary) {
+      lines.push('  Conteúdo extraído:');
+      for (const line of doc.contentSummary.split('\n').slice(0, 10)) {
+        if (line.trim()) lines.push(`    ${line.slice(0, 300)}`);
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
+export function buildUploadedReportsBlock(attached: (AttachedDocumentEntry & { notes?: string })[]): string {
+  const lines: string[] = ['\n=== LAUDOS E RELATÓRIOS SUBIDOS ==='];
+  if (attached.length === 0) {
+    lines.push('Nenhum arquivo subido registrado.');
+    return lines.join('\n');
+  }
+  lines.push('NOTA: Arquivos físicos enviados pelo profissional. Apenas metadados disponíveis — não invente conteúdo. Cite como "arquivo anexado" ou "laudo subido pelo profissional".');
+  for (const doc of attached) {
+    const date = doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString('pt-BR') : '—';
+    lines.push(`  • ${doc.documentType || 'Documento'}: ${doc.name} (subido em ${date})`);
+    if (doc.notes) lines.push(`    Observações: ${String(doc.notes).slice(0, 300)}`);
+  }
+  return lines.join('\n');
+}
+
+export function buildSavedActionPlansBlock(
+  actionPlans: SavedActionPlan[],
+  aeeActionPlans: SavedActionPlan[],
+  docType: DocumentCategory,
+): string {
+  const needsRegente = ['plano_acao_aee', 'perfil_inteligente', 'pei', 'pdi', 'plano_acao_regente'].includes(docType);
+  const needsAEE     = ['plano_acao_regente', 'perfil_inteligente', 'pei', 'paee', 'pdi', 'plano_acao_aee'].includes(docType);
+  const lines: string[] = [];
+
+  if (needsRegente && actionPlans.length > 0) {
+    lines.push('\n=== PLANOS DE AÇÃO DO PROFESSOR REGENTE ===');
+    for (const p of actionPlans.slice(0, 2)) {
+      const date = p.createdAt ? new Date(p.createdAt).toLocaleDateString('pt-BR') : '—';
+      lines.push(`  [v${p.versionNumber}] ${p.title || p.planType} (${date})${p.registerCode ? ` — Cód: ${p.registerCode}` : ''}`);
+      if (p.contentSummary) lines.push(`  ${p.contentSummary.slice(0, 400)}`);
+    }
+  }
+
+  if (needsAEE && aeeActionPlans.length > 0) {
+    lines.push('\n=== PLANOS DE AÇÃO AEE ===');
+    for (const p of aeeActionPlans.slice(0, 2)) {
+      const date = p.createdAt ? new Date(p.createdAt).toLocaleDateString('pt-BR') : '—';
+      lines.push(`  [v${p.versionNumber}] ${p.title || p.planType} (${date})${p.registerCode ? ` — Cód: ${p.registerCode}` : ''}`);
+      if (p.contentSummary) lines.push(`  ${p.contentSummary.slice(0, 400)}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+export function buildIntelligentProfileBlock(profile: SavedIntelligentProfile | null): string {
+  if (!profile) return '';
+  const date = profile.createdAt ? new Date(profile.createdAt).toLocaleDateString('pt-BR') : '—';
+  const lines = ['\n=== PERFIL INTELIGENTE MAIS RECENTE ==='];
+  lines.push(`Versão ${profile.versionNumber} — gerado em ${date}${profile.hasPreviousVersions ? ' (versões anteriores existem)' : ''}`);
+  if (profile.synthesis) lines.push(`\nSíntese:\n${profile.synthesis}`);
+  if (profile.pedagogical) lines.push(`\nParecer pedagógico:\n${profile.pedagogical}`);
+  if (profile.bestStrategies?.length) {
+    lines.push('\nMelhores estratégias de aprendizagem:');
+    profile.bestStrategies.forEach(s => lines.push(`  • ${s}`));
+  }
+  if (profile.challenges?.length) {
+    lines.push('\nDesafios identificados:');
+    profile.challenges.forEach(c => lines.push(`  • ${c}`));
+  }
+  if (profile.nextSteps?.length) {
+    lines.push('\nPróximos passos recomendados:');
+    profile.nextSteps.forEach(s => lines.push(`  • ${s}`));
+  }
+  if (profile.observationPoints?.length) {
+    lines.push('\nPontos de observação:');
+    profile.observationPoints.forEach(o => lines.push(`  • ${o}`));
+  }
+  if (profile.carePoints?.length) {
+    lines.push('\nCuidados importantes:');
+    profile.carePoints.forEach(c => lines.push(`  • ${c}`));
+  }
+  return lines.join('\n');
 }
 
 // ─── Prompt block builder ──────────────────────────────────────────────────────
@@ -723,9 +1190,10 @@ export function buildPromptBlock(pack: EvidencePack): string {
     }
   }
 
-  // 4. Fichas de observação
+  // 4. Fichas de observação (apenas fichas não-checklist)
   const allForms = [...pack.priority.forms, ...pack.complementary.forms]
-    .filter((v, i, arr) => arr.indexOf(v) === i);
+    .filter((v, i, arr) => arr.indexOf(v) === i)
+    .filter(f => f.formType !== 'checklist_regente' && f.formType !== 'checklist_cuidadora');
   if (allForms.length > 0) {
     lines.push('\n--- FICHAS DE OBSERVAÇÃO ---');
     for (const f of allForms) {
@@ -738,6 +1206,70 @@ export function buildPromptBlock(pack: EvidencePack): string {
     }
     if (enriched.sinaisRecorrentes.length > 0)
       lines.push(`Sinais recorrentes entre fichas: ${enriched.sinaisRecorrentes.join(', ')}`);
+  }
+
+  // 4b. Evidências pedagógicas e de rotina (checklists estruturados + pareceres)
+  const { checklistEvidences } = pack;
+  if (checklistEvidences.length > 0) {
+    lines.push('\n--- EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA (CHECKLISTS E PARECERES) ---');
+    lines.push('NOTA: Estas evidências são observações pedagógicas e de rotina escolar — não são diagnósticos clínicos.');
+    lines.push('Ao usá-las: cite como "conforme observações em sala" ou "segundo registro de rotina escolar".');
+    lines.push('Diferencie laudo clínico (profissional de saúde) de observação pedagógica (professor/AEE) de registro de rotina (cuidadora).\n');
+
+    const regenteEvs   = checklistEvidences.filter(e => e.origin === 'regente');
+    const cuidadoraEvs = checklistEvidences.filter(e => e.origin === 'cuidadora');
+
+    if (regenteEvs.length > 0) {
+      lines.push('[ Observações do Professor Regente em Sala ]');
+      for (const ev of regenteEvs) {
+        const d = ev.date ? new Date(ev.date).toLocaleDateString('pt-BR') : '—';
+        lines.push(`  Registro: ${d} — por ${ev.professional || 'Professor Regente'}`);
+        if (ev.summary.length > 0)
+          lines.push(`  Observações principais: ${ev.summary.join(' | ')}`);
+        if (ev.barriers.length > 0)
+          lines.push(`  Barreiras identificadas: ${ev.barriers.join(' | ')}`);
+        if (ev.strategiesWorked.length > 0)
+          lines.push(`  Estratégias que funcionaram: ${ev.strategiesWorked.join(' | ')}`);
+        if (ev.recommendations.length > 0)
+          lines.push(`  Recomendações: ${ev.recommendations.join(' | ')}`);
+        if (ev.alerts.length > 0)
+          lines.push(`  ⚠ Alertas: ${ev.alerts.join(' | ')}`);
+        if (ev.parecer)
+          lines.push(`  Parecer pedagógico: ${ev.parecer.slice(0, 600)}`);
+      }
+    }
+
+    if (cuidadoraEvs.length > 0) {
+      lines.push('\n[ Registros de Rotina Escolar — Cuidadora ]');
+      for (const ev of cuidadoraEvs) {
+        const d = ev.date ? new Date(ev.date).toLocaleDateString('pt-BR') : '—';
+        lines.push(`  Registro: ${d} — por ${ev.professional || 'Cuidadora'}`);
+        if (ev.summary.length > 0)
+          lines.push(`  Rotina observada: ${ev.summary.join(' | ')}`);
+        if (ev.barriers.length > 0)
+          lines.push(`  Dificuldades de rotina: ${ev.barriers.join(' | ')}`);
+        if (ev.strategiesWorked.length > 0)
+          lines.push(`  Estratégias eficazes: ${ev.strategiesWorked.join(' | ')}`);
+        if (ev.alerts.length > 0)
+          lines.push(`  ⚠ Alertas da semana: ${ev.alerts.join(' | ')}`);
+        if (ev.parecer)
+          lines.push(`  Parecer: ${ev.parecer.slice(0, 600)}`);
+      }
+    }
+
+    // Padrões recorrentes entre múltiplos registros
+    const allStrategies = checklistEvidences.flatMap(e => e.strategiesWorked);
+    const allBarriers   = checklistEvidences.flatMap(e => e.barriers);
+    const freqStrategies = [...new Set(allStrategies)].filter(s =>
+      allStrategies.filter(x => x === s).length >= 2,
+    );
+    const freqBarriers = [...new Set(allBarriers)].filter(b =>
+      allBarriers.filter(x => x === b).length >= 2,
+    );
+    if (freqStrategies.length > 0)
+      lines.push(`\nEstratégias recorrentemente eficazes (múltiplos registros): ${freqStrategies.join(' | ')}`);
+    if (freqBarriers.length > 0)
+      lines.push(`⚠ Barreiras recorrentes (múltiplos registros): ${freqBarriers.join(' | ')}`);
   }
 
   // 5. Conhecimento prévio
@@ -781,6 +1313,40 @@ export function buildPromptBlock(pack: EvidencePack): string {
     enriched.riscosPedagogicos.forEach(r => lines.push(`  ⚠ ${r}`));
   }
 
+  // 8. Documentos pedagógicos salvos
+  const docSummaryBlock = buildDocumentSummaryBlock(pack.savedDocuments, pack.docType);
+  if (docSummaryBlock) lines.push(docSummaryBlock);
+
+  // 9. Laudos e relatórios subidos (metadados de student_documents)
+  const uploadedBlock = buildUploadedReportsBlock(pack.attachedDocuments ?? []);
+  if (uploadedBlock) lines.push(uploadedBlock);
+
+  // 10. Planos de ação salvos (regente + AEE)
+  const actionPlansBlock = buildSavedActionPlansBlock(
+    pack.savedActionPlans,
+    pack.savedAEEActionPlans,
+    pack.docType,
+  );
+  if (actionPlansBlock) lines.push(actionPlansBlock);
+
+  // 11. Perfil Inteligente salvo
+  const profileBlock = buildIntelligentProfileBlock(pack.savedIntelligentProfile);
+  if (profileBlock) lines.push(profileBlock);
+
+  // 12. Atividades geradas (apenas para Perfil Inteligente)
+  if (pack.docType === 'perfil_inteligente' && pack.generatedActivities.length > 0) {
+    lines.push('\n=== ATIVIDADES PEDAGÓGICAS GERADAS ===');
+    for (const a of pack.generatedActivities.slice(0, 5)) {
+      const date = a.createdAt ? new Date(a.createdAt).toLocaleDateString('pt-BR') : '—';
+      lines.push(`  • ${a.title}${a.discipline ? ` (${a.discipline})` : ''}${a.grade ? ` — ${a.grade}` : ''} — ${date}`);
+    }
+  }
+
+  // 13. Alerta PAEE ausente (Plano AEE)
+  if (pack.docType === 'plano_acao_aee' && !pack.savedDocuments.some(d => d.category === 'paee')) {
+    lines.push('\n⚠ AVISO PLANO AEE: PAEE não encontrado para este aluno. O PAEE é a fonte primária do Plano AEE. Sinalize a ausência no documento gerado e fundamente nas demais fontes disponíveis.');
+  }
+
   lines.push(`\nScore de completude: ${enriched.scoreCompletude}%`);
   lines.push('\n===== FIM DO CONTEXTO CANÔNICO =====');
   lines.push(
@@ -788,7 +1354,15 @@ export function buildPromptBlock(pack: EvidencePack): string {
     ' Cite datas, frequências e padrões temporais.' +
     ' Use o perfil pedagógico inicial para calibrar complexidade.' +
     ' Use os laudos na seção clínica. Use a linha do tempo para embasar progresso.' +
-    ' Não invente dados. Se há lacunas, infira a partir do diagnóstico — nunca escreva "não informado".',
+    ' Não invente dados. Se há lacunas, infira a partir do diagnóstico — nunca escreva "não informado".' +
+    '\n\nGUARDRAILS ÉTICOS OBRIGATÓRIOS:' +
+    ' (1) Não invente laudos, diagnósticos, CID ou histórico não fornecido.' +
+    ' (2) Não afirme ter lido arquivo cujo conteúdo não foi disponibilizado.' +
+    ' (3) Não transforme observação pedagógica em diagnóstico clínico.' +
+    ' (4) Não prescreva conduta médica ou terapêutica.' +
+    ' (5) Diferencie sempre: laudo clínico (profissional de saúde) ≠ observação pedagógica (professor/AEE) ≠ registro de rotina (cuidadora) ≠ documento pedagógico oficial.' +
+    ' (6) Sinalize lacunas quando informação essencial estiver ausente.' +
+    ' (7) Não crie CID inexistente. Use apenas diagnósticos presentes nos dados.',
   );
   return lines.join('\n');
 }
@@ -1009,58 +1583,116 @@ export const CanonicalStudentContextService = {
       return {
         student, cognitiveProfiles: [], observationForms: [], medicalReports: [],
         attachedDocuments: [], priorKnowledge: student.priorKnowledge ?? null,
-        timeline: [], appointments: [],
+        timeline: [], appointments: [], checklistEvidences: [],
         enriched: computeEnrichment([], [], [], [], [], student),
+        savedDocuments: [], savedActionPlans: [], savedAEEActionPlans: [],
+        savedIntelligentProfile: null, generatedActivities: [],
         loadedAt: new Date().toISOString(),
       };
     }
 
-    const [profilesRes, obsFormsRes, medReportsRes, docsRes, timelineRes, apptRes] =
-      await Promise.allSettled([
-        supabase.from('student_profiles').select('*')
-          .eq('student_id', sid).order('evaluated_at', { ascending: false }).limit(5),
-        supabase.from('observation_forms').select('*')
-          .eq('student_id', sid).eq('status', 'finalizado')
-          .order('created_at', { ascending: false }).limit(10),
-        supabase.from('medical_reports')
-          .select('id, report_type, synthesis, pedagogical_points, suggestions, raw_content, document_id')
-          .eq('student_id', sid).order('created_at', { ascending: false }).limit(5),
-        supabase.from('student_documents').select('name, document_type, created_at')
-          .eq('student_id', sid).order('created_at', { ascending: false }).limit(20),
-        supabase.from('student_timeline').select('*')
-          .eq('student_id', sid).order('event_date', { ascending: false }).limit(50),
-        supabase.from('tenant_appointments').select('*')
-          .eq('student_id', sid).order('date', { ascending: false }).limit(100),
-      ]);
+    const [
+      profilesRes, obsFormsRes, medReportsRes, docsRes, timelineRes, apptRes,
+      savedDocsRes, actionPlansRes, aeeActionPlansRes, intelligentProfileRes, activitiesRes,
+    ] = await Promise.allSettled([
+      supabase.from('student_profiles').select('*')
+        .eq('student_id', sid).order('evaluated_at', { ascending: false }).limit(5),
+      supabase.from('observation_forms').select('*')
+        .eq('student_id', sid).eq('status', 'finalizado')
+        .order('created_at', { ascending: false }).limit(10),
+      supabase.from('medical_reports')
+        .select('id, report_type, synthesis, pedagogical_points, suggestions, raw_content, document_id')
+        .eq('student_id', sid).order('created_at', { ascending: false }).limit(5),
+      supabase.from('student_documents').select('name, document_type, created_at, notes')
+        .eq('student_id', sid).order('created_at', { ascending: false }).limit(20),
+      supabase.from('student_timeline').select('*')
+        .eq('student_id', sid).order('event_date', { ascending: false }).limit(50),
+      supabase.from('tenant_appointments').select('*')
+        .eq('student_id', sid).order('date', { ascending: false }).limit(100),
+      // Sprint IA-1 — documentos pedagógicos gerados (PEI, PAEE, PDI, Estudo de Caso etc.)
+      supabase.from('documents')
+        .select('id, doc_type, title, status, structured_data, audit_code, created_at, updated_at')
+        .eq('student_id', sid)
+        .is('deleted_at', null)
+        .in('status', ['APPROVED', 'DRAFT', 'approved', 'draft'])
+        .order('created_at', { ascending: false })
+        .limit(20),
+      // Planos de Ação do Professor Regente
+      supabase.from('student_action_plans')
+        .select('id, plan_type, title, summary, content_json, register_code, version_number, created_at')
+        .eq('student_id', sid)
+        .eq('is_archived', false)
+        .order('created_at', { ascending: false })
+        .limit(3),
+      // Planos de Ação AEE
+      supabase.from('student_aee_action_plans')
+        .select('id, plan_type, title, content_json, register_code, version_number, created_at')
+        .eq('student_id', sid)
+        .eq('is_archived', false)
+        .order('created_at', { ascending: false })
+        .limit(3),
+      // Perfil Inteligente
+      supabase.from('student_intelligent_profiles')
+        .select('id, version_number, profile_json, created_at')
+        .eq('student_id', sid)
+        .order('version_number', { ascending: false })
+        .limit(3),
+      // Atividades geradas
+      supabase.from('generated_activities')
+        .select('id, title, discipline, grade, created_at, content')
+        .eq('student_id', sid)
+        .order('created_at', { ascending: false })
+        .limit(5),
+    ]);
 
     const safe = <T>(res: PromiseSettledResult<{ data: T[] | null; error: any }>, norm: (raw: T[]) => any): any[] => {
       if (res.status === 'fulfilled' && !res.value.error) return norm(res.value.data ?? []);
       return [];
     };
 
-    const cognitiveProfiles  = safe(profilesRes  as any, normalizeCognitiveProfiles);
-    const observationForms   = safe(obsFormsRes   as any, normalizeObservationForms);
-    const medicalReports     = safe(medReportsRes as any, normalizeMedicalReports);
-    const attachedDocuments  = safe(docsRes       as any, normalizeAttachedDocuments);
-    const timeline           = safe(timelineRes   as any, normalizeTimeline);
-    const appointments       = safe(apptRes       as any, normalizeAppointments);
-    const priorKnowledge     = student.priorKnowledge ?? null;
-    const enriched           = computeEnrichment(appointments, timeline, cognitiveProfiles, medicalReports, observationForms, student);
+    const cognitiveProfiles       = safe(profilesRes         as any, normalizeCognitiveProfiles);
+    const observationForms        = safe(obsFormsRes          as any, normalizeObservationForms);
+    const medicalReports          = safe(medReportsRes        as any, normalizeMedicalReports);
+    const attachedDocuments       = safe(docsRes              as any, normalizeAttachedDocuments);
+    const timeline                = safe(timelineRes          as any, normalizeTimeline);
+    const appointments            = safe(apptRes              as any, normalizeAppointments);
+    const savedDocuments          = safe(savedDocsRes         as any, normalizeSavedDocuments);
+    const savedActionPlans        = safe(actionPlansRes       as any, (r: any[]) => normalizeActionPlans(r, 'regente'));
+    const savedAEEActionPlans     = safe(aeeActionPlansRes    as any, (r: any[]) => normalizeActionPlans(r, 'aee'));
+    const savedIntelligentProfile = (() => {
+      if (intelligentProfileRes.status === 'fulfilled' && !intelligentProfileRes.value.error) {
+        return normalizeIntelligentProfile(intelligentProfileRes.value.data ?? []);
+      }
+      return null;
+    })();
+    const generatedActivities     = safe(activitiesRes        as any, normalizeGeneratedActivities);
+    const priorKnowledge          = student.priorKnowledge ?? null;
+    const checklistEvidences      = extractChecklistEvidences(observationForms);
+    const enriched                = computeEnrichment(appointments, timeline, cognitiveProfiles, medicalReports, observationForms, student);
 
     return {
       student, cognitiveProfiles, observationForms, medicalReports,
-      attachedDocuments, priorKnowledge, timeline, appointments, enriched,
+      attachedDocuments, priorKnowledge, timeline, appointments,
+      checklistEvidences, enriched,
+      savedDocuments, savedActionPlans, savedAEEActionPlans,
+      savedIntelligentProfile, generatedActivities,
       loadedAt: new Date().toISOString(),
     };
   },
 
   hasData(ctx: CanonicalStudentContext): boolean {
     return (
-      ctx.cognitiveProfiles.length > 0 ||
-      ctx.observationForms.length   > 0 ||
-      ctx.medicalReports.length     > 0 ||
-      ctx.timeline.length           > 0 ||
-      ctx.appointments.length       > 0 ||
+      ctx.cognitiveProfiles.length      > 0 ||
+      ctx.observationForms.length       > 0 ||
+      ctx.medicalReports.length         > 0 ||
+      ctx.timeline.length               > 0 ||
+      ctx.appointments.length           > 0 ||
+      ctx.checklistEvidences.length     > 0 ||
+      ctx.savedDocuments.length         > 0 ||
+      ctx.savedActionPlans.length       > 0 ||
+      ctx.savedAEEActionPlans.length    > 0 ||
+      ctx.savedIntelligentProfile !== null ||
+      ctx.generatedActivities.length    > 0 ||
       (ctx.priorKnowledge !== null && hasPKScores(ctx.priorKnowledge))
     );
   },
@@ -1118,14 +1750,17 @@ export const CanonicalStudentContextService = {
 // ─── Mapper doc type → DocumentCategory ───────────────────────────────────────
 
 export function mapDocTypeToCategory(type: string): DocumentCategory {
-  const t = String(type).toUpperCase().replace(/\s+/g, '_');
-  if (t.includes('ESTUDO'))  return 'estudo_de_caso';
-  if (t.includes('PEI'))     return 'pei';
-  if (t.includes('PAEE'))    return 'paee';
-  if (t.includes('PDI'))     return 'pdi';
-  if (t.includes('FICHA') && t.includes('COGN')) return 'ficha_cognitiva';
-  if (t.includes('FICHA'))   return 'ficha_aluno';
-  if (t.includes('RELAT'))   return 'relatorio';
-  if (t.includes('ATIVID'))  return 'atividade_adaptada';
+  const t = String(type).toUpperCase().replace(/\s+/g, '_').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (t.includes('ESTUDO'))                                   return 'estudo_de_caso';
+  if (t.includes('PEI'))                                      return 'pei';
+  if (t.includes('PAEE'))                                     return 'paee';
+  if ((t.includes('PLANO') || t.includes('PLANO_ACAO')) && t.includes('REGENTE')) return 'plano_acao_regente';
+  if (t.includes('PLANO_ACAO') || t.includes('PLANO_DE_ACAO')) return 'plano_acao_aee';
+  if (t.includes('PDI'))                                      return 'pdi';
+  if (t.includes('PERFIL') && t.includes('INTEL'))            return 'perfil_inteligente';
+  if (t.includes('FICHA') && t.includes('COGN'))             return 'ficha_cognitiva';
+  if (t.includes('FICHA'))                                    return 'ficha_aluno';
+  if (t.includes('RELAT'))                                    return 'relatorio';
+  if (t.includes('ATIVID'))                                   return 'atividade_adaptada';
   return 'estudo_de_caso';
 }

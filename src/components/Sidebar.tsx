@@ -9,6 +9,7 @@ import {
   FileSearch,
   GraduationCap,
   ClipboardList,
+  ListChecks,
   PieChart,
   LayoutTemplate,
   Activity,
@@ -230,10 +231,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
               Documentação
             </div>
-            <NavItem viewId="estudo_caso" icon={FileSearch}    label="Estudo de Caso" iconColor="#7C3AED" />
-            <NavItem viewId="paee"        icon={ClipboardList} label="PAEE (uso exclusivo do AEE)"  title="Documento exclusivo para professores do Atendimento Educacional Especializado (AEE)" iconColor="#D97706" />
-            <NavItem viewId="protocols"   icon={FileText}      label="PEI" iconColor="#16A34A" />
-            <NavItem viewId="pdi"         icon={GraduationCap} label="PDI (opcional)"               title="Documento opcional para planejamento individual complementar" iconColor="#DB2777" />
+            <NavItem viewId="estudo_caso"    icon={FileSearch}    label="Estudo de Caso" iconColor="#7C3AED" />
+            <NavItem viewId="paee"           icon={ClipboardList} label="PAEE (uso exclusivo do AEE)"  title="Documento exclusivo para professores do Atendimento Educacional Especializado (AEE)" iconColor="#D97706" />
+            <NavItem viewId="protocols"      icon={FileText}      label="PEI" iconColor="#16A34A" />
+            <NavItem viewId="pdi"            icon={GraduationCap} label="PDI (opcional)"               title="Documento opcional para planejamento individual complementar" iconColor="#DB2777" />
             {isPaid
               ? <NavItem viewId="school_templates" icon={LayoutTemplate} label="Meus Modelos" iconColor="#C69214" />
               : <LockedNavItemPro icon={LayoutTemplate} label="Meus Modelos" />

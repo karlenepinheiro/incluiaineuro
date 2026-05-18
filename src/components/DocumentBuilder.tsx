@@ -58,10 +58,11 @@ function resolveStudentSchool(
 
 // Seções esperadas por tipo de documento — contexto para análise via upload
 const STANDARD_DOC_FIELDS: Record<string, string> = {
-  PEI:           'Identificação do Aluno, Diagnóstico e CID, Habilidades e Potencialidades, Dificuldades e Desafios, Objetivos Pedagógicos Individualizados, Estratégias e Adaptações, Recursos e Materiais, Avaliação e Monitoramento, Assinaturas',
-  PAEE:          'Identificação do Aluno, Demanda e Encaminhamento, Avaliação Pedagógica Especializada, Plano de AEE (Objetivos, Atividades, Recursos), Articulação com Sala Regular, Periodicidade, Avaliação dos Resultados',
-  PDI:           'Identificação, Diagnóstico, Perfil de Aprendizagem, Objetivos de Desenvolvimento, Estratégias de Intervenção, Recursos Necessários, Metas de Curto e Longo Prazo, Avaliação',
-  estudo_de_caso:'Identificação, Motivo do Encaminhamento, Histórico Escolar, Avaliação Multidisciplinar, Diagnóstico Funcional, Intervenções Realizadas, Análise e Conclusões, Recomendações',
+  PEI:            'Identificação do Aluno, Diagnóstico e CID, Habilidades e Potencialidades, Dificuldades e Desafios, Objetivos Pedagógicos Individualizados, Estratégias e Adaptações, Recursos e Materiais, Avaliação e Monitoramento, Assinaturas',
+  PAEE:           'Identificação do Aluno, Demanda e Encaminhamento, Avaliação Pedagógica Especializada, Plano de AEE (Objetivos, Atividades, Recursos), Articulação com Sala Regular, Periodicidade, Avaliação dos Resultados',
+  PDI:            'Identificação, Diagnóstico, Perfil de Aprendizagem, Objetivos de Desenvolvimento, Estratégias de Intervenção, Recursos Necessários, Metas de Curto e Longo Prazo, Avaliação',
+  estudo_de_caso: 'Identificação, Motivo do Encaminhamento, Histórico Escolar, Avaliação Multidisciplinar, Diagnóstico Funcional, Intervenções Realizadas, Análise e Conclusões, Recomendações',
+  PLANO_ACAO_AEE: 'Identificação, Síntese do Perfil, Barreira Prioritária, Objetivo Prático, Ações do AEE, Recursos e Materiais, Sugestões Práticas, Roteiro do Atendimento, Orientações para o Professor, Orientações para a Família, Registro da Resposta, Próximos Passos, Assinaturas',
 };
 
 interface DocumentBuilderProps {
@@ -82,10 +83,11 @@ interface DocumentBuilderProps {
 
 // Custo de créditos por tipo de documento — fonte única: src/config/aiCosts.ts
 const DOC_CREDIT_COSTS: Record<string, number> = {
-  'Estudo de Caso': AI_CREDIT_COSTS.ESTUDO_DE_CASO,
-  'PEI':            AI_CREDIT_COSTS.PEI,
-  'PAEE':           AI_CREDIT_COSTS.PAEE,
-  'PDI':            AI_CREDIT_COSTS.PDI,
+  'Estudo de Caso':    AI_CREDIT_COSTS.ESTUDO_DE_CASO,
+  'PEI':               AI_CREDIT_COSTS.PEI,
+  'PAEE':              AI_CREDIT_COSTS.PAEE,
+  'PDI':               AI_CREDIT_COSTS.PDI,
+  'Plano de Ação AEE': AI_CREDIT_COSTS.PLANO_ACAO_AEE,
 };
 
 function CreditBadge({ type }: { type: string }) {

@@ -9,13 +9,35 @@ import {
   Download, User, ClipboardList, Eye, FileText, FileSearch,
   GraduationCap, Lock, Printer, Info, BookOpen,
 } from 'lucide-react';
-import { User as UserType } from '../types';
+import { User as UserType, resolvePlanTier, PlanTier } from '../types';
 import {
   generateFichaAluno,
   generateRegistroAtendimento,
   generateObservacaoPedagogica,
+  generateBlankPEIPDF,
+  generateBlankPAEEPDF,
+  generateBlankPDIPDF,
+  generateBlankEstudoCasoPDF,
+  generateBlankRegentActionPlanPDF,
 } from '../services/blankPDFService';
 import type { SchoolConfig } from '../types';
+
+// ─── Hierarquia de planos ─────────────────────────────────────────────────────
+const PLAN_LEVEL: Record<PlanTier, number> = {
+  [PlanTier.FREE]:    0,
+  [PlanTier.PRO]:     1,
+  [PlanTier.PREMIUM]: 2, // PREMIUM enum cobre MASTER e PREMIUM do DB
+};
+
+const REQUIRED_LEVEL: Record<'FREE' | 'PRO', number> = {
+  FREE: 0,
+  PRO:  1,
+};
+
+function canAccessTemplate(userPlan: unknown, requiredPlan: 'FREE' | 'PRO'): boolean {
+  const tier = resolvePlanTier(userPlan);
+  return (PLAN_LEVEL[tier] ?? 0) >= REQUIRED_LEVEL[requiredPlan];
+}
 
 // ─── Catálogo de modelos ──────────────────────────────────────────────────────
 
@@ -70,47 +92,47 @@ const TEMPLATES: TemplateEntry[] = [
   {
     slug:        'pei',
     title:       'PEI em branco',
-    description: 'Plano Educacional Individualizado com todas as seções para preenchimento manual.',
+    description: 'Plano Educacional Individualizado com objetivos, adaptações, estratégias e avaliação.',
     plan:        'PRO',
     icon:        <FileText size={22} />,
     category:    'Documentos Oficiais',
-    generate:    null,
+    generate:    generateBlankPEIPDF,
   },
   {
     slug:        'paee',
     title:       'PAEE em branco',
-    description: 'Plano de Atendimento Educacional Especializado com campos para metas e estratégias.',
+    description: 'Plano de Atendimento Educacional Especializado com barreiras, recursos, estratégias e acompanhamento.',
     plan:        'PRO',
     icon:        <FileText size={22} />,
     category:    'Documentos Oficiais',
-    generate:    null,
+    generate:    generateBlankPAEEPDF,
   },
   {
     slug:        'pdi',
     title:       'PDI em branco',
-    description: 'Plano de Desenvolvimento Individual com linha do tempo e metas de longo prazo.',
+    description: 'Plano de Desenvolvimento Individual com metas, habilidades e monitoramento.',
     plan:        'PRO',
     icon:        <GraduationCap size={22} />,
     category:    'Documentos Oficiais',
-    generate:    null,
+    generate:    generateBlankPDIPDF,
   },
   {
     slug:        'estudo_caso',
     title:       'Estudo de Caso em branco',
-    description: 'Estudo de Caso completo com 7 seções — identificação, histórico, análise e parecer.',
+    description: 'Modelo completo para levantamento inicial, histórico, análise pedagógica e encaminhamentos.',
     plan:        'PRO',
     icon:        <FileSearch size={22} />,
     category:    'Documentos Oficiais',
-    generate:    null,
+    generate:    generateBlankEstudoCasoPDF,
   },
   {
     slug:        'plano_acao',
-    title:       'Plano de Ação do Regente',
-    description: 'Plano de ação semanal / mensal para o professor da sala comum.',
+    title:       'Plano de Ação do Professor Regente',
+    description: 'Plano prático semanal ou mensal com ações diretas para sala de aula.',
     plan:        'PRO',
     icon:        <BookOpen size={22} />,
     category:    'Pedagógico',
-    generate:    null,
+    generate:    generateBlankRegentActionPlanPDF,
   },
 ];
 
@@ -223,7 +245,7 @@ export const PrintableTemplatesView: React.FC<PrintableTemplatesViewProps> = ({ 
       {/* ── Grid de cards ── */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredTemplates.map(tpl => {
-          const isFree    = tpl.plan === 'FREE';
+          const canAccess = canAccessTemplate(user.plan, tpl.plan);
           const isLoading = loadingSlug === tpl.slug;
 
           return (
@@ -232,13 +254,13 @@ export const PrintableTemplatesView: React.FC<PrintableTemplatesViewProps> = ({ 
               className="bg-white rounded-2xl overflow-hidden flex flex-col transition"
               style={{
                 border:  `1.5px solid ${border}`,
-                opacity: !isFree ? 0.72 : 1,
+                opacity: !canAccess ? 0.72 : 1,
               }}
             >
               {/* Cor de topo */}
               <div
                 className="h-1.5"
-                style={{ background: isFree ? petrol : '#D1D5DB' }}
+                style={{ background: canAccess ? petrol : '#D1D5DB' }}
               />
 
               <div className="p-5 flex flex-col flex-1">
@@ -246,15 +268,15 @@ export const PrintableTemplatesView: React.FC<PrintableTemplatesViewProps> = ({ 
                 <div className="flex items-start justify-between mb-3">
                   <div
                     className="w-10 h-10 rounded-xl flex items-center justify-center"
-                    style={{ background: isFree ? '#EFF6FF' : '#F3F4F6', color: isFree ? petrol : '#9CA3AF' }}
+                    style={{ background: canAccess ? '#EFF6FF' : '#F3F4F6', color: canAccess ? petrol : '#9CA3AF' }}
                   >
                     {tpl.icon}
                   </div>
                   <span
                     className="text-[10px] font-bold px-2 py-0.5 rounded-full"
                     style={{
-                      background: isFree ? '#DCFCE7' : '#FEF3C7',
-                      color:      isFree ? '#166534' : '#92400E',
+                      background: tpl.plan === 'FREE' ? '#DCFCE7' : '#FEF3C7',
+                      color:      tpl.plan === 'FREE' ? '#166534' : '#92400E',
                     }}
                   >
                     {tpl.plan}
@@ -267,7 +289,7 @@ export const PrintableTemplatesView: React.FC<PrintableTemplatesViewProps> = ({ 
 
                 {/* Botão */}
                 <div className="mt-4">
-                  {isFree ? (
+                  {canAccess && tpl.generate ? (
                     <button
                       onClick={() => handleDownload(tpl)}
                       disabled={isLoading}
@@ -280,13 +302,20 @@ export const PrintableTemplatesView: React.FC<PrintableTemplatesViewProps> = ({ 
                         <><Download size={15} /> Baixar PDF</>
                       )}
                     </button>
+                  ) : canAccess && !tpl.generate ? (
+                    <div
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold"
+                      style={{ background: '#F0FDF4', color: '#16A34A', border: '1px dashed #86EFAC' }}
+                    >
+                      Em breve
+                    </div>
                   ) : (
                     <div
                       className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold"
                       style={{ background: '#F3F4F6', color: '#9CA3AF' }}
                     >
                       <Lock size={14} />
-                      Em breve — Plano PRO
+                      Plano PRO
                     </div>
                   )}
                 </div>

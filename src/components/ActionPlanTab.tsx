@@ -3,6 +3,7 @@ import {
   Sparkles, ChevronDown, ChevronUp, FileText, Trash2, RefreshCw,
   CheckSquare, Square, Clock, User, Hash, BookOpen, Zap, Shield,
   MessageSquare, Eye, Printer, AlertCircle, X,
+  Target, AlertTriangle, Star, Play, Package, Users, Settings, FileCheck, UserCheck,
 } from 'lucide-react';
 import { Student, ActionPlanPeriod, ActionPlanJSON, ActionPlanRecord, ActionPlanItem } from '../types';
 import { AIService } from '../services/aiService';
@@ -16,10 +17,15 @@ const GOLD   = '#C69214';
 
 // ── Configuração de blocos ────────────────────────────────────────────────────
 
+type CoreBlockKey = 'beforeClass' | 'duringClass' | 'activitiesStrategies' |
+  'assessment' | 'attentionObservations' | 'communicationTeam';
+
+type EnrichedBlockKey = 'focusPlan' | 'mainBarrier' |
+  'suggestedGames' | 'suggestedVideos' | 'suggestedMaterials' | 'suggestedDynamics' |
+  'adaptations' | 'evidenceRecording' | 'studentResponse';
+
 interface BlockConfig {
-  key: keyof Pick<ActionPlanJSON,
-    'beforeClass' | 'duringClass' | 'activitiesStrategies' |
-    'assessment'  | 'attentionObservations' | 'communicationTeam'>;
+  key: CoreBlockKey | EnrichedBlockKey;
   icon: React.ReactNode;
   bg: string;
   border: string;
@@ -27,37 +33,27 @@ interface BlockConfig {
   badgeText: string;
 }
 
+// Blocos originais — obrigatórios em todos os planos
 const BLOCK_CONFIGS: BlockConfig[] = [
-  {
-    key: 'beforeClass',
-    icon: <Clock size={15} />,
-    bg: '#EEF2FF', border: '#C7D2FE', badge: '#4F46E5', badgeText: 'Preparação',
-  },
-  {
-    key: 'duringClass',
-    icon: <Zap size={15} />,
-    bg: '#EFF6FF', border: '#BFDBFE', badge: '#2563EB', badgeText: 'Em Sala',
-  },
-  {
-    key: 'activitiesStrategies',
-    icon: <BookOpen size={15} />,
-    bg: '#F0FDF4', border: '#BBF7D0', badge: '#16A34A', badgeText: 'Atividades',
-  },
-  {
-    key: 'assessment',
-    icon: <CheckSquare size={15} />,
-    bg: '#FFFBEB', border: '#FDE68A', badge: '#D97706', badgeText: 'Avaliação',
-  },
-  {
-    key: 'attentionObservations',
-    icon: <Eye size={15} />,
-    bg: '#FFF1F2', border: '#FECDD3', badge: '#E11D48', badgeText: 'Atenção',
-  },
-  {
-    key: 'communicationTeam',
-    icon: <MessageSquare size={15} />,
-    bg: '#F0FDFA', border: '#99F6E4', badge: '#0D9488', badgeText: 'Comunicação',
-  },
+  { key: 'beforeClass',         icon: <Clock size={15} />,       bg: '#EEF2FF', border: '#C7D2FE', badge: '#4F46E5', badgeText: 'Preparação'   },
+  { key: 'duringClass',         icon: <Zap size={15} />,         bg: '#EFF6FF', border: '#BFDBFE', badge: '#2563EB', badgeText: 'Em Sala'       },
+  { key: 'activitiesStrategies',icon: <BookOpen size={15} />,    bg: '#F0FDF4', border: '#BBF7D0', badge: '#16A34A', badgeText: 'Atividades'    },
+  { key: 'assessment',          icon: <CheckSquare size={15} />, bg: '#FFFBEB', border: '#FDE68A', badge: '#D97706', badgeText: 'Avaliação'     },
+  { key: 'attentionObservations',icon: <Eye size={15} />,        bg: '#FFF1F2', border: '#FECDD3', badge: '#E11D48', badgeText: 'Atenção'       },
+  { key: 'communicationTeam',   icon: <MessageSquare size={15} />,bg: '#F0FDFA', border: '#99F6E4', badge: '#0D9488', badgeText: 'Comunicação'  },
+];
+
+// Blocos enriquecidos — opcionais, gerados apenas em planos novos
+const ENRICHED_BLOCK_CONFIGS: BlockConfig[] = [
+  { key: 'focusPlan',        icon: <Target size={15} />,       bg: '#FFFBEB', border: '#FDE68A', badge: '#D97706', badgeText: 'Foco do Plano'        },
+  { key: 'mainBarrier',      icon: <AlertTriangle size={15} />,bg: '#FFF1F2', border: '#FECDD3', badge: '#E11D48', badgeText: 'Barreira em Sala'     },
+  { key: 'suggestedGames',   icon: <Star size={15} />,         bg: '#F0FDF4', border: '#BBF7D0', badge: '#16A34A', badgeText: 'Jogos Sugeridos'       },
+  { key: 'suggestedVideos',  icon: <Play size={15} />,         bg: '#EFF6FF', border: '#BFDBFE', badge: '#2563EB', badgeText: 'Vídeos Sugeridos'      },
+  { key: 'suggestedMaterials',icon: <Package size={15} />,     bg: '#F0FDFA', border: '#99F6E4', badge: '#0D9488', badgeText: 'Materiais Sugeridos'   },
+  { key: 'suggestedDynamics',icon: <Users size={15} />,        bg: '#F5F3FF', border: '#DDD6FE', badge: '#7C3AED', badgeText: 'Dinâmicas Sugeridas'  },
+  { key: 'adaptations',      icon: <Settings size={15} />,     bg: '#FFF7ED', border: '#FED7AA', badge: '#EA580C', badgeText: 'Adaptações'            },
+  { key: 'evidenceRecording',icon: <FileCheck size={15} />,    bg: '#F8FAFC', border: '#CBD5E1', badge: '#64748B', badgeText: 'Registro de Evidências'},
+  { key: 'studentResponse',  icon: <UserCheck size={15} />,    bg: '#F1F5F9', border: '#E2E8F0', badge: '#94A3B8', badgeText: 'Resposta do Aluno'     },
 ];
 
 // ── Configuração de período ────────────────────────────────────────────────────
@@ -177,29 +173,33 @@ const PlanCard: React.FC<{
   const period = plan?.period ?? 'mensal';
   const cfg = PERIOD_CONFIG[period] ?? PERIOD_CONFIG.mensal;
 
-  const totalItems = BLOCK_CONFIGS.reduce((acc, b) => {
-    return acc + (plan?.[b.key]?.items?.length ?? 0);
+  const ALL_BLOCK_CONFIGS = [...BLOCK_CONFIGS, ...ENRICHED_BLOCK_CONFIGS];
+
+  const totalItems = ALL_BLOCK_CONFIGS.reduce((acc, b) => {
+    const block = (plan as any)?.[b.key];
+    return acc + (block?.items?.length ?? 0);
   }, 0);
-  const doneItems = BLOCK_CONFIGS.reduce((acc, b) => {
-    return acc + (plan?.[b.key]?.items?.filter(i => localDone[`${record.id}:${b.key}:${i.id}`] ?? i.done).length ?? 0);
+  const doneItems = ALL_BLOCK_CONFIGS.reduce((acc, b) => {
+    const block = (plan as any)?.[b.key];
+    return acc + (block?.items?.filter((i: ActionPlanItem) => localDone[`${record.id}:${b.key}:${i.id}`] ?? i.done).length ?? 0);
   }, 0);
   const overallPct = totalItems > 0 ? Math.round((doneItems / totalItems) * 100) : 0;
 
   const mergedPlan = (planJson: ActionPlanJSON): ActionPlanJSON => {
-    const p = { ...planJson };
-    for (const b of BLOCK_CONFIGS) {
+    const p = { ...planJson } as any;
+    for (const b of ALL_BLOCK_CONFIGS) {
       const block = p[b.key];
       if (block) {
         p[b.key] = {
           ...block,
-          items: block.items.map(i => ({
+          items: block.items.map((i: ActionPlanItem) => ({
             ...i,
             done: localDone[`${record.id}:${b.key}:${i.id}`] ?? i.done,
           })),
         };
       }
     }
-    return p;
+    return p as ActionPlanJSON;
   };
 
   return (
@@ -297,27 +297,130 @@ const PlanCard: React.FC<{
 
       {/* ── Expanded Content ── */}
       {expanded && plan && (
-        <div className="p-5 space-y-4" style={{ borderTop: `1px solid ${cfg.color}20` }}>
-          <div className="grid md:grid-cols-2 gap-4">
-            {BLOCK_CONFIGS.map(bcfg => {
-              const block = plan[bcfg.key];
-              if (!block) return null;
-              const mergedItems = block.items.map(i => ({
-                ...i,
-                done: localDone[`${record.id}:${bcfg.key}:${i.id}`] ?? i.done,
-              }));
-              return (
-                <ChecklistBlock
-                  key={bcfg.key}
-                  config={bcfg}
-                  block={{ ...block, items: mergedItems }}
-                  onToggle={itemId => onToggleItem(record.id, bcfg.key, itemId)}
-                />
-              );
-            })}
+        <div className="p-5 space-y-5" style={{ borderTop: `1px solid ${cfg.color}20` }}>
+
+          {/* Objetivo Prático — banner amarelo */}
+          {plan.practicalObjective && (
+            <div className="rounded-xl px-4 py-3 flex items-start gap-3" style={{ background: '#FFFBEB', border: '1.5px solid #FDE68A' }}>
+              <Target size={16} style={{ color: '#D97706', marginTop: 2, flexShrink: 0 }} />
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#D97706' }}>Objetivo Prático do Período</p>
+                <p className="text-sm text-gray-800 mt-0.5 leading-snug">{plan.practicalObjective}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Foco + Barreira — seção de contexto */}
+          {(plan.focusPlan || plan.mainBarrier) && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Contexto do Período</p>
+              <div className="grid md:grid-cols-2 gap-4">
+                {[...ENRICHED_BLOCK_CONFIGS.filter(b => b.key === 'focusPlan' || b.key === 'mainBarrier')].map(bcfg => {
+                  const block = (plan as any)[bcfg.key];
+                  if (!block) return null;
+                  const mergedItems = block.items.map((i: ActionPlanItem) => ({
+                    ...i,
+                    done: localDone[`${record.id}:${bcfg.key}:${i.id}`] ?? i.done,
+                  }));
+                  return (
+                    <ChecklistBlock key={bcfg.key} config={bcfg} block={{ ...block, items: mergedItems }}
+                      onToggle={itemId => onToggleItem(record.id, bcfg.key, itemId)} />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 6 blocos originais */}
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Ações Principais</p>
+            <div className="grid md:grid-cols-2 gap-4">
+              {BLOCK_CONFIGS.map(bcfg => {
+                const block = (plan as any)[bcfg.key];
+                if (!block) return null;
+                const mergedItems = block.items.map((i: ActionPlanItem) => ({
+                  ...i,
+                  done: localDone[`${record.id}:${bcfg.key}:${i.id}`] ?? i.done,
+                }));
+                return (
+                  <ChecklistBlock key={bcfg.key} config={bcfg} block={{ ...block, items: mergedItems }}
+                    onToggle={itemId => onToggleItem(record.id, bcfg.key, itemId)} />
+                );
+              })}
+            </div>
           </div>
 
-          <div className="flex items-center justify-between pt-2">
+          {/* Recursos — jogos, vídeos, materiais, dinâmicas */}
+          {(['suggestedGames','suggestedVideos','suggestedMaterials','suggestedDynamics'] as const).some(k => (plan as any)[k]) && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Recursos e Estratégias</p>
+              <div className="grid md:grid-cols-2 gap-4">
+                {ENRICHED_BLOCK_CONFIGS.filter(b => ['suggestedGames','suggestedVideos','suggestedMaterials','suggestedDynamics'].includes(b.key)).map(bcfg => {
+                  const block = (plan as any)[bcfg.key];
+                  if (!block) return null;
+                  const mergedItems = block.items.map((i: ActionPlanItem) => ({
+                    ...i,
+                    done: localDone[`${record.id}:${bcfg.key}:${i.id}`] ?? i.done,
+                  }));
+                  return (
+                    <ChecklistBlock key={bcfg.key} config={bcfg} block={{ ...block, items: mergedItems }}
+                      onToggle={itemId => onToggleItem(record.id, bcfg.key, itemId)} />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Adaptações + Evidências */}
+          {(plan.adaptations || plan.evidenceRecording) && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Adaptações e Evidências</p>
+              <div className="grid md:grid-cols-2 gap-4">
+                {ENRICHED_BLOCK_CONFIGS.filter(b => b.key === 'adaptations' || b.key === 'evidenceRecording').map(bcfg => {
+                  const block = (plan as any)[bcfg.key];
+                  if (!block) return null;
+                  const mergedItems = block.items.map((i: ActionPlanItem) => ({
+                    ...i,
+                    done: localDone[`${record.id}:${bcfg.key}:${i.id}`] ?? i.done,
+                  }));
+                  return (
+                    <ChecklistBlock key={bcfg.key} config={bcfg} block={{ ...block, items: mergedItems }}
+                      onToggle={itemId => onToggleItem(record.id, bcfg.key, itemId)} />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Resposta do Aluno */}
+          {plan.studentResponse && (() => {
+            const bcfg = ENRICHED_BLOCK_CONFIGS.find(b => b.key === 'studentResponse')!;
+            const block = plan.studentResponse;
+            const mergedItems = block.items.map((i: ActionPlanItem) => ({
+              ...i,
+              done: localDone[`${record.id}:studentResponse:${i.id}`] ?? i.done,
+            }));
+            return (
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2">Registro do Atendimento</p>
+                <ChecklistBlock config={bcfg} block={{ ...block, items: mergedItems }}
+                  onToggle={itemId => onToggleItem(record.id, 'studentResponse', itemId)} />
+              </div>
+            );
+          })()}
+
+          {/* Próximo Passo — banner petrol */}
+          {plan.nextStep && (
+            <div className="rounded-xl px-4 py-3 flex items-start gap-3" style={{ background: '#EFF9FF', border: '1.5px solid #BFDBFE' }}>
+              <Shield size={16} style={{ color: PETROL, marginTop: 2, flexShrink: 0 }} />
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: PETROL }}>Próximo Passo</p>
+                <p className="text-sm text-gray-800 mt-0.5 leading-snug">{plan.nextStep}</p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
             <p className="text-[10px] font-mono text-gray-400">
               {plan.registrationNumber} · gerado em {formatDateTimeBR(plan.generatedAt)}
             </p>
@@ -351,23 +454,26 @@ const PrintModal: React.FC<{
     if (!win || !ref.current) return;
     win.document.write(`
       <html><head>
-        <title>Plano ${periodLabel} — ${studentName}</title>
+        <title>Plano de Ação — ${studentName}</title>
         <style>
           * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
-          body { background: #fff; color: #1f2937; font-size: 12px; padding: 24px; }
-          h1 { font-size: 18px; font-weight: 800; color: #1F4E5F; margin-bottom: 2px; }
-          .sub { font-size: 11px; color: #6b7280; margin-bottom: 16px; }
-          .badge { display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 10px; font-weight: 700; text-transform: uppercase; margin-right: 8px; }
-          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
-          .block { border-radius: 12px; overflow: hidden; border: 1.5px solid #e5e7eb; }
-          .block-header { padding: 8px 12px; font-size: 11px; font-weight: 700; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
-          .item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 12px; border-bottom: 1px solid #f3f4f6; font-size: 11px; line-height: 1.4; }
+          body { background: #fff; color: #1f2937; font-size: 11px; padding: 20px 24px; }
+          h1 { font-size: 17px; font-weight: 800; color: #1F4E5F; margin-bottom: 2px; }
+          .sub { font-size: 10px; color: #6b7280; margin-bottom: 14px; }
+          .section-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #9ca3af; margin: 14px 0 6px; }
+          .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+          .block { border-radius: 10px; overflow: hidden; border: 1.5px solid #e5e7eb; break-inside: avoid; }
+          .block-header { padding: 7px 11px; font-size: 10px; font-weight: 700; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
+          .item { display: flex; align-items: flex-start; gap: 7px; padding: 5px 11px; border-bottom: 1px solid #f3f4f6; font-size: 10px; line-height: 1.45; }
           .item:last-child { border-bottom: none; }
-          .check { font-size: 14px; color: #9ca3af; flex-shrink: 0; margin-top: 1px; }
+          .check { font-size: 13px; color: #9ca3af; flex-shrink: 0; margin-top: 1px; }
           .done .check { color: #16a34a; }
           .done span { text-decoration: line-through; color: #9ca3af; }
-          .meta { margin-top: 14px; font-size: 9px; color: #9ca3af; font-family: monospace; }
-          @media print { body { padding: 12px; } .no-print { display: none; } }
+          .banner { border-radius: 10px; padding: 9px 13px; margin-bottom: 10px; }
+          .banner-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; }
+          .banner-text { font-size: 11px; line-height: 1.5; }
+          .meta { margin-top: 14px; font-size: 8px; color: #9ca3af; font-family: monospace; }
+          @media print { body { padding: 10px 16px; } .no-print { display: none; } .block { break-inside: avoid; } }
         </style>
       </head><body>
         ${ref.current.innerHTML}
@@ -408,31 +514,60 @@ const PrintModal: React.FC<{
           <h1 style={{ fontSize: 20, fontWeight: 800, color: PETROL, marginBottom: 4 }}>
             Plano de Ação — {studentName}
           </h1>
-          <p className="sub" style={{ fontSize: 11, color: '#6B7280', marginBottom: 16 }}>
+          <p style={{ fontSize: 11, color: '#6B7280', marginBottom: 16 }}>
             <PeriodBadge period={plan.period} />
             &nbsp;&nbsp;Gerado por: {plan.generatedByName} &nbsp;·&nbsp; {formatDateTimeBR(plan.generatedAt)}
             &nbsp;·&nbsp; Nº {plan.registrationNumber}
           </p>
 
-          <div className="grid md:grid-cols-2 gap-4">
+          {/* Objetivo Prático */}
+          {plan.practicalObjective && (
+            <div className="banner" style={{ background: '#FFFBEB', border: '1.5px solid #FDE68A', borderRadius: 10, padding: '9px 13px', marginBottom: 12 }}>
+              <p className="banner-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: '#D97706', marginBottom: 3 }}>Objetivo Prático do Período</p>
+              <p className="banner-text" style={{ fontSize: 11, lineHeight: 1.5 }}>{plan.practicalObjective}</p>
+            </div>
+          )}
+
+          {/* Contexto do Período */}
+          {(plan.focusPlan || plan.mainBarrier) && (
+            <>
+              <p className="section-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#9ca3af', margin: '14px 0 6px' }}>Contexto do Período</p>
+              <div className="grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                {ENRICHED_BLOCK_CONFIGS.filter(b => b.key === 'focusPlan' || b.key === 'mainBarrier').map(bcfg => {
+                  const block = (plan as any)[bcfg.key];
+                  if (!block) return null;
+                  return (
+                    <div key={bcfg.key} className="block" style={{ borderRadius: 10, overflow: 'hidden', border: `1.5px solid ${bcfg.border}`, breakInside: 'avoid' }}>
+                      <div className="block-header" style={{ padding: '7px 11px', fontSize: 10, fontWeight: 700, background: bcfg.bg, borderBottom: `1px solid ${bcfg.border}` }}>{block.title}</div>
+                      <div>
+                        {block.items.map((item: ActionPlanItem) => (
+                          <div key={item.id} className={item.done ? 'item done' : 'item'} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, padding: '5px 11px', borderBottom: '1px solid #f3f4f6', fontSize: 10, lineHeight: 1.45 }}>
+                            <span className="check" style={{ fontSize: 13, color: item.done ? '#16a34a' : '#9ca3af', flexShrink: 0, marginTop: 1 }}>{item.done ? '✓' : '☐'}</span>
+                            <span style={item.done ? { textDecoration: 'line-through', color: '#9ca3af' } : {}}>{item.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* Ações Principais */}
+          <p className="section-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#9ca3af', margin: '14px 0 6px' }}>Ações Principais</p>
+          <div className="grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
             {BLOCK_CONFIGS.map(bcfg => {
-              const block = plan[bcfg.key];
+              const block = (plan as any)[bcfg.key];
               if (!block) return null;
               return (
-                <div key={bcfg.key} className="rounded-xl overflow-hidden" style={{ border: `1.5px solid ${bcfg.border}`, background: bcfg.bg }}>
-                  <div className="flex items-center gap-2 px-4 py-2.5" style={{ borderBottom: `1px solid ${bcfg.border}` }}>
-                    <span style={{ color: bcfg.badge }}>{bcfg.icon}</span>
-                    <span className="text-sm font-bold text-gray-800">{block.title}</span>
-                  </div>
+                <div key={bcfg.key} className="block" style={{ borderRadius: 10, overflow: 'hidden', border: `1.5px solid ${bcfg.border}`, breakInside: 'avoid' }}>
+                  <div className="block-header" style={{ padding: '7px 11px', fontSize: 10, fontWeight: 700, background: bcfg.bg, borderBottom: `1px solid ${bcfg.border}` }}>{block.title}</div>
                   <div>
-                    {block.items.map(item => (
-                      <div key={item.id} className="flex items-start gap-2.5 px-4 py-2 border-b border-white last:border-0">
-                        <span style={{ color: item.done ? bcfg.badge : '#9CA3AF', marginTop: 2, flexShrink: 0 }}>
-                          {item.done ? <CheckSquare size={14} /> : <Square size={14} />}
-                        </span>
-                        <span className="text-xs leading-snug text-gray-700" style={item.done ? { textDecoration: 'line-through', color: '#9CA3AF' } : {}}>
-                          {item.text}
-                        </span>
+                    {block.items.map((item: ActionPlanItem) => (
+                      <div key={item.id} className={item.done ? 'item done' : 'item'} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, padding: '5px 11px', borderBottom: '1px solid #f3f4f6', fontSize: 10, lineHeight: 1.45 }}>
+                        <span className="check" style={{ fontSize: 13, color: item.done ? '#16a34a' : '#9ca3af', flexShrink: 0, marginTop: 1 }}>{item.done ? '✓' : '☐'}</span>
+                        <span style={item.done ? { textDecoration: 'line-through', color: '#9ca3af' } : {}}>{item.text}</span>
                       </div>
                     ))}
                   </div>
@@ -441,7 +576,91 @@ const PrintModal: React.FC<{
             })}
           </div>
 
-          <p className="text-[9px] font-mono text-gray-400 mt-6">{plan.registrationNumber} · IncluiAI · {formatDateTimeBR(plan.generatedAt)}</p>
+          {/* Recursos e Estratégias */}
+          {(['suggestedGames','suggestedVideos','suggestedMaterials','suggestedDynamics'] as const).some(k => (plan as any)[k]) && (
+            <>
+              <p className="section-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#9ca3af', margin: '14px 0 6px' }}>Recursos e Estratégias</p>
+              <div className="grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                {ENRICHED_BLOCK_CONFIGS.filter(b => ['suggestedGames','suggestedVideos','suggestedMaterials','suggestedDynamics'].includes(b.key)).map(bcfg => {
+                  const block = (plan as any)[bcfg.key];
+                  if (!block) return null;
+                  return (
+                    <div key={bcfg.key} className="block" style={{ borderRadius: 10, overflow: 'hidden', border: `1.5px solid ${bcfg.border}`, breakInside: 'avoid' }}>
+                      <div className="block-header" style={{ padding: '7px 11px', fontSize: 10, fontWeight: 700, background: bcfg.bg, borderBottom: `1px solid ${bcfg.border}` }}>{block.title}</div>
+                      <div>
+                        {block.items.map((item: ActionPlanItem) => (
+                          <div key={item.id} className={item.done ? 'item done' : 'item'} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, padding: '5px 11px', borderBottom: '1px solid #f3f4f6', fontSize: 10, lineHeight: 1.45 }}>
+                            <span className="check" style={{ fontSize: 13, color: item.done ? '#16a34a' : '#9ca3af', flexShrink: 0, marginTop: 1 }}>{item.done ? '✓' : '☐'}</span>
+                            <span style={item.done ? { textDecoration: 'line-through', color: '#9ca3af' } : {}}>{item.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* Adaptações e Evidências */}
+          {(plan.adaptations || plan.evidenceRecording) && (
+            <>
+              <p className="section-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#9ca3af', margin: '14px 0 6px' }}>Adaptações e Evidências</p>
+              <div className="grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+                {ENRICHED_BLOCK_CONFIGS.filter(b => b.key === 'adaptations' || b.key === 'evidenceRecording').map(bcfg => {
+                  const block = (plan as any)[bcfg.key];
+                  if (!block) return null;
+                  return (
+                    <div key={bcfg.key} className="block" style={{ borderRadius: 10, overflow: 'hidden', border: `1.5px solid ${bcfg.border}`, breakInside: 'avoid' }}>
+                      <div className="block-header" style={{ padding: '7px 11px', fontSize: 10, fontWeight: 700, background: bcfg.bg, borderBottom: `1px solid ${bcfg.border}` }}>{block.title}</div>
+                      <div>
+                        {block.items.map((item: ActionPlanItem) => (
+                          <div key={item.id} className={item.done ? 'item done' : 'item'} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, padding: '5px 11px', borderBottom: '1px solid #f3f4f6', fontSize: 10, lineHeight: 1.45 }}>
+                            <span className="check" style={{ fontSize: 13, color: item.done ? '#16a34a' : '#9ca3af', flexShrink: 0, marginTop: 1 }}>{item.done ? '✓' : '☐'}</span>
+                            <span style={item.done ? { textDecoration: 'line-through', color: '#9ca3af' } : {}}>{item.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* Registro do Atendimento */}
+          {plan.studentResponse && (() => {
+            const bcfg = ENRICHED_BLOCK_CONFIGS.find(b => b.key === 'studentResponse')!;
+            const block = plan.studentResponse!;
+            return (
+              <>
+                <p className="section-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#9ca3af', margin: '14px 0 6px' }}>Registro do Atendimento</p>
+                <div style={{ marginBottom: 12 }}>
+                  <div className="block" style={{ borderRadius: 10, overflow: 'hidden', border: `1.5px solid ${bcfg.border}`, breakInside: 'avoid' }}>
+                    <div className="block-header" style={{ padding: '7px 11px', fontSize: 10, fontWeight: 700, background: bcfg.bg, borderBottom: `1px solid ${bcfg.border}` }}>{block.title}</div>
+                    <div>
+                      {block.items.map((item: ActionPlanItem) => (
+                        <div key={item.id} className={item.done ? 'item done' : 'item'} style={{ display: 'flex', alignItems: 'flex-start', gap: 7, padding: '5px 11px', borderBottom: '1px solid #f3f4f6', fontSize: 10, lineHeight: 1.45 }}>
+                          <span className="check" style={{ fontSize: 13, color: item.done ? '#16a34a' : '#9ca3af', flexShrink: 0, marginTop: 1 }}>{item.done ? '✓' : '☐'}</span>
+                          <span style={item.done ? { textDecoration: 'line-through', color: '#9ca3af' } : {}}>{item.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+
+          {/* Próximo Passo */}
+          {plan.nextStep && (
+            <div className="banner" style={{ background: '#EFF9FF', border: '1.5px solid #BFDBFE', borderRadius: 10, padding: '9px 13px', marginBottom: 12 }}>
+              <p className="banner-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: PETROL, marginBottom: 3 }}>Próximo Passo</p>
+              <p className="banner-text" style={{ fontSize: 11, lineHeight: 1.5 }}>{plan.nextStep}</p>
+            </div>
+          )}
+
+          <p className="meta" style={{ marginTop: 14, fontSize: 8, color: '#9ca3af', fontFamily: 'monospace' }}>{plan.registrationNumber} · IncluiAI · {formatDateTimeBR(plan.generatedAt)}</p>
         </div>
       </div>
     </div>

@@ -102,6 +102,10 @@ function mapDocTypeToUi(type: string): DocumentType {
       return DocumentType.PAEE;
     case 'PDI':
       return DocumentType.PDI;
+    case 'PLANO_ACAO_AEE':
+    case 'PLANO DE AÇÃO AEE':
+    case 'PLANO DE ACAO AEE':
+      return DocumentType.PLANO_ACAO_AEE;
     default:
       return (type as any) as DocumentType;
   }
@@ -1207,6 +1211,9 @@ export const databaseService = {
       'PEI': 'PEI',
       'PAEE': 'PAEE',
       'PDI': 'PDI',
+      'PLANO DE AÇÃO AEE': 'PLANO_ACAO_AEE',
+      'PLANO_ACAO_AEE':    'PLANO_ACAO_AEE',
+      'PLANO DE ACAO AEE': 'PLANO_ACAO_AEE',
     };
     const docType = docTypeMap[rawType] ?? rawType;
 

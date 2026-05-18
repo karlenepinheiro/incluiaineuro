@@ -302,10 +302,11 @@ const DocumentsHistoryView: React.FC<{
   });
 
   const docLabel: Record<string, string> = {
-    [DocumentType.ESTUDO_CASO]: 'Estudo de Caso',
-    [DocumentType.PAEE]: 'PAEE',
-    [DocumentType.PEI]: 'PEI',
-    [DocumentType.PDI]: 'PDI',
+    [DocumentType.ESTUDO_CASO]:   'Estudo de Caso',
+    [DocumentType.PAEE]:          'PAEE',
+    [DocumentType.PEI]:           'PEI',
+    [DocumentType.PDI]:           'PDI',
+    [DocumentType.PLANO_ACAO_AEE]:'Plano de Ação AEE',
   };
 
   const statusColor: Record<string, string> = {
@@ -1262,9 +1263,9 @@ const App: React.FC = () => {
   // --- Navegação com inicialização de documento ---
   const handleSetView = (v: string) => {
     const docMap: Record<string, DocumentType> = {
-      protocols: DocumentType.PEI,
-      pdi: DocumentType.PDI,
-      paee: DocumentType.PAEE,
+      protocols:   DocumentType.PEI,
+      pdi:         DocumentType.PDI,
+      paee:        DocumentType.PAEE,
       estudo_caso: DocumentType.ESTUDO_CASO,
     };
     if (docMap[v]) {
@@ -1625,14 +1626,24 @@ const App: React.FC = () => {
                 onViewProtocol={p => {
                   setCurrentProtocol(p);
                   setActiveDocumentType(p.type);
-                  // Mapeia o tipo de documento para a view correta (destaca item certo na sidebar)
                   const docViewMap: Record<string, string> = {
-                    [DocumentType.PEI]:          'protocols',
-                    [DocumentType.PAEE]:         'paee',
-                    [DocumentType.PDI]:          'pdi',
-                    [DocumentType.ESTUDO_CASO]:  'estudo_caso',
+                    [DocumentType.PEI]:         'protocols',
+                    [DocumentType.PAEE]:        'paee',
+                    [DocumentType.PDI]:         'pdi',
+                    [DocumentType.ESTUDO_CASO]: 'estudo_caso',
                   };
                   setView(docViewMap[p.type] ?? 'protocols');
+                }}
+                onCreateDocument={type => {
+                  setCurrentProtocol(null);
+                  setActiveDocumentType(type);
+                  const docViewMap: Record<string, string> = {
+                    [DocumentType.PEI]:         'protocols',
+                    [DocumentType.PAEE]:        'paee',
+                    [DocumentType.PDI]:         'pdi',
+                    [DocumentType.ESTUDO_CASO]: 'estudo_caso',
+                  };
+                  setView(docViewMap[type] ?? 'protocols');
                 }}
                 onCreateDerived={handleCreateDerivedProtocol}
                 userPlan={user.plan}

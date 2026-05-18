@@ -102,6 +102,7 @@ export enum DocumentType {
   PEI = 'PEI',
   PAEE = 'PAEE',
   PDI = 'PDI',
+  PLANO_ACAO_AEE = 'Plano de Ação AEE',
   FICHA = 'Ficha de Acompanhamento',
   ATIVIDADE = 'Atividade Adaptada',
   // External Docs
@@ -307,7 +308,7 @@ export interface SchoolConfig {
 
 export interface FichaComplementar {
   id: string;
-  tipo: 'obs_regente' | 'escuta_familia' | 'analise_aee' | 'decisao_institucional' | 'acompanhamento_evolucao';
+  tipo: 'obs_regente' | 'escuta_familia' | 'analise_aee' | 'decisao_institucional' | 'acompanhamento_evolucao' | 'checklist_regente' | 'checklist_cuidadora';
   titulo: string;
   studentId: string;
   createdAt: string;
@@ -654,12 +655,25 @@ export interface ActionPlanJSON {
   generatedByName: string;
   registrationNumber: string;
   version: number;
+  // Blocos originais (obrigatórios — compatibilidade com planos antigos)
   beforeClass: ActionPlanBlock;
   duringClass: ActionPlanBlock;
   activitiesStrategies: ActionPlanBlock;
   assessment: ActionPlanBlock;
   attentionObservations: ActionPlanBlock;
   communicationTeam: ActionPlanBlock;
+  // Campos enriquecidos (opcionais — planos novos)
+  practicalObjective?: string;
+  nextStep?: string;
+  focusPlan?: ActionPlanBlock;
+  mainBarrier?: ActionPlanBlock;
+  suggestedGames?: ActionPlanBlock;
+  suggestedVideos?: ActionPlanBlock;
+  suggestedMaterials?: ActionPlanBlock;
+  suggestedDynamics?: ActionPlanBlock;
+  adaptations?: ActionPlanBlock;
+  evidenceRecording?: ActionPlanBlock;
+  studentResponse?: ActionPlanBlock;
 }
 
 export interface ActionPlanRecord {
@@ -667,6 +681,44 @@ export interface ActionPlanRecord {
   student_id: string;
   tenant_id: string;
   plan_json: ActionPlanJSON;
+  created_at: string;
+}
+
+// ── Plano de Ação AEE ─────────────────────────────────────────────────────────
+
+export type AEEActionPlanPeriod = 'semanal' | 'quinzenal' | 'mensal' | 'bimestral' | 'semestral';
+
+export interface AEEActionPlanJSON {
+  period: AEEActionPlanPeriod;
+  generatedAt: string;
+  generatedBy: string;
+  generatedByName: string;
+  registrationNumber: string;
+  version: number;
+  // Banners de contexto
+  sessionObjective?: string;
+  nextStep?: string;
+  // Core blocks (obrigatórios)
+  welcomeRoutine: ActionPlanBlock;
+  priorityBarrier: ActionPlanBlock;
+  sessionScript: ActionPlanBlock;
+  materials: ActionPlanBlock;
+  applicationGuide: ActionPlanBlock;
+  responseRecord: ActionPlanBlock;
+  // Enriched blocks (opcionais)
+  gamesResources?: ActionPlanBlock;
+  videosResources?: ActionPlanBlock;
+  printedActivities?: ActionPlanBlock;
+  digitalResources?: ActionPlanBlock;
+  dynamicsResources?: ActionPlanBlock;
+  adaptationsGuide?: ActionPlanBlock;
+}
+
+export interface AEEActionPlanRecord {
+  id: string;
+  student_id: string;
+  tenant_id: string;
+  plan_json: AEEActionPlanJSON;
   created_at: string;
 }
 
