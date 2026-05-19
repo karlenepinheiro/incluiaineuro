@@ -30,6 +30,7 @@ import { generateGeminiText, generateGeminiJSON, generateVertexImage } from './_
 import { getTenantContext, checkCredits, debitCredits }               from './_credits.ts';
 import { createAuditRecord, completeAuditRecord, modelForTask, outputTypeForTask } from './_audit.ts';
 import { buildCanonicalContext }                                      from './_contextBuilder.ts';
+import { formatContextForPrompt }                                     from './_contextFormatter.ts';
 import { callAIWithRetryAndTimeout, validateAndRepair }               from './_aiUtils.ts';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -51,13 +52,16 @@ const CORS_HEADERS = {
 // ─── Tipos do payload ─────────────────────────────────────────────────────────
 
 interface GatewayPayload {
-  task:             'text' | 'json' | 'image' | 'document';
-  prompt:           string;
-  imageBase64?:     string;
-  creditsRequired?: number;  // 0 ou undefined = sem check/débito
-  requestType?:     string;  // undefined = sem registro de auditoria
-  studentId?:       string;
-  documentType?:    string;
+  task:                'text' | 'json' | 'image' | 'document';
+  prompt:              string;
+  imageBase64?:        string;
+  creditsRequired?:    number;  // 0 ou undefined = sem check/débito
+  requestType?:        string;  // undefined = sem registro de auditoria
+  studentId?:          string;
+  documentType?:       string;
+  // Sprint IA-9: contexto canônico montado pelo servidor (Opção C Híbrida)
+  buildContextServer?: boolean; // quando true + studentId: Edge monta contexto e injeta no prompt
+  targetDocType?:      string;  // pei | paee | pdi | plano_acao_aee | plano_acao_regente | perfil_inteligente etc.
 }
 
 // ─── Handler principal ────────────────────────────────────────────────────────
@@ -118,7 +122,11 @@ Deno.serve(async (req: Request) => {
     return jsonError('Invalid JSON body', 400);
   }
 
-  const { task, prompt, imageBase64, creditsRequired = 0, requestType, studentId, documentType } = body;
+  const {
+    task, prompt, imageBase64, creditsRequired = 0, requestType,
+    studentId, documentType,
+    buildContextServer = false, targetDocType = '',
+  } = body;
 
   if (!task || !['text', 'json', 'image', 'document'].includes(task)) {
     return jsonError('Campo "task" inválido. Valores aceitos: text, json, image, document', 400);
@@ -167,11 +175,12 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // ── 5.5 Carregar Contexto Canônico (se task=document) ──────────────────────
+  // ── 5.5 Carregar e injetar Contexto Canônico ───────────────────────────────
   let finalPrompt = prompt;
   let contextWarnings: string[] = [];
   let missingSources: string[] = [];
 
+  // task='document': contexto obrigatório (comportamento legado — nenhum cliente usa atualmente)
   if (task === 'document') {
     if (!studentId) return jsonError('O campo studentId é obrigatório para task="document"', 400);
     try {
@@ -183,11 +192,41 @@ Deno.serve(async (req: Request) => {
         console.info('[ai-gateway] Contexto gerado com warnings opcionais:', contextWarnings);
       }
 
-      finalPrompt = `${prompt}\n\n[DADOS CANÔNICOS DO ALUNO]\n${JSON.stringify(ctx.data)}`;
+      const formatted = formatContextForPrompt(ctx.data, targetDocType || documentType || '');
+      finalPrompt = formatted ? `${prompt}${formatted}` : prompt;
     } catch (e: any) {
-      console.error('[ai-gateway] Erro ao construir contexto:', e.message);
-      const isCritical = e.message.includes('CRITICAL');
+      console.error('[ai-gateway] Erro ao construir contexto (document):', e.message);
+      const isCritical = (e as Error).message.includes('CRITICAL');
       return jsonError(`Falha nos dados do aluno: ${e.message}`, isCritical ? 400 : 500);
+    }
+  }
+
+  // task='json' + buildContextServer=true + studentId: Opção C Híbrida (Sprint IA-9)
+  // Edge monta o contexto canônico via service_role e injeta no prompt.
+  // O frontend envia apenas o template de instrução (sem dados sensíveis do aluno).
+  if (task === 'json' && buildContextServer && studentId) {
+    try {
+      const ctx = await buildCanonicalContext(adminDb, studentId, tenantId);
+      contextWarnings = ctx.warnings;
+      missingSources  = ctx.missingOptionalSources;
+
+      if (contextWarnings.length > 0) {
+        console.info('[ai-gateway] Contexto (json+server) com warnings opcionais:', contextWarnings);
+      }
+
+      const formatted = formatContextForPrompt(ctx.data, targetDocType);
+      if (formatted) {
+        finalPrompt = `${prompt}${formatted}`;
+        console.info(
+          `[ai-gateway] Contexto canônico injetado — student=${studentId} docType=${targetDocType} ` +
+          `sources=${11 - missingSources.length}/11`
+        );
+      }
+    } catch (e: any) {
+      // Contexto é OPCIONAL para task='json': falha não bloqueia a geração.
+      // O prompt original (sem contexto do servidor) é usado como fallback.
+      console.warn('[ai-gateway] buildContextServer falhou (usando prompt original):', e.message);
+      contextWarnings.push(`Contexto do servidor indisponível: ${e.message}`);
     }
   }
 
@@ -293,10 +332,11 @@ Deno.serve(async (req: Request) => {
     result: parsedDocument !== null ? parsedDocument : result
   };
 
-  if (task === 'document') {
-    response.warnings = contextWarnings;
-    response.missingOptionalSources = missingSources;
-    if (documentId) response.documentId = documentId;
+  // Retorna warnings/sources para task='document' e para task='json' com buildContextServer
+  if (task === 'document' || (task === 'json' && buildContextServer && studentId)) {
+    if (contextWarnings.length > 0)   response.warnings = contextWarnings;
+    if (missingSources.length > 0)    response.missingOptionalSources = missingSources;
+    if (documentId)                   response.documentId = documentId;
   }
 
   if (creditsRemaining !== undefined) response.creditsRemaining = creditsRemaining;
