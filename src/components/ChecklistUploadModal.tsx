@@ -483,15 +483,18 @@ export const ChecklistUploadModal: React.FC<ChecklistUploadModalProps> = ({
 
       // 3. Salvar observation_form
       const formId = await ObservationFormService.save({
-        tenantId:   user.tenant_id,
-        studentId:  selectedStudentId,
-        userId:     user.id,
-        formType:   checklistType,
+        tenantId:      user.tenant_id,
+        studentId:     selectedStudentId,
+        userId:        user.id,
+        formType:      checklistType,
         title,
-        fieldsData: fieldsData as Record<string, any>,
+        fieldsData:    fieldsData as Record<string, any>,
         auditCode,
-        createdBy:  user.name,
-        status:     'finalizado',
+        createdBy:     user.name,
+        status:        'finalizado',
+        origin:        'uploaded_ai_read',
+        confidence:    analysis?.confidence ?? null,
+        sourceFileUrl: fileUrl,
       });
 
       if (formId) {
@@ -611,7 +614,7 @@ export const ChecklistUploadModal: React.FC<ChecklistUploadModalProps> = ({
             }`}
             style={isEnemFormat ? { background: '#C69214' } : {}}
           >
-            <ScanLine size={13} /> ENEM-like (leitura automática)
+            <ScanLine size={13} /> Leitura automática IncluiAI
           </button>
         </div>
         {isEnemFormat && (

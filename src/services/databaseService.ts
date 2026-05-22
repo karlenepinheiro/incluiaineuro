@@ -112,10 +112,13 @@ function mapDocTypeToUi(type: string): DocumentType {
 }
 
 function mapDocStatus(status: string | null | undefined): 'FINAL' | 'DRAFT' {
-  const s = String(status ?? '').toUpperCase();
+  const s = String(status ?? 'FINAL').toUpperCase().trim();
+  const DRAFT_VALUES = new Set(['DRAFT', 'RASCUNHO', 'REVIEW', 'REVISÃO', 'REVISAO']);
+  if (DRAFT_VALUES.has(s)) return 'DRAFT';
   // Reconhece todos os sinônimos de "concluído" para retrocompatibilidade
   const FINAL_VALUES = new Set(['FINAL', 'SIGNED', 'ASSINADO', 'APPROVED', 'APROVADO']);
-  return FINAL_VALUES.has(s) ? 'FINAL' : 'DRAFT';
+  if (FINAL_VALUES.has(s)) return 'FINAL';
+  return 'FINAL';
 }
 
 function emptyToNull(value: unknown) {
@@ -300,6 +303,15 @@ async function tryGetCreditsWalletBalance(tenantId: string) {
   } catch {
     return null;
   }
+}
+
+function addOneMonthIso(value?: string | null): string | undefined {
+  if (!value) return undefined;
+  const base = new Date(value);
+  if (!Number.isFinite(base.getTime())) return undefined;
+  const next = new Date(base);
+  next.setMonth(next.getMonth() + 1);
+  return next.toISOString();
 }
 
 async function getLandingSingleton() {
@@ -1218,7 +1230,7 @@ export const databaseService = {
     const docType = docTypeMap[rawType] ?? rawType;
 
     // Normaliza status para os valores aceitos pelo DB: 'DRAFT' | 'REVIEW' | 'APPROVED' | 'SIGNED'
-    const rawStatus = (doc.status ?? 'DRAFT').toString().toUpperCase().trim();
+    const rawStatus = (doc.status ?? 'FINAL').toString().toUpperCase().trim();
     const statusMap: Record<string, string> = {
       'DRAFT': 'DRAFT', 'RASCUNHO': 'DRAFT',
       'REVIEW': 'REVIEW', 'REVISÃO': 'REVIEW', 'REVISAO': 'REVIEW',
@@ -1226,7 +1238,7 @@ export const databaseService = {
       'FINAL': 'APPROVED', 'APROVADO': 'APPROVED', 'APPROVED': 'APPROVED',
       'SIGNED': 'SIGNED', 'ASSINADO': 'SIGNED',
     };
-    const docStatus = statusMap[rawStatus] ?? 'DRAFT';
+    const docStatus = statusMap[rawStatus] ?? 'APPROVED';
 
     const payload: any = {
       tenant_id:      tenantId,
@@ -1356,6 +1368,17 @@ export const databaseService = {
     const { getPlanLimits } = await import('../types');
     const hardcodedLimits = getPlanLimits(planTier);
     let walletAvail = await tryGetCreditsWalletBalance(tenantId);
+    let walletLastResetAt: string | undefined;
+    try {
+      const { data: walletRow } = await supabase
+        .from('credits_wallet')
+        .select('last_reset_at')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+      walletLastResetAt = (walletRow as any)?.last_reset_at ?? undefined;
+    } catch {
+      walletLastResetAt = undefined;
+    }
 
     // Se a wallet ainda não existe (conta nova) mas o plano dá créditos mensais,
     // inicializa a wallet automaticamente para não bloquear o usuário.
@@ -1452,7 +1475,9 @@ export const databaseService = {
       studentLimitExtra: 0 as any,
       studentsActive: studentsCount ?? 0,
       renewalDatePlan: (sub as any)?.current_period_end ?? undefined,
-      renewalDateCredits: (sub as any)?.current_period_end ?? undefined,
+      renewalDateCredits: addOneMonthIso(walletLastResetAt) ?? (sub as any)?.current_period_end ?? undefined,
+      lastCreditGrantAt: walletLastResetAt,
+      nextCreditGrantAt: addOneMonthIso(walletLastResetAt) ?? undefined,
       billingCycle,
       planDisplayName: formatPlanDisplayName(planName, billingCycle),
     };

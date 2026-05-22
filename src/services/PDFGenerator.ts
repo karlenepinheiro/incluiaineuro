@@ -14,6 +14,12 @@ import {
   type DocumentCodeKind,
 } from '../utils/documentCodes';
 import QRCode from 'qrcode';
+// [DOC-2B] Base premium compartilhada — usado APENAS dentro de generateFromSections.
+// Demais geradores continuam usando addRunningHeader/addFooterAllPages locais.
+import {
+  addDocumentHeader as sharedAddDocumentHeader,
+  addDocumentFooter as sharedAddDocumentFooter,
+} from './pdfSharedLayout';
 
 // ─── jsPDF CDN ────────────────────────────────────────────────────────────────
 async function loadJsPDF(): Promise<any> {
@@ -698,7 +704,584 @@ function buildStudentBlock(
   return Math.max(fy, panelBotY);
 }
 
+// ─── HTML → PLAIN TEXT (for PDF rendering) ───────────────────────────────────
+function stripHtmlToText(html: string): string {
+  if (!html.includes('<')) return normalizePdfText(html);
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  function walk(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+    const children = Array.from(el.childNodes).map(walk).join('');
+    if (tag === 'br') return '\n';
+    if (tag === 'li') return '• ' + children.trim() + '\n';
+    if (tag === 'p' || tag === 'div' || tag === 'h1' || tag === 'h2') return children.trim() ? children.trim() + '\n' : '';
+    return children;
+  }
+  return normalizePdfText(walk(doc.body));
+}
+
+function normalizePdfText(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  let text = String(value);
+
+  if (text.includes('<')) {
+    try {
+      const doc = new DOMParser().parseFromString(text, 'text/html');
+      const walk = (node: Node): string => {
+        if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+        if (node.nodeType !== Node.ELEMENT_NODE) return '';
+        const el = node as Element;
+        const tag = el.tagName.toLowerCase();
+        const children = Array.from(el.childNodes).map(walk).join('');
+        if (tag === 'br') return '\n';
+        if (tag === 'li') return `• ${children.trim()}\n`;
+        if (tag === 'p' || tag === 'div' || tag === 'h1' || tag === 'h2') {
+          return children.trim() ? `${children.trim()}\n` : '';
+        }
+        return children;
+      };
+      text = walk(doc.body);
+    } catch {
+      text = text.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '');
+    }
+  }
+
+  const textarea = typeof document !== 'undefined' ? document.createElement('textarea') : null;
+  if (textarea) {
+    textarea.innerHTML = text;
+    text = textarea.value;
+  }
+
+  text = text
+    .replace(/\sstyle\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|h1|h2|li)>/gi, '\n')
+    .replace(/<[^>]+>/g, '');
+
+  return text
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]*\n[ \t]*/g, '\n')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    .replace(/\*\*([^\n*]*[A-Za-zÀ-ÿ][^\n*]*)\*\*/g, '$1')
+    .replace(/__([^\n_]*[A-Za-zÀ-ÿ][^\n_]*)__/g, '$1')
+    .replace(/(^|[\s([{"'“])\*([^*\n]*[A-Za-zÀ-ÿ][^*\n]*)\*(?=$|[\s)\].,;:!?'"”}])/g, '$1$2')
+    .replace(/(^|[\s([{"'“])_([^_\n]*[A-Za-zÀ-ÿ][^_\n]*)_(?=$|[\s)\].,;:!?'"”}])/g, '$1$2')
+    .replace(/\*\*+/g, '')
+    .replace(/__+/g, '')
+    .replace(/\*+(?=[A-Za-zÀ-ÿ])/g, '')
+    .replace(/(?<=[A-Za-zÀ-ÿ0-9.,;:!?])\*+/g, '')
+    .replace(/_+(?=[A-Za-zÀ-ÿ])/g, '')
+    .replace(/(?<=[A-Za-zÀ-ÿ0-9.,;:!?])_+/g, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .split('\n')
+    .map(line => line.trim())
+    .join('\n')
+    .trim();
+}
+
+// ─── RICH TEXT HELPERS ───────────────────────────────────────────────────────
+function isHtmlContent(s: string): boolean {
+  return /<[a-z][\s\S]*>/i.test(s);
+}
+
+type RichBlockType = 'p' | 'h1' | 'h2' | 'ul-li' | 'ol-li';
+interface RichBlock {
+  type: RichBlockType;
+  text: string;
+  bold: boolean;
+  italic: boolean;
+  align: 'left' | 'center' | 'right' | 'justify';
+  listIdx?: number;
+}
+
+function parseRichHtml(html: string): RichBlock[] {
+  if (!html.includes('<')) {
+    return normalizePdfText(html).split(/\n+/).map(t => t.trim()).filter(Boolean)
+      .map(text => ({ type: 'p' as RichBlockType, text, bold: false, italic: false, align: 'left' as const }));
+  }
+  const d = new DOMParser().parseFromString(html, 'text/html');
+  const blocks: RichBlock[] = [];
+
+  const dominantStyle = (el: Element): { bold: boolean; italic: boolean } => {
+    const allText = el.textContent || '';
+    if (!allText.trim()) return { bold: false, italic: false };
+    let boldChars = 0, italicChars = 0;
+    const countStyles = (node: Node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        let anc = node.parentElement;
+        let isB = false, isI = false;
+        while (anc && anc !== el) {
+          const t = anc.tagName.toLowerCase();
+          if (t === 'strong' || t === 'b') isB = true;
+          if (t === 'em' || t === 'i') isI = true;
+          anc = anc.parentElement;
+        }
+        const len = (node.textContent || '').length;
+        if (isB) boldChars += len;
+        if (isI) italicChars += len;
+      }
+      node.childNodes.forEach(countStyles);
+    };
+    countStyles(el);
+    const total = allText.length;
+    return { bold: boldChars / total > 0.4, italic: italicChars / total > 0.4 };
+  };
+
+  const alignOf = (el: Element): 'left' | 'center' | 'right' | 'justify' => {
+    const m = (el.getAttribute('style') || '').match(/text-align\s*:\s*(\w+)/);
+    if (m) { const v = m[1].toLowerCase(); if (v === 'center' || v === 'right' || v === 'justify') return v as any; }
+    return 'left';
+  };
+
+  const textFromHtmlNode = (node: Node): string => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+    if (node.nodeType !== Node.ELEMENT_NODE) return '';
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'br') return '\n';
+    const children = Array.from(el.childNodes).map(textFromHtmlNode).join('');
+    if (tag === 'li') return `${children.trim()}\n`;
+    return children;
+  };
+
+  const textOf = (el: Element): string =>
+    normalizePdfText(textFromHtmlNode(el)).replace(/\s+/g, ' ').trim();
+
+  const processNode = (node: Node, listType?: 'ul' | 'ol', listIdx?: { n: number }): void => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as Element;
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'ul') { const idx = { n: 0 }; el.childNodes.forEach(c => processNode(c, 'ul', idx)); return; }
+    if (tag === 'ol') { const idx = { n: 0 }; el.childNodes.forEach(c => processNode(c, 'ol', idx)); return; }
+    if (tag === 'li') {
+      const text = textOf(el);
+      if (!text) return;
+      const { bold, italic } = dominantStyle(el);
+      if (listType === 'ol' && listIdx) { listIdx.n++; blocks.push({ type: 'ol-li', text, bold, italic, align: alignOf(el), listIdx: listIdx.n }); }
+      else { blocks.push({ type: 'ul-li', text, bold, italic, align: alignOf(el) }); }
+      return;
+    }
+    if (tag === 'h1') { const text = textOf(el); if (text) blocks.push({ type: 'h1', text, bold: true, italic: false, align: alignOf(el) }); return; }
+    if (tag === 'h2') { const text = textOf(el); if (text) blocks.push({ type: 'h2', text, bold: true, italic: false, align: alignOf(el) }); return; }
+    if (tag === 'p' || tag === 'div') {
+      if (el.querySelector('ul, ol')) { el.childNodes.forEach(c => processNode(c, listType, listIdx)); return; }
+      const text = textOf(el);
+      if (!text) return;
+      const { bold, italic } = dominantStyle(el);
+      blocks.push({ type: 'p', text, bold, italic, align: alignOf(el) });
+      return;
+    }
+    el.childNodes.forEach(c => processNode(c, listType, listIdx));
+  };
+
+  d.body.childNodes.forEach(node => processNode(node));
+  return blocks.filter(b => b.text.trim().length > 0);
+}
+
+function drawJustifiedTextLine(doc: any, line: string, x: number, y: number, maxW: number): void {
+  const words = normalizePdfText(line).split(/\s+/).filter(Boolean);
+  if (words.length <= 2) {
+    doc.text(line, x, y);
+    return;
+  }
+
+  const widths = words.map(word => doc.getTextWidth(word));
+  const wordsW = widths.reduce((sum, width) => sum + width, 0);
+  const spaceW = doc.getTextWidth(' ');
+  const gap = (maxW - wordsW) / (words.length - 1);
+
+  if (!Number.isFinite(gap) || gap < spaceW * 0.6 || gap > spaceW * 3.2) {
+    doc.text(line, x, y);
+    return;
+  }
+
+  let cursorX = x;
+  words.forEach((word, index) => {
+    doc.text(word, cursorX, y);
+    cursorX += widths[index] + gap;
+  });
+}
+
+function splitAeeProfessionalNames(value: unknown): string[] {
+  return normalizePdfText(value)
+    .split(/[;,\n|]+/)
+    .map(name => name.replace(/^(prof(?:essor)?(?:a)?\.?|profissional(?:\s+do)?|aee)\s*:?\s*/i, '').trim())
+    .filter(Boolean)
+    .filter((name, index, arr) => arr.findIndex(other => other.toLowerCase() === name.toLowerCase()) === index);
+}
+
+const FORMAL_FONT = 'times';
+const FORMAL_BODY_SIZE = 12;
+const FORMAL_LABEL_SIZE = 10.5;
+const FORMAL_SECTION_SIZE = 13;
+const FORMAL_TITLE_SIZE = 14;
+const FORMAL_LINE_H = 7.2;
+const FORMAL_X = 20;
+const FORMAL_R = 20;
+const FORMAL_CONTENT_W = 170;
+const FORMAL_TEXT: [number, number, number] = [20, 20, 20];
+const FORMAL_MUTED: [number, number, number] = [88, 88, 88];
+const FORMAL_DECLARATION_TEXT =
+  'Declaramos ciência das informações registradas neste documento, elaborado com base nos dados disponíveis no sistema, observações pedagógicas, registros institucionais e demais informações fornecidas pela equipe escolar e/ou responsáveis. O presente documento orienta o planejamento, acompanhamento e revisão das estratégias pedagógicas, devendo ser atualizado sempre que houver mudanças relevantes no percurso escolar do(a) estudante.';
+const FORMAL_LEGAL_TEXT =
+  'Constituição Federal de 1988; Lei nº 9.394/1996 (LDB); Lei nº 13.146/2015 (Lei Brasileira de Inclusão); Decreto nº 7.611/2011; Resolução CNE/CEB nº 4/2009; Política Nacional de Educação Especial na Perspectiva da Educação Inclusiva; Lei nº 14.624/2023; Decreto nº 12.686/2025 (PNEE); Lei nº 13.709/2018 (LGPD), quando houver dados pessoais/sensíveis.';
+
+function imageFormat(dataUrl: string): 'PNG' | 'JPEG' {
+  return dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+}
+
+function safeAddImage(doc: any, imageUrl: string | undefined, x: number, y: number, w: number, h: number): boolean {
+  if (!imageUrl) return false;
+  try {
+    doc.addImage(imageUrl, imageFormat(imageUrl), x, y, w, h, undefined, 'FAST');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function formalAgencyName(school?: SchoolConfig | null): string {
+  return normalizePdfText(
+    (school as any)?.secretaria ||
+    (school as any)?.secretariaName ||
+    (school as any)?.secretary ||
+    (school as any)?.educationDepartment ||
+    (school as any)?.orgao ||
+    (school as any)?.department ||
+    'Secretaria / Orgao Educacional',
+  );
+}
+
+function drawFormalFirstPageHeader(
+  doc: any,
+  docType: string,
+  school: SchoolConfig | null | undefined,
+  qrUrl: string | undefined,
+): number {
+  const W = doc.internal.pageSize.getWidth();
+  const schoolName = normalizePdfText(school?.schoolName || 'Unidade Escolar');
+  const agencyName = formalAgencyName(school);
+  const generatedAt = formatGeneratedAt(_currentGeneratedAt);
+
+  doc.setFont(FORMAL_FONT, 'normal');
+  sc(doc, FORMAL_TEXT);
+
+  if (!safeAddImage(doc, school?.logoUrl, FORMAL_X, 10, 18, 18)) {
+    sd(doc, BORDER);
+    doc.setLineWidth(0.2);
+    doc.rect(FORMAL_X, 10, 18, 18);
+    doc.setFont(FORMAL_FONT, 'normal');
+    doc.setFontSize(7.5);
+    sc(doc, FORMAL_MUTED);
+    doc.text('LOGO', FORMAL_X + 9, 20.5, { align: 'center' });
+  }
+
+  const qrSize = 16;
+  const qrX = W - FORMAL_R - qrSize;
+  const qrY = 27;
+  const titleMaxW = qrUrl ? 104 : 120;
+  doc.setFont(FORMAL_FONT, 'normal');
+  doc.setFontSize(8.5);
+  sc(doc, FORMAL_MUTED);
+  const agencyLines = doc.splitTextToSize(agencyName, 42).slice(0, 3);
+  doc.text(agencyLines, W - FORMAL_R, 13, { align: 'right' });
+
+  doc.setFont(FORMAL_FONT, 'bold');
+  doc.setFontSize(FORMAL_TITLE_SIZE);
+  sc(doc, FORMAL_TEXT);
+  const schoolLines = doc.splitTextToSize(schoolName.toUpperCase(), titleMaxW).slice(0, 2);
+  doc.text(schoolLines, W / 2, 15, { align: 'center' });
+
+  doc.setFont(FORMAL_FONT, 'bold');
+  doc.setFontSize(FORMAL_SECTION_SIZE);
+  const titleY = 15 + schoolLines.length * 5 + 4;
+  const docTitleLines = doc.splitTextToSize(getDocTitle(docType).toUpperCase(), titleMaxW).slice(0, 3);
+  doc.text(docTitleLines, W / 2, titleY, { align: 'center', lineHeightFactor: 1.1 });
+
+  doc.setFont(FORMAL_FONT, 'normal');
+  doc.setFontSize(9.5);
+  sc(doc, FORMAL_MUTED);
+  const generatedY = titleY + docTitleLines.length * 5.3 + 2;
+  doc.text(`Gerado em: ${generatedAt}`, W / 2, generatedY, { align: 'center' });
+
+  if (qrUrl) {
+    safeAddImage(doc, qrUrl, qrX, qrY, qrSize, qrSize);
+    doc.setFont(FORMAL_FONT, 'normal');
+    doc.setFontSize(6.8);
+    sc(doc, FORMAL_MUTED);
+    doc.text('Validacao', qrX + qrSize / 2, qrY + qrSize + 2.5, { align: 'center' });
+  }
+
+  const dividerY = Math.max(47, generatedY + 7, qrUrl ? qrY + qrSize + 7 : 0);
+  sd(doc, BORDER);
+  doc.setLineWidth(0.3);
+  doc.line(FORMAL_X, dividerY, W - FORMAL_R, dividerY);
+  return dividerY + 9;
+}
+
+function drawFormalRunningHeader(
+  doc: any,
+  docType: string,
+  school: SchoolConfig | null | undefined,
+): number {
+  const W = doc.internal.pageSize.getWidth();
+  const schoolName = normalizePdfText(school?.schoolName || 'Unidade Escolar');
+  const year = new Date(_currentGeneratedAt).getFullYear() || new Date().getFullYear();
+
+  doc.setFont(FORMAL_FONT, 'normal');
+  doc.setFontSize(8.5);
+  sc(doc, FORMAL_MUTED);
+  doc.text(schoolName, FORMAL_X, 12);
+  doc.text(`${docType} | ${year}`, W - FORMAL_R, 12, { align: 'right' });
+  sd(doc, BORDER);
+  doc.setLineWidth(0.25);
+  doc.line(FORMAL_X, 16, W - FORMAL_R, 16);
+  return 27;
+}
+
+function drawFormalFooterAllPages(doc: any, auditCode: string, generatedBy: string): void {
+  const total = doc.internal.getNumberOfPages();
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const leftX = FORMAL_X;
+  const rightX = W - FORMAL_R;
+
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i);
+    sd(doc, BORDER);
+    doc.setLineWidth(0.25);
+    doc.line(leftX, H - 19, rightX, H - 19);
+
+    doc.setFont(FORMAL_FONT, 'normal');
+    doc.setFontSize(8);
+    sc(doc, FORMAL_MUTED);
+    const line1 = `IncluiAI · Pense. Crie. Inclua. · Gerado por: ${normalizePdfText(generatedBy || 'Sistema')}`;
+    const line1MaxW = rightX - leftX - 35;
+    const line1Safe = doc.splitTextToSize(line1, line1MaxW)[0] || line1;
+    doc.text(line1Safe, leftX, H - 13.5);
+    doc.text(`Pagina ${i} de ${total}`, rightX, H - 13.5, { align: 'right' });
+
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(7.4);
+    sc(doc, FORMAL_MUTED);
+    const codeLine = `Codigo: ${normalizePdfText(auditCode)}`;
+    doc.text(doc.splitTextToSize(codeLine, rightX - leftX), leftX, H - 9.3);
+  }
+}
+
+function drawFormalStudentIdentification(
+  doc: any,
+  student: Student,
+  school: SchoolConfig | null | undefined,
+  photoUrl: string | undefined,
+  x: number,
+  y: number,
+  w: number,
+): number {
+  const boxH = 54;
+  const photoW = 25;
+  const photoH = 34;
+  const px = x + 4;
+  const py = y + 11;
+  const schoolName = school?.schoolName || student.schoolName || student.externalSchoolName || '';
+  const diagnosis = normalizePdfText((student.diagnosis || []).join(', '));
+  const cid = Array.isArray(student.cid) ? student.cid.join(', ') : student.cid;
+
+  sf(doc, [250, 250, 250] as [number, number, number]);
+  sd(doc, BORDER);
+  doc.setLineWidth(0.25);
+  doc.roundedRect(x, y, w, boxH, 1.5, 1.5, 'FD');
+
+  doc.setFont(FORMAL_FONT, 'bold');
+  doc.setFontSize(FORMAL_LABEL_SIZE);
+  sc(doc, FORMAL_TEXT);
+  doc.text('IDENTIFICACAO DO ALUNO', x + 4, y + 6.5);
+
+  sf(doc, WHITE);
+  sd(doc, BORDER);
+  doc.rect(px, py, photoW, photoH, 'FD');
+  if (!safeAddImage(doc, photoUrl, px, py, photoW, photoH)) {
+    doc.setFont(FORMAL_FONT, 'normal');
+    doc.setFontSize(7.5);
+    sc(doc, FORMAL_MUTED);
+    doc.text('Foto 3x4', px + photoW / 2, py + photoH / 2, { align: 'center' });
+  }
+
+  const rows: Array<[string, string]> = [];
+  const push = (label: string, value?: string): void => {
+    const clean = normalizePdfText(value || '');
+    if (clean) rows.push([label, clean]);
+  };
+  push('Nome', student.name);
+  push('Nascimento / Idade', [formatBirthDate(student.birthDate), calcAge(student.birthDate)].filter(Boolean).join(' - '));
+  push('Serie / Turma', [student.grade, student.shift].filter(Boolean).join(' - '));
+  push('Escola', schoolName);
+  push('Responsavel', student.guardianName);
+  push('Contato', student.guardianPhone);
+  push('Nivel de suporte', (student as any).supportLevel || (student as any).support_level || '');
+  push('Codigo do aluno', (student as any).unique_code || (student as any).uniqueCode || '');
+
+  const dataX = px + photoW + 7;
+  const colGap = 6;
+  const colW = (w - (dataX - x) - 6 - colGap) / 2;
+  let cy = py + 3;
+  doc.setFontSize(9.5);
+
+  rows.forEach((row, index) => {
+    const col = index % 2;
+    if (index > 0 && col === 0) cy += 6.2;
+    const cx = dataX + col * (colW + colGap);
+    doc.setFont(FORMAL_FONT, 'bold');
+    sc(doc, FORMAL_MUTED);
+    const label = `${row[0]}: `;
+    doc.text(label, cx, cy);
+    const labelW = doc.getTextWidth(label);
+    doc.setFont(FORMAL_FONT, 'normal');
+    sc(doc, FORMAL_TEXT);
+    const valueLine = doc.splitTextToSize(row[1], colW - labelW)[0] || '';
+    doc.text(valueLine, cx + labelW, cy);
+  });
+
+  let diagY = y + boxH - 12;
+  const diagText = [diagnosis, cid ? `CID: ${normalizePdfText(cid)}` : ''].filter(Boolean).join(' | ');
+  if (diagText) {
+    doc.setFont(FORMAL_FONT, 'bold');
+    doc.setFontSize(9.5);
+    sc(doc, FORMAL_MUTED);
+    doc.text('Diagnostico: ', dataX, diagY);
+    const labelW = doc.getTextWidth('Diagnostico: ');
+    doc.setFont(FORMAL_FONT, 'normal');
+    sc(doc, FORMAL_TEXT);
+    const lines = doc.splitTextToSize(diagText, w - (dataX - x) - labelW - 6).slice(0, 2);
+    doc.text(lines, dataX + labelW, diagY);
+  }
+
+  return y + boxH + 9;
+}
+
+function renderRichTextPdf(
+  doc: any,
+  html: string,
+  x: number,
+  startY: number,
+  maxW: number,
+  baseFontSize: number,
+  onNewPage: () => number,
+  pageBottom?: number,
+  lineHeightOverride?: number,
+  fontFamily?: string,
+): number {
+  const H = doc.internal.pageSize.getHeight();
+  const bot = pageBottom ?? cBot(H);
+  let y = startY;
+  const family = fontFamily || _docFont;
+
+  const chkPage = (needed: number): void => { if (y + needed > bot) { y = onNewPage(); } };
+
+  for (const block of parseRichHtml(html)) {
+    const isHeading = block.type === 'h1' || block.type === 'h2';
+    const fontSize = isHeading ? baseFontSize + (block.type === 'h1' ? 2.5 : 1) : baseFontSize;
+    const variant = block.bold && block.italic ? 'bolditalic' : block.bold ? 'bold' : block.italic ? 'italic' : 'normal';
+    const lineH = isHeading ? Math.max(fontSize * 0.55 + 1, lineHeightOverride ?? LINE_H) : (lineHeightOverride ?? LINE_H);
+    const indent = (block.type === 'ul-li' || block.type === 'ol-li') ? 4 : 0;
+    const prefix = block.type === 'ul-li' ? '• ' : block.type === 'ol-li' ? `${block.listIdx}. ` : '';
+    const effW = maxW - indent;
+
+    const applyBlockFont = (): void => {
+      try { doc.setFont(family, variant); } catch { doc.setFont(family, 'normal'); }
+      doc.setFontSize(fontSize);
+      sc(doc, DARK);
+    };
+    applyBlockFont();
+
+    const cleanBlockText = normalizePdfText(block.text);
+    const lines: string[] = doc.splitTextToSize(prefix + cleanBlockText, effW);
+    const firstChunkLines = isHeading ? 1 : Math.min(lines.length, 4);
+    chkPage(firstChunkLines * lineH + 2);
+    applyBlockFont();
+
+    for (let i = 0; i < lines.length; i++) {
+      if (y > bot - 4) { y = onNewPage(); applyBlockFont(); }
+      const lx = x + indent + (i > 0 && (block.type === 'ul-li' || block.type === 'ol-li') ? prefix.length * 2 : 0);
+      const isLastLine = i === lines.length - 1;
+      if (block.align === 'center') {
+        doc.text(lines[i], lx + effW / 2, y, { align: 'center' });
+      } else if (block.align === 'right') {
+        doc.text(lines[i], lx + effW, y, { align: 'right' });
+      } else if (block.align === 'justify' && !isLastLine && block.type === 'p') {
+        drawJustifiedTextLine(doc, lines[i], lx, y, effW);
+      } else {
+        doc.text(lines[i], lx, y);
+      }
+      y += lineH;
+    }
+    y += isHeading ? 2 : 1.5;
+  }
+  return y;
+}
+
 // ─── FIELD RENDERER ──────────────────────────────────────────────────────────
+function renderFormalDeclarationAndLegal(
+  doc: any,
+  docType: string,
+  x: number,
+  y: number,
+  maxW: number,
+  onNewPage: () => number,
+): number {
+  const bot = () => cBot(doc.internal.pageSize.getHeight());
+  const ensureLocal = (need: number): void => {
+    if (y > bot() - need) y = onNewPage();
+  };
+
+  doc.setFont(FORMAL_FONT, 'normal');
+  doc.setFontSize(10.8);
+  sc(doc, FORMAL_TEXT);
+  const declarationLines = doc.splitTextToSize(normalizePdfText(FORMAL_DECLARATION_TEXT), maxW);
+  ensureLocal(Math.min(44, declarationLines.length * 5.6 + 13));
+  sf(doc, [250, 250, 250] as [number, number, number]);
+  sd(doc, BORDER);
+  doc.setLineWidth(0.2);
+  const boxH = declarationLines.length * 5.4 + 9;
+  doc.roundedRect(x, y, maxW, boxH, 1.5, 1.5, 'FD');
+  doc.setFont(FORMAL_FONT, 'italic');
+  doc.setFontSize(10.8);
+  sc(doc, FORMAL_TEXT);
+  doc.text(declarationLines, x + 4, y + 6.5);
+  y += boxH + 7;
+
+  const legalText = docType === 'PEI' || docType === 'PAEE' || docType === 'PDI'
+    ? FORMAL_LEGAL_TEXT
+    : getDocLegal(docType);
+  doc.setFont(FORMAL_FONT, 'normal');
+  doc.setFontSize(9.8);
+  const legalLines = doc.splitTextToSize(normalizePdfText(legalText), maxW);
+  ensureLocal(Math.min(48, legalLines.length * 4.8 + 13));
+  doc.setFont(FORMAL_FONT, 'bold');
+  doc.setFontSize(9.2);
+  sc(doc, PETROL);
+  doc.text('BASE LEGAL:', x, y);
+  y += 5;
+  doc.setFont(FORMAL_FONT, 'normal');
+  doc.setFontSize(9.5);
+  sc(doc, FORMAL_MUTED);
+  const lineH = 4.7;
+  for (const line of legalLines) {
+    if (y > bot() - 5) {
+      y = onNewPage();
+      doc.setFont(FORMAL_FONT, 'normal');
+      doc.setFontSize(9.5);
+      sc(doc, FORMAL_MUTED);
+    }
+    doc.text(line, x, y);
+    y += lineH;
+  }
+  return y + 8;
+}
+
 function renderField(
   doc: any, label: string, value: string,
   x: number, y: number, maxW: number,
@@ -730,6 +1313,37 @@ function renderField(
 }
 
 // ─── TABLE RENDERER ──────────────────────────────────────────────────────────
+function renderJustifiedField(
+  doc: any, label: string, value: string,
+  x: number, y: number, maxW: number,
+  onNewPage: () => number,
+): number {
+  const H = doc.internal.pageSize.getHeight();
+  if (y > cBot(H) - 15) { y = onNewPage(); }
+
+  if (label) {
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(LABEL_SIZE);
+    sc(doc, PETROL);
+    doc.text(label.toUpperCase(), x, y);
+    y += 5;
+  }
+
+  doc.setFont(_docFont, 'normal');
+  doc.setFontSize(BODY_SIZE + 0.5);
+  sc(doc, DARK);
+
+  const lineSpacing = LINE_H + 0.6;
+  const lines = doc.splitTextToSize(value || '—', maxW);
+  for (let i = 0; i < lines.length; i++) {
+    if (y > cBot(H) - 6) { y = onNewPage(); }
+    const isLast = i === lines.length - 1;
+    doc.text(lines[i], x, y, isLast ? undefined : ({ align: 'justify', maxWidth: maxW } as any));
+    y += lineSpacing;
+  }
+  return y + 4;
+}
+
 function renderTable(
   doc: any,
   headers: string[],
@@ -782,6 +1396,74 @@ function renderTable(
 }
 
 // ─── BULLET LIST — LINE_H_LIST (fator 1,27 para listas) ─────────────────────
+function renderNeedsCards(
+  doc: any,
+  cards: Array<{ area: string; need?: string; impact?: string; support?: string }>,
+  x: number, y: number, maxW: number,
+  onNewPage: () => number,
+): number {
+  const visible = cards.filter(card => [card.need, card.impact, card.support].some(v => String(v ?? '').trim()));
+  if (!visible.length) return y;
+
+  const colGap = 6;
+  const colW = (maxW - colGap) / 2;
+  const labelW = 31;
+  const clean = (v?: string): string => String(v ?? '').trim();
+  const cardHeight = (card: { need?: string; impact?: string; support?: string }): number => {
+    const rows = [clean(card.need), clean(card.impact), clean(card.support)].filter(Boolean);
+    let h = 15;
+    rows.forEach(value => {
+      h += Math.max(8, doc.splitTextToSize(value, colW - labelW - 8).length * 4.4 + 2);
+    });
+    return Math.max(28, h + 4);
+  };
+
+  for (let i = 0; i < visible.length; i += 2) {
+    const left = visible[i];
+    const right = visible[i + 1];
+    const rowH = Math.max(cardHeight(left), right ? cardHeight(right) : 0);
+    if (y + rowH > cBot(doc.internal.pageSize.getHeight())) y = onNewPage();
+
+    [left, right].filter(Boolean).forEach((card, colIdx) => {
+      const cardX = x + colIdx * (colW + colGap);
+      sf(doc, WHITE);
+      sd(doc, BORDER);
+      doc.setLineWidth(0.25);
+      doc.roundedRect(cardX, y, colW, rowH, 2, 2, 'FD');
+
+      sf(doc, [232, 243, 246] as [number, number, number]);
+      doc.roundedRect(cardX, y, colW, 8, 2, 2, 'F');
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(TABLE_SIZE);
+      sc(doc, PETROL);
+      doc.text(card!.area, cardX + 4, y + 5.4);
+
+      let cy = y + 13;
+      [
+        ['Necessidade observada', clean(card!.need)],
+        ['Impacto escolar', clean(card!.impact)],
+        ['Apoio indicado', clean(card!.support)],
+      ].filter(([, value]) => value).forEach(([label, value]) => {
+        doc.setFont(_docFont, 'bold');
+        doc.setFontSize(7.4);
+        sc(doc, PETROL);
+        doc.text(label, cardX + 4, cy);
+
+        doc.setFont(_docFont, 'normal');
+        doc.setFontSize(9);
+        sc(doc, DARK);
+        const lines = doc.splitTextToSize(value, colW - labelW - 8);
+        doc.text(lines, cardX + labelW + 4, cy, { align: 'justify', maxWidth: colW - labelW - 8 } as any);
+        cy += Math.max(8, lines.length * 4.4 + 2);
+      });
+    });
+
+    y += rowH + 6;
+  }
+
+  return y + 1;
+}
+
 function renderBullets(
   doc: any, items: string[],
   x: number, y: number, maxW: number,
@@ -970,7 +1652,11 @@ const LEGAL_MAP: Record<string, string> = {
 };
 
 function getDocLegal(docType: string): string {
-  return LEGAL_MAP[docType.toUpperCase()] ?? LEGAL_MAP.DEFAULT;
+  const key = docType.toUpperCase();
+  if (key === 'PEI' || key === 'PAEE' || key === 'PDI' || key === 'ESTUDO_CASO') {
+    return FORMAL_LEGAL_TEXT;
+  }
+  return LEGAL_MAP[key] ?? LEGAL_MAP.DEFAULT;
 }
 
 function addSignatureBlock(
@@ -983,9 +1669,10 @@ function addSignatureBlock(
   opts?: SignatureAreaOpts,
   aeeNames?: string,
 ): number {
+  const isEstudoCaso = isEstudoCasoDocType(docType);
   const isValidation = _currentDocKind === 'validation';
   const H    = doc.internal.pageSize.getHeight();
-  const need = 85; 
+  const need = isEstudoCaso ? 78 : 85;
   if (y > cBot(H) - need) { y = onNewPage(); }
 
   y += 4; 
@@ -999,6 +1686,57 @@ function addSignatureBlock(
   doc.setLineWidth(0.5);
   doc.line(x, y, x + 35, y);
   y += 7;
+
+  if (isEstudoCaso) {
+    const cleanName = (userName || '').replace(/\s*(MASTER|PRO|FREE|PREMIUM|INSTITUTIONAL)\s*/gi, '').trim() || userName;
+    const baseSigners: Array<{ name: string; role: string; digital?: string }> = [
+      { name: cleanName, role: 'Profissional Responsavel' },
+      { name: '', role: 'Professor(a) Regente' },
+      { name: '', role: 'Coordenacao Pedagogica' },
+      {
+        name: opts?.parentSignerName || '',
+        role: 'Responsavel Legal',
+        digital: opts?.parentSignatureMode === 'digital' ? opts?.parentSignatureData : undefined,
+      },
+    ];
+
+    const aeeList = (aeeNames || '')
+      .split(/[;,\n|]/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    const aeeSigners = (aeeList.length ? aeeList : ['Profissional AEE'])
+      .map(name => ({ name, role: 'Profissional do AEE' }));
+    const signers = [...baseSigners, ...aeeSigners];
+
+    const colGap = 10;
+    const colW = (maxW - colGap) / 2;
+    const cellH = 25;
+    const drawSigner = (s: { name: string; role: string; digital?: string }, sx: number, sy: number): void => {
+      if (s.digital) {
+        try { doc.addImage(s.digital, 'PNG', sx + colW / 2 - 15, sy - 4, 30, 12); } catch {}
+      }
+      sd(doc, DARK);
+      doc.setLineWidth(0.2);
+      doc.line(sx, sy + 12, sx + colW, sy + 12);
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(SMALL_SIZE + 0.5);
+      sc(doc, DARK);
+      if (s.name) doc.text(doc.splitTextToSize(s.name, colW), sx + colW / 2, sy + 17, { align: 'center' });
+      doc.setFont(_docFont, 'normal');
+      doc.setFontSize(SMALL_SIZE);
+      sc(doc, GRAY);
+      doc.text(s.role, sx + colW / 2, sy + (s.name ? 22 : 17), { align: 'center' });
+    };
+
+    signers.forEach((s, idx) => {
+      if (idx > 0 && idx % 2 === 0) y += cellH;
+      if (y > cBot(doc.internal.pageSize.getHeight()) - cellH) y = onNewPage() + 4;
+      const sx = x + (idx % 2) * (colW + colGap);
+      drawSigner(s, sx, y);
+    });
+
+    return y + cellH + 4;
+  }
 
   // Declaration
   const decl =
@@ -1851,6 +2589,723 @@ function renderEstudoCasoCompactProtocol(
 // Renderiza o Estudo de Caso em fluxo contínuo a partir de startY.
 // startY = posição Y após o bloco de identificação do aluno (Seção I).
 // Retorna o Y final após todas as seções.
+type PdfSection = {
+  title: string;
+  fields: Array<{ label: string; value: any; type?: string; maxScale?: number }>;
+};
+
+function renderEstudoCasoPremiumV2(
+  doc: any,
+  sections: PdfSection[],
+  student: Student,
+  user: User,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  sigOpts: SignatureAreaOpts,
+  qrUrl?: string,
+): void {
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const x = ML;
+  const maxW = W - ML - MR;
+  const bottomY = H - 34;
+  const seal = _currentDocKind === 'validation' ? 'DOCUMENTO VALIDADO' : 'DOCUMENTO REGISTRADO';
+  const accent: [number, number, number] = [227, 132, 43];
+  const softBlue: [number, number, number] = [234, 244, 247];
+  const softOrange: [number, number, number] = [255, 247, 235];
+
+  const norm = (value: string): string =>
+    value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const clean = (value: any): string => {
+    const raw = Array.isArray(value)
+      ? value.filter(Boolean).join(', ')
+      : typeof value === 'object' && value !== null
+        ? [
+            (value as any).observation,
+            (value as any).text,
+            (value as any).rating,
+            ...Object.entries(value)
+              .filter(([key]) => !/^(observation|text|rating)$/i.test(key))
+              .map(([, entry]) => Array.isArray(entry) ? entry.join(', ') : entry),
+          ].filter(Boolean).join(' | ')
+        : String(value ?? '');
+    const stripped = stripHtmlToText(raw);
+    const trimmed = stripped.replace(/\s+/g, ' ').trim();
+    return trimmed && trimmed !== '—' && norm(trimmed) !== 'nao informado' ? trimmed : '';
+  };
+  const sectionBy = (...terms: string[]): PdfSection | undefined =>
+    sections.find(sec => terms.some(term => norm(sec.title).includes(norm(term))));
+  const fieldBy = (sec: PdfSection | undefined, ...terms: string[]): string => {
+    if (!sec) return '';
+    for (const term of terms) {
+      const hit = sec.fields.find(field => norm(field.label).includes(norm(term)));
+      const value = clean(hit?.value);
+      if (value) return value;
+    }
+    return '';
+  };
+  const fieldsOf = (sec: PdfSection | undefined): Array<{ label: string; value: string }> =>
+    sec
+      ? sec.fields
+          .map(field => ({ label: field.label, value: clean(field.value) }))
+          .filter(field => field.value)
+      : [];
+  const joinFields = (sec: PdfSection | undefined): string =>
+    fieldsOf(sec).map(field => `${field.label}: ${field.value}`).join('\n');
+  const ensure = (needed: number): void => {
+    if (y + needed <= bottomY) return;
+    doc.addPage();
+    y = drawInternalHeader();
+  };
+  const textLines = (value: string, width: number, size = BODY_SIZE + 1): string[] => {
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(size);
+    return doc.splitTextToSize(value, width);
+  };
+  const summarizeForPdf = (value: any, maxChars = 150): string => {
+    const text = clean(value);
+    if (!text) return '';
+    const parts = text
+      .split(/(?<=[.!?])\s+|;\s+|\n+/)
+      .map(part => part.trim())
+      .filter(Boolean);
+    const unique = parts.filter((part, index) =>
+      parts.findIndex(other => norm(other) === norm(part)) === index,
+    );
+    let compact = (unique.length ? unique : [text]).slice(0, 2).join(' ');
+    if (compact.length <= maxChars) return compact;
+    compact = compact.slice(0, maxChars).replace(/\s+\S*$/, '').trim();
+    return `${compact}...`;
+  };
+  const distinctSummary = (value: any, compare: string, maxChars = 135): string => {
+    const summarized = summarizeForPdf(value, maxChars);
+    if (!summarized) return '';
+    const a = norm(summarized);
+    const b = norm(compare);
+    if (a === b || (a.length > 40 && b.includes(a)) || (b.length > 40 && a.includes(b))) return '';
+    return summarized;
+  };
+
+  const schoolName = school?.schoolName || student.schoolName || 'Escola';
+  const cityLine = [school?.city, school?.state].filter(Boolean).join(' - ');
+  const generatedAt = formatGeneratedAt(_currentGeneratedAt);
+  const generatedBy = _currentUserName || cleanUserName(user.name) || 'Sistema';
+
+  const drawTopHeader = (): number => {
+    sf(doc, [246, 250, 251] as [number, number, number]);
+    doc.rect(0, 0, W, 31, 'F');
+    sf(doc, PETROL);
+    doc.rect(0, 0, W, 3.2, 'F');
+
+    let textX = x;
+    if (school?.logoUrl) {
+      try {
+        const fmt = school.logoUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+        doc.addImage(school.logoUrl, fmt, x, 9, 14, 14);
+        textX = x + 18;
+      } catch {}
+    } else {
+      sf(doc, PETROL);
+      doc.roundedRect(x, 9, 14, 14, 2, 2, 'F');
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(7.5);
+      sc(doc, WHITE);
+      doc.text(getInitials(schoolName), x + 7, 18, { align: 'center' });
+      textX = x + 18;
+    }
+
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(10.8);
+    sc(doc, DARK);
+    doc.text(schoolName, textX, 13);
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(7.8);
+    sc(doc, GRAY);
+    doc.text(cityLine || 'Documento institucional escolar', textX, 17.4);
+    doc.text(`Gerado por: ${generatedBy}`, textX, 21.4);
+
+    sf(doc, seal === 'DOCUMENTO VALIDADO' ? PETROL : accent);
+    doc.roundedRect(W - MR - 47, 8.5, 47, 8.5, 2, 2, 'F');
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(7.2);
+    sc(doc, WHITE);
+    doc.text(seal, W - MR - 23.5, 14.2, { align: 'center' });
+
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(7.3);
+    sc(doc, DARK);
+    doc.text(auditCode, W - MR, 21, { align: 'right' });
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(7.1);
+    sc(doc, GRAY);
+    doc.text(generatedAt, W - MR, 25, { align: 'right' });
+
+    sd(doc, BORDER);
+    doc.setLineWidth(0.25);
+    doc.line(x, 30.6, W - MR, 30.6);
+    return 43;
+  };
+
+  const drawInternalHeader = (): number => {
+    sf(doc, [248, 251, 252] as [number, number, number]);
+    doc.rect(0, 0, W, 22, 'F');
+    sf(doc, PETROL);
+    doc.rect(0, 0, W, 2.5, 'F');
+
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(8.8);
+    sc(doc, DARK);
+    doc.text(schoolName, x, 10);
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(7.2);
+    sc(doc, GRAY);
+    doc.text(`Estudo de Caso | ${student.name}`, x, 14);
+    doc.text(student.grade ? `Serie/Turma: ${student.grade}` : 'Serie/Turma: nao informada', x, 18);
+
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(6.8);
+    sc(doc, GRAY);
+    doc.text(auditCode, W - MR, 10.5, { align: 'right' });
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(6.7);
+    sc(doc, PETROL);
+    doc.text(seal, W - MR, 15, { align: 'right' });
+
+    sd(doc, BORDER);
+    doc.setLineWidth(0.25);
+    doc.line(x, 22, W - MR, 22);
+    return 33;
+  };
+
+  const drawTitle = (): void => {
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(20);
+    sc(doc, PETROL);
+    doc.text('Estudo de Caso', W / 2, y, { align: 'center' });
+    y += 8;
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(10.5);
+    sc(doc, accent);
+    doc.text('Educação Inclusiva', W / 2, y, { align: 'center' });
+    y += 8;
+    sf(doc, accent);
+    doc.roundedRect(W / 2 - 17, y - 2, 34, 1.2, 0.6, 0.6, 'F');
+    y += 9;
+  };
+
+  const drawLabelValue = (label: string, value: string, px: number, py: number, width: number): number => {
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(7.4);
+    sc(doc, PETROL);
+    doc.text(label.toUpperCase(), px, py);
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(9.3);
+    sc(doc, DARK);
+    const lines = doc.splitTextToSize(value || 'Nao informado', width);
+    doc.text(lines, px, py + 4.2);
+    return py + 4.2 + Math.max(4.5, lines.length * 4.3);
+  };
+
+  const drawStudentCard = (): void => {
+    const diagnosisText = clean(student.diagnosis) || clean(student.cid);
+    const medication = clean(student.medication);
+    const guardianText = [student.guardianName, student.guardianPhone].filter(Boolean).join(' | ');
+    const fullW = maxW - 16;
+    const diagnosisLines = diagnosisText ? textLines(diagnosisText, fullW, 8.8).slice(0, 4) : [];
+    const medicationLines = medication ? textLines(medication, fullW, 8.8).slice(0, 3) : [];
+    const guardianLines = textLines(`Responsável legal: ${guardianText || 'Não informado'}`, fullW, 7.4).slice(0, 2);
+    const extraH =
+      (diagnosisLines.length ? 9 + diagnosisLines.length * 4.1 : 0) +
+      (medicationLines.length ? 8 + medicationLines.length * 4.1 : 0);
+    const cardH = 73 + extraH;
+    ensure(cardH + 8);
+    sf(doc, WHITE);
+    sd(doc, BORDER);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(x, y, maxW, cardH, 3, 3, 'FD');
+    sf(doc, softBlue);
+    doc.roundedRect(x, y, maxW, 11, 3, 3, 'F');
+    sf(doc, accent);
+    doc.rect(x, y, 2.4, cardH, 'F');
+
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(10);
+    sc(doc, PETROL);
+    doc.text('Identificação do aluno', x + 7, y + 7.3);
+
+    const photoX = x + 8;
+    const photoY = y + 18;
+    if (student.photoUrl) {
+      try {
+        const fmt = student.photoUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+        doc.addImage(student.photoUrl, fmt, photoX, photoY, 26, 34);
+      } catch {
+        sf(doc, [238, 242, 244] as [number, number, number]);
+        doc.roundedRect(photoX, photoY, 26, 34, 2, 2, 'F');
+      }
+    } else {
+      sf(doc, [238, 242, 244] as [number, number, number]);
+      sd(doc, BORDER);
+      doc.roundedRect(photoX, photoY, 26, 34, 2, 2, 'FD');
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(14);
+      sc(doc, PETROL);
+      doc.text(getInitials(student.name), photoX + 13, photoY + 19, { align: 'center' });
+      doc.setFont(_docFont, 'normal');
+      doc.setFontSize(5.8);
+      sc(doc, GRAY);
+      doc.text('Foto 3x4', photoX + 13, photoY + 27, { align: 'center' });
+    }
+
+    const c1 = x + 42;
+    const c2 = x + 106;
+    let y1 = y + 19;
+    let y2 = y + 19;
+    y1 = drawLabelValue('Nome completo', student.name, c1, y1, 58);
+    y2 = drawLabelValue('Nascimento / idade', [formatBirthDate(student.birthDate), calcAge(student.birthDate)].filter(Boolean).join(' - '), c2, y2, 63);
+    y1 = drawLabelValue('Série / turma', student.grade || student.shift || '', c1, y1 + 1, 58);
+    y2 = drawLabelValue('Escola', schoolName, c2, y2 + 1, 63);
+    y1 = drawLabelValue('Código único', student.unique_code || student.id || auditCode, c1, y1 + 1, 58);
+    y2 = drawLabelValue('Nível de suporte', student.supportLevel || '', c2, y2 + 1, 63);
+    y1 = drawLabelValue('Sexo', student.gender || '', c1, y1 + 1, 58);
+    y2 = drawLabelValue('Contato do responsável', student.guardianPhone || '', c2, y2 + 1, 63);
+
+    let detailY = Math.max(y1, y2, photoY + 39) + 2;
+    if (diagnosisLines.length) {
+      sf(doc, [248, 251, 252] as [number, number, number]);
+      sd(doc, BORDER);
+      doc.roundedRect(x + 8, detailY - 4, fullW, 7 + diagnosisLines.length * 4.1, 2, 2, 'FD');
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(7.4);
+      sc(doc, PETROL);
+      doc.text('DIAGNÓSTICOS', x + 12, detailY);
+      doc.setFont(_docFont, 'normal');
+      doc.setFontSize(8.8);
+      sc(doc, DARK);
+      doc.text(diagnosisLines, x + 12, detailY + 4.2);
+      detailY += 9 + diagnosisLines.length * 4.1;
+    }
+    if (medicationLines.length) {
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(7.4);
+      sc(doc, PETROL);
+      doc.text('MEDICAÇÃO', x + 12, detailY);
+      doc.setFont(_docFont, 'normal');
+      doc.setFontSize(8.8);
+      sc(doc, DARK);
+      doc.text(medicationLines, x + 12, detailY + 4.2);
+    }
+
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(7.4);
+    sc(doc, GRAY);
+    doc.text(guardianLines, x + 8, y + cardH - 8);
+    y += cardH + 7;
+  };
+
+  const drawInstitutionCard = (): void => {
+    const pairs: Array<[string, string]> = [
+      ['Escola / mantenedora', schoolName],
+      ['Endereço', [school?.address, school?.neighborhood, school?.city, school?.state].filter(Boolean).join(', ')],
+      ['Contato', [school?.contact, school?.email].filter(Boolean).join(' | ')],
+      ['Profissional responsável', cleanUserName(user.name)],
+      ['Professor(a) regente', student.regentTeacher],
+      ['Coordenação pedagógica', student.coordinator || school?.coordinatorName || ''],
+    ].filter(([, value]) => clean(value)) as Array<[string, string]>;
+    if (!pairs.length) return;
+
+    const rowH = 12;
+    const h = 16 + Math.ceil(pairs.length / 2) * rowH;
+    ensure(h + 6);
+    sf(doc, [250, 252, 252] as [number, number, number]);
+    sd(doc, BORDER);
+    doc.roundedRect(x, y, maxW, h, 3, 3, 'FD');
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(9.5);
+    sc(doc, PETROL);
+    doc.text('Dados institucionais', x + 6, y + 8);
+    const colW = (maxW - 18) / 2;
+    pairs.forEach(([label, value], index) => {
+      const px = x + 6 + (index % 2) * (colW + 6);
+      const py = y + 17 + Math.floor(index / 2) * rowH;
+      drawLabelValue(label, value, px, py, colW);
+    });
+    y += h + 7;
+  };
+
+  const drawSectionCard = (number: string, title: string, content: string, tone: 'default' | 'warm' = 'default'): void => {
+    const value = clean(content);
+    if (!value) return;
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(10.8);
+    const lines = doc.splitTextToSize(value, maxW - 14);
+    let index = 0;
+    let continuation = false;
+    while (index < lines.length) {
+      ensure(52);
+      const capacity = Math.max(4, Math.floor((bottomY - y - 24) / 5.35));
+      const chunk = lines.slice(index, index + capacity);
+      const h = 18 + chunk.length * 5.35 + 7;
+      sf(doc, tone === 'warm' ? softOrange : WHITE);
+      sd(doc, BORDER);
+      doc.setLineWidth(0.25);
+      doc.roundedRect(x, y, maxW, h, 3, 3, 'FD');
+      sf(doc, PETROL);
+      doc.roundedRect(x + 5, y + 5, 9, 9, 2, 2, 'F');
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(6.8);
+      sc(doc, WHITE);
+      doc.text(number, x + 9.5, y + 11.1, { align: 'center' });
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(10.2);
+      sc(doc, PETROL);
+      doc.text(`${title}${continuation ? ' (continuação)' : ''}`, x + 18, y + 11);
+      sf(doc, accent);
+      doc.roundedRect(x + 18, y + 14.2, 25, 0.9, 0.4, 0.4, 'F');
+
+      doc.setFont(_docFont, 'normal');
+      doc.setFontSize(10.8);
+      sc(doc, DARK);
+      let ty = y + 22;
+      chunk.forEach((line, lineIndex) => {
+        const isLast = index + lineIndex >= lines.length - 1;
+        doc.text(line, x + 7, ty, isLast ? undefined : ({ align: 'justify', maxWidth: maxW - 14 } as any));
+        ty += 5.35;
+      });
+      y += h + 6;
+      index += chunk.length;
+      continuation = true;
+    }
+  };
+
+  const fieldRawValue = (field: PdfSection['fields'][number]): string => {
+    const value = field.value;
+    if (field.type === 'checklist' && Array.isArray(value)) {
+      return value.map(item => `• ${normalizePdfText(item)}`).join('\n');
+    }
+    if (field.type === 'grid' && Array.isArray(value)) {
+      return value
+        .map((row: Record<string, unknown>) => Object.values(row).map(normalizePdfText).filter(Boolean).join(' | '))
+        .filter(Boolean)
+        .join('\n');
+    }
+    if (typeof value === 'object' && value !== null) {
+      return [
+        (value as any).observation,
+        (value as any).text,
+        (value as any).rating,
+        ...Object.entries(value)
+          .filter(([key]) => !/^(observation|text|rating)$/i.test(key))
+          .map(([, entry]) => Array.isArray(entry) ? entry.join(', ') : entry),
+      ].filter(Boolean).map(normalizePdfText).join(' | ');
+    }
+    return typeof value === 'string' ? value : normalizePdfText(value ?? '');
+  };
+
+  const sectionVisibleFields = (sec: PdfSection): Array<{ label: string; raw: string; cleanText: string }> =>
+    sec.fields
+      .map(field => {
+        const raw = fieldRawValue(field);
+        return {
+          label: normalizePdfText(field.label || 'Campo'),
+          raw,
+          cleanText: stripHtmlToText(raw),
+        };
+      })
+      .filter(field => field.cleanText && field.cleanText !== '—' && norm(field.cleanText) !== 'nao informado');
+
+  const ensureFieldStart = (raw: string, width: number): void => {
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(10.4);
+    const preview = stripHtmlToText(raw);
+    const lines: string[] = doc.splitTextToSize(preview, width);
+    ensure(6 + Math.min(Math.max(lines.length, 1), 2) * 5.2 + 7);
+  };
+
+  const drawCleanSectionHeader = (
+    title: string,
+    tone: 'default' | 'warm' = 'default',
+    number?: string,
+  ): void => {
+    ensure(24);
+    sf(doc, tone === 'warm' ? softOrange : ([248, 251, 252] as [number, number, number]));
+    sd(doc, BORDER);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(x, y, maxW, 12, 3, 3, 'FD');
+
+    let titleX = x + 7;
+    if (number) {
+      sf(doc, PETROL);
+      doc.roundedRect(x + 5, y + 2.2, 9, 7.8, 2, 2, 'F');
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(6.8);
+      sc(doc, WHITE);
+      doc.text(number, x + 9.5, y + 7.4, { align: 'center' });
+      titleX = x + 18;
+    }
+
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(10.4);
+    sc(doc, PETROL);
+    const titleLines = doc.splitTextToSize(title, maxW - (titleX - x) - 8).slice(0, 2);
+    doc.text(titleLines, titleX, y + 7.4);
+    y += Math.max(15, 9 + titleLines.length * 4.4);
+  };
+
+  const drawFieldBlock = (field: { label: string; raw: string; cleanText: string }): void => {
+    const fieldX = x + 7;
+    const fieldW = maxW - 14;
+    ensureFieldStart(field.raw, fieldW);
+
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(8.8);
+    sc(doc, PETROL);
+    const labelLines = doc.splitTextToSize(field.label, fieldW);
+    doc.text(labelLines, fieldX, y);
+    y += labelLines.length * 4.4 + 2.5;
+
+    y = renderRichTextPdf(doc, field.raw, fieldX, y, fieldW, 10.4, () => {
+      doc.addPage();
+      return drawInternalHeader();
+    }, bottomY, 5.35, _docFont);
+    y += 4.5;
+  };
+
+  const drawSectionFieldsCard = (number: string, sec: PdfSection): void => {
+    const fields = sectionVisibleFields(sec);
+    if (!fields.length) return;
+    drawCleanSectionHeader(sec.title, 'default', number);
+    for (const field of fields) drawFieldBlock(field);
+    y += 2;
+  };
+
+  const drawInstitutionalBlock = (title: string, content: string, tone: 'default' | 'warm' = 'warm'): void => {
+    const raw = content || '';
+    const cleanText = stripHtmlToText(raw);
+    if (!cleanText) return;
+    drawCleanSectionHeader(title, tone);
+    const fieldX = x + 7;
+    const fieldW = maxW - 14;
+    ensureFieldStart(raw, fieldW);
+    y = renderRichTextPdf(doc, raw, fieldX, y, fieldW, 10.4, () => {
+      doc.addPage();
+      return drawInternalHeader();
+    }, bottomY, 5.35, _docFont);
+    y += 5;
+  };
+
+  const drawNeedsTable = (cards: Array<{ area: string; need?: string; impact?: string; support?: string }>): void => {
+    const visible = cards.filter(card => [card.need, card.impact, card.support].some(v => clean(v)));
+    if (!visible.length) return;
+
+    ensure(24);
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(11);
+    sc(doc, PETROL);
+    doc.text('03  Síntese das Necessidades de Apoio', x, y);
+    sf(doc, accent);
+    doc.roundedRect(x, y + 3, 35, 1, 0.5, 0.5, 'F');
+    y += 12;
+
+    const c1W = 30;
+    const c3W = 62;
+    const c2W = maxW - c1W - c3W;
+    const PAD = 3;
+    const HEADER_H = 9;
+    const FONT_SZ = 8.5;
+    const LH = 4.5;
+    const MIN_ROW_H = 12;
+
+    const drawTblHeader = (): void => {
+      sf(doc, PETROL);
+      doc.rect(x, y, maxW, HEADER_H, 'F');
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(7.5);
+      sc(doc, WHITE);
+      doc.text('ÁREA', x + PAD, y + 5.8);
+      doc.text('NECESSIDADE OBSERVADA', x + c1W + PAD, y + 5.8);
+      doc.text('APOIO INDICADO / ESTRATÉGIAS', x + c1W + c2W + PAD, y + 5.8);
+      y += HEADER_H;
+    };
+
+    drawTblHeader();
+
+    let rowBg = false;
+    for (const card of visible) {
+      const needFull = [clean(card.need), clean(card.impact)].filter(Boolean).join('\n');
+      const supportFull = clean(card.support);
+      if (!needFull && !supportFull) continue;
+
+      doc.setFontSize(FONT_SZ);
+      const areaLines: string[] = doc.splitTextToSize(card.area, c1W - PAD * 2);
+      const needLines: string[] = needFull ? doc.splitTextToSize(needFull, c2W - PAD * 2) : [];
+      const supportLines: string[] = supportFull ? doc.splitTextToSize(supportFull, c3W - PAD * 2) : [];
+
+      const rowH = Math.max(
+        MIN_ROW_H,
+        areaLines.length * LH + PAD * 2 + 1,
+        needLines.length * LH + PAD * 2 + 1,
+        supportLines.length * LH + PAD * 2 + 1,
+      );
+
+      if (y + rowH > bottomY) {
+        doc.addPage();
+        y = drawInternalHeader();
+        drawTblHeader();
+        rowBg = false;
+      }
+
+      sf(doc, rowBg ? ([248, 251, 252] as [number, number, number]) : WHITE);
+      doc.rect(x, y, maxW, rowH, 'F');
+      rowBg = !rowBg;
+
+      sd(doc, BORDER);
+      doc.setLineWidth(0.2);
+      doc.rect(x, y, maxW, rowH, 'D');
+      doc.line(x + c1W, y, x + c1W, y + rowH);
+      doc.line(x + c1W + c2W, y, x + c1W + c2W, y + rowH);
+
+      const ty = y + PAD + LH;
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(FONT_SZ);
+      sc(doc, PETROL);
+      if (areaLines.length) doc.text(areaLines, x + PAD, ty);
+
+      doc.setFont(_docFont, 'normal');
+      sc(doc, DARK);
+      if (needLines.length) doc.text(needLines, x + c1W + PAD, ty);
+      if (supportLines.length) doc.text(supportLines, x + c1W + c2W + PAD, ty);
+
+      y += rowH;
+    }
+    y += 6;
+  };
+
+  const drawLegal = (): void => {
+    drawInstitutionalBlock('Base legal e observações institucionais', getDocLegal('ESTUDO_CASO'), 'warm');
+  };
+
+  const drawSignatures = (): void => {
+    const secInstit = sectionBy('institu');
+    const regent = fieldBy(secInstit, 'regente') || student.regentTeacher;
+    const coord = fieldBy(secInstit, 'coordena') || student.coordinator || school?.coordinatorName || '';
+    const parent = sigOpts.parentSignerName || student.guardianName;
+    const aeeRaw = fieldBy(secInstit, 'aee') || student.aeeTeacher || school?.aeeRepName || school?.aeeRepresentative || '';
+    const aeeNames = aeeRaw
+      .split(/[;,\n|]/)
+      .map(name => name.trim())
+      .filter(Boolean);
+    const primary = [
+      { name: cleanUserName(user.name) || 'Profissional Responsável', role: 'Profissional Responsável', digital: undefined as string | undefined },
+      { name: regent || 'Professor(a) Regente', role: 'Professor(a) Regente', digital: undefined as string | undefined },
+      { name: coord || 'Coordenação Pedagógica', role: 'Coordenação Pedagógica', digital: undefined as string | undefined },
+      {
+        name: parent || 'Responsável Legal',
+        role: 'Responsável Legal',
+        digital: sigOpts.parentSignatureMode === 'digital' ? sigOpts.parentSignatureData : undefined,
+      },
+    ];
+    const aee = (aeeNames.length ? aeeNames : ['Profissional AEE']).map(name => ({
+      name,
+      role: 'Profissional do AEE',
+    }));
+
+    const aeeRows = Math.ceil(aee.length / 3);
+    ensure(76 + aeeRows * 24);
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(11);
+    sc(doc, PETROL);
+    doc.text('Assinaturas', x, y);
+    sf(doc, accent);
+    doc.roundedRect(x, y + 3, 28, 1, 0.5, 0.5, 'F');
+    y += 16;
+
+    const colGap = 12;
+    const colW = (maxW - colGap) / 2;
+    primary.forEach((signer, index) => {
+      if (index > 0 && index % 2 === 0) y += 27;
+      ensure(28);
+      const px = x + (index % 2) * (colW + colGap);
+      if (signer.digital) {
+        try { doc.addImage(signer.digital, 'PNG', px + colW / 2 - 15, y - 4, 30, 12); } catch {}
+      }
+      sd(doc, DARK);
+      doc.setLineWidth(0.45);
+      doc.line(px, y + 12, px + colW, y + 12);
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(9);
+      sc(doc, DARK);
+      doc.text(doc.splitTextToSize(signer.name, colW), px + colW / 2, y + 17, { align: 'center' });
+      doc.setFont(_docFont, 'normal');
+      doc.setFontSize(7.8);
+      sc(doc, GRAY);
+      doc.text(signer.role, px + colW / 2, y + 23, { align: 'center' });
+    });
+    y += 33;
+
+    ensure(32);
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(9);
+    sc(doc, PETROL);
+    doc.text('Profissionais do AEE', x, y);
+    y += 10;
+    const aeeGap = 6;
+    const aeeColW = (maxW - aeeGap * 2) / 3;
+    aee.forEach((signer, index) => {
+      if (index > 0 && index % 3 === 0) y += 24;
+      ensure(25);
+      const px = x + (index % 3) * (aeeColW + aeeGap);
+      sd(doc, DARK);
+      doc.setLineWidth(0.4);
+      doc.line(px, y + 10, px + aeeColW, y + 10);
+      doc.setFont(_docFont, 'bold');
+      doc.setFontSize(8);
+      sc(doc, DARK);
+      doc.text(doc.splitTextToSize(signer.name, aeeColW), px + aeeColW / 2, y + 15, { align: 'center' });
+      doc.setFont(_docFont, 'normal');
+      doc.setFontSize(7);
+      sc(doc, GRAY);
+      doc.text(signer.role, px + aeeColW / 2, y + 20, { align: 'center' });
+    });
+    y += 27;
+  };
+
+  let y = drawTopHeader();
+  drawTitle();
+  drawStudentCard();
+  drawInstitutionCard();
+
+  let realSectionNumber = 1;
+  sections.forEach(sec => {
+    const sectionTitleNorm = norm(sec.title);
+    if (
+      sectionTitleNorm.includes('lgpd') ||
+      sectionTitleNorm.includes('legisla') ||
+      sectionTitleNorm.includes('fundamentacao legal') ||
+      sectionTitleNorm.includes('base legal') ||
+      (sectionTitleNorm.includes('base') && sectionTitleNorm.includes('legal'))
+    ) return;
+    if (!sectionVisibleFields(sec).length) return;
+    drawSectionFieldsCard(String(realSectionNumber++).padStart(2, '0'), sec);
+  });
+
+  const hasDeclarationSection = sections.some(sec => /ciencia|declaracao|termo/.test(norm(sec.title)));
+  if (!hasDeclarationSection) {
+    drawInstitutionalBlock('Ciência institucional', FORMAL_DECLARATION_TEXT, 'warm');
+  }
+  drawLegal();
+  drawSignatures();
+
+  if (qrUrl) {
+    try {
+      doc.setPage(1);
+      sf(doc, WHITE);
+      doc.roundedRect(W - MR - 20, 34, 20, 20, 2, 2, 'F');
+      doc.addImage(qrUrl, 'PNG', W - MR - 18, 36, 16, 16);
+    } catch {}
+  }
+}
+
 function renderEstudoCasoPremium(
   doc: any,
   sections: Array<{ title: string; fields: Array<{ label: string; value: any; type?: string }> }>,
@@ -1905,13 +3360,13 @@ function renderEstudoCasoPremium(
   const field = (label: string, value: string): void => {
     const val = (value || '').trim();
     if (!val || val.toLowerCase() === 'não informado') return;
-    y = renderField(doc, label, val, x, y, maxW, newPage);
+    y = renderJustifiedField(doc, label, val, x, y, maxW, newPage);
   };
 
   // Campo opcional — silencioso se vazio
   const fieldOpt = (label: string, value: string): void => {
     if (!(value || '').trim()) return;
-    y = renderField(doc, label, value.trim(), x, y, maxW, newPage);
+    y = renderJustifiedField(doc, label, value.trim(), x, y, maxW, newPage);
   };
 
   // KV grid compacto (reutiliza kvGrid existente)
@@ -1987,6 +3442,9 @@ function renderEstudoCasoPremium(
   const secLing      = byTitle(/linguagem/i);
   const secLeit      = byTitle(/leitura/i);
   const secEscr      = byTitle(/escrita/i);
+  const secMat       = byTitle(/matem[aÃ¡]tica|racioc/i);
+  const secRegEmoc   = byTitle(/regula|emoc/i);
+  const secMotor     = byTitle(/coordena|motora|motor/i);
   const secEngaj     = byTitle(/engajamento/i);
   const secSobre     = byTitle(/sobrecarga/i);
   const secSintese   = byTitle(/s[íi]ntese/i);
@@ -2098,26 +3556,22 @@ function renderEstudoCasoPremium(
       { area: 'Atenção',           sec: secAtenc },
       { area: 'Comunicação',       sec: secCom },
       { area: 'Leitura e Escrita', sec: secLeit ?? secEscr },
-      { area: 'Matemática',        sec: undefined },
+      { area: 'Matemática',        sec: secMat },
       { area: 'Autonomia',         sec: secAutonom },
       { area: 'Interação Social',  sec: secInterSoc },
+      { area: 'Regulação Emocional', sec: secRegEmoc ?? secBehav ?? secSobre },
+      { area: 'Coordenação Motora',  sec: secMotor },
     ];
-    const needsRows: string[][] = needsAreas.map(({ area, sec }) => {
+    const needsCards = needsAreas.map(({ area, sec }) => {
       const need   = fv(sec, /tempo|qualidade|n[ií]vel|atual|comunica|intera|autonom|observad/i);
       const impact = fv(sec, /impacto|barreira|compromet|dificuld/i);
       const apoio  = fv(sec, /estrat[eé]gia|apoio|interven/i);
-      return [area, need || '—', impact || '—', apoio || '—'];
+      return { area, need, impact, support: apoio };
     });
-    const hasNeedsData = needsRows.some(r => r.slice(1).some(c => c !== '—'));
+    const hasNeedsData = needsCards.some(card => card.need || card.impact || card.support);
     if (hasNeedsData) {
       head('VIII', 'SÍNTESE DAS NECESSIDADES DE APOIO', 60);
-      y = renderTable(
-        doc,
-        ['Área', 'Necessidade Observada', 'Impacto Escolar', 'Apoio Indicado'],
-        [28, 52, 50, 50],
-        needsRows,
-        x, y, newPage,
-      );
+      y = renderNeedsCards(doc, needsCards, x, y, maxW, newPage);
       y += 3;
     }
   }
@@ -2296,6 +3750,366 @@ function renderEstudoCasoPremium(
   y = addSignatureBlock(doc, x, y, maxW, newPage, 'ESTUDO_CASO', auditCode, user.name, sigOpts, profAEE || student.aeeTeacher || '');
 
   return y;
+}
+
+// ─── FORMAL DOCUMENT RENDERER (PEI / PAEE / PDI) ─────────────────────────────
+// Padrão único limpo e institucional para documentos pedagógicos formais.
+// Regras: página branca, cabeçalho textual, seções com barra petrol fina lateral,
+// sem capa colorida, sem faixa petrol sólida, sem cards de dashboard.
+// Usa sharedAddDocumentHeader (pdfSharedLayout) + helpers locais existentes.
+function renderFormalDocument(
+  doc: any,
+  docType: string,
+  student: Student,
+  user: User,
+  school: SchoolConfig | null | undefined,
+  sections: Array<{ title: string; fields: Array<{ label: string; value: any; type?: string; maxScale?: number }> }>,
+  auditCode: string,
+  sigOpts: SignatureAreaOpts,
+  qrUrl?: string,
+  studentPhotoUrl?: string,
+): void {
+  const W = doc.internal.pageSize.getWidth();
+  const x = FORMAL_X;
+  const cW = W - FORMAL_X - FORMAL_R;
+  const bot = () => cBot(doc.internal.pageSize.getHeight());
+  let y = drawFormalFirstPageHeader(doc, docType, school, qrUrl);
+  let sectionN = 0;
+
+  const newPage = (): number => {
+    doc.addPage();
+    return drawFormalRunningHeader(doc, docType, school);
+  };
+
+  const ensureRoom = (need: number): void => {
+    if (y > bot() - need) y = newPage();
+  };
+
+  // Título de seção leve: fundo cinza suave + barra petrol fina à esquerda
+  const sectionTitle = (title: string, needed = 34, numbered = true): void => {
+    ensureRoom(needed);
+    if (numbered) sectionN++;
+    const h = 9;
+    sf(doc, [246, 247, 249] as [number, number, number]);
+    doc.rect(x, y, cW, h, 'F');
+    sf(doc, PETROL);
+    doc.rect(x, y, 1.6, h, 'F');
+    doc.setFont(FORMAL_FONT, 'bold');
+    doc.setFontSize(FORMAL_SECTION_SIZE);
+    sc(doc, FORMAL_TEXT);
+    doc.text(`${numbered ? `${sectionN}. ` : ''}${title.toUpperCase()}`, x + 4.5, y + 5.3);
+    y += h + 6;
+  };
+
+  // I. Identificação do Aluno
+  sectionTitle('IDENTIFICAÇÃO DO ALUNO', 64, false);
+  y = drawFormalStudentIdentification(doc, student, school, studentPhotoUrl, x, y, cW);
+
+  type FormalField = typeof sections[number]['fields'][number];
+  const normalizeTitleKey = (value: unknown): string =>
+    normalizePdfText(value)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+  const isLegalSectionTitle = (title: string): boolean => {
+    const key = normalizeTitleKey(title);
+    return (
+      key.includes('lgpd') ||
+      key.includes('legisla') ||
+      key.includes('fundamentacao legal') ||
+      key.includes('base legal') ||
+      (key.includes('base') && key.includes('legal'))
+    );
+  };
+
+  const fieldHasRealContent = (field: FormalField): boolean => {
+    const v = field.value;
+    if (v === undefined || v === null || v === '') return false;
+    if (Array.isArray(v) && !v.length) return false;
+    if (typeof v === 'string') {
+      const s = v.trim();
+      return s !== '' && s.toLowerCase() !== 'não informado' && s !== '—';
+    }
+    return true;
+  };
+
+  const isDuplicateIdentificationSection = (sec: typeof sections[number]): boolean => {
+    const title = normalizeTitleKey(sec.title);
+    if (!title.startsWith('identifica')) return false;
+    return !sec.fields.some(field => {
+      const label = normalizeTitleKey(field.label);
+      const value = normalizePdfText(field.value ?? '');
+      return value.length > 140 || /justific|demanda|motivo|objet|barreira|necess|apoio|observ|sintese|histor|encaminh|estrateg|plano|avali/.test(label);
+    });
+  };
+
+  const isPaeeDuplicateIdentificationField = (field: FormalField): boolean => {
+    const label = normalizeTitleKey(field.label);
+    if (/justific|barreira|demanda|motivo|objet|necess|apoio|observ|estrateg|plano|avali|acessibilidade/.test(label)) {
+      return false;
+    }
+    return /nome|aluno|diagnost|cid|nivel.*suporte|data.*nasc|nascimento|idade|serie|ano|turma|escola|unidade|prof.*regente|prof.*aee|coord|responsavel|contato/.test(label);
+  };
+
+  const renderFormalContentField = (field: FormalField, showLabel = true): void => {
+    const v = field.value;
+    if (!fieldHasRealContent(field)) return;
+
+    if (field.type === 'scale') {
+      const rat = typeof v === 'object' ? (v as any)?.rating : v;
+      const obs = typeof v === 'object' ? (v as any)?.observation : '';
+      const n = parseInt(String(rat)) || 0;
+      const maxScale = field.maxScale || 5;
+      ensureRoom(24);
+      doc.setFont(FORMAL_FONT, 'bold'); doc.setFontSize(FORMAL_LABEL_SIZE); sc(doc, PETROL);
+      if (showLabel) {
+        doc.text(field.label.toUpperCase(), x, y);
+        y += 6;
+      }
+      const barW = cW * 0.5;
+      const barH = 4;
+      sf(doc, [236, 244, 247] as [number, number, number]); sd(doc, BORDER); doc.setLineWidth(0.2);
+      doc.roundedRect(x, y, barW, barH, 1, 1, 'FD');
+      if (n > 0) {
+        const t80 = Math.ceil(maxScale * 0.8);
+        const t60 = Math.ceil(maxScale * 0.6);
+        const fc: [number, number, number] = n >= t80 ? PETROL : n >= t60 ? GOLD : [198, 80, 60];
+        sf(doc, fc);
+        doc.roundedRect(x, y, barW * (n / maxScale), barH, 1, 1, 'F');
+      }
+      doc.setFont(FORMAL_FONT, 'normal'); doc.setFontSize(9.5); sc(doc, GRAY);
+      doc.text(`${n}/${maxScale}`, x + barW + 4, y + 3);
+      y += barH + 6;
+      if (obs) y = renderField(doc, 'Observação', normalizePdfText(obs), x, y, cW, newPage);
+      return;
+    }
+
+    let rawStr: string;
+    if (field.type === 'checklist' && Array.isArray(v)) {
+      rawStr = (v as string[]).map(item => `• ${normalizePdfText(item)}`).join('\n');
+    } else if (field.type === 'grid' && Array.isArray(v)) {
+      rawStr = (v as Record<string, string>[]).map(row => Object.values(row).map(normalizePdfText).join(' | ')).join('\n');
+    } else if (typeof v === 'object' && v !== null) {
+      rawStr = normalizePdfText((v as any).observation || (v as any).text || (v as any).rating || '');
+    } else if (typeof v === 'string') {
+      rawStr = v;
+    } else {
+      rawStr = normalizePdfText(v ?? '');
+    }
+    const cleanPreviewText = stripHtmlToText(rawStr);
+    if (!cleanPreviewText.trim()) return;
+
+    doc.setFont(FORMAL_FONT, 'normal');
+    doc.setFontSize(FORMAL_BODY_SIZE);
+    const previewLines = doc.splitTextToSize(cleanPreviewText, cW);
+    const firstContentLines = Math.max(1, Math.min(previewLines.length, 4));
+    ensureRoom((showLabel && field.label ? 7 : 0) + firstContentLines * FORMAL_LINE_H + 6);
+    if (showLabel && field.label) {
+      doc.setFont(FORMAL_FONT, 'bold'); doc.setFontSize(FORMAL_LABEL_SIZE); sc(doc, PETROL);
+      doc.text(field.label.toUpperCase(), x, y);
+      y += 7;
+    }
+    y = renderRichTextPdf(doc, rawStr, x, y, cW, FORMAL_BODY_SIZE, newPage, undefined, FORMAL_LINE_H, FORMAL_FONT);
+    y += 4;
+  };
+
+  // Seções geradas pela IA
+  for (const sec of sections) {
+    // Ignora seção de identificação (já renderizada acima)
+    if (isDuplicateIdentificationSection(sec)) continue;
+    if (isLegalSectionTitle(sec.title)) continue;
+
+    // Verifica se há conteúdo real
+    const hasContent = sec.fields.some(f => {
+      const v = f.value;
+      if (v === undefined || v === null || v === '') return false;
+      if (Array.isArray(v) && !v.length) return false;
+      if (typeof v === 'string') {
+        const s = v.trim();
+        return s !== '' && s.toLowerCase() !== 'não informado' && s !== '—';
+      }
+      return true;
+    });
+    if (!hasContent) continue;
+
+    const secTitleKey = normalizeTitleKey(sec.title);
+    if (docType === 'PAEE' && secTitleKey.startsWith('identifica') && secTitleKey.includes('justific')) {
+      const contentFields = sec.fields
+        .filter(fieldHasRealContent)
+        .filter(field => !isPaeeDuplicateIdentificationField(field));
+      for (const field of contentFields) {
+        sectionTitle(field.label, 52);
+        renderFormalContentField(field, false);
+        y += 4;
+      }
+      continue;
+    }
+
+    sectionTitle(sec.title, 52);
+
+    for (const field of sec.fields) {
+      const v = field.value;
+      if (v === undefined || v === null || v === '') continue;
+      if (Array.isArray(v) && !v.length) continue;
+      if (typeof v === 'string') {
+        const t = v.trim();
+        if (!t || t.toLowerCase() === 'não informado' || t === '—') continue;
+      }
+
+      if (field.type === 'scale') {
+        const rat = typeof v === 'object' ? (v as any)?.rating : v;
+        const obs = typeof v === 'object' ? (v as any)?.observation : '';
+        const n = parseInt(String(rat)) || 0;
+        const maxScale = field.maxScale || 5;
+        ensureRoom(24);
+        doc.setFont(FORMAL_FONT, 'bold'); doc.setFontSize(FORMAL_LABEL_SIZE); sc(doc, PETROL);
+        doc.text(field.label.toUpperCase(), x, y);
+        y += 6;
+        const barW = cW * 0.5;
+        const barH = 4;
+        sf(doc, [236, 244, 247] as [number, number, number]); sd(doc, BORDER); doc.setLineWidth(0.2);
+        doc.roundedRect(x, y, barW, barH, 1, 1, 'FD');
+        if (n > 0) {
+          const t80 = Math.ceil(maxScale * 0.8);
+          const t60 = Math.ceil(maxScale * 0.6);
+          const fc: [number, number, number] = n >= t80 ? PETROL : n >= t60 ? GOLD : [198, 80, 60];
+          sf(doc, fc);
+          doc.roundedRect(x, y, barW * (n / maxScale), barH, 1, 1, 'F');
+        }
+        doc.setFont(FORMAL_FONT, 'normal'); doc.setFontSize(9.5); sc(doc, GRAY);
+        doc.text(`${n}/${maxScale}`, x + barW + 4, y + 3);
+        y += barH + 6;
+        if (obs) y = renderField(doc, 'Observação', normalizePdfText(obs), x, y, cW, newPage);
+      } else {
+        let rawStr: string;
+        if (field.type === 'checklist' && Array.isArray(v)) {
+          rawStr = (v as string[]).map(item => `• ${normalizePdfText(item)}`).join('\n');
+        } else if (field.type === 'grid' && Array.isArray(v)) {
+          rawStr = (v as Record<string, string>[]).map(row => Object.values(row).map(normalizePdfText).join(' | ')).join('\n');
+        } else if (typeof v === 'object' && v !== null) {
+          rawStr = normalizePdfText((v as any).observation || (v as any).rating || '');
+        } else if (typeof v === 'string') {
+          rawStr = v;
+        } else {
+          rawStr = normalizePdfText(v ?? '');
+        }
+        const cleanPreviewText = stripHtmlToText(rawStr);
+        if (!cleanPreviewText.trim()) continue;
+
+        doc.setFont(FORMAL_FONT, 'normal');
+        doc.setFontSize(FORMAL_BODY_SIZE);
+        const previewLines = doc.splitTextToSize(cleanPreviewText, cW);
+        const firstContentLines = Math.max(1, Math.min(previewLines.length, 4));
+        ensureRoom((field.label ? 7 : 0) + firstContentLines * FORMAL_LINE_H + 6);
+        if (field.label) {
+          doc.setFont(FORMAL_FONT, 'bold'); doc.setFontSize(FORMAL_LABEL_SIZE); sc(doc, PETROL);
+          doc.text(field.label.toUpperCase(), x, y);
+          y += 7;
+        }
+        y = renderRichTextPdf(doc, rawStr, x, y, cW, FORMAL_BODY_SIZE, newPage, undefined, FORMAL_LINE_H, FORMAL_FONT);
+        y += 4;
+      }
+    }
+    y += 4;
+  }
+
+  // Registro e Assinaturas — limpo, sem matrícula/CPF/CR
+  y = renderFormalDeclarationAndLegal(doc, docType, x, y + 4, cW, newPage);
+  /*
+  ensureRoom(70);
+  y += 6;
+  doc.setFont(FORMAL_FONT, 'bold'); doc.setFontSize(FORMAL_SECTION_SIZE); sc(doc, PETROL);
+  doc.text('Registro e Assinaturas', x, y);
+  y += 3;
+  sd(doc, GOLD); doc.setLineWidth(0.5);
+  doc.line(x, y, x + 40, y);
+  y += 8;
+
+  doc.setFont(FORMAL_FONT, 'italic'); doc.setFontSize(FORMAL_BODY_SIZE); sc(doc, GRAY);
+  const decl = 'Declaramos ciência e concordância com as informações e diretrizes estabelecidas neste documento.';
+  const declLs = doc.splitTextToSize(decl, cW);
+  doc.text(declLs, x, y);
+  y += declLs.length * FORMAL_LINE_H + 12;
+  */
+
+  const cleanNameFormal = normalizePdfText(cleanUserName(user.name));
+  const secInstitFormal = sections.find(s => /dados.?institu|institu|assin/i.test(s.title));
+  const aeeRawFormal = secInstitFormal?.fields.find(f => /aee|profissionais/i.test(f.label))?.value;
+  const aeeNamesFormal = splitAeeProfessionalNames(aeeRawFormal || student.aeeTeacher || '');
+
+  const formalSigners: Array<{ name: string; role: string; digital?: string }> = [
+    { name: cleanNameFormal, role: 'Profissional Responsável' },
+    { name: '', role: 'Professor(a) Regente' },
+    { name: '', role: 'Coordenação Pedagógica' },
+    {
+      name: normalizePdfText(sigOpts.parentSignerName || ''),
+      role: 'Responsável Legal',
+      digital: sigOpts.parentSignatureMode === 'digital' ? sigOpts.parentSignatureData : undefined,
+    },
+    ...aeeNamesFormal.map(name => ({ name, role: 'Profissional do AEE' })),
+  ];
+
+  const fColGap = 14;
+  const fColW = (cW - fColGap) / 2;
+  const signerRows = Math.ceil(formalSigners.length / 2);
+  const signatureHeaderH = 12;
+  const signatureRowH = 20;
+  const signatureTotalH = signatureHeaderH + signerRows * signatureRowH + 4;
+  const runningHeaderY = 27;
+  if (signatureTotalH <= bot() - runningHeaderY && y > bot() - signatureTotalH) {
+    y = newPage();
+  } else if (y > bot() - (signatureHeaderH + signatureRowH + 4)) {
+    y = newPage();
+  }
+
+  doc.setFont(FORMAL_FONT, 'bold'); doc.setFontSize(FORMAL_SECTION_SIZE); sc(doc, PETROL);
+  doc.text('Registro e Assinaturas', x, y);
+  y += 3;
+  sd(doc, GOLD); doc.setLineWidth(0.45);
+  doc.line(x, y, x + 36, y);
+  y += 5.5;
+
+  for (let row = 0; row < Math.ceil(formalSigners.length / 2); row++) {
+    ensureRoom(signatureRowH + 4);
+    for (let col = 0; col < 2; col++) {
+      const idx = row * 2 + col;
+      if (idx >= formalSigners.length) continue;
+      const s = formalSigners[idx];
+      const sx = x + col * (fColW + fColGap);
+      if (s.digital) {
+        try { doc.addImage(s.digital, 'PNG', sx + fColW / 2 - 12, y - 2.5, 24, 9); } catch {}
+      }
+      sd(doc, DARK); doc.setLineWidth(0.2);
+      doc.line(sx, y + 7.8, sx + fColW, y + 7.8);
+      doc.setFont(FORMAL_FONT, 'bold'); doc.setFontSize(8.2); sc(doc, DARK);
+      let roleY = y + 11.8;
+      if (s.name) {
+        const nameLines = doc.splitTextToSize(normalizePdfText(s.name), fColW).slice(0, 2);
+        doc.text(nameLines, sx + fColW / 2, y + 11.8, { align: 'center' });
+        roleY = y + 11.8 + nameLines.length * 3.4;
+      }
+      doc.setFont(FORMAL_FONT, 'normal'); doc.setFontSize(7.8); sc(doc, GRAY);
+      doc.text(normalizePdfText(s.role), sx + fColW / 2, roleY, { align: 'center' });
+    }
+    y += signatureRowH;
+  }
+
+  /*
+  // Base legal
+  y += 4;
+  sd(doc, BORDER); doc.setLineWidth(0.2);
+  doc.line(x, y, x + cW, y);
+  y += 5;
+  const legalFormal = getDocLegal(docType);
+  doc.setFont(FORMAL_FONT, 'bold'); doc.setFontSize(8.5); sc(doc, PETROL);
+  doc.text('BASE LEGAL:', x, y);
+  doc.setFont(FORMAL_FONT, 'normal'); sc(doc, GRAY);
+  const legalLsFormal = doc.splitTextToSize(legalFormal, cW);
+  doc.text(legalLsFormal, x, y + 4);
+  */
+
+  drawFormalFooterAllPages(doc, auditCode, cleanUserName(user.name));
 }
 
 // ─── MAIN API ────────────────────────────────────────────────────────────────
@@ -2652,12 +4466,74 @@ export const PDFGenerator = {
     // [SPRINT 1] renderEstudoCasoCompactProtocol era chamado aqui e retornava prematuramente,
     // impedindo renderEstudoCasoPremium de executar. Bloco removido — fluxo cai no premium abaixo.
 
-    let y = addCoverBlock(doc, docTitle, subtitle, auditCode, qrUrl, sName);
+    let y = 0;
+
+    // ── [DOC-2B] Header/Footer compartilhados (escopo local) ─────────────────
+    // Substituem APENAS aqui dentro o addRunningHeader/addFooter globais.
+    // Demais geradores (Ficha, Matrícula, Perfil Inteligente, etc.) continuam
+    // usando os helpers originais — não há mudança nesses fluxos.
+    const sharedHeaderOptions = {
+      title: docTitle,
+      subtitle: subtitle ?? undefined,
+      schoolName: sName,
+      studentName: student.name,
+      grade: student.grade || undefined,
+      documentCode: auditCode,
+      documentType: docType,
+      generatedAt: _currentGeneratedAt,
+      logoDataUrl: school?.logoUrl || undefined,
+      fontFamily: _docFont,
+    };
+    const applySharedFooterAllPages = (d: any): void => {
+      const total = d.internal.getNumberOfPages();
+      for (let i = 1; i <= total; i++) {
+        d.setPage(i);
+        sharedAddDocumentFooter(d, {
+          pageNumber: i,
+          totalPages: total,
+          auditCode,
+          generatedAt: _currentGeneratedAt,
+          generatedBy: _currentUserName || user.name,
+          systemName: 'IncluiAI',
+          fontFamily: _docFont,
+        });
+      }
+    };
+    // Estudo de Caso: rodapé sem selo central (o selo já aparece no cabeçalho/topo)
+    const applySharedFooterEC = (d: any): void => {
+      const total = d.internal.getNumberOfPages();
+      for (let i = 1; i <= total; i++) {
+        d.setPage(i);
+        sharedAddDocumentFooter(d, {
+          pageNumber: i,
+          totalPages: total,
+          auditCode,
+          generatedAt: _currentGeneratedAt,
+          generatedBy: _currentUserName || user.name,
+          systemName: 'IncluiAI',
+          fontFamily: _docFont,
+        });
+      }
+    };
 
     const newPage = (): number => {
       doc.addPage();
-      return addRunningHeader(doc, auditCode, school);
+      return sharedAddDocumentHeader(doc, sharedHeaderOptions);
     };
+
+    if (isEstudoCasoDocType(docType)) {
+      renderEstudoCasoPremiumV2(doc, sections, student, user, school, auditCode, sigOpts, qrUrl);
+      applySharedFooterEC(doc);
+      return doc.output('blob') as Blob;
+    }
+
+    // PEI / PAEE / PDI → padrão único formal (sem capa colorida, sem faixa petrol sólida)
+    if (docType === 'PEI' || docType === 'PAEE' || docType === 'PDI') {
+      renderFormalDocument(doc, docType, student, user, school, sections, auditCode, sigOpts, qrUrl, circularPhoto);
+      return doc.output('blob') as Blob;
+    }
+
+    y = addCoverBlock(doc, docTitle, subtitle, auditCode, qrUrl, sName);
 
     // ══ SEÇÃO I: IDENTIFICAÇÃO DO ALUNO (padrão todos os documentos) ══════════
     y = sectionBanner(doc, 'I. Identificação do Aluno', ML, y, maxW);
@@ -2665,12 +4541,6 @@ export const PDFGenerator = {
     y = buildStudentBlock(doc, student, circularPhoto, ML, y, maxW);
 
     // ── Estudo de Caso: renderizador premium de 17 seções canônicas ─────────
-    if (isEstudoCasoDocType(docType)) {
-      y = renderEstudoCasoPremium(doc, sections, student, user, ML, maxW, y, newPage, auditCode, sigOpts);
-      addFooterAllPages(doc);
-      return doc.output('blob') as Blob;
-    }
-
     for (const sec of sections) {
       const H = doc.internal.pageSize.getHeight();
       if (y > cBot(H) - 20) { y = newPage(); }
@@ -2726,7 +4596,7 @@ export const PDFGenerator = {
             str = field.value.map((row: Record<string, string>) =>
               Object.values(row).join(' | ')).join('\n');
           } else {
-            str = String(field.value ?? '—');
+            str = stripHtmlToText(String(field.value ?? '—')) || '—';
           }
           // Campos de recomendação/orientação → caixa âmbar de destaque
           const isRec = /recomenda|orienta|sug[eê]st|interven/i.test(field.label);
@@ -2743,7 +4613,7 @@ export const PDFGenerator = {
     const aeeFromSec = secInstitForSig?.fields.find(f => /aee/i.test(f.label))?.value;
     const aeeForSig = (typeof aeeFromSec === 'string' && aeeFromSec.trim()) ? aeeFromSec : student.aeeTeacher || '';
     y = addSignatureBlock(doc, ML, y, maxW, newPage, docType, auditCode, user.name, sigOpts, aeeForSig);
-    addFooterAllPages(doc);
+    applySharedFooterAllPages(doc);
     return doc.output('blob') as Blob;
   },
 

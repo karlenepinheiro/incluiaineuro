@@ -68,6 +68,10 @@ export interface IntelligentProfileJSON {
   };
   carePoints: string[];
   nextSteps: string[];
+  /** Fontes consideradas na geração (v2+) */
+  sourcesConsidered?: string[];
+  /** Principais mudanças em relação à versão anterior (v2+, apenas quando version >= 2) */
+  changesSinceLastVersion?: string;
 }
 
 export interface IntelligentProfileRecord {

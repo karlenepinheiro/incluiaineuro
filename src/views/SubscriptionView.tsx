@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SubscriptionView.tsx
  * Gerenciamento de assinatura — plano atual, upgrade e créditos avulsos.
  * Pagamento via Kiwify (links de checkout estáticos + webhook).
@@ -20,6 +20,7 @@ import {
   isKiwifyConfigured,
 } from '../services/kiwifyService';
 import { CreditLedgerService } from '../services/creditService';
+import { CreditBalanceBadge } from '../components/CreditBalanceBadge';
 
 // ── Paleta ────────────────────────────────────────────────────────────────────
 const P = {
@@ -170,11 +171,12 @@ interface Props {
   creditsPurchased?: number;
   /** Créditos consumidos no ciclo atual (soma do ledger) */
   creditsConsumed?: number;
+  creditsRenewalDate?: string | null;
   onNavigate: (view: string) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, planCreditsMonthly, creditsPurchased = 0, creditsConsumed = 0, onNavigate }) => {
+export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, planCreditsMonthly, creditsPurchased = 0, creditsConsumed = 0, creditsRenewalDate = null, onNavigate }) => {
   const [sub, setSub]             = useState<ActiveSubscriptionInfo | null>(null);
   const [loading, setLoading]     = useState(true);
   const [kiwifyOk, setKiwifyOk]   = useState(false);
@@ -366,14 +368,20 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
             <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
               {sub?.currentPeriodEnd && (
                 <div>
-                  <p style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Período até</p>
+                  <p style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Próxima renovação do plano</p>
                   <p style={{ fontSize: 14, fontWeight: 600, color: P.dark }}>{fmtDate(sub.currentPeriodEnd)}</p>
                 </div>
               )}
               {sub?.nextDueDate && (
                 <div>
-                  <p style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Próximo vencimento</p>
+                  <p style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Próxima cobrança</p>
                   <p style={{ fontSize: 14, fontWeight: 600, color: P.dark }}>{fmtDate(sub.nextDueDate)}</p>
+                </div>
+              )}
+              {creditsRenewalDate && (
+                <div>
+                  <p style={{ fontSize: 11, color: '#94A3B8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Próxima renovação dos créditos</p>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: P.dark }}>{fmtDate(creditsRenewalDate)}</p>
                 </div>
               )}
             </div>
@@ -429,6 +437,15 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
               </div>
             );
           })()}
+          <div style={{ marginTop: 16, width: '100%', maxWidth: 420 }}>
+            <CreditBalanceBadge
+              balance={creditsAvailable}
+              planCreditsMonthly={planCreditsMonthly}
+              consumedThisCycle={creditsConsumed}
+              purchasedCreditsHistory={creditsPurchased}
+              resetAt={creditsRenewalDate}
+            />
+          </div>
         </div>
 
         {/* Pagamento atrasado */}
@@ -730,7 +747,7 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
           <div style={{ padding: '0 24px 24px', borderTop: `1px solid ${P.border}` }}>
 
             {/* Resumo do ciclo */}
-            {!ledgerLoading && !ledgerError && ledger.length > 0 && (() => {
+            {!ledgerLoading && !ledgerError && false && ledger.length > 0 && (() => {
               const received = ledger.filter(e => e.amount > 0).reduce((s, e) => s + e.amount, 0);
               const consumed = ledger.filter(e => e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0);
               return (
@@ -760,6 +777,39 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
                 </div>
               );
             })()}
+
+            {!ledgerLoading && !ledgerError && ledger.length > 0 && (
+              <div style={{
+                display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12,
+                background: '#F8FAFC', border: `1px solid ${P.border}`,
+                borderRadius: 12, padding: '16px 20px', margin: '20px 0',
+              }}>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                    Créditos do ciclo atual
+                  </p>
+                  <p style={{ fontSize: 22, fontWeight: 800, color: P.dark, lineHeight: 1 }}>{planCreditsMonthly ?? 0}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                    Consumidos neste ciclo
+                  </p>
+                  <p style={{ fontSize: 22, fontWeight: 800, color: '#DC2626', lineHeight: 1 }}>-{creditsConsumed}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                    Histórico total comprado
+                  </p>
+                  <p style={{ fontSize: 22, fontWeight: 800, color: '#15803D', lineHeight: 1 }}>+{creditsPurchased}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                    Saldo disponível
+                  </p>
+                  <p style={{ fontSize: 22, fontWeight: 800, color: P.dark, lineHeight: 1 }}>{creditsAvailable}</p>
+                </div>
+              </div>
+            )}
 
             {ledgerError && (
               <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '10px 14px', margin: '16px 0', color: '#B91C1C', fontSize: 13 }}>
@@ -884,3 +934,7 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
 };
 
 export default SubscriptionView;
+
+
+
+

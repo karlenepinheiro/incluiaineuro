@@ -557,10 +557,17 @@ export const AEEActionPlanTab: React.FC<AEEActionPlanTabProps> = ({ student, use
 
   const paeeDoc = protocols.find(p => p.type === DocumentType.PAEE);
   const paeeContent = paeeDoc
-    ? Object.entries((paeeDoc as any).structuredData?.sections ?? {})
-        .map(([k, v]: any) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
-        .join('\n')
-        .slice(0, 3000)
+    ? ((paeeDoc.structuredData?.sections ?? []) as any[])
+        .map((section: any) => {
+          const fields = (section.fields ?? [])
+            .filter((f: any) => f.value !== undefined && f.value !== null && f.value !== '')
+            .map((f: any) => `${f.label || f.id}: ${typeof f.value === 'string' ? f.value : JSON.stringify(f.value)}`)
+            .join('\n');
+          return fields ? `## ${section.title}\n${fields}` : null;
+        })
+        .filter(Boolean)
+        .join('\n\n')
+        .slice(0, 3500)
     : '';
 
   const load = useCallback(async () => {

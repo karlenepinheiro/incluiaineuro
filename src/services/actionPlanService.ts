@@ -154,7 +154,7 @@ export const ActionPlanService = {
       pei_id:                sourceSnapshot.peiId            ?? null,
       perfil_inteligente_id: sourceSnapshot.perfilInteligenteId ?? null,
       laudos_ids:            sourceSnapshot.laudosIds         ?? [],
-      credits_consumed:      sourceSnapshot.creditsConsumed  ?? 8,
+      credits_consumed:      sourceSnapshot.creditsConsumed  ?? 6,
       gemini_model:          sourceSnapshot.geminiModel       ?? 'gemini-2.5-flash',
       generated_at:          new Date().toISOString(),
     } : null;

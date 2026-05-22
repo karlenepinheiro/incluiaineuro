@@ -18,11 +18,11 @@ export const PLAN_TIER_ALIASES: Record<string, PlanTier> = {
   FREE:    PlanTier.FREE,
   PRO:     PlanTier.PRO,
   MASTER:  PlanTier.PREMIUM, // código real da tabela plans (plans.name = 'MASTER')
-  PREMIUM: PlanTier.PREMIUM,  // alias alternativo
-  // Enum values como chaves (computed) — cobre o valor atual de cada tier
-  [PlanTier.FREE]:    PlanTier.FREE,    // 'Starter (Grátis)'
-  [PlanTier.PRO]:     PlanTier.PRO,     // 'Profissional'
-  [PlanTier.PREMIUM]: PlanTier.PREMIUM, // 'MASTER' (valor atual do enum)
+  PREMIUM: PlanTier.PREMIUM, // alias alternativo
+  // Enum values como chaves (computed) — cobre os rótulos exibidos no PlanTier
+  [PlanTier.FREE]: PlanTier.FREE, // 'Starter (Grátis)'
+  [PlanTier.PRO]:  PlanTier.PRO,  // 'Profissional'
+  // [PlanTier.PREMIUM] = 'MASTER' → já coberto pela chave literal MASTER acima
   // Alias legado — valor antigo do enum PREMIUM antes da renomeação
   'Master (Clínicas/Escolas)': PlanTier.PREMIUM,
 };
@@ -771,6 +771,23 @@ export interface DocSection {
   fields: DocField[];
 }
 
+export type AIResultStatus =
+  | 'success'
+  | 'partial_success'
+  | 'repaired_json'
+  | 'fallback_used'
+  | 'failed'
+  | 'timeout'
+  | 'provider_error'
+  | 'insufficient_context'
+  | 'validation_failed';
+
+export interface AIProtocolResult {
+  json: string;
+  status: AIResultStatus;
+  warning?: string;
+}
+
 export interface DocumentData {
   sections: DocSection[];
   externalUrl?: string;
@@ -925,6 +942,8 @@ export interface TenantSummary {
   studentsActive: number;
   renewalDatePlan?: string; // ISO
   renewalDateCredits?: string; // ISO
+  lastCreditGrantAt?: string; // ISO
+  nextCreditGrantAt?: string; // ISO
   /** Ciclo de cobrança da assinatura ativa ('monthly' | 'annual') */
   billingCycle?: 'monthly' | 'annual';
   /**

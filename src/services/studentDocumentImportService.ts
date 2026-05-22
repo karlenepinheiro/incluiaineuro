@@ -100,8 +100,8 @@ export interface DocxSaveResult {
 
 export type ImportFileType = 'docx' | 'pdf-text' | 'pdf-image' | 'image';
 
-export const CREDITS_DOC_TEXT = 5;
-export const CREDITS_VISUAL   = 12;
+export const CREDITS_DOC_TEXT = 3;   // Importar PDF texto
+export const CREDITS_VISUAL   = 5;   // Importar PDF visual / imagem
 
 // ─── Extração de texto ───────────────────────────────────────────────────────
 

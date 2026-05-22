@@ -6,13 +6,20 @@ import {
   X, AlertCircle, ArrowUp, ArrowDown, GripVertical, Settings, Mic, Library, Star
 } from 'lucide-react';
 import { DocButton, DocIconButton, DocumentToolbar } from './ui/DocButton';
-import { DocumentType, DocumentData, DocSection, Student, User as UserType, Protocol, PlanTier, getPlanLimits, ProtocolStatus, DocField, UserDocumentTemplate, UserDocTemplateType } from '../types';
+import { DocumentType, DocumentData, DocSection, Student, User as UserType, Protocol, PlanTier, getPlanLimits, ProtocolStatus, DocField, UserDocumentTemplate, UserDocTemplateType, AIResultStatus } from '../types';
 import { UserTemplateService } from '../services/userTemplateService';
 import { DocumentTemplateEditor } from './DocumentTemplateEditor';
 import { AudioEnhancedTextarea } from './AudioEnhancedTextarea';
+import { RichTextEditor } from './RichTextEditor';
 import { AudioRecorder } from './AudioRecorder';
 import { ExportService } from '../services/exportService';
 import { PDFGenerator } from '../services/PDFGenerator';
+import {
+  buildWordFilename,
+  downloadWordDocument,
+  exportDocumentToWord,
+  isWordExportSupported,
+} from '../services/wordExportService';
 import { StorageService } from '../services/storageService';
 import { AIService } from '../services/aiService';
 import { StudentContextService } from '../services/studentContextService';
@@ -20,6 +27,7 @@ import { AI_CREDIT_COSTS } from '../config/aiCosts';
 import { StoredTemplateSelector } from './StoredTemplateSelector';
 import { SchoolTemplate } from '../services/templateService';
 import { DocumentPrintPreview } from './docs/DocumentPrintPreview';
+import { FormalPdfPreview } from './document-preview/FormalPdfPreview';
 import type { DocType } from './docs/DocComponents';
 import { ensureDocumentCode, getDocumentCodeKind, isValidatedDocumentType } from '../utils/documentCodes';
 import type { SchoolConfig } from '../types';
@@ -69,16 +77,18 @@ interface DocumentBuilderProps {
   type: DocumentType;
   initialStudent?: Student | null;
   allStudents: Student[];
-  protocols: Protocol[]; 
+  protocols: Protocol[];
   user: UserType;
-  initialData?: DocumentData; 
-  initialProtocol?: Protocol | null; 
-  onSave: (data: DocumentData, student: Student, versionLog?: string, status?: ProtocolStatus) => void;
+  initialData?: DocumentData;
+  initialProtocol?: Protocol | null;
+  onSave: (data: DocumentData, student: Student, versionLog?: string, status?: ProtocolStatus) => Promise<void>;
   onDelete?: (protocolId: string) => void;
   onCancel: () => void;
   onGenerateAI: (student: Student) => void;
   onDerive: (source: Protocol, targetType: DocumentType) => void;
   isGenerating?: boolean;
+  aiStatus?: AIResultStatus;
+  aiWarning?: string;
 }
 
 // Custo de créditos por tipo de documento — fonte única: src/config/aiCosts.ts
@@ -315,19 +325,21 @@ const PEIGuidanceBanner: React.FC = () => (
 );
 
 export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({ 
-  type, 
+  type,
   initialStudent,
   allStudents,
   protocols,
   user,
-  initialData, 
+  initialData,
   initialProtocol,
-  onSave, 
+  onSave,
   onDelete,
   onCancel,
   onGenerateAI,
   onDerive,
-  isGenerating 
+  isGenerating,
+  aiStatus,
+  aiWarning,
 }) => {
   const [step, setStep] = useState<'select_student' | 'select_mode' | 'editor' | 'history'>(initialData ? 'editor' : (initialStudent ? 'select_mode' : 'select_student'));
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(initialStudent || null);
@@ -345,10 +357,12 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
 
   // ── Verificação de plano Premium ─────────────────────────────────────────────
   const isPremiumUser = ['MASTER', 'PREMIUM', 'INSTITUTIONAL'].includes(user.plan as string);
+  const canExportWord = isWordExportSupported(type);
 
   // Dirty state tracking (unsaved changes)
   const [isDirty, setIsDirty] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [showSaveToast, setShowSaveToast] = useState(false);
 
   // Custom Fields & Reordering
   const [isReordering, setIsReordering] = useState(false);
@@ -1304,26 +1318,23 @@ const planLimits = getPlanLimits(user.plan);
 
   const handleAddSection = () => setShowSectionModal(true);
 
-  const handleSaveWrapper = (status: ProtocolStatus = 'DRAFT') => {
+  const handleSaveWrapper = async (status?: ProtocolStatus) => {
      if (!selectedStudent) return;
      const log = initialProtocol ? `Editado por ${user.name}` : `Criado por ${user.name}`;
 
      let finalAuditCode = currentAuditCode;
 
-     if (status === 'FINAL') {
+     if (status === 'FINAL' || initialProtocol?.status === 'FINAL' || !initialProtocol) {
          // Gera código auditável se ainda não existe
          finalAuditCode = ensureDocumentCodeForType(type, finalAuditCode);
          setCurrentAuditCode(finalAuditCode);
      }
 
      const dataToSave = { sections, auditCode: finalAuditCode };
-     onSave(dataToSave, selectedStudent, log, status);
+     await onSave(dataToSave, selectedStudent, log, status);
      setIsDirty(false);
-
-     const msg = status === 'FINAL'
-       ? 'Documento marcado como finalizado e salvo.'
-       : 'Alterações salvas com sucesso.';
-     console.info('[DocumentBuilder] save:', msg);
+     setShowSaveToast(true);
+     setTimeout(() => setShowSaveToast(false), 2200);
   };
 
   const handleCloseEditing = () => {
@@ -1671,6 +1682,18 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
   };
 
   const documentRef = useRef<HTMLDivElement>(null);
+  const isEstudoCasoDocument = type === DocumentType.ESTUDO_CASO;
+  const usesPdfPreview =
+    isEstudoCasoDocument ||
+    type === DocumentType.PEI ||
+    type === DocumentType.PAEE ||
+    type === DocumentType.PDI;
+
+  useEffect(() => {
+    if (!usesPdfPreview || isEditing || !selectedStudent || sections.length === 0) return;
+    const auditCode = ensureDocumentCodeForType(type, currentAuditCode);
+    if (auditCode !== currentAuditCode) setCurrentAuditCode(auditCode);
+  }, [currentAuditCode, isEditing, usesPdfPreview, sections.length, selectedStudent, type]);
 
   // ── Imprimir: gera o MESMO PDF do botão "Gerar PDF" e abre para impressão ────
   const handlePrint = async () => {
@@ -1720,6 +1743,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
   // ── Gerar PDF real via jsPDF (separado do Imprimir) ──────────────────────────
   const [generatingPDF, setGeneratingPDF] = useState(false);
+  const [generatingWord, setGeneratingWord] = useState(false);
   const handleGeneratePDF = async () => {
     if (!selectedStudent || sections.length === 0) { alert('Nenhum conteúdo para exportar.'); return; }
     setGeneratingPDF(true);
@@ -1750,6 +1774,38 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
       alert(`Erro ao gerar PDF: ${e?.message || 'Tente novamente.'}`);
     } finally {
       setGeneratingPDF(false);
+    }
+  };
+
+  const handleExportWord = async () => {
+    if (!canExportWord) {
+      alert('Exportacao Word disponivel apenas para Estudo de Caso, PEI e PAEE.');
+      return;
+    }
+    if (!selectedStudent || sections.length === 0) {
+      alert('Nenhum conteudo para exportar.');
+      return;
+    }
+
+    setGeneratingWord(true);
+    try {
+      const school = resolveStudentSchool(selectedStudent, user.schoolConfigs);
+      const auditCode = currentAuditCode || initialProtocol?.auditCode || (initialData as any)?.auditCode || '';
+      const blob = await exportDocumentToWord({
+        docType: type,
+        title: String(type),
+        data: { sections },
+        student: selectedStudent,
+        user,
+        school,
+        protocol: initialProtocol,
+        auditCode,
+      });
+      downloadWordDocument(blob, buildWordFilename(type, selectedStudent, auditCode));
+    } catch (e: any) {
+      alert(`Erro ao exportar Word: ${e?.message || 'Tente novamente.'}`);
+    } finally {
+      setGeneratingWord(false);
     }
   };
 
@@ -2200,7 +2256,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 <DocButton
                   variant="primary"
                   icon={<Save size={15}/>}
-                  onClick={() => handleSaveWrapper('DRAFT')}
+                  onClick={() => { void handleSaveWrapper(); }}
                   title="Salvar alterações"
                 >
                   <span className="hidden sm:inline">Salvar</span>
@@ -2215,6 +2271,29 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 >
                   <span className="hidden sm:inline">{generatingPDF ? 'Gerando…' : 'Gerar PDF'}</span>
                 </DocButton>
+
+                {canExportWord && (
+                  <DocButton
+                    variant="outline"
+                    icon={<FileOutput size={15}/>}
+                    loading={generatingWord}
+                    onClick={handleExportWord}
+                    title="Exportar documento Word editavel"
+                  >
+                    <span className="hidden sm:inline">{generatingWord ? 'Exportando...' : 'Exportar Word'}</span>
+                  </DocButton>
+                )}
+
+                {isEstudoCasoDocument && (
+                  <DocButton
+                    variant="outline"
+                    icon={<Eye size={15}/>}
+                    onClick={() => setIsEditing(false)}
+                    title="Visualizar PDF"
+                  >
+                    <span className="hidden sm:inline">Visualizar PDF</span>
+                  </DocButton>
+                )}
 
                 {/* ── Separador ──────────────────────────────────────────── */}
                 <span className="w-px h-5 bg-gray-200 self-center hidden sm:block" />
@@ -2252,8 +2331,8 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
             ) : (
               <>
                 {/* ── Modo visualização (documento FINAL) ────────────────── */}
-                <DocButton variant="primary" icon={<Edit3 size={15}/>} onClick={() => setIsEditing(true)} title="Editar documento">
-                  Editar
+                <DocButton variant="primary" icon={<Edit3 size={15}/>} onClick={() => setIsEditing(true)} title={isEstudoCasoDocument ? 'Editar campos' : 'Editar documento'}>
+                  {isEstudoCasoDocument ? 'Editar campos' : 'Editar'}
                 </DocButton>
                 <DocButton
                   variant="outline"
@@ -2264,6 +2343,17 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 >
                   <span className="hidden sm:inline">{generatingPDF ? 'Gerando…' : 'Gerar PDF'}</span>
                 </DocButton>
+                {canExportWord && (
+                  <DocButton
+                    variant="outline"
+                    icon={<FileOutput size={15}/>}
+                    loading={generatingWord}
+                    onClick={handleExportWord}
+                    title="Exportar documento Word editavel"
+                  >
+                    <span className="hidden sm:inline">{generatingWord ? 'Exportando...' : 'Exportar Word'}</span>
+                  </DocButton>
+                )}
                 <DocButton variant="outline" icon={<Printer size={15}/>} onClick={handlePrint} title="Imprimir">
                   <span className="hidden sm:inline">Imprimir</span>
                 </DocButton>
@@ -2419,6 +2509,27 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
         {/* Preview premium (modo visualização / impressão) */}
         {!isEditing && selectedStudent && (
+          usesPdfPreview ? (
+            <div ref={documentRef}>
+              <FormalPdfPreview
+                docType={type}
+                title={String(type)}
+                student={selectedStudent}
+                user={user}
+                school={resolveStudentSchool(selectedStudent, user.schoolConfigs)}
+                sections={sections.map(sec => ({
+                  title: sec.title,
+                  fields: sec.fields.map(f => ({
+                    label:    f.label,
+                    value:    f.value ?? '',
+                    type:     f.type,
+                    maxScale: (f as any).maxScale,
+                  })),
+                }))}
+                auditCode={currentAuditCode}
+              />
+            </div>
+          ) : (
           <div ref={documentRef} className="w-full max-w-[210mm] mt-8 shadow-xl print:shadow-none print:w-full print:m-0" id="document-content">
             <DocumentPrintPreview
               docType={toDocType(type)}
@@ -2438,6 +2549,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
               auditCode={currentAuditCode}
             />
           </div>
+          )
         )}
 
         {/* Editor / Viewer */}
@@ -2457,6 +2569,31 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
                 {initialProtocol?.status === 'FINAL' && <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-bold border border-green-200 print:hidden mt-2 inline-block">CONCLUÍDO</span>}
             </div>
+
+            {/* Banner de status da IA — exibido apenas quando há problema na geração */}
+            {aiStatus && aiStatus !== 'success' && (
+              <div className="print:hidden mb-5 rounded-xl border px-4 py-3 flex gap-3 items-start" style={{
+                background: aiStatus === 'fallback_used' ? '#FFF7ED' : aiStatus === 'repaired_json' ? '#FFFBEB' : '#FEF2F2',
+                borderColor: aiStatus === 'fallback_used' ? '#FDBA74' : aiStatus === 'repaired_json' ? '#FCD34D' : '#FCA5A5',
+              }}>
+                <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 1, color: aiStatus === 'fallback_used' ? '#EA580C' : aiStatus === 'repaired_json' ? '#D97706' : '#DC2626' }} />
+                <div>
+                  <p style={{ fontWeight: 700, fontSize: 13, color: aiStatus === 'fallback_used' ? '#9A3412' : aiStatus === 'repaired_json' ? '#92400E' : '#991B1B' }}>
+                    {aiStatus === 'fallback_used'         && 'Geração parcial — revisão obrigatória'}
+                    {aiStatus === 'repaired_json'         && 'Resposta reorganizada automaticamente'}
+                    {aiStatus === 'partial_success'       && 'Geração com inconsistências'}
+                    {aiStatus === 'validation_failed'     && 'Resposta automática inválida'}
+                    {aiStatus === 'insufficient_context'  && 'Contexto insuficiente para geração completa'}
+                    {aiStatus === 'provider_error'        && 'Serviço de IA indisponível'}
+                    {aiStatus === 'timeout'               && 'Tempo de resposta esgotado'}
+                    {!['fallback_used','repaired_json','partial_success','validation_failed','insufficient_context','provider_error','timeout'].includes(aiStatus) && 'Atenção — revise o documento'}
+                  </p>
+                  <p style={{ fontSize: 12, marginTop: 2, color: '#374151' }}>
+                    {aiWarning ?? 'Revise o documento antes de finalizar.'}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {sections.map((sec, i) => (
                 <div key={i} className="mb-6 break-inside-avoid relative group/section">
@@ -2515,7 +2652,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                                 {f.allowAudio !== 'only' && (
                                     isEditing ? (
                                         f.type === 'textarea' ? (
-                                            <AudioEnhancedTextarea
+                                            <RichTextEditor
                                               fieldId={f.id}
                                               value={String(f.value ?? '')}
                                               onChange={(v) => handleFieldChange(i, j, v)}
@@ -2692,8 +2829,8 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 <button
                   className="w-full py-2.5 rounded-xl text-sm font-medium text-white transition"
                   style={{ background: '#1F4E5F' }}
-                  onClick={() => {
-                    handleSaveWrapper('DRAFT');
+                  onClick={async () => {
+                    await handleSaveWrapper();
                     setShowCloseConfirm(false);
                     setIsEditing(false);
                   }}
@@ -2720,6 +2857,28 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
             </div>
           </div>
         )}
+
+        {/* Toast de salvamento */}
+        {showSaveToast && (
+          <div
+            className="print:hidden fixed bottom-6 right-6 z-[9999] flex items-center gap-3 rounded-xl px-5 py-3.5 shadow-xl"
+            style={{
+              background: '#1F4E5F',
+              color: '#fff',
+              minWidth: 220,
+              animation: 'fadeInUp 0.22s ease',
+            }}
+          >
+            <CheckCircle size={20} style={{ color: '#4ade80', flexShrink: 0 }} />
+            <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: 0.1 }}>Salvo com sucesso</span>
+          </div>
+        )}
+        <style>{`
+          @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(12px); }
+            to   { opacity: 1; transform: translateY(0);    }
+          }
+        `}</style>
     </div>
   );
 };

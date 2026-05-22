@@ -17,15 +17,20 @@ import {
   AIModelConfig, AIModelContext, AIOutputType,
   AtividadeJSON, validateAtividadeJSON,
   PRIOR_KNOWLEDGE_LABELS,
+  AIResultStatus, AIProtocolResult,
 } from '../types';
 import { AI_CREDIT_COSTS, INCLUILAB_MODEL_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { AiAuditService } from './persistenceService';
 import type { StudentContext } from './studentContextService';
 import { StudentContextService } from './studentContextService';
 import { callAIGateway } from './aiGatewayService';
+import { CreditTransactionService } from './creditService';
 import {
   CanonicalStudentContextService,
   mapDocTypeToCategory,
+  buildDocumentChainBlock,
+  buildActivitiesHistoryBlock,
+  buildStrategiesBlock,
   type CanonicalStudentContext,
 } from './canonicalStudentContext';
 
@@ -251,6 +256,33 @@ function buildPKBlock(student: Student): string {
   return `${header}\n${lines.join('\n')}${obs}\n`;
 }
 
+// ─── Guardrails Globais de IA ─────────────────────────────────────────────────
+
+/**
+ * Bloco de guardrails éticos padronizados.
+ * Injetar em prompts que não têm seção própria de "ORIENTAÇÕES ÉTICAS DA IA"
+ * (ex: generateProtocol legado, analyzeDocument, analyzeUploadedDocument).
+ */
+export const GLOBAL_AI_GUARDRAILS = `GUARDRAILS ÉTICOS E DE SEGURANÇA — OBRIGATÓRIOS:
+1. NUNCA inventar diagnóstico, CID, condição clínica ou laudo não registrado no sistema.
+2. NUNCA criar ou inferir CID — usar somente os fornecidos explicitamente.
+3. NUNCA afirmar ter analisado arquivo cujo conteúdo textual não foi extraído.
+4. Distinguir: laudo clínico (profissional de saúde) ≠ observação pedagógica (professor/AEE) ≠ registro de rotina escolar (cuidadora). Nunca elevar observação pedagógica a diagnóstico.
+5. NUNCA prescrever medicamento, terapia ou conduta médica.
+6. NUNCA usar linguagem de perícia médica fora de contexto pedagógico.
+7. Dado essencial ausente → "Não há registro no sistema sobre..." — jamais inventar.
+8. Usar "com base nos registros disponíveis" somente quando houver dado real correspondente.
+9. Sinalizar lacunas: "Recomenda-se complementar com observação da equipe escolar/família."
+TERMOS PROIBIDOS — nunca gere: "CID provável", "diagnóstico provável", "diagnóstico compatível com", "certamente apresenta", "provavelmente possui", "tratamento medicamentoso", "prescrição de", "terapia obrigatória", "laudo confirma" sem fonte registrada.`;
+
+/**
+ * Bloco curto de termos proibidos.
+ * Injetar no fim de seções "ORIENTAÇÕES ÉTICAS DA IA" já existentes, para
+ * padronizar linguagem de incerteza sem duplicar regras completas.
+ */
+export const FORBIDDEN_TERMS_BLOCK = `- Termos proibidos — nunca gere: "CID provável", "diagnóstico provável", "certamente apresenta", "provavelmente possui", "tratamento medicamentoso", "prescrição de", "terapia obrigatória".
+- Dado essencial ausente → "Não há registro no sistema sobre..." ou "A informação não foi localizada nos documentos disponíveis. Recomenda-se complementar com a equipe escolar/família."`;
+
 // ─── Serviço principal ────────────────────────────────────────────────────────
 
 export const AIService = {
@@ -291,31 +323,27 @@ export const AIService = {
   },
 
   // Mantido intacto para a 2A — será removido na 2B
-  async deductCredits(user: User, action: string, cost: number): Promise<void> {
+  async deductCredits(user: User, action: string | number, cost?: number, operationId?: string): Promise<void> {
     if (!user?.tenant_id) return;
+    const resolvedAction = typeof action === 'string' ? action : 'IA';
+    const resolvedCost = typeof action === 'number' ? action : Number(cost ?? 0);
+    if (!(resolvedCost > 0)) return;
     try {
       const tenantId = (user as any).tenant_id;
-      const userId   = (user as any).id ?? null;
+      const userId = (user as any).id ?? null;
 
-      const { data: wallet, error: readErr } = await supabase
-        .from('credits_wallet').select('id, balance')
-        .eq('tenant_id', tenantId).maybeSingle();
-      if (readErr) console.warn('[AIService] deductCredits read error:', readErr.message);
-
-      if (wallet) {
-        const next = Math.max(0, Number((wallet as any).balance ?? 0) - cost);
-        const { error: upErr } = await supabase
-          .from('credits_wallet')
-          .update({ balance: next, updated_at: new Date().toISOString() })
-          .eq('id', (wallet as any).id);
-        if (upErr) console.warn('[AIService] deductCredits update error:', upErr.message);
-      }
-
-      const { error: ledgerErr } = await supabase.from('credits_ledger').insert({
-        tenant_id: tenantId, user_id: userId,
-        type: 'usage_ai', amount: -cost, description: 'IA: ' + action,
+      await CreditTransactionService.atomicDebitCredits({
+        tenantId,
+        amount: resolvedCost,
+        description: `IA: ${resolvedAction}`,
+        userId,
+        operationId: operationId ?? CreditTransactionService.createOperationId(`ai_debit:${String(resolvedAction).toLowerCase()}`),
+        metadata: {
+          action: resolvedAction,
+          requested_by: 'AIService.deductCredits',
+        },
+        source: 'ai_service.deductCredits',
       });
-      if (ledgerErr) console.warn('[AIService] credits_ledger insert error:', ledgerErr.message);
     } catch (e) {
       console.warn('[AIService] deductCredits unexpected error:', e);
     }
@@ -330,7 +358,9 @@ export const AIService = {
     }
 
     const { promptAppend, imageBase64 } = await extractDocxIfNeeded(laudo);
-    const prompt = `Gere o protocolo ${type} para ${student.name}. Diagnóstico: ${student.diagnosis.join(', ')}. Nível de suporte: ${student.supportLevel}.${promptAppend}`;
+    const prompt = `Gere o protocolo ${type} para ${student.name}. Diagnóstico: ${student.diagnosis.join(', ')}. Nível de suporte: ${student.supportLevel}.${promptAppend}
+
+${GLOBAL_AI_GUARDRAILS}`;
 
     const { result, creditsRemaining } = await callAIGateway({
       task: 'text', prompt, imageBase64,
@@ -345,7 +375,7 @@ export const AIService = {
     return result;
   },
 
-  async generateProtocolJSON(type: any, student: Student, user: User, studentContext?: StudentContext): Promise<string> {
+  async generateProtocolJSON(type: any, student: Student, user: User, studentContext?: StudentContext): Promise<AIProtocolResult> {
     const cost = CREDIT_COSTS[type] || 1;
     if (!(await this.checkCredits(user, cost))) {
       throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
@@ -366,25 +396,13 @@ export const AIService = {
     const difficulties = (student.difficulties || []).join('; ') || 'Não informado';
     const strategies   = (student.strategies || []).join('; ') || 'Não informado';
 
-    // Contexto canônico — fonte única de verdade para todos os documentos
-    let ctxBlock = '';
+    // Sprint IA-9: contexto canônico delegado à Edge (buildContextServer=true).
+    // Mantemos canonicalCtx SOMENTE para validateAndRepair pós-geração (sem custo de prompt).
+    // A Edge injeta o contexto via service_role (valida tenant, sem dados no HTTP request).
     let canonicalCtx: CanonicalStudentContext | null = null;
     try {
       canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
-      if (CanonicalStudentContextService.hasData(canonicalCtx)) {
-        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, mapDocTypeToCategory(String(type)));
-      }
-    } catch {
-      // Fallback ao contexto legado se o canônico falhar
-      if (studentContext && StudentContextService.hasData(studentContext)) {
-        ctxBlock = StudentContextService.toPromptText(studentContext);
-      } else if (student.id) {
-        try {
-          const autoCtx = await StudentContextService.buildContext(student.id);
-          if (StudentContextService.hasData(autoCtx)) ctxBlock = StudentContextService.toPromptText(autoCtx);
-        } catch { /* contexto é opcional */ }
-      }
-    }
+    } catch { /* validação pós-geração é opcional */ }
 
     const studentDataBlock = `Dados cadastrais do aluno:
 - Nome do aluno: ${student.name}
@@ -403,9 +421,7 @@ export const AIService = {
 - Contexto familiar: ${student.familyContext || 'Não informado'}
 - Histórico escolar: ${student.schoolHistory || 'Não informado'}
 
-IMPORTANTE: "Nome do aluno" refere-se APENAS ao estudante. "Responsável legal" é o adulto guardião. Nunca confunda essas identidades.
-
-${ctxBlock}`;
+IMPORTANTE: "Nome do aluno" refere-se APENAS ao estudante. "Responsável legal" é o adulto guardião. Nunca confunda essas identidades.`;
 
     const typeUpper      = String(type).toUpperCase().replace(/\s+/g, '_');
     const isPEI          = typeUpper.includes('PEI') && !typeUpper.includes('PLANO');
@@ -430,6 +446,7 @@ ORIENTAÇÕES ÉTICAS DA IA:
 - Não invente diagnósticos, laudos, habilidades ou histórico não fornecido.
 - Se um dado estiver ausente, deixe o campo vazio ou infira APENAS a partir de dados explicitamente fornecidos.
 - Ao citar legislação, use apenas as normas pelo nome geral — nunca invente artigo, inciso ou resolução específica. Normas seguras: Lei nº 13.146/2015 (LBI), Lei nº 9.394/1996 (LDB), PNEEPEI, BNCC, Resolução CNE/CEB nº 4/2009.
+${FORBIDDEN_TERMS_BLOCK}
 
 ${studentDataBlock}
 ${familyBlock}
@@ -605,6 +622,7 @@ ORIENTAÇÕES ÉTICAS DA IA:
 - A fala dos responsáveis deve ser interpretada com critério; jamais transcrita como verdade absoluta.
 - Não invente recursos, laudos ou dados ausentes.
 - Ao citar legislação, use apenas as normas pelo nome geral — nunca invente artigo, inciso ou resolução específica. Normas seguras: Lei nº 13.146/2015 (LBI), Lei nº 9.394/1996 (LDB), PNEEPEI, Resolução CNE/CEB nº 4/2009, Nota Técnica MEC/SEESP nº 11/2010.
+${FORBIDDEN_TERMS_BLOCK}
 
 ${studentDataBlock}
 ${familyBlock}
@@ -704,6 +722,7 @@ REGRAS DE GERAÇÃO:
 7. Mencione outros profissionais que acompanham o aluno e como articular o trabalho (fonoaudiologia, psicologia, TO).
 8. Linguagem técnica formal. Nunca capacitista. Português brasileiro.
 9. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use-as para identificar padrões de progresso e barreiras recorrentes. Cite como "conforme registros escolares" ou "observado em sala/rotina". Diferencie laudo clínico de observação pedagógica — não transforme comportamento observado em diagnóstico.
+${FORBIDDEN_TERMS_BLOCK}
 
 RETORNE SOMENTE o JSON válido com estas seções obrigatórias:
 {
@@ -760,6 +779,7 @@ ORIENTAÇÕES ÉTICAS DA IA:
 - A fala dos responsáveis deve ser INTERPRETADA com critério — nunca transcrita como verdade absoluta. Identifique o que revelam, o que omitem, pontos de apoio e resistência.
 - NUNCA invente dados, diagnósticos, laudos ou histórico não fornecido. Se um dado estiver ausente, deixe o campo vazio.
 - Melhore linguagem, conectivos, gramática e vocabulário técnico sem criar fatos novos.
+${FORBIDDEN_TERMS_BLOCK}
 
 ${studentDataBlock}
 ${familyBlock}
@@ -858,6 +878,7 @@ ORIENTAÇÕES ÉTICAS DA IA:
 - Se um dado estiver ausente, infira com base no diagnóstico e no nível de suporte.
 - Não faça prescrição terapêutica. Não prometa cura.
 - Tom: técnico-pedagógico, claro, direto, orientado para ação.
+${FORBIDDEN_TERMS_BLOCK}
 
 PROIBIDO — nunca gere frases como:
 - "usar estratégias inclusivas"
@@ -1112,6 +1133,10 @@ Preencha TODOS os "value" com conteúdo gerado. Português brasileiro formal.`;
         task: 'json', prompt,
         creditsRequired: cost,
         requestType: `protocol_${String(type).toLowerCase()}`,
+        // Sprint IA-9: Edge injeta contexto canônico via service_role
+        studentId:          student.id,
+        buildContextServer: true,
+        targetDocType:      mapDocTypeToCategory(String(type)),
       });
       jsonResult    = result;
       serverDebited = creditsRemaining !== undefined;
@@ -1123,6 +1148,9 @@ Preencha TODOS os "value" com conteúdo gerado. Português brasileiro formal.`;
 
     // Validação de qualidade + reparo automático (sem débito extra de créditos)
     // Limitado a 12s para não bloquear o usuário — o reparo é melhoria opcional
+    let aiStatus: AIResultStatus = 'success';
+    let aiWarning: string | undefined;
+
     if (canonicalCtx) {
       try {
         const repairResult = await Promise.race([
@@ -1139,6 +1167,13 @@ Preencha TODOS os "value" com conteúdo gerado. Português brasileiro formal.`;
               `[AIService] reparo automático — tipo: ${String(type)} | score inicial: ${audit.initialScore} | score final: ${audit.finalScore} | reparado: ${audit.repairSucceeded}`,
               audit.initialIssues,
             );
+            if (audit.repairSucceeded) {
+              aiStatus  = 'repaired_json';
+              aiWarning = 'Algumas partes da resposta automática precisaram ser reorganizadas. Revise o documento antes de finalizar.';
+            } else {
+              aiStatus  = 'partial_success';
+              aiWarning = 'A validação automática identificou inconsistências que não foram totalmente corrigidas. Revise o documento com atenção.';
+            }
           }
         }
       } catch { /* validação é opcional — não bloqueia o fluxo */ }
@@ -1160,14 +1195,17 @@ Preencha TODOS os "value" com conteúdo gerado. Português brasileiro formal.`;
           ]},
         ],
       };
-      if (!serverDebited) await this.deductCredits(user, type, Math.floor(cost / 2));
       if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: 'parse_error_fallback' });
-      return JSON.stringify(fallback);
+      return {
+        json: JSON.stringify(fallback),
+        status: 'fallback_used',
+        warning: 'Este documento foi gerado com informações mínimas porque a IA encontrou uma inconsistência. Revise antes de usar.',
+      };
     }
 
     if (!serverDebited) await this.deductCredits(user, type, cost);
     if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'json', content: jsonResult.slice(0, 500) });
-    return jsonResult;
+    return { json: jsonResult, status: aiStatus, warning: aiWarning };
   },
 
   // ── Análise de documento ────────────────────────────────────────────────────
@@ -1179,14 +1217,17 @@ Preencha TODOS os "value" com conteúdo gerado. Português brasileiro formal.`;
     }
 
     const diagnosis = (student.diagnosis || []).join(', ') || 'Não informado';
-    const prompt = `Você é especialista em educação inclusiva. Analise o documento "${name}" do aluno ${student.name}.
+    const prompt = `Você é especialista em educação inclusiva. Analise o documento "${name}" do aluno ${student.name} com foco pedagógico.
+
+${GLOBAL_AI_GUARDRAILS}
+ATENÇÃO SOBRE CONTEÚDO DO ARQUIVO: Se o conteúdo textual do documento não foi extraído e fornecido abaixo, NÃO afirme tê-lo lido. Baseie a análise no nome/tipo do documento e nos dados cadastrais do aluno. Indique no campo "synthesis": "Conteúdo textual não disponível — análise baseada no perfil pedagógico e tipo de documento."
 
 Dados do aluno:
 - Diagnóstico(s): ${diagnosis}
 - Nível de Suporte: ${student.supportLevel || 'Não informado'}
 - CID: ${Array.isArray(student.cid) ? student.cid.join(', ') : (student.cid || '—')}
 
-Gere uma análise pedagógica completa. RETORNE SOMENTE o JSON válido:
+Gere uma análise pedagógica. RETORNE SOMENTE o JSON válido:
 {
   "id": "ANALISE-${Date.now()}",
   "documentName": "${name}",
@@ -1197,16 +1238,48 @@ Gere uma análise pedagógica completa. RETORNE SOMENTE o JSON válido:
   "auditCode": "DOC-${Date.now()}"
 }`;
 
+    // Separar chamada da IA do parse do JSON para controle preciso de débito.
+    // Regra: só debita se a IA respondeu algo (sucesso ou resposta inválida).
+    // Falha total (rede, timeout, 402, 500) → sem débito.
+    let gwResult: string | undefined;
+    let serverDebited = false;
+
     try {
       const { result, creditsRemaining } = await callAIGateway({
         task: 'json', prompt,
         creditsRequired: cost,
         requestType: 'analyze_document',
       });
-      if (creditsRemaining === undefined) await this.deductCredits(user, 'ANALISE_DOCUMENTO', cost);
-      return JSON.parse(result);
+      gwResult      = result;
+      serverDebited = creditsRemaining !== undefined;
     } catch {
-      await this.deductCredits(user, 'ANALISE_DOCUMENTO', cost);
+      // IA não respondeu nada: retorna fallback sem cobrar crédito
+      return {
+        id: `ANALISE-${Date.now()}`, documentName: name,
+        date: new Date().toLocaleDateString('pt-BR'),
+        synthesis: `Não foi possível conectar ao serviço de IA. Análise baseada nos dados cadastrais de ${student.name} (${diagnosis}).`,
+        pedagogicalPoints: [
+          'Verificar compatibilidade do diagnóstico com estratégias pedagógicas em uso',
+          'Revisar objetivos do PEI com base neste documento',
+          'Compartilhar com equipe multidisciplinar',
+        ],
+        suggestions: [
+          'Atualizar o Estudo de Caso com informações deste documento',
+          'Informar responsável sobre os encaminhamentos indicados',
+        ],
+        auditCode: `DOC-${Date.now()}`,
+        __ai_status: 'provider_error',
+        __ai_warning: 'A IA não respondeu. Esta análise é baseada nos dados cadastrais. Tente novamente mais tarde.',
+      };
+    }
+
+    // IA respondeu: debita créditos
+    if (!serverDebited) await this.deductCredits(user, 'ANALISE_DOCUMENTO', cost);
+
+    try {
+      return JSON.parse(gwResult!);
+    } catch {
+      // IA respondeu mas JSON inválido: crédito já foi debitado acima, retorna fallback sinalizado
       return {
         id: `ANALISE-${Date.now()}`, documentName: name,
         date: new Date().toLocaleDateString('pt-BR'),
@@ -1221,6 +1294,8 @@ Gere uma análise pedagógica completa. RETORNE SOMENTE o JSON válido:
           'Informar responsável sobre os encaminhamentos indicados',
         ],
         auditCode: `DOC-${Date.now()}`,
+        __ai_status: 'validation_failed',
+        __ai_warning: 'A resposta da IA estava em formato inválido. Esta análise é uma estimativa baseada nos dados cadastrais.',
       };
     }
   },
@@ -1259,6 +1334,18 @@ Inclua também:
     // Bloco de conhecimento prévio para calibrar a atividade
     const pkBlock = buildPKBlock(student);
 
+    // Sprint IA-6: histórico de atividades e estratégias que funcionaram
+    let actHistBlock = '';
+    let stratBlock   = '';
+    if (student.id) {
+      try {
+        const ctxAct = await CanonicalStudentContextService.buildCanonicalContext(student);
+        actHistBlock = buildActivitiesHistoryBlock(ctxAct.generatedActivities, 'atividade_adaptada');
+        const packAct = CanonicalStudentContextService.buildEvidencePack(ctxAct, 'atividade_adaptada');
+        stratBlock   = buildStrategiesBlock(packAct);
+      } catch { /* contexto é opcional */ }
+    }
+
     const prompt = `Você é uma pedagoga especialista em AEE e adaptação curricular.
 Crie uma atividade adaptada **concisa** para ${student.name}.
 
@@ -1270,7 +1357,7 @@ Dados:
 - Período/Unidade: ${period || 'Não informado'}
 - Tema: ${topic}
 - BNCC (se informado): ${bncc.length ? bncc.join(', ') : 'Não informado'}
-${pkBlock}${asTeacher ? formatTeacher : ''}
+${pkBlock}${actHistBlock}${stratBlock}${asTeacher ? formatTeacher : ''}
 Formato OBRIGATÓRIO (use Markdown):
 # [Título curto da atividade]
 ## Objetivo (1–2 linhas)
@@ -1327,6 +1414,18 @@ O bloco "Alinhamento BNCC" é OBRIGATÓRIO. Nunca invente código — use "Suger
 
     const pkBlockStructured = buildPKBlock(student);
 
+    // Sprint IA-6: histórico de atividades e estratégias que funcionaram
+    let actHistBlockStruct = '';
+    let stratBlockStruct   = '';
+    if (student.id) {
+      try {
+        const ctxStruct = await CanonicalStudentContextService.buildCanonicalContext(student);
+        actHistBlockStruct = buildActivitiesHistoryBlock(ctxStruct.generatedActivities, 'atividade_adaptada');
+        const packStruct   = CanonicalStudentContextService.buildEvidencePack(ctxStruct, 'atividade_adaptada');
+        stratBlockStruct   = buildStrategiesBlock(packStruct);
+      } catch { /* contexto é opcional */ }
+    }
+
     const prompt = `Você é uma pedagoga especialista em AEE e educação inclusiva brasileira.
 Crie uma atividade pedagógica adaptada para o aluno abaixo. Siga as regras com rigor.
 
@@ -1340,7 +1439,7 @@ DADOS DO ALUNO:
 - Nome: ${student.name}
 - Diagnóstico(s): ${diagnosis}
 - Nível de suporte: ${student.supportLevel || 'Não informado'}
-${pkBlockStructured}
+${pkBlockStructured}${actHistBlockStruct}${stratBlockStruct}
 
 REGRAS ABSOLUTAS:
 1. Idioma: SOMENTE português do Brasil.
@@ -1473,8 +1572,12 @@ Entregue em Markdown: 1) Objetivos pedagógicos 2) Como aplicar (passo a passo +
       throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
     }
 
-    const basePrompt = `Analise o documento enviado (tipo ${docType}) e extraia dados úteis para educação inclusiva do aluno ${student.name}.
-Retorne JSON com: resumo, achados, recomendações, sinais de alerta, e sugestões de adaptações.`;
+    const basePrompt = `Analise o documento enviado (tipo: ${docType}) do aluno ${student.name} e extraia dados pedagogicamente relevantes para educação inclusiva.
+
+${GLOBAL_AI_GUARDRAILS}
+INSTRUÇÃO SOBRE CONTEÚDO DO ARQUIVO: Se o texto do arquivo não foi extraído ou está vazio, NÃO afirme tê-lo lido. Indique no campo "resumo" que o conteúdo não estava acessível e baseie os achados nos metadados disponíveis. Foco pedagógico: barreiras, potencialidades, recomendações escolares — nunca diagnósticos clínicos não fornecidos.
+
+Retorne JSON com: resumo, achados (pedagógicos), recomendações (escolares), sinais de alerta (educacionais), sugestões de adaptações.`;
 
     const { promptAppend, imageBase64 } = await extractDocxIfNeeded(fileBase64);
     const { result, creditsRemaining } = await callAIGateway({
@@ -1684,10 +1787,11 @@ Retorne SOMENTE a atividade adaptada, pronta para uso, em português brasileiro.
     const strategies   = (student.strategies || []).join('; ') || '';
 
     let ctxBlock = '';
+    let canonicalCtxPerfil: CanonicalStudentContext | null = null;
     try {
-      const canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
-      if (CanonicalStudentContextService.hasData(canonicalCtx)) {
-        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'perfil_inteligente');
+      canonicalCtxPerfil = await CanonicalStudentContextService.buildCanonicalContext(student);
+      if (CanonicalStudentContextService.hasData(canonicalCtxPerfil)) {
+        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtxPerfil, 'perfil_inteligente');
       }
     } catch {
       try {
@@ -1695,6 +1799,10 @@ Retorne SOMENTE a atividade adaptada, pronta para uso, em português brasileiro.
         if (StudentContextService.hasData(autoCtx)) ctxBlock = StudentContextService.toPromptText(autoCtx);
       } catch { /* contexto é opcional */ }
     }
+
+    const docChainBlockPerfil = canonicalCtxPerfil
+      ? buildDocumentChainBlock(canonicalCtxPerfil, 'perfil_inteligente')
+      : '';
 
     const pkBlock = buildPKBlock(student);
     const familyBlock = buildFamilyBlock(student);
@@ -1720,13 +1828,13 @@ Histórico escolar: ${student.schoolHistory || 'Não informado'}
 Observações gerais: ${student.observations || ''}
 ${pkBlock}
 ${familyBlock}
-${ctxBlock}
+${docChainBlockPerfil ? `\n${docChainBlockPerfil}` : ''}${ctxBlock}
 
 ═══════════════════════════════════════════════════
 REGRAS OBRIGATÓRIAS
 ═══════════════════════════════════════════════════
 1. NUNCA invente dados que não foram fornecidos. Se houver poucos dados, diga explicitamente no campo humanizedIntroduction.text: "As informações disponíveis ainda são limitadas. Este perfil deve ser complementado com observações diretas do professor."
-2. NUNCA faça diagnóstico médico. NUNCA afirme transtornos além dos listados.
+2. NUNCA faça diagnóstico médico. NUNCA afirme transtornos além dos listados. NUNCA gere: "CID provável", "diagnóstico compatível com", "certamente apresenta", "provavelmente possui".
 3. Use linguagem humana, acolhedora, respeitosa — sem rótulos, sem termos frios, sem capacitismo.
 4. Não reduza o aluno ao diagnóstico. Fale da PESSOA.
 5. Os checklists devem refletir APENAS o que pode ser inferido dos dados reais — não invente.
@@ -1736,6 +1844,8 @@ REGRAS OBRIGATÓRIAS
 9. Português brasileiro formal. Sem markdown no interior dos textos (sem asteriscos, sem #).
 10. RETORNE SOMENTE o JSON válido abaixo. Sem markdown, sem \`\`\`json, sem texto antes ou depois.
 11. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para preencher "bestLearningStrategies" e as ações do "neuropsychologicalReport". Use observações principais para embasar "humanizedIntroduction" e "pedagogicalReport". Cite como "observado em sala" — nunca como laudo clínico.
+12. ATUALIZAÇÃO DE PERFIL: Se o contexto incluir seção "=== PERFIL INTELIGENTE MAIS RECENTE ===" (versão anterior), compare com os dados atuais e destaque no campo "changesSinceLastVersion" a evolução observada, mudanças de estratégia e novas prioridades. Não repita o perfil anterior — avance sobre ele.
+13. FONTES CONSIDERADAS: Preencha "sourcesConsidered" listando os tipos de documentos e evidências que você usou para gerar este perfil (ex: "Estudo de Caso", "Laudos clínicos", "Fichas cognitivas preenchidas", "Perfil anterior versão N", "Dados da ficha do aluno"). Seja específico.
 
 ═══════════════════════════════════════════════════
 ESTRUTURA JSON OBRIGATÓRIA
@@ -1853,7 +1963,12 @@ ESTRUTURA JSON OBRIGATÓRIA
     "Próximo passo pedagógico 1",
     "Próximo passo 2",
     "Próximo passo 3"
-  ]
+  ],
+  "sourcesConsidered": [
+    "Fonte 1 utilizada (ex: Ficha do aluno)",
+    "Fonte 2 (ex: Estudo de Caso, Laudos, Fichas cognitivas, Perfil anterior versão N)"
+  ],
+  "changesSinceLastVersion": "Apenas quando version >= 2 e houver perfil anterior no contexto: descreva em 1-3 frases as principais mudanças observadas em relação à versão anterior (evolução, novas estratégias, novas prioridades). Deixe como string vazia se for a primeira geração."
 }`;
 
     const t0 = Date.now();
@@ -1886,7 +2001,6 @@ ESTRUTURA JSON OBRIGATÓRIA
       parsed = JSON.parse(cleaned);
     } catch {
       if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: 'parse_error' });
-      if (!serverDebited) await this.deductCredits(user, 'PERFIL_INTELIGENTE', Math.floor(cost / 2));
       throw new Error('A IA retornou um formato inesperado. Tente novamente.');
     }
 
@@ -1931,12 +2045,17 @@ ESTRUTURA JSON OBRIGATÓRIA
     const strategies   = (student.strategies || []).join('; ') || '';
 
     let ctxBlock = '';
+    let canonicalCtxRegente: CanonicalStudentContext | null = null;
     try {
-      const canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
-      if (CanonicalStudentContextService.hasData(canonicalCtx)) {
-        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'plano_acao_regente');
+      canonicalCtxRegente = await CanonicalStudentContextService.buildCanonicalContext(student);
+      if (CanonicalStudentContextService.hasData(canonicalCtxRegente)) {
+        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtxRegente, 'plano_acao_regente');
       }
     } catch { /* contexto é opcional */ }
+
+    const docChainBlockRegente = canonicalCtxRegente
+      ? buildDocumentChainBlock(canonicalCtxRegente, 'plano_acao_regente')
+      : '';
 
     const pkBlock = buildPKBlock(student);
 
@@ -1964,7 +2083,7 @@ Dificuldades: ${difficulties || 'Não informado'}
 Estratégias que funcionam: ${strategies || 'Não informado'}
 Comunicação: ${(student.communication || []).join('; ') || 'Não informado'}
 ${pkBlock}
-${ctxBlock ? `\n═══ CONTEXTO PEDAGÓGICO ADICIONAL ═══\n${ctxBlock}` : ''}
+${docChainBlockRegente ? `\n${docChainBlockRegente}` : ''}${ctxBlock ? `\n═══ CONTEXTO PEDAGÓGICO ADICIONAL ═══\n${ctxBlock}` : ''}
 
 ═══════════════════════════════════════
 REGRAS CRÍTICAS — LEIA ANTES DE GERAR
@@ -1992,6 +2111,8 @@ MANDATÓRIO NESTE PLANO:
 - Os 6 blocos principais devem ter 5 a 8 itens cada, todos concretos e específicos
 
 EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para preencher "suggestedStrategies" e os blocos de ação em sala, e use barreiras identificadas para embasar "mainBarrier" e "focusPlan". Cite como "conforme observações do professor regente em sala" quando aplicável. Nunca transforme observação pedagógica em diagnóstico clínico.
+HISTÓRICO DE ATIVIDADES E ESTRATÉGIAS: Se o contexto incluir seção "ATIVIDADES PEDAGÓGICAS JÁ GERADAS", use o histórico para propor atividades com continuidade pedagógica em "weeklyPlan" e "suggestedActivities" — nunca repetir formato idêntico sem justificativa. Se houver seção "ESTRATÉGIAS QUE FUNCIONARAM", priorize-as em "suggestedStrategies" e nas orientações do plano. Se houver "ESTRATÉGIAS QUE EXIGEM CAUTELA", reflita isso em "mainBarrier" e nas adaptações.
+${FORBIDDEN_TERMS_BLOCK}
 
 ═══════════════════════════════════════
 ESTRUTURA JSON OBRIGATÓRIA
@@ -2198,7 +2319,6 @@ IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específica
     try {
       plan = JSON.parse(cleaned) as import('../types').ActionPlanJSON;
     } catch {
-      if (!serverDebited) await this.deductCredits(user, Math.ceil(cost / 2));
       if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: 'JSON parse error' });
       throw new Error('Resposta da IA em formato inválido. Tente novamente.');
     }
@@ -2229,14 +2349,8 @@ IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específica
     const difficulties = (student.difficulties || []).join('; ') || '';
     const strategies   = (student.strategies || []).join('; ') || '';
 
-    let ctxBlock = '';
-    try {
-      const canonicalCtx = await CanonicalStudentContextService.buildCanonicalContext(student);
-      if (CanonicalStudentContextService.hasData(canonicalCtx)) {
-        ctxBlock = CanonicalStudentContextService.toPromptText(canonicalCtx, 'plano_acao_aee');
-      }
-    } catch { /* contexto é opcional */ }
-
+    // Sprint IA-9: contexto canônico montado pela Edge (buildContextServer=true).
+    // O frontend NÃO faz mais as 11 queries — a Edge usa service_role e valida tenant.
     const pkBlock = buildPKBlock(student);
 
     const periodLabel =
@@ -2265,7 +2379,6 @@ Estratégias que funcionam: ${strategies || 'Não informado'}
 Comunicação: ${(student.communication || []).join('; ') || 'Não informado'}
 ${pkBlock}
 ${paeeContent ? `\n═══ PAEE — DOCUMENTO NORTEADOR ═══\n${paeeContent}` : ''}
-${ctxBlock ? `\n═══ CONTEXTO PEDAGÓGICO ADICIONAL ═══\n${ctxBlock}` : ''}
 
 ═══════════════════════════════════════
 REGRAS CRÍTICAS — LEIA ANTES DE GERAR
@@ -2293,6 +2406,8 @@ MANDATÓRIO NESTE PLANO AEE:
 - "welcomeRoutine" deve ter 4 a 6 itens de como receber e acolher o aluno
 
 FONTES: use o PAEE como norteador principal. Use as habilidades e estratégias do perfil para embasar jogos e atividades concretas. Use as dificuldades para embasar a barreira prioritária. Nunca invente diagnóstico clínico.
+HISTÓRICO DE ATIVIDADES E ESTRATÉGIAS: Se o contexto incluir seção "ATIVIDADES PEDAGÓGICAS JÁ GERADAS", use o histórico para propor sequência pedagógica progressiva em "sessionScript" e "gamesResources" — nunca repetir atividades idênticas. Se houver seção "ESTRATÉGIAS QUE FUNCIONARAM", priorize-as em "welcomeRoutine" e nos recursos do atendimento. Se houver "ESTRATÉGIAS QUE EXIGEM CAUTELA", reflita isso na barreira prioritária e nas observações do plano.
+${FORBIDDEN_TERMS_BLOCK}
 
 ═══════════════════════════════════════
 ESTRUTURA JSON OBRIGATÓRIA
@@ -2448,6 +2563,10 @@ IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específica
         task: 'json', prompt,
         creditsRequired: cost,
         requestType: 'plano_acao_aee',
+        // Sprint IA-9: Edge monta contexto canônico via service_role
+        studentId:          student.id,
+        buildContextServer: true,
+        targetDocType:      'plano_acao_aee',
       });
       raw = result;
       serverDebited = creditsRemaining !== undefined;
@@ -2461,7 +2580,6 @@ IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específica
     try {
       plan = JSON.parse(cleaned) as import('../types').AEEActionPlanJSON;
     } catch {
-      if (!serverDebited) await this.deductCredits(user, Math.ceil(cost / 2));
       if (auditId) AiAuditService.completeRequest(auditId, { status: 'failed', latencyMs: Date.now() - t0, outputType: 'json', content: 'JSON parse error' });
       throw new Error('Resposta da IA em formato inválido. Tente novamente.');
     }

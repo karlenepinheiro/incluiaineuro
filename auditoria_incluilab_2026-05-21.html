@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auditoria IncluiAILab — 2026-05-21</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --petrol:  #1F4E5F;
+      --petrol2: #2a6880;
+      --dark:    #111827;
+      --gold:    #C69214;
+      --bg:      #F6F4EF;
+      --surface: #FFFFFF;
+      --border:  #E7E2D8;
+      --sec:     #6B7280;
+      --red:     #DC2626;
+      --redbg:   #FEF2F2;
+      --redborder:#FECACA;
+      --yellow:  #92400E;
+      --yellowbg:#FFFBEB;
+      --yellowborder:#FDE68A;
+      --green:   #166534;
+      --greenbg: #F0FDF4;
+      --greenborder:#BBF7D0;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--dark);
+      line-height: 1.65;
+      font-size: 14px;
+    }
+
+    /* ── Layout ── */
+    .page-wrap {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    /* ── Cabeçalho ── */
+    .report-header {
+      background: linear-gradient(135deg, var(--petrol), var(--petrol2));
+      color: #fff;
+      border-radius: 18px;
+      padding: 36px 40px;
+      margin-bottom: 32px;
+      position: relative;
+      overflow: hidden;
+    }
+    .report-header::after {
+      content: '';
+      position: absolute;
+      right: -40px; top: -40px;
+      width: 220px; height: 220px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.06);
+    }
+    .report-header .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .report-header h1 {
+      font-size: 28px;
+      font-weight: 900;
+      letter-spacing: -.4px;
+      margin-bottom: 6px;
+    }
+    .report-header .subtitle {
+      font-size: 14px;
+      opacity: .75;
+      margin-bottom: 20px;
+    }
+    .report-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .meta-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 10px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* ── Seções ── */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      background: #FAFAF8;
+    }
+    .section-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: var(--petrol);
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+    .section-num {
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--sec);
+    }
+    .section-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--dark);
+    }
+    .section-body {
+      padding: 24px;
+    }
+
+    /* ── Fluxo ── */
+    .flow-box {
+      background: #0F172A;
+      color: #E2E8F0;
+      border-radius: 12px;
+      padding: 20px 24px;
+      font-family: 'Consolas', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.7;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .flow-box .c-teal    { color: #5EEAD4; }
+    .flow-box .c-gold    { color: #FCD34D; }
+    .flow-box .c-green   { color: #86EFAC; }
+    .flow-box .c-red     { color: #FCA5A5; }
+    .flow-box .c-blue    { color: #93C5FD; }
+    .flow-box .c-comment { color: #64748B; }
+    .flow-box .c-gray    { color: #94A3B8; }
+
+    /* ── Tabelas ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th {
+      background: #F1EFE9;
+      color: var(--petrol);
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      padding: 10px 14px;
+      text-align: left;
+    }
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #FAFAF8; }
+    code {
+      font-family: 'Consolas', 'Fira Code', monospace;
+      background: #F1EEE8;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 1px 6px;
+      font-size: 12px;
+      color: var(--petrol);
+    }
+
+    /* ── Alertas ── */
+    .alert {
+      display: flex;
+      gap: 12px;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .alert-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+    .alert-title { font-weight: 700; margin-bottom: 3px; }
+    .alert-red    { background: var(--redbg);    border: 1px solid var(--redborder);   color: #7F1D1D; }
+    .alert-yellow { background: var(--yellowbg); border: 1px solid var(--yellowborder); color: var(--yellow); }
+    .alert-green  { background: var(--greenbg);  border: 1px solid var(--greenborder);  color: var(--green); }
+
+    /* ── Bug cards ── */
+    .bug-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .bug-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 12px;
+      align-items: start;
+    }
+    .bug-num {
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      background: var(--petrol);
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 900;
+      flex-shrink: 0;
+    }
+    .bug-num.sev-red    { background: var(--red); }
+    .bug-num.sev-yellow { background: #D97706; }
+    .bug-title { font-weight: 700; font-size: 13px; color: var(--dark); margin-bottom: 4px; }
+    .bug-desc  { font-size: 12px; color: var(--sec); line-height: 1.55; }
+    .bug-file  { font-size: 11px; color: var(--sec); text-align: right; white-space: nowrap; }
+
+    /* ── Sprint cards ── */
+    .sprint-grid { display: grid; gap: 14px; }
+    .sprint-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .sprint-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sprint-tag {
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+    .sprint-p1  { background: #FEE2E2; color: var(--red); }
+    .sprint-p2  { background: #FEF3C7; color: #92400E; }
+    .sprint-p3  { background: #DBEAFE; color: #1E40AF; }
+    .sprint-title { font-size: 15px; font-weight: 800; color: var(--dark); }
+    .sprint-body  { padding: 16px 18px; }
+    .sprint-items { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .sprint-items li {
+      display: flex;
+      gap: 10px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .sprint-items li::before {
+      content: '→';
+      color: var(--petrol);
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    /* ── Cause section ── */
+    .cause-block {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .cause-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #FAFAF8;
+    }
+    .sev-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .sev-red    { background: var(--red); }
+    .sev-yellow { background: #D97706; }
+    .cause-label {
+      font-size: 10px; font-weight: 900; letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .cause-problem-name {
+      font-size: 14px; font-weight: 700; color: var(--dark);
+    }
+    .cause-body { padding: 16px; }
+    .cause-body p { font-size: 13px; line-height: 1.65; margin-bottom: 10px; color: #374151; }
+    .cause-body p:last-child { margin-bottom: 0; }
+    .cause-body strong { color: var(--dark); }
+
+    .code-snippet {
+      background: #0F172A;
+      color: #E2E8F0;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: 'Consolas', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      overflow-x: auto;
+      margin: 10px 0;
+      white-space: pre;
+    }
+    .code-snippet .hl { color: #FCD34D; }
+    .code-snippet .cm { color: #64748B; }
+    .code-snippet .st { color: #86EFAC; }
+    .code-snippet .kw { color: #93C5FD; }
+
+    /* ── Risk table ── */
+    .risk-level {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .risk-high   { background: #FEE2E2; color: var(--red); }
+    .risk-medium { background: #FEF3C7; color: #92400E; }
+
+    /* ── File list ── */
+    .file-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .file-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .file-name {
+      font-family: 'Consolas', 'Fira Code', monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--petrol);
+      margin-bottom: 4px;
+    }
+    .file-lines {
+      font-size: 10px;
+      color: var(--sec);
+      margin-bottom: 4px;
+    }
+    .file-desc { font-size: 12px; color: #374151; line-height: 1.5; }
+
+    /* ── First patch ── */
+    .patch-box {
+      background: var(--greenbg);
+      border: 1.5px solid var(--greenborder);
+      border-radius: 14px;
+      padding: 20px 22px;
+    }
+    .patch-box h3 {
+      font-size: 15px; font-weight: 800; color: var(--green);
+      margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+    }
+    .patch-box p { font-size: 13px; color: #14532D; line-height: 1.65; margin-bottom: 10px; }
+    .patch-box p:last-child { margin-bottom: 0; }
+
+    /* ── Do not touch ── */
+    .dont-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .dont-item {
+      display: flex;
+      gap: 10px;
+      background: var(--redbg);
+      border: 1px solid var(--redborder);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 13px;
+      color: #7F1D1D;
+      line-height: 1.5;
+    }
+    .dont-icon { font-size: 16px; flex-shrink: 0; }
+
+    /* ── Divider ── */
+    .divider { height: 1px; background: var(--border); margin: 20px 0; }
+
+    /* ── TOC ── */
+    .toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 24px;
+    }
+    .toc-title {
+      font-size: 12px; font-weight: 900; color: var(--sec);
+      text-transform: uppercase; letter-spacing: .08em;
+      margin-bottom: 12px;
+    }
+    .toc-list {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 20px;
+      list-style: none;
+    }
+    .toc-list li a {
+      font-size: 13px;
+      color: var(--petrol);
+      text-decoration: none;
+      font-weight: 600;
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .toc-list li a:hover { text-decoration: underline; }
+    .toc-num {
+      font-size: 10px; font-weight: 900; color: var(--sec);
+      background: #F1EFE9; border-radius: 5px; padding: 1px 6px;
+    }
+
+    @media (max-width: 700px) {
+      .file-grid, .dont-grid, .toc-list { grid-template-columns: 1fr; }
+      .bug-card { grid-template-columns: auto 1fr; }
+      .bug-file { grid-column: 2; }
+    }
+  </style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <!-- ── CABEÇALHO ── -->
+  <div class="report-header">
+    <div class="badge">🔍 Auditoria Técnica</div>
+    <h1>IncluiAILab — Diagnóstico Completo</h1>
+    <p class="subtitle">Auditoria técnica, pedagógica e UX/UI · Sem alterações de código · Apenas diagnóstico</p>
+    <div class="report-meta">
+      <div class="meta-pill">📅 2026-05-21</div>
+      <div class="meta-pill">🔖 IncluiLAB v5.0 Studio</div>
+      <div class="meta-pill">📁 IncluiLabView.tsx · 2700 linhas</div>
+      <div class="meta-pill">⚠️ 10 bugs confirmados</div>
+      <div class="meta-pill">🗓 6 sprints propostas</div>
+    </div>
+  </div>
+
+  <!-- ── TOC ── -->
+  <div class="toc">
+    <div class="toc-title">Índice</div>
+    <ul class="toc-list">
+      <li><a href="#s1"><span class="toc-num">1</span> Mapa do Fluxo Real</a></li>
+      <li><a href="#s2"><span class="toc-num">2</span> Arquivos Encontrados</a></li>
+      <li><a href="#s3"><span class="toc-num">3</span> Causas Raiz por Problema</a></li>
+      <li><a href="#s4"><span class="toc-num">4</span> Bugs Confirmados</a></li>
+      <li><a href="#s5"><span class="toc-num">5</span> Riscos</a></li>
+      <li><a href="#s6"><span class="toc-num">6</span> Plano de Sprints</a></li>
+      <li><a href="#s7"><span class="toc-num">7</span> Primeiro Patch Seguro</a></li>
+      <li><a href="#s8"><span class="toc-num">8</span> O Que Não Tocar</a></li>
+    </ul>
+  </div>
+
+  <!-- ── 1. FLUXO REAL ── -->
+  <div class="section" id="s1">
+    <div class="section-header">
+      <div class="section-icon">🗺</div>
+      <div>
+        <div class="section-num">Seção 1</div>
+        <div class="section-title">Mapa do Fluxo Real</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="flow-box"><span class="c-teal">PROFESSOR DIGITA TEMA</span>
+        │
+        ▼
+<span class="c-gray">Compositor</span> (inputText + genMode + pendingFile + targetType + anoSerie)
+        │
+   <span class="c-gold">[handleSend]</span>
+        │ verificação rápida de créditos (local)
+        │
+   <span class="c-gold">[runGeneration(mode, topic)]</span>
+        │
+        ├──── <span class="c-teal">a4_economica</span> ──────────────────────────────────────────────
+        │     1. AIService.generateIncluiLabActivitySchema(
+        │        <span class="c-green">buildPremiumActivityPrompt</span>(topic, studentCtx))  <span class="c-comment">← Gemini 2.5-flash</span>
+        │     2. extractGuiaText(parsedJson, topic)
+        │     3. normalizeIncluiLabActivity(cleaned)              <span class="c-comment">← contentJson</span>
+        │     4. safeDeductCredits(user, 'A4_ECONOMICA', <span class="c-gold">2</span> cr)   <span class="c-comment">← DÉBITO DIRETO</span>
+        │     Renderiza: <span class="c-blue">ActivityA4Premium</span>(contentJson)
+        │
+        ├──── <span class="c-teal">a4_visual</span> ──────────────────────────────────────────────────
+        │     1. atomicReserveCredits(<span class="c-gold">8 cr</span>)                       <span class="c-comment">← Supabase</span>
+        │     2. AIService.generateIncluiLabActivitySchema(
+        │        <span class="c-green">buildGuiaEConteudoPrompt</span>(topic, targetType…))    <span class="c-comment">← Gemini</span>
+        │        retorna: { titulo_atividade, guia_pedagogico, descricao_folha }
+        │     3. callAIGateway({task:'image',
+        │        prompt: <span class="c-green">buildOpenAIActivityImagePrompt</span>(…, 'visual'),
+        │        creditsRequired: <span class="c-red">0</span>})                           <span class="c-comment">← Vertex AI Imagen 4.0</span>
+        │     4. atomicCommitReservedCredits()
+        │     Renderiza: <span class="c-blue">&lt;img src={imageUrl}&gt;</span> (folha como imagem)
+        │               <span class="c-blue">ReactMarkdown</span>(guiaText) (guia do professor)
+        │
+        ├──── <span class="c-teal">a4_premium</span> ─────────────────────────────────────────────────
+        │     <span class="c-comment">Idêntico ao a4_visual, exceto:</span>
+        │     - atomicReserveCredits(<span class="c-gold">15 cr</span>)
+        │     - prompt de imagem diz "Máximo <span class="c-gold">2 páginas</span>" em vez de "1 página"
+        │     <span class="c-comment">(único diferencial real entre visual e premium)</span>
+        │
+        └──── <span class="c-teal">adaptar_economico / adaptar_visual / adaptar_premium</span> ──────
+              1. AIService.generateFromPromptWithImage(
+                 <span class="c-green">buildAdaptImagePrompt</span>(…), file.base64)         <span class="c-comment">← Gemini Vision</span>
+              2. [economico] buildPremiumAdaptActivityPrompt → normalizeIncluiLabActivity
+                 [visual/premium] buildGuiaEConteudoAdaptarPrompt + callAIGateway image
+              Mesmo fluxo de renderização dos modos acima
+
+<span class="c-teal">RESULTADO</span> (GeneratedResult)
+  ├── contentJson: IncluiLabActivityContent    (sempre preenchido)
+  ├── imageUrl:    string | undefined           (visual/premium — base64 PNG)
+  ├── guiaText:    string markdown              (todos os modos)
+  └── activity:    ActivitySchema | undefined   <span class="c-comment">(nunca preenchido — legado)</span>
+
+<span class="c-teal">RENDERIZAÇÃO</span>
+  folha: se imageUrl → &lt;img&gt;                 (visual/premium)
+         else        → ActivityA4Premium(contentJson)   (economica/adaptar)
+  guia:  ReactMarkdown(guiaText)  (todos os modos)
+
+<span class="c-teal">EXPORTAÇÃO</span>
+  folha: detecta [data-incluilab-image-page] → PDF com imagem única
+         ou html2canvas(scale=2) → PDF paginado
+  guia:  html2canvas(scale=2) do markdown renderizado (sempre HTML-path)</div>
+    </div>
+  </div>
+
+  <!-- ── 2. ARQUIVOS ── -->
+  <div class="section" id="s2">
+    <div class="section-header">
+      <div class="section-icon">📁</div>
+      <div>
+        <div class="section-num">Seção 2</div>
+        <div class="section-title">Arquivos Encontrados</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="file-grid">
+        <div class="file-card">
+          <div class="file-name">src/views/IncluiLabView.tsx</div>
+          <div class="file-lines">~2700 linhas</div>
+          <div class="file-desc">UI Studio centralizado. Contém todos os prompts, todos os builders, orquestração de geração, créditos, exportação e biblioteca.</div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">src/utils/incluilabExport.ts</div>
+          <div class="file-lines">311 linhas</div>
+          <div class="file-desc">Exportação PDF e PNG via html2canvas + jsPDF. Lida com imagens, paginação inteligente e quebra de blocos.</div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">src/utils/incluilabActivity.ts</div>
+          <div class="file-lines">~390 linhas</div>
+          <div class="file-desc">Normalização de formatos de atividade entre IncluiLabActivityContent, ActivitySchema e texto legado.</div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">src/components/incluilab/ActivityA4Premium.tsx</div>
+          <div class="file-lines">—</div>
+          <div class="file-desc">Renderizador React para IncluiLabActivityContent. Usado por econômica e adaptar_economico.</div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">src/components/incluilab/A4ActivityRenderer.tsx</div>
+          <div class="file-lines">~800 linhas</div>
+          <div class="file-desc">Renderizador React para ActivitySchema (formato legado). Usado apenas para reabrir atividades antigas da biblioteca.</div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">src/services/imageGenerationService.ts</div>
+          <div class="file-lines">232 linhas</div>
+          <div class="file-desc">Cliente para /api/generate-image. Definido e funcional, mas nunca chamado no fluxo atual de geração.</div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">supabase/functions/ai-gateway/index.ts</div>
+          <div class="file-lines">404 linhas</div>
+          <div class="file-desc">Edge Function: validação JWT, reserva/commit/release de créditos, despacho para Gemini ou Vertex AI.</div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">supabase/functions/ai-gateway/_vertex.ts</div>
+          <div class="file-lines">244 linhas</div>
+          <div class="file-desc">Gemini 2.5-flash (texto/JSON) + Vertex AI Imagen 4.0 (imagem). Autenticação OAuth2 via service account.</div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">src/config/aiCosts.ts</div>
+          <div class="file-lines">125 linhas</div>
+          <div class="file-desc">Fonte única de custos. INCLUILAB_ACTIVITY_COSTS define os 6 modos. Comentários descrevem arquitetura antiga que não está mais em uso.</div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">src/services/aiGatewayService.ts</div>
+          <div class="file-lines">—</div>
+          <div class="file-desc">Cliente frontend da Edge Function. callAIGateway() envia JWT automaticamente via Supabase.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 3. CAUSAS RAIZ ── -->
+  <div class="section" id="s3">
+    <div class="section-header">
+      <div class="section-icon">🔬</div>
+      <div>
+        <div class="section-num">Seção 3</div>
+        <div class="section-title">Causas Raiz por Problema</div>
+      </div>
+    </div>
+    <div class="section-body">
+
+      <div class="cause-block">
+        <div class="cause-header">
+          <div class="sev-dot sev-red"></div>
+          <span class="cause-label" style="color:var(--red)">Crítico</span>
+          <span class="cause-problem-name">Problema 1 — Imagens com qualidade ruim</span>
+        </div>
+        <div class="cause-body">
+          <p><strong>Causa raiz confirmada:</strong> Vertex AI Imagen 4.0 está sendo usado para gerar <strong>documentos estruturados com texto, linhas, campos e formulários</strong>, mas este modelo é treinado para imagens fotográficas e artísticas, não para layout tipográfico.</p>
+          <p>O prompt base de imagem (<code>A4_WORKSHEET_STYLE_PROMPT</code>, linha 385 de IncluiLabView.tsx) pede ao Imagen:</p>
+          <div class="code-snippet"><span class="st">'Gerar imagem A4 vertical de atividade escolar brasileira, fundo branco,
+estilo worksheet didatico premium, titulo grande no topo, cabecalho
+Nome/Data/Turma, questoes em quadros separados, bordas finas, poucas cores,
+texto legivel, linhas para resposta...'</span></div>
+          <p><strong>Resultado na prática:</strong> texto em português ilegível ou truncado pelo modelo, linhas de resposta tortas, quadros irregulares, numeração duplicada ou inconsistente. A aparência é de "ilustração estilizada de worksheet", não de documento escolar real.</p>
+          <p><strong>Agravante:</strong> o <code>descricao_folha</code> enviado como contexto tem limite de 220 palavras — insuficiente para especificar o conteúdo preciso de cada questão. O modelo recebe instruções vagas e interpreta livremente.</p>
+        </div>
+      </div>
+
+      <div class="cause-block">
+        <div class="cause-header">
+          <div class="sev-dot sev-red"></div>
+          <span class="cause-label" style="color:var(--red)">Crítico</span>
+          <span class="cause-problem-name">Problema 2 — Imagem não aparece onde deveria</span>
+        </div>
+        <div class="cause-body">
+          <p><strong>Caminho A (visual/premium):</strong> quando o Vertex AI falha (timeout de 25s ou erro 403/400), o <code>callAIGateway</code> lança exceção, o frontend executa <code>atomicReleaseReservedCredits</code> e exibe <code>errorMsg</code>. <strong>Não há fallback visual</strong> — o professor vê tela de erro em vez da atividade.</p>
+          <p><strong>Caminho B — código morto:</strong> a função <code>generateSmallImagesForAssets</code> (linha 236) que gera imagens individuais por asset e poderia ser o fallback existe no código, mas <strong>nunca é chamada</strong> por nenhum dos 6 modos de geração atuais. É um resquício de arquitetura anterior.</p>
+          <p><strong>Caminho C (econômica sem imagem):</strong> o modo econômica renderiza <code>ActivityA4Premium(contentJson)</code> corretamente — sem imagem IA. Funciona, mas a ausência de qualquer elemento visual torna a atividade visualmente pobre.</p>
+        </div>
+      </div>
+
+      <div class="cause-block">
+        <div class="cause-header">
+          <div class="sev-dot sev-red"></div>
+          <span class="cause-label" style="color:var(--red)">Crítico</span>
+          <span class="cause-problem-name">Problema 3 — Guia do professor enorme</span>
+        </div>
+        <div class="cause-body">
+          <p><strong>Causa raiz confirmada:</strong> <code>buildGuiaEConteudoPrompt</code> (linha 714) solicita ao Gemini um campo <code>guia_pedagogico</code> que é uma <strong>string markdown pré-estruturada com 9 seções obrigatórias</strong>, definidas no template do prompt:</p>
+          <div class="code-snippet"><span class="cm">// Estrutura obrigatória injetada no prompt:</span>
+<span class="hl">## Objetivo da Aula</span>     ← 1 parágrafo
+<span class="hl">## Metodologia Adaptada</span> ← 1 parágrafo
+<span class="hl">## Tempo Estimado</span>       ← linha
+<span class="hl">## Materiais Necessários</span>← lista
+<span class="hl">## Dicas de Mediação</span>    ← lista
+<span class="hl">## Critérios de Avaliação</span>← lista
+<span class="hl">## Adaptações Inclusivas</span>← lista
+<span class="hl">## Alinhamento BNCC</span>     ← 6 subcampos (componente, ano, código, habilidade, objetivo, adaptação)
+<span class="hl">## Observações para o Professor</span> ← 1 parágrafo</div>
+          <p>O Gemini preenche todas as seções fielmente. O resultado (600–900 palavras) é renderizado sem truncamento, colapso ou paginação. Ao exportar o PDF com a aba "Guia do Professor" ativa, esse conteúdo vai integralmente para o PDF via html2canvas — potencialmente 2–3 páginas extras.</p>
+        </div>
+      </div>
+
+      <div class="cause-block">
+        <div class="cause-header">
+          <div class="sev-dot sev-red"></div>
+          <span class="cause-label" style="color:var(--red)">Crítico</span>
+          <span class="cause-problem-name">Problema 4 — Atividades premium visualmente estranhas</span>
+        </div>
+        <div class="cause-body">
+          <p><strong>4a — Visual vs Premium: diferença real é apenas "1 página vs 2 páginas".</strong> Em <code>buildOpenAIActivityImagePrompt</code> (linha 781), o único diferencial entre os dois modos é:</p>
+          <div class="code-snippet"><span class="kw">const</span> maxPages = mode === <span class="st">'premium'</span> ? <span class="st">'2 páginas'</span> : <span class="st">'1 página'</span>;
+<span class="cm">// → inserido no prompt: "Máximo ${maxPages}"</span>
+<span class="cm">// Mesmo modelo Vertex AI Imagen 4.0, mesmo endpoint, sem instrução extra de qualidade</span></div>
+          <p><strong>4b — Econômica e premium usam o mesmo prompt Gemini.</strong> <code>generateA4Economica</code> chama <code>buildPremiumActivityPrompt</code> — o mesmo builder que o modo premium usa conceitualmente. O conteúdo pedagógico gerado pelo Gemini é idêntico para ambos; a diferença está apenas no canal de saída (HTML vs imagem).</p>
+          <p><strong>4c — Sem especialização por tipo de atividade.</strong> O mesmo prompt genérico é usado para caça-palavras, interpretação de texto, matemática, colorir, sequência lógica e associação. Não há templates distintos por tipo pedagógico.</p>
+          <p><strong>4d — Sem validação pedagógica pós-geração.</strong> Não existe verificação de adequação ao ano/série, plausibilidade das opções de múltipla escolha, ou nível de complexidade em relação ao perfil do aluno.</p>
+        </div>
+      </div>
+
+      <div class="cause-block">
+        <div class="cause-header">
+          <div class="sev-dot sev-yellow"></div>
+          <span class="cause-label" style="color:#D97706">Médio</span>
+          <span class="cause-problem-name">Problema 5 — Exportação/diagramação ruim e divergência preview–export</span>
+        </div>
+        <div class="cause-body">
+          <p>Para modos Visual/Premium, o PDF usa o <strong>caminho de imagem única</strong>: a imagem do Vertex AI (dimensões nativas, geralmente ~1024×1024px ou ~1024×768px) é centralizada e escalada numa página A4 (210mm×297mm). Se a Imagen não gerar uma imagem com proporção 210:297 (o que é quase sempre o caso), a folha fica com barras brancas laterais ou o conteúdo parece comprimido.</p>
+          <p>Para modo econômica, o html2canvas usa <strong>scale=2</strong> — pode produzir artefatos em fontes pequenas. O <code>waitForImages</code> usa <code>Promise.all</code>: se <strong>qualquer</strong> imagem falhar ao carregar, a exportação inteira falha com erro bloqueante.</p>
+          <p>O guia do professor e a folha do aluno usam o mesmo botão "Baixar PDF" — a aba ativa no momento do clique determina o que vai para o PDF. Se o professor não perceber em qual aba está, pode exportar o guia sem querer, ou vice-versa.</p>
+        </div>
+      </div>
+
+      <div class="cause-block">
+        <div class="cause-header">
+          <div class="sev-dot sev-yellow"></div>
+          <span class="cause-label" style="color:#D97706">Médio</span>
+          <span class="cause-problem-name">Problema 6 — Persistência e histórico comprometidos</span>
+        </div>
+        <div class="cause-body">
+          <p>Para modos visual/premium, o <code>content</code> salvo no banco é um <code>IncluiLabActivityContent</code> quase vazio (apenas <code>descricao_folha</code> num <code>info_box</code>), não a atividade real. Ao reabrir da biblioteca, o conteúdo exibido não representa a atividade original.</p>
+          <p>O <code>imageUrl</code> armazenado é o <strong>base64 completo</strong> da imagem Vertex AI — podendo ter 500KB–2MB como string. Esse valor vai direto para o banco PostgreSQL sem compressão, redimensionamento ou upload para Supabase Storage. Isso representa risco de timeout de request, tamanho de payload e custo de armazenamento.</p>
+        </div>
+      </div>
+
+      <div class="cause-block">
+        <div class="cause-header">
+          <div class="sev-dot sev-yellow"></div>
+          <span class="cause-label" style="color:#D97706">Médio</span>
+          <span class="cause-problem-name">Problema 7 — Créditos: inconsistência entre modos</span>
+        </div>
+        <div class="cause-body">
+          <table>
+            <thead>
+              <tr><th>Modo</th><th>Reserva atômica</th><th>Débito</th><th>Rollback se falhar</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>a4_economica</code></td><td style="color:var(--red)">❌ Não</td><td>safeDeductCredits direto</td><td style="color:var(--red)">❌ Não</td></tr>
+              <tr><td><code>a4_visual</code></td><td style="color:var(--green)">✅ Sim</td><td>atomicCommit após sucesso</td><td style="color:var(--green)">✅ Sim</td></tr>
+              <tr><td><code>a4_premium</code></td><td style="color:var(--green)">✅ Sim</td><td>atomicCommit após sucesso</td><td style="color:var(--green)">✅ Sim</td></tr>
+              <tr><td><code>adaptar_economico</code></td><td style="color:var(--red)">❌ Não</td><td>safeDeductCredits direto</td><td style="color:var(--red)">❌ Não</td></tr>
+              <tr><td><code>adaptar_visual</code></td><td style="color:var(--green)">✅ Sim</td><td>atomicCommit após sucesso</td><td style="color:var(--green)">✅ Sim</td></tr>
+              <tr><td><code>adaptar_premium</code></td><td style="color:var(--green)">✅ Sim</td><td>atomicCommit após sucesso</td><td style="color:var(--green)">✅ Sim</td></tr>
+            </tbody>
+          </table>
+          <p style="margin-top:12px">Os modos econômicos debitam créditos <strong>antes</strong> de confirmar que a UI recebeu e exibiu o resultado. Falha silenciosa pós-débito resulta em crédito consumido sem entrega.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── 4. BUGS CONFIRMADOS ── -->
+  <div class="section" id="s4">
+    <div class="section-header">
+      <div class="section-icon">🐛</div>
+      <div>
+        <div class="section-num">Seção 4</div>
+        <div class="section-title">Bugs Confirmados</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="bug-grid">
+
+        <div class="bug-card">
+          <div class="bug-num sev-red">B1</div>
+          <div>
+            <div class="bug-title"><code>generateSmallImagesForAssets</code> é código morto</div>
+            <div class="bug-desc">Função que gera imagens individuais por asset foi definida mas nunca é chamada por nenhum dos 6 modos de geração atuais. Resquício da arquitetura anterior de imagens por exercício.</div>
+          </div>
+          <div class="bug-file">IncluiLabView.tsx<br>linhas 236–262</div>
+        </div>
+
+        <div class="bug-card">
+          <div class="bug-num sev-red">B2</div>
+          <div>
+            <div class="bug-title"><code>buildActivitySchemaPrompt</code> e <code>buildAdaptActivitySchemaPrompt</code> são código morto</div>
+            <div class="bug-desc">Dois prompt builders completos e elaborados que nunca são chamados no pipeline atual. O fluxo atual usa <code>buildPremiumActivityPrompt</code> e <code>buildGuiaEConteudoPrompt</code>.</div>
+          </div>
+          <div class="bug-file">IncluiLabView.tsx<br>linhas 397, 577</div>
+        </div>
+
+        <div class="bug-card">
+          <div class="bug-num sev-red">B3</div>
+          <div>
+            <div class="bug-title">Visual (8 cr) vs Premium (15 cr): diferença real é só "1 vs 2 páginas"</div>
+            <div class="bug-desc">Em <code>buildOpenAIActivityImagePrompt</code>, a única diferença entre os dois modos é a string <code>"Máximo 1 página"</code> vs <code>"Máximo 2 páginas"</code> no prompt. Mesmo modelo, mesmo endpoint, sem diferença de qualidade.</div>
+          </div>
+          <div class="bug-file">IncluiLabView.tsx<br>linha 781</div>
+        </div>
+
+        <div class="bug-card">
+          <div class="bug-num sev-red">B4</div>
+          <div>
+            <div class="bug-title"><code>contentJson</code> de visual/premium é quase vazio — fallback inútil</div>
+            <div class="bug-desc">Para visual e premium, o <code>contentJson</code> contém apenas <code>descricao_folha</code> num <code>info_box</code>. Se <code>imageUrl</code> for null ou falhar, o preview exibe uma atividade praticamente vazia.</div>
+          </div>
+          <div class="bug-file">IncluiLabView.tsx<br>linhas 2275–2284</div>
+        </div>
+
+        <div class="bug-card">
+          <div class="bug-num sev-red">B5</div>
+          <div>
+            <div class="bug-title"><code>waitForImages</code> usa <code>Promise.all</code> — uma imagem quebrada bloqueia toda a exportação</div>
+            <div class="bug-desc">Se qualquer <code>&lt;img&gt;</code> no elemento de exportação não carregar em 15 segundos, toda a exportação PDF ou PNG falha com erro. Não há fallback por imagem individual.</div>
+          </div>
+          <div class="bug-file">incluilabExport.ts<br>linhas 61–63</div>
+        </div>
+
+        <div class="bug-card">
+          <div class="bug-num sev-red">B6</div>
+          <div>
+            <div class="bug-title">Imagem Vertex AI com dimensões não-A4 escalada incorretamente no PDF</div>
+            <div class="bug-desc">Imagen 4.0 retorna imagens com dimensões variáveis (geralmente ~1024×1024px). Ao centralizar no A4 (210×297mm), proporções incorretas geram barras brancas laterais ou conteúdo comprimido verticalmente.</div>
+          </div>
+          <div class="bug-file">incluilabExport.ts<br>linhas 119–132</div>
+        </div>
+
+        <div class="bug-card">
+          <div class="bug-num sev-red">B7</div>
+          <div>
+            <div class="bug-title">Modos econômicos debitam créditos antes de confirmar entrega</div>
+            <div class="bug-desc"><code>safeDeductCredits</code> é chamado antes do <code>setResult</code>. Se qualquer erro ocorrer após o débito mas antes da exibição, os créditos são consumidos sem que o professor veja a atividade.</div>
+          </div>
+          <div class="bug-file">IncluiLabView.tsx<br>linha 2214</div>
+        </div>
+
+        <div class="bug-card">
+          <div class="bug-num sev-yellow">B8</div>
+          <div>
+            <div class="bug-title">Comentários em <code>aiCosts.ts</code> descrevem arquitetura antiga</div>
+            <div class="bug-desc"><code>A4_VISUAL_BASE</code> (2 cr) e <code>A4_VISUAL_PER_IMAGE</code> (2 cr) sugerem cobrança por imagem individual. Na prática o custo é flat (8 cr), geração é uma única chamada para Vertex AI.</div>
+          </div>
+          <div class="bug-file">aiCosts.ts<br>linhas 106–108</div>
+        </div>
+
+        <div class="bug-card">
+          <div class="bug-num sev-yellow">B9</div>
+          <div>
+            <div class="bug-title"><code>ImageGenerationService</code> aponta para <code>/api/generate-image</code> nunca chamado</div>
+            <div class="bug-desc">Serviço completo com logging e auditoria apontando para um endpoint separado. O fluxo atual usa <code>callAIGateway({task:'image'})</code> diretamente. Dois caminhos paralelos confusos.</div>
+          </div>
+          <div class="bug-file">imageGenerationService.ts<br>linha 36</div>
+        </div>
+
+        <div class="bug-card">
+          <div class="bug-num sev-yellow">B10</div>
+          <div>
+            <div class="bug-title">Base64 de imagem (500KB–2MB) salvo direto no banco PostgreSQL</div>
+            <div class="bug-desc">O <code>imageUrl</code> é o data URL completo da imagem Vertex AI. Vai diretamente para o banco sem compressão, redimensionamento ou upload para Supabase Storage. Risco de timeout e custo de armazenamento crescente.</div>
+          </div>
+          <div class="bug-file">IncluiLabView.tsx<br>salvar activity</div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 5. RISCOS ── -->
+  <div class="section" id="s5">
+    <div class="section-header">
+      <div class="section-icon">⚠️</div>
+      <div>
+        <div class="section-num">Seção 5</div>
+        <div class="section-title">Riscos</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <table>
+        <thead>
+          <tr>
+            <th>Risco</th>
+            <th>Gravidade</th>
+            <th>Descrição</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Vertex Imagen para estrutura de documentos</strong></td>
+            <td><span class="risk-level risk-high">🔴 ALTO</span></td>
+            <td>Modelo inadequado para a tarefa principal. Resultados imprevisíveis com texto ilegível, numeração incorreta e layout distorcido. Não tem solução de prompt — é limitação do modelo.</td>
+          </tr>
+          <tr>
+            <td><strong>Base64 no banco crescendo indefinidamente</strong></td>
+            <td><span class="risk-level risk-high">🔴 ALTO</span></td>
+            <td>Atividades com imagem podem atingir 2MB por registro. Com uso intenso, custos de armazenamento, timeouts de leitura da biblioteca e degradação de performance são inevitáveis.</td>
+          </tr>
+          <tr>
+            <td><strong>Imagem falha → preview vazio (visual/premium)</strong></td>
+            <td><span class="risk-level risk-high">🔴 ALTO</span></td>
+            <td>Professor paga 8–15 créditos e recebe erro ou conteúdo praticamente vazio quando o Vertex AI falha. Nenhum fallback útil existe atualmente.</td>
+          </tr>
+          <tr>
+            <td><strong>Cobrança sem entrega (modos econômicos)</strong></td>
+            <td><span class="risk-level risk-medium">🟡 MÉDIO</span></td>
+            <td>Créditos debitados antes de confirmar que UI exibiu o resultado. Falhas silenciosas consomem créditos sem entrega de valor.</td>
+          </tr>
+          <tr>
+            <td><strong>Custo Premium ≠ qualidade Premium</strong></td>
+            <td><span class="risk-level risk-medium">🟡 MÉDIO</span></td>
+            <td>Diferença real entre Visual (8 cr) e Premium (15 cr) é apenas "1 página vs 2 páginas" no prompt. Pode gerar insatisfação e solicitações de reembolso.</td>
+          </tr>
+          <tr>
+            <td><strong>Código morto inflando bundle e confundindo devs</strong></td>
+            <td><span class="risk-level risk-medium">🟡 MÉDIO</span></td>
+            <td>4 artefatos mortos: <code>buildActivitySchemaPrompt</code>, <code>buildAdaptActivitySchemaPrompt</code>, <code>generateSmallImagesForAssets</code>, <code>ImageGenerationService</code> não chamado. Próximas correções podem ativar código morto por engano.</td>
+          </tr>
+          <tr>
+            <td><strong>Exportação falha por imagem única quebrada</strong></td>
+            <td><span class="risk-level risk-medium">🟡 MÉDIO</span></td>
+            <td>O <code>Promise.all</code> no <code>waitForImages</code> não tem fallback por imagem. CORS, URL expirada ou timeout de uma imagem quebra toda a exportação.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 6. SPRINTS ── -->
+  <div class="section" id="s6">
+    <div class="section-header">
+      <div class="section-icon">🗓</div>
+      <div>
+        <div class="section-num">Seção 6</div>
+        <div class="section-title">Plano de Correção por Sprints</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="sprint-grid">
+
+        <div class="sprint-card">
+          <div class="sprint-header">
+            <span class="sprint-tag sprint-p1">Sprint LAB-1</span>
+            <span class="sprint-title">Estabilizar imagem e fallback visual</span>
+          </div>
+          <div class="sprint-body">
+            <ul class="sprint-items">
+              <li>Popular <code>contentJson</code> com a estrutura completa da atividade mesmo em visual/premium, derivando do <code>guia_pedagogico</code> e <code>descricao_folha</code></li>
+              <li>Quando <code>imageUrl</code> é null ou falha, renderizar <code>ActivityA4Premium(contentJson)</code> em vez de erro vazio</li>
+              <li>Adicionar loading granular: "Gerando conteúdo… (1/2)" → "Gerando imagem… (2/2)"</li>
+              <li>Mover base64 da imagem para Supabase Storage antes de salvar — retorna URL pública permanente</li>
+              <li>Mostrar notificação explícita quando imagem falha, com botão "Tentar gerar imagem novamente"</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="sprint-card">
+          <div class="sprint-header">
+            <span class="sprint-tag sprint-p1">Sprint LAB-2</span>
+            <span class="sprint-title">Qualidade da imagem e diferenciação real de modos</span>
+          </div>
+          <div class="sprint-body">
+            <ul class="sprint-items">
+              <li>Para modos premium: gerar a folha como <strong>React → html2canvas → PNG</strong> em vez de pedir ao Vertex AI — o componente <code>ActivityA4Premium</code> já renderiza perfeitamente</li>
+              <li>Usar Vertex AI Imagen apenas para ilustrações de apoio pedagógico (pictogramas, elementos visuais), não para o layout inteiro</li>
+              <li>Diferenciar Visual vs Premium de forma real: Visual = 1 ilustração de apoio; Premium = 2–3 ilustrações + template mais rico + possibilidade de 2 páginas</li>
+              <li>Criar prompt de imagem específico para ilustrações (sem texto, sem layout, apenas elemento visual isolado)</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="sprint-card">
+          <div class="sprint-header">
+            <span class="sprint-tag sprint-p2">Sprint LAB-3</span>
+            <span class="sprint-title">Guia do professor enxuto e colapsável</span>
+          </div>
+          <div class="sprint-body">
+            <ul class="sprint-items">
+              <li>Reduzir template do guia para 5 seções: Objetivo, Como Aplicar, Adaptações, Avaliação, BNCC</li>
+              <li>Incorporar Materiais e Metodologia dentro do "Como Aplicar" — eliminar seções redundantes</li>
+              <li>UI colapsável: mostrar apenas as 2 primeiras seções com botão "Ver guia completo"</li>
+              <li>No export: guia sempre em página separada, nunca misturado com folha do aluno</li>
+              <li>Adicionar botão explícito "Exportar Folha do Aluno" e "Exportar Guia do Professor" separados</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="sprint-card">
+          <div class="sprint-header">
+            <span class="sprint-tag sprint-p2">Sprint LAB-4</span>
+            <span class="sprint-title">Preview e export A4 fiel</span>
+          </div>
+          <div class="sprint-body">
+            <ul class="sprint-items">
+              <li>Padronizar dimensão de canvas: <code>794px × 1123px</code> (96 dpi A4) em todos os modos</li>
+              <li>Separar <code>previewRef</code> (com sombra/scroll) do <code>exportRef</code> (DOM invisível, fundo branco, sem bordas decorativas)</li>
+              <li>Aumentar scale do html2canvas para 3x no modo econômica (paridade com exportação PNG)</li>
+              <li>Substituir <code>Promise.all</code> por <code>Promise.allSettled</code> no <code>waitForImages</code> — imagem quebrada usa fallback emoji sem bloquear exportação</li>
+              <li>Forçar proporção da imagem Vertex AI ao embutir no PDF: crop/letterbox para 210×297mm</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="sprint-card">
+          <div class="sprint-header">
+            <span class="sprint-tag sprint-p2">Sprint LAB-5</span>
+            <span class="sprint-title">Histórico e persistência robusta</span>
+          </div>
+          <div class="sprint-body">
+            <ul class="sprint-items">
+              <li>Upload de imagem gerada para Supabase Storage — salvar apenas a URL no banco</li>
+              <li>Salvar <code>IncluiLabActivityContent</code> completo como <code>content</code>, não o placeholder parcial</li>
+              <li>Ao reabrir da biblioteca, recarregar imagem do Storage (não do base64 inline)</li>
+              <li>Exibir thumbnail da atividade na lista da biblioteca</li>
+              <li>Implementar "regenerar imagem" para atividades salvas sem imageUrl</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="sprint-card">
+          <div class="sprint-header">
+            <span class="sprint-tag sprint-p3">Sprint LAB-6</span>
+            <span class="sprint-title">UX, especialização pedagógica e créditos</span>
+          </div>
+          <div class="sprint-body">
+            <ul class="sprint-items">
+              <li>Adicionar seletor de tipo de atividade: caça-palavras, interpretação, matemática, colorir, associação, sequência lógica</li>
+              <li>Criar prompts especializados por tipo (grade de caça-palavras requer estrutura completamente diferente de questão dissertativa)</li>
+              <li>Corrigir inconsistência de débito nos modos econômicos: envolver em try/finally, débito só após sucesso de UI</li>
+              <li>Feedback visual ao debitar créditos (animação de moeda)</li>
+              <li>Limpar código morto: <code>buildActivitySchemaPrompt</code>, <code>generateSmallImagesForAssets</code>, comentários desatualizados em aiCosts.ts</li>
+            </ul>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 7. PRIMEIRO PATCH SEGURO ── -->
+  <div class="section" id="s7">
+    <div class="section-header">
+      <div class="section-icon">🩹</div>
+      <div>
+        <div class="section-num">Seção 7</div>
+        <div class="section-title">Menor Primeira Correção Segura</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="patch-box">
+        <h3>✅ Patch: popular contentJson para modos visual/premium (Bug B4)</h3>
+        <p>Em <code>IncluiLabView.tsx</code> linhas 2275–2284 (em <code>generateA4Visual</code>) e linhas correspondentes em <code>generateA4Premium</code>, o <code>contentJson</code> é construído com uma seção vazia:</p>
+        <div class="code-snippet" style="border-radius:8px;padding:12px 16px;font-size:12px;margin:8px 0;"><span class="cm">// ATUAL — contentJson quase vazio:</span>
+<span class="kw">const</span> contentJson = normalizeIncluiLabActivity({
+  title: parsed.titulo_atividade || topic.slice(<span class="hl">0, 60</span>),
+  sections: [{ type: <span class="st">'info_box'</span>, title: <span class="st">'Descricao da folha'</span>, content: parsed.descricao_folha }],
+  <span class="cm">// ↑ praticamente vazio — só uma caixa de texto com a descrição</span>
+}, { title: topic });</div>
+        <p>A correção é usar o <code>parsed.guia_pedagogico</code> + <code>parsed.descricao_folha</code> para construir seções mais ricas no <code>contentJson</code>, derivando objetivos, instruções e questões do guia. Assim, se <code>imageUrl</code> está presente, o comportamento é idêntico ao atual. Se <code>imageUrl</code> é null ou falha, o professor vê uma versão HTML da atividade em vez de conteúdo quase vazio.</p>
+        <p><strong>Por que é seguro:</strong> não altera prompts, não altera créditos, não altera banco, não altera Edge Function, não altera outros módulos. Só melhora o fallback no estado <code>GeneratedResult</code> local do componente.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 8. O QUE NÃO FAZER ── -->
+  <div class="section" id="s8">
+    <div class="section-header">
+      <div class="section-icon">🚫</div>
+      <div>
+        <div class="section-num">Seção 8</div>
+        <div class="section-title">O Que Não Tocar Agora</div>
+      </div>
+    </div>
+    <div class="section-body">
+      <div class="dont-grid">
+        <div class="dont-item">
+          <span class="dont-icon">⛔</span>
+          <span><strong>Não trocar o modelo de imagem</strong> sem antes definir se a abordagem correta é render HTML → imagem ou continuar com geração direta via IA</span>
+        </div>
+        <div class="dont-item">
+          <span class="dont-icon">⛔</span>
+          <span><strong>Não mexer em <code>validateActivitySchema</code> ou <code>validateAndRepair</code></strong> — são compartilhados com PEI, PAEE, PDI e outros módulos críticos</span>
+        </div>
+        <div class="dont-item">
+          <span class="dont-icon">⛔</span>
+          <span><strong>Não remover <code>A4ActivityRenderer</code></strong> ainda — pode ser usado para atividades antigas da biblioteca com formato <code>ActivitySchema</code></span>
+        </div>
+        <div class="dont-item">
+          <span class="dont-icon">⛔</span>
+          <span><strong>Não alterar a Edge Function <code>ai-gateway</code></strong> — toda alteração afeta documentos formais, relatórios e checklists além do IncluiLAB</span>
+        </div>
+        <div class="dont-item">
+          <span class="dont-icon">⛔</span>
+          <span><strong>Não limpar o código morto</strong> antes de confirmar que nenhuma entrada da biblioteca depende do fluxo antigo (<code>ActivitySchema</code> format)</span>
+        </div>
+        <div class="dont-item">
+          <span class="dont-icon">⛔</span>
+          <span><strong>Não aumentar o custo do A4 Econômica</strong> para "forçar qualidade" — o problema é arquitetural (modelo errado), não de custo de créditos</span>
+        </div>
+        <div class="dont-item">
+          <span class="dont-icon">⛔</span>
+          <span><strong>Não misturar correção de guia e correção de imagem</strong> na mesma PR — são riscos independentes e o rollback precisa ser granular</span>
+        </div>
+        <div class="dont-item">
+          <span class="dont-icon">⛔</span>
+          <span><strong>Não mexer em PDFGenerator dos documentos formais</strong>, CEO, Kiwify ou prompts globais — fora do escopo desta auditoria</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── FOOTER ── -->
+  <div style="text-align:center;margin-top:40px;padding-top:20px;border-top:1px solid var(--border);">
+    <p style="font-size:12px;color:var(--sec)">
+      IncluiAI · Auditoria gerada em 2026-05-21 · Modo diagnóstico — nenhum arquivo foi alterado
+    </p>
+  </div>
+
+</div>
+</body>
+</html>

@@ -16,6 +16,7 @@ import {
 import { User, Student, ActivitySchema, ActivityVisualAsset } from '../types';
 import { AIService, friendlyAIError, cleanJsonString } from '../services/aiService';
 import { callAIGateway } from '../services/aiGatewayService';
+import { CreditTransactionService } from '../services/creditService';
 import { INCLUILAB_ACTIVITY_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { StudentContextService } from '../services/studentContextService';
 import { GeneratedActivityService } from '../services/persistenceService';
@@ -33,6 +34,7 @@ import {
   isActivitySchemaValidationError,
   validateActivitySchema,
 } from '../utils/validateActivitySchema';
+import { CreditBalanceBadge } from '../components/CreditBalanceBadge';
 
 // ─── Paleta ───────────────────────────────────────────────────────────────────
 const C = {
@@ -166,6 +168,67 @@ function downloadImage(dataUrl: string, filename = 'atividade.png') {
 async function safeDeductCredits(user: User, action: string, cost: number) {
   await (AIService as any).deductCredits(user, action, cost);
   window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
+}
+
+async function runReservedCreditFlow<T>(params: {
+  user: User;
+  amount: number;
+  actionKey: string;
+  description: string;
+  metadata?: Record<string, unknown>;
+  work: (reservationId: string, operationId: string) => Promise<T>;
+}): Promise<T> {
+  const tenantId = (params.user as any).tenant_id;
+  const userId = (params.user as any).id ?? null;
+  const operationId = CreditTransactionService.createOperationId(params.actionKey);
+
+  const reserve = await CreditTransactionService.atomicReserveCredits({
+    tenantId,
+    amount: params.amount,
+    description: params.description,
+    userId,
+    operationId,
+    metadata: params.metadata ?? {},
+    source: 'incluilab.reserve',
+  });
+
+  const reservationId = reserve.reservation_id;
+  if (!reservationId) throw new Error('Falha ao reservar créditos para a operação.');
+
+  try {
+    const result = await params.work(reservationId, operationId);
+    await CreditTransactionService.atomicCommitReservedCredits({
+      tenantId,
+      reservationId,
+      description: params.description,
+      userId,
+      operationId: `${operationId}:commit`,
+      metadata: params.metadata ?? {},
+      source: 'incluilab.commit',
+    });
+    window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: params.user.id } }));
+    return result;
+  } catch (error) {
+    try {
+      await CreditTransactionService.atomicReleaseReservedCredits({
+        tenantId,
+        reservationId,
+        description: `Falha em ${params.description}`,
+        userId,
+        operationId: `${operationId}:release`,
+        metadata: {
+          ...(params.metadata ?? {}),
+          failure_kind: 'multimodal_generation_failed',
+          error_message: error instanceof Error ? error.message : String(error),
+        },
+        source: 'incluilab.release',
+      });
+      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: params.user.id } }));
+    } catch (releaseError) {
+      console.error('[IncluiLAB] Falha ao liberar reserva de créditos:', releaseError);
+    }
+    throw error;
+  }
 }
 
 // Gera até `maxImages` imagens IA pequenas para os visualAssets do tipo placeholder.
@@ -2006,8 +2069,6 @@ interface IncluiLabViewProps {
   sidebarOpen?:           boolean;
   onWorkflowNodesChange?: (nodeIds: string[]) => void;
   creditsAvailable?:      number;
-  creditsUsed?:           number;
-  creditsTotal?:          number;
   onNavigate?:            (view: string) => void;
 }
 
@@ -2015,7 +2076,7 @@ interface IncluiLabViewProps {
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════════════════
 export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
-  user, students, defaultTab, sidebarOpen = true, onWorkflowNodesChange, creditsAvailable, creditsUsed, creditsTotal, onNavigate,
+  user, students, defaultTab, sidebarOpen = true, onWorkflowNodesChange, creditsAvailable, onNavigate,
 }) => {
   const [showWorkflow, setShowWorkflow] = useState(defaultTab === 'workflow');
   const isLibraryMode = defaultTab === 'library';
@@ -2170,8 +2231,23 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     const cost = INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX;
     const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+    const tenantId = (user as any).tenant_id;
+    const userId = (user as any).id ?? null;
+    const operationId = CreditTransactionService.createOperationId('incluilab_a4_visual');
+    let reservationId: string | undefined;
     try {
       // Passo 1: Gera guia pedagógico + descrição do conteúdo via Gemini
+      const reserve = await CreditTransactionService.atomicReserveCredits({
+        tenantId,
+        amount: cost,
+        description: 'IncluiLAB A4 Visual',
+        userId,
+        operationId,
+        metadata: { mode: 'a4_visual', topic, targetType, anoSerie },
+        source: 'incluilab.generateA4Visual',
+      });
+      reservationId = reserve.reservation_id;
+
       const raw = await AIService.generateIncluiLabActivitySchema(
         buildGuiaEConteudoPrompt(topic, targetType, anoSerie, studentCtx, studentName), user,
       );
@@ -2186,7 +2262,16 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       });
 
       // Só debita após ambos os passos com sucesso
-      await safeDeductCredits(user, 'INCLUILAB_A4_VISUAL', cost);
+      await CreditTransactionService.atomicCommitReservedCredits({
+        tenantId,
+        reservationId: reservationId!,
+        description: 'IncluiLAB A4 Visual',
+        userId,
+        operationId: `${operationId}:commit`,
+        metadata: { mode: 'a4_visual', topic, targetType, anoSerie },
+        source: 'incluilab.generateA4Visual',
+      });
+      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
       const contentJson = normalizeIncluiLabActivity({
         title: parsed.titulo_atividade || topic.slice(0, 60),
         subtitle: 'Atividade visual gerada pelo IncluiLAB',
@@ -2209,7 +2294,30 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         mode: 'a4_visual',
       });
       setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) { setErrorMsg(friendlyAIError(err)); setLabState('idle'); }
+    } catch (err: any) {
+      if (reservationId) {
+        try {
+          await CreditTransactionService.atomicReleaseReservedCredits({
+            tenantId,
+            reservationId,
+            description: 'Falha em IncluiLAB A4 Visual',
+            userId,
+            operationId: `${operationId}:release`,
+            metadata: {
+              mode: 'a4_visual',
+              topic,
+              failure_kind: 'multimodal_generation_failed',
+              error_message: err instanceof Error ? err.message : String(err),
+            },
+            source: 'incluilab.generateA4Visual',
+          });
+          window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
+        } catch (releaseErr) {
+          console.error('[IncluiLAB] release A4 visual falhou:', releaseErr);
+        }
+      }
+      setErrorMsg(friendlyAIError(err)); setLabState('idle');
+    }
   }
 
   // ── 3. A4 Premium (50 cr) — Guia Pedagógico (texto) + Folha A4 premium (OpenAI) ─
@@ -2217,8 +2325,23 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     const cost = INCLUILAB_ACTIVITY_COSTS.A4_PREMIUM;
     const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+    const tenantId = (user as any).tenant_id;
+    const userId = (user as any).id ?? null;
+    const operationId = CreditTransactionService.createOperationId('incluilab_a4_premium');
+    let reservationId: string | undefined;
     try {
       // Passo 1: Gera guia pedagógico + descrição do conteúdo via Gemini
+      const reserve = await CreditTransactionService.atomicReserveCredits({
+        tenantId,
+        amount: cost,
+        description: 'IncluiLAB A4 Premium',
+        userId,
+        operationId,
+        metadata: { mode: 'a4_premium', topic, targetType, anoSerie },
+        source: 'incluilab.generateA4Premium',
+      });
+      reservationId = reserve.reservation_id;
+
       const raw = await AIService.generateIncluiLabActivitySchema(
         buildGuiaEConteudoPrompt(topic, targetType, anoSerie, studentCtx, studentName), user,
       );
@@ -2232,7 +2355,16 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         requestType: 'incluilab_activity_image',
       });
 
-      await safeDeductCredits(user, 'INCLUILAB_A4_PREMIUM', cost);
+      await CreditTransactionService.atomicCommitReservedCredits({
+        tenantId,
+        reservationId: reservationId!,
+        description: 'IncluiLAB A4 Premium',
+        userId,
+        operationId: `${operationId}:commit`,
+        metadata: { mode: 'a4_premium', topic, targetType, anoSerie },
+        source: 'incluilab.generateA4Premium',
+      });
+      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
       const contentJson = normalizeIncluiLabActivity({
         title: parsed.titulo_atividade || topic.slice(0, 60),
         subtitle: 'Atividade premium gerada pelo IncluiLAB',
@@ -2255,7 +2387,30 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         mode: 'a4_premium',
       });
       setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) { setErrorMsg(friendlyAIError(err)); setLabState('idle'); }
+    } catch (err: any) {
+      if (reservationId) {
+        try {
+          await CreditTransactionService.atomicReleaseReservedCredits({
+            tenantId,
+            reservationId,
+            description: 'Falha em IncluiLAB A4 Premium',
+            userId,
+            operationId: `${operationId}:release`,
+            metadata: {
+              mode: 'a4_premium',
+              topic,
+              failure_kind: 'multimodal_generation_failed',
+              error_message: err instanceof Error ? err.message : String(err),
+            },
+            source: 'incluilab.generateA4Premium',
+          });
+          window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
+        } catch (releaseErr) {
+          console.error('[IncluiLAB] release A4 premium falhou:', releaseErr);
+        }
+      }
+      setErrorMsg(friendlyAIError(err)); setLabState('idle');
+    }
   }
 
   // ── 4. Adaptar — Econômico (5 cr) — analisa + JSON, sem imagem IA ────────
@@ -2292,8 +2447,23 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     const cost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX;
     const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+    const tenantId = (user as any).tenant_id;
+    const userId = (user as any).id ?? null;
+    const operationId = CreditTransactionService.createOperationId('incluilab_adaptar_visual');
+    let reservationId: string | undefined;
     try {
       // Passo 1: Análise da atividade original via Gemini (visão)
+      const reserve = await CreditTransactionService.atomicReserveCredits({
+        tenantId,
+        amount: cost,
+        description: 'IncluiLAB Adaptar Visual',
+        userId,
+        operationId,
+        metadata: { mode: 'adaptar_visual', fileName: file.name, targetType, anoSerie },
+        source: 'incluilab.generateAdaptarVisual',
+      });
+      reservationId = reserve.reservation_id;
+
       const analysisText = await AIService.generateFromPromptWithImage(
         buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user,
       );
@@ -2314,7 +2484,16 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         requestType: 'incluilab_activity_image',
       });
 
-      await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_VISUAL', cost);
+      await CreditTransactionService.atomicCommitReservedCredits({
+        tenantId,
+        reservationId: reservationId!,
+        description: 'IncluiLAB Adaptar Visual',
+        userId,
+        operationId: `${operationId}:commit`,
+        metadata: { mode: 'adaptar_visual', fileName: file.name, targetType, anoSerie },
+        source: 'incluilab.generateAdaptarVisual',
+      });
+      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
       const contentJson = normalizeIncluiLabActivity({
         title: parsed.titulo_atividade || `Atividade Adaptada: ${file.name}`,
         subtitle: 'Atividade visual adaptada pelo IncluiLAB',
@@ -2338,7 +2517,30 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         mode: 'adaptar_visual',
       });
       setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) { setErrorMsg(friendlyAIError(err)); setLabState('idle'); }
+    } catch (err: any) {
+      if (reservationId) {
+        try {
+          await CreditTransactionService.atomicReleaseReservedCredits({
+            tenantId,
+            reservationId,
+            description: 'Falha em IncluiLAB Adaptar Visual',
+            userId,
+            operationId: `${operationId}:release`,
+            metadata: {
+              mode: 'adaptar_visual',
+              fileName: file.name,
+              failure_kind: 'multimodal_generation_failed',
+              error_message: err instanceof Error ? err.message : String(err),
+            },
+            source: 'incluilab.generateAdaptarVisual',
+          });
+          window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
+        } catch (releaseErr) {
+          console.error('[IncluiLAB] release adaptar visual falhou:', releaseErr);
+        }
+      }
+      setErrorMsg(friendlyAIError(err)); setLabState('idle');
+    }
   }
 
   // ── 6. Adaptar — Premium (50 cr) — analisa + Guia (texto) + Folha A4 premium (OpenAI) ─
@@ -2346,8 +2548,23 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     const cost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_PREMIUM;
     const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+    const tenantId = (user as any).tenant_id;
+    const userId = (user as any).id ?? null;
+    const operationId = CreditTransactionService.createOperationId('incluilab_adaptar_premium');
+    let reservationId: string | undefined;
     try {
       // Passo 1: Análise da atividade original
+      const reserve = await CreditTransactionService.atomicReserveCredits({
+        tenantId,
+        amount: cost,
+        description: 'IncluiLAB Adaptar Premium',
+        userId,
+        operationId,
+        metadata: { mode: 'adaptar_premium', fileName: file.name, targetType, anoSerie },
+        source: 'incluilab.generateAdaptarPremium',
+      });
+      reservationId = reserve.reservation_id;
+
       const analysisText = await AIService.generateFromPromptWithImage(
         buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user,
       );
@@ -2368,7 +2585,16 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         requestType: 'incluilab_activity_image',
       });
 
-      await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_PREMIUM', cost);
+      await CreditTransactionService.atomicCommitReservedCredits({
+        tenantId,
+        reservationId: reservationId!,
+        description: 'IncluiLAB Adaptar Premium',
+        userId,
+        operationId: `${operationId}:commit`,
+        metadata: { mode: 'adaptar_premium', fileName: file.name, targetType, anoSerie },
+        source: 'incluilab.generateAdaptarPremium',
+      });
+      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
       const contentJson = normalizeIncluiLabActivity({
         title: parsed.titulo_atividade || `Atividade Adaptada Premium: ${file.name}`,
         subtitle: 'Atividade premium adaptada pelo IncluiLAB',
@@ -2392,7 +2618,30 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         mode: 'adaptar_premium',
       });
       setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) { setErrorMsg(friendlyAIError(err)); setLabState('idle'); }
+    } catch (err: any) {
+      if (reservationId) {
+        try {
+          await CreditTransactionService.atomicReleaseReservedCredits({
+            tenantId,
+            reservationId,
+            description: 'Falha em IncluiLAB Adaptar Premium',
+            userId,
+            operationId: `${operationId}:release`,
+            metadata: {
+              mode: 'adaptar_premium',
+              fileName: file.name,
+              failure_kind: 'multimodal_generation_failed',
+              error_message: err instanceof Error ? err.message : String(err),
+            },
+            source: 'incluilab.generateAdaptarPremium',
+          });
+          window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
+        } catch (releaseErr) {
+          console.error('[IncluiLAB] release adaptar premium falhou:', releaseErr);
+        }
+      }
+      setErrorMsg(friendlyAIError(err)); setLabState('idle');
+    }
   }
 
   // ── Salvar resultado ──────────────────────────────────────────────────────
@@ -2636,7 +2885,11 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
           }
         </div>
 
-        <CreditsChip available={creditsAvailableSafe} onNavigate={onNavigate} />
+        <CreditBalanceBadge
+          balance={creditsAvailableSafe}
+          compact
+          onClick={() => onNavigate?.('subscription')}
+        />
 
         <Btn size="sm" icon={BookMarked} onClick={() => onNavigate?.('incluilab_library')}>
           Biblioteca

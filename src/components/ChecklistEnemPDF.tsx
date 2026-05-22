@@ -1,5 +1,5 @@
 // components/ChecklistEnemPDF.tsx
-// Gera HTML A4 padronizado ENEM-like para impressão e posterior leitura automática.
+// Gera HTML A4 para impressão e posterior leitura automática.
 // Sem custo de crédito — geração local no browser.
 
 import type { Student, SchoolConfig } from '../types';
@@ -20,12 +20,13 @@ function esc(s: string): string {
 // ─── CSS compartilhado ─────────────────────────────────────────────────────────
 
 const SHARED_CSS = `
+  @page { size: A4 portrait; margin: 10mm 12mm; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 10px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11px;
     color: #111;
-    padding: 12mm 11mm 12mm 11mm;
+    padding: 10mm 12mm;
     background: #fff;
   }
   .sheet-header {
@@ -38,9 +39,9 @@ const SHARED_CSS = `
     gap: 12px;
   }
   .header-left { flex: 1; }
-  .sheet-title { font-size: 12px; font-weight: bold; color: #1F4E5F; letter-spacing: 0.4px; }
-  .sheet-subtitle { font-size: 9px; color: #444; margin-top: 2px; }
-  .form-meta { font-size: 7.5px; color: #888; margin-top: 3px; font-family: monospace; }
+  .sheet-title { font-size: 13px; font-weight: bold; color: #1F4E5F; letter-spacing: 0.4px; }
+  .sheet-subtitle { font-size: 10px; color: #333; margin-top: 2px; }
+  .form-meta { font-size: 9px; color: #444; margin-top: 3px; font-family: monospace; }
   .id-box {
     border: 2px solid #1F4E5F;
     border-radius: 5px;
@@ -49,17 +50,17 @@ const SHARED_CSS = `
     min-width: 95px;
     flex-shrink: 0;
   }
-  .id-label { font-size: 7px; color: #666; text-transform: uppercase; letter-spacing: 0.4px; }
+  .id-label { font-size: 8px; color: #444; text-transform: uppercase; letter-spacing: 0.4px; }
   .id-value { font-size: 11px; font-weight: bold; color: #1F4E5F; font-family: monospace; letter-spacing: 1px; margin-top: 2px; }
-  .id-name { font-size: 7.5px; color: #555; margin-top: 2px; }
+  .id-name { font-size: 8.5px; color: #333; margin-top: 2px; }
   .instructions {
     background: #FFF9E6;
     border: 1.5px solid #C69214;
     border-radius: 4px;
-    padding: 4px 7px;
+    padding: 5px 8px;
     margin-bottom: 6px;
-    font-size: 8px;
-    line-height: 1.5;
+    font-size: 10px;
+    line-height: 1.55;
   }
   .instructions strong { color: #92610A; }
   .header-fields {
@@ -75,12 +76,13 @@ const SHARED_CSS = `
     min-width: 120px;
     flex: 1;
   }
-  .hfield-label { font-size: 7px; color: #555; text-transform: uppercase; letter-spacing: 0.3px; font-weight: bold; }
-  .hfield-line { border-bottom: 1.5px solid #333; height: 15px; }
-  .ctx-row { margin-bottom: 6px; font-size: 8px; }
-  .ctx-row .ctx-label { font-size: 7px; font-weight: bold; text-transform: uppercase; color: #333; letter-spacing: 0.3px; display: block; margin-bottom: 3px; }
+  .hfield-label { font-size: 8px; color: #333; text-transform: uppercase; letter-spacing: 0.3px; font-weight: bold; }
+  .hfield-line { border-bottom: 1.5px solid #333; height: 16px; }
+  .hfield-value { font-size: 11px; color: #111; border-bottom: 1.5px solid #333; padding: 1px 0 2px; }
+  .ctx-row { margin-bottom: 6px; font-size: 10px; }
+  .ctx-row .ctx-label { font-size: 8px; font-weight: bold; text-transform: uppercase; color: #222; letter-spacing: 0.3px; display: block; margin-bottom: 3px; }
   .ctx-options { display: flex; flex-wrap: wrap; gap: 3px 8px; }
-  .ctx-opt { display: flex; align-items: center; gap: 3px; font-size: 8px; }
+  .ctx-opt { display: flex; align-items: center; gap: 3px; font-size: 10px; }
   .ctx-opt .bbl { font-size: 13px; line-height: 1; }
   .section {
     border: 1px solid #ccc;
@@ -91,35 +93,38 @@ const SHARED_CSS = `
   .sec-title {
     background: #1F4E5F;
     color: #fff;
-    font-size: 8.5px;
+    font-size: 10px;
     font-weight: bold;
-    padding: 2.5px 6px;
+    padding: 3px 6px;
     letter-spacing: 0.2px;
   }
   .items-table { width: 100%; border-collapse: collapse; }
-  .item-cell { padding: 2px 5px; vertical-align: middle; width: 50%; }
+  .item-cell { padding: 2.5px 5px; vertical-align: middle; width: 50%; }
   .bbl { font-size: 14px; line-height: 1; margin-right: 3px; vertical-align: middle; }
-  .code { font-family: monospace; font-weight: bold; font-size: 8.5px; color: #1F4E5F; margin-right: 3px; }
-  .itext { font-size: 8.5px; color: #222; }
+  .code { font-family: monospace; font-weight: bold; font-size: 9px; color: #1F4E5F; margin-right: 3px; }
+  .itext { font-size: 10px; color: #111; }
   .obs-section {
     border: 1px solid #ccc;
     border-radius: 3px;
     margin-top: 4px;
     page-break-inside: avoid;
   }
-  .obs-title { background: #2E3A59; color: #fff; font-size: 8.5px; font-weight: bold; padding: 2.5px 6px; }
+  .obs-title { background: #2E3A59; color: #fff; font-size: 10px; font-weight: bold; padding: 3px 6px; }
   .obs-lines { padding: 3px 7px; }
-  .obs-line { border-bottom: 1px solid #ddd; height: 17px; margin: 1.5px 0; }
+  .obs-line { border-bottom: 1px solid #ddd; height: 18px; margin: 1.5px 0; }
   .sheet-footer {
     margin-top: 6px;
     border-top: 1px solid #ddd;
     padding-top: 4px;
-    font-size: 7.5px;
-    color: #999;
+    font-size: 8.5px;
+    color: #555;
     display: flex;
     justify-content: space-between;
   }
-  @media print { body { padding: 10mm; } .section { page-break-inside: avoid; } }
+  @media print {
+    body { padding: 10mm 12mm; }
+    .section { page-break-inside: avoid; }
+  }
 `;
 
 // ─── Builder HTML ──────────────────────────────────────────────────────────────
@@ -128,7 +133,7 @@ function buildSheetHtml(opts: {
   title: string;
   subtitle: string;
   formCode: string;
-  headerFields: Array<{ label: string; flex?: string }>;
+  headerFields: Array<{ label: string; flex?: string; value?: string }>;
   contextRow?: string;
   sections: SheetSection[];
   codeMap: Record<string, string>;
@@ -161,7 +166,10 @@ function buildSheetHtml(opts: {
   const headerFieldsHtml = headerFields.map(f =>
     `<div class="hfield" style="${f.flex ? `flex:${f.flex}` : ''}">
       <span class="hfield-label">${esc(f.label)}</span>
-      <div class="hfield-line"></div>
+      ${f.value
+        ? `<div class="hfield-value">${esc(f.value)}</div>`
+        : `<div class="hfield-line"></div>`
+      }
     </div>`,
   ).join('');
 
@@ -178,7 +186,7 @@ function buildSheetHtml(opts: {
       <div class="sheet-title">IncluiAI — ${esc(title)}</div>
       <div class="sheet-subtitle">${esc(subtitle)}</div>
       ${school?.schoolName ? `<div class="form-meta">Escola: ${esc(school.schoolName)}</div>` : ''}
-      <div class="form-meta">Formulário: ${esc(formCode)} · Para leitura automática</div>
+      <div class="form-meta">Formulário: ${esc(formCode)} · Leitura automática IncluiAI</div>
     </div>
     <div class="id-box">
       <div class="id-label">${student ? 'Código do aluno' : 'Modelo em branco'}</div>
@@ -188,8 +196,9 @@ function buildSheetHtml(opts: {
   </div>
 
   <div class="instructions">
-    <strong>INSTRUÇÕES:</strong> Marque com <strong>X</strong> ou <strong>●</strong> dentro do círculo ○ ao lado do código.
-    Use caneta <strong>azul ou preta</strong>. Evite rasuras. Uma ou mais opções por seção permitidas.
+    <strong>INSTRUÇÕES:</strong> Preencha completamente a bolinha ○ correspondente ao item observado.
+    Não marque X, risco ou traço. Use caneta <strong>azul ou preta</strong>. Evite rasuras.
+    Pode marcar mais de uma opção por seção.
   </div>
 
   <div class="header-fields">${headerFieldsHtml}</div>
@@ -211,7 +220,7 @@ function buildSheetHtml(opts: {
 
   <div class="sheet-footer">
     <span>IncluiAI · Uso interno escolar · Não é documento oficial · ${new Date().toLocaleDateString('pt-BR')}</span>
-    <span>ENEM-like v1 · Leitura automática habilitada</span>
+    <span>Formulário com leitura automática habilitada</span>
   </div>
 </body>
 </html>`;
@@ -243,14 +252,14 @@ export function printRegenteEnem(student?: Student, school?: SchoolConfig | null
   </div>`;
 
   openPrint(buildSheetHtml({
-    title:    'Checklist para Leitura Automática',
-    subtitle: 'Observação em Sala — Professor Regente',
-    formCode: 'REGENTE-ENEM-v1',
+    title:    'Checklist de Observação em Sala — Professor Regente',
+    subtitle: 'Formulário com leitura automática habilitada',
+    formCode: 'CHECKLIST-REGENTE-v1',
     headerFields: [
-      { label: 'Aluno(a)', flex: '2' },
+      { label: 'Aluno(a)', flex: '2', value: student?.name ?? '' },
       { label: 'Professor(a) regente', flex: '2' },
-      { label: 'Série / Ano', flex: '1' },
-      { label: 'Data da observação', flex: '1' },
+      { label: 'Série / Turma', flex: '1', value: student?.grade ?? '' },
+      { label: 'Data da observação', flex: '1', value: new Date().toLocaleDateString('pt-BR') },
     ],
     contextRow,
     sections: REGENTE_SHEET_SECTIONS,
@@ -264,15 +273,15 @@ export function printRegenteEnem(student?: Student, school?: SchoolConfig | null
 
 export function printCuidadoraEnem(student?: Student, school?: SchoolConfig | null): void {
   openPrint(buildSheetHtml({
-    title:    'Checklist para Leitura Automática',
-    subtitle: 'Análise de Rotina Semanal — Cuidadora',
-    formCode: 'CUIDADORA-ENEM-v1',
+    title:    'Rotina Semanal — Cuidadora / Apoio Escolar',
+    subtitle: 'Formulário com leitura automática habilitada',
+    formCode: 'CHECKLIST-CUIDADORA-v1',
     headerFields: [
-      { label: 'Aluno(a)', flex: '2' },
+      { label: 'Aluno(a)', flex: '2', value: student?.name ?? '' },
       { label: 'Cuidadora / Apoio', flex: '2' },
       { label: 'Turno', flex: '1' },
       { label: 'Semana de referência', flex: '1.5' },
-      { label: 'Data de preenchimento', flex: '1' },
+      { label: 'Data de preenchimento', flex: '1', value: new Date().toLocaleDateString('pt-BR') },
     ],
     sections: CUIDADORA_SHEET_SECTIONS,
     codeMap:  CUIDADORA_CODE_MAP,

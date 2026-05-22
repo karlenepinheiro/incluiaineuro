@@ -47,6 +47,7 @@ import {
   TenantType,
   ProtocolStatus,
   ServiceRecord,
+  AIResultStatus,
   formatPlanDisplayName,
   formatStudentLimit,
   resolvePlanTier,
@@ -80,6 +81,25 @@ const PageLoader = () => (
 // --- Helper ---
 const generateAuditCode = (docType: DocumentType, existing?: string) =>
   ensureDocumentCode(getDocumentCodeKind(docType), existing);
+
+const hasDocumentContent = (data?: DocumentData | null) => {
+  const sections = data?.sections ?? [];
+  return sections.some(section =>
+    (section.title ?? '').trim() ||
+    (section.fields ?? []).some(field => String(field.value ?? '').trim())
+  );
+};
+
+const resolveProtocolStatus = (
+  explicitStatus: ProtocolStatus | undefined,
+  currentProtocol: Protocol | null,
+  data: DocumentData
+): ProtocolStatus => {
+  if (explicitStatus) return explicitStatus;
+  if (!currentProtocol || currentProtocol.id === 'temp') return 'FINAL';
+  if (currentProtocol.status === 'FINAL') return 'FINAL';
+  return hasDocumentContent(data) ? 'FINAL' : 'DRAFT';
+};
 
 // ── Helpers de máscara (usados no modal) ────────────────────────────────────
 function _applyPhoneMask(v: string): string {
@@ -413,6 +433,8 @@ const App: React.FC = () => {
   const [generating, setGenerating] = useState(false);
   const [currentProtocol, setCurrentProtocol] = useState<Protocol | null>(null);
   const [activeDocumentType, setActiveDocumentType] = useState<DocumentType>(DocumentType.PEI);
+  const [aiGenerationStatus, setAiGenerationStatus] = useState<AIResultStatus | null>(null);
+  const [aiGenerationWarning, setAiGenerationWarning] = useState<string | null>(null);
 
   const [auditSearch, setAuditSearch] = useState(detectInitialAuditCode);
   const [auditResult, setAuditResult] = useState<{ found: boolean; type?: string; studentName?: string; issuedAt?: string; code?: string } | null>(null);
@@ -1094,13 +1116,14 @@ const App: React.FC = () => {
     data: DocumentData,
     student: Student,
     logMessage?: string,
-    status: ProtocolStatus = 'DRAFT'
+    status?: ProtocolStatus
   ) => {
     const timestamp = new Date().toISOString();
     const school = user.schoolConfigs[0];
     const protocolType = currentProtocol?.type || activeDocumentType;
     const documentCode = generateAuditCode(protocolType, (data as any)?.auditCode || currentProtocol?.auditCode);
     const dataToPersist = { ...(data as any), auditCode: documentCode } as DocumentData;
+    const resolvedStatus = resolveProtocolStatus(status, currentProtocol, dataToPersist);
 
     if (currentProtocol && currentProtocol.id !== 'temp') {
       const newVersion: DocumentVersion = {
@@ -1117,7 +1140,7 @@ const App: React.FC = () => {
         versions: [...currentProtocol.versions, newVersion],
         structuredData: dataToPersist,
         auditCode: documentCode,
-        status,
+        status: resolvedStatus,
         lastEditedAt: timestamp,
         lastEditedBy: user.name,
       };
@@ -1151,7 +1174,7 @@ const App: React.FC = () => {
         studentId: student.id,
         studentName: student.name,
         type: activeDocumentType,
-        status,
+        status: resolvedStatus,
         source_id: currentProtocol?.source_id || null,
         content: '',
         isStructured: true,
@@ -1217,24 +1240,29 @@ const App: React.FC = () => {
       } catch { /* contexto é opcional — falha silenciosa */ }
     }
 
+    setAiGenerationStatus(null);
+    setAiGenerationWarning(null);
     try {
       const { generateProtocolAI } = await import('./services/geminiService');
-      const jsonString = await generateProtocolAI(activeDocumentType, student, user, docContent, studentContext);
+      const aiResult = await generateProtocolAI(activeDocumentType, student, user, docContent, studentContext);
       let structuredData: DocumentData;
       try {
-        const cleanJson = jsonString.replace(/```json/g, '').replace(/```/g, '');
+        const cleanJson = aiResult.json.replace(/```json/g, '').replace(/```/g, '');
         structuredData = JSON.parse(cleanJson);
       } catch {
         structuredData = { sections: [] };
         alert('Erro ao estruturar dados da IA. Usando template vazio.');
       }
 
+      setAiGenerationStatus(aiResult.status);
+      setAiGenerationWarning(aiResult.warning ?? null);
+
       setCurrentProtocol({
         id: 'temp',
         studentId: student.id,
         studentName: student.name,
         type: activeDocumentType,
-        status: 'DRAFT',
+        status: 'FINAL',
         content: '',
         isStructured: true,
         structuredData,
@@ -1519,6 +1547,7 @@ const App: React.FC = () => {
           planMaxStudents={planMaxStudents}
           triagemCount={students.filter(s => s.tipo_aluno === 'em_triagem').length}
           unreadMessages={unreadMessages}
+          creditsAvailable={creditsAvailable}
         />
 
         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -1767,11 +1796,15 @@ const App: React.FC = () => {
                   onDelete={handleDeleteDocument}
                   onCancel={() => {
                     setCurrentProtocol(null);
+                    setAiGenerationStatus(null);
+                    setAiGenerationWarning(null);
                     setView('dashboard');
                   }}
                   onGenerateAI={handleGenerateAI}
                   onDerive={handleCreateDerivedProtocol}
                   isGenerating={generating}
+                  aiStatus={aiGenerationStatus ?? undefined}
+                  aiWarning={aiGenerationWarning ?? undefined}
                 />
               </div>
             )}
@@ -1873,6 +1906,7 @@ const App: React.FC = () => {
                 planCreditsMonthly={planMonthlyCredits}
                 creditsPurchased={creditsPurchased}
                 creditsConsumed={creditsConsumedCycle}
+                creditsRenewalDate={creditsResetAt}
                 onNavigate={setView}
               />
             )}
@@ -1882,8 +1916,6 @@ const App: React.FC = () => {
                 user={user}
                 students={students}
                 creditsAvailable={creditsAvailable}
-                creditsUsed={creditsConsumedCycle}
-                creditsTotal={planMonthlyCredits + creditsPurchased}
                 onNavigate={handleSetView}
               />
             )}
@@ -1894,8 +1926,6 @@ const App: React.FC = () => {
                 students={students}
                 defaultTab="library"
                 creditsAvailable={creditsAvailable}
-                creditsUsed={creditsConsumedCycle}
-                creditsTotal={planMonthlyCredits + creditsPurchased}
                 onNavigate={handleSetView}
               />
             )}

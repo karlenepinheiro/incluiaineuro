@@ -319,28 +319,34 @@ export const MedicalReportService = {
 // ---------------------------------------------------------------------------
 export const ObservationFormService = {
   async save(params: {
-    tenantId:   string;
-    studentId:  string;
-    userId:     string;
-    formType:   string;
-    title:      string;
-    fieldsData: Record<string, any>;
-    auditCode?: string;
-    createdBy?: string;
-    status?:    'rascunho' | 'finalizado';
+    tenantId:      string;
+    studentId:     string;
+    userId:        string;
+    formType:      string;
+    title:         string;
+    fieldsData:    Record<string, any>;
+    auditCode?:    string;
+    createdBy?:    string;
+    status?:       'rascunho' | 'finalizado';
+    origin?:       string;
+    confidence?:   number | null;
+    sourceFileUrl?: string | null;
   }): Promise<string | null> {
     const { data, error } = await supabase
       .from('observation_forms')
       .insert({
-        tenant_id:    params.tenantId,
-        student_id:   params.studentId,
-        user_id:      params.userId,
-        form_type:    params.formType,
-        title:        params.title,
-        status:       params.status ?? 'finalizado',
-        fields_data:  params.fieldsData,
-        audit_code:   params.auditCode ?? null,
-        created_by:   params.createdBy ?? null,
+        tenant_id:       params.tenantId,
+        student_id:      params.studentId,
+        user_id:         params.userId,
+        form_type:       params.formType,
+        title:           params.title,
+        status:          params.status ?? 'finalizado',
+        fields_data:     params.fieldsData,
+        audit_code:      params.auditCode ?? null,
+        created_by:      params.createdBy ?? null,
+        origin:          params.origin ?? 'digital',
+        confidence:      params.confidence ?? null,
+        source_file_url: params.sourceFileUrl ?? null,
       })
       .select('id')
       .single();

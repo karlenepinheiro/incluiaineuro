@@ -30,6 +30,7 @@ import { cn } from '@/src/lib/utils';
 import { Badge } from '@/src/components/ui/badge';
 import { Progress } from '@/src/components/ui/progress';
 import { Separator } from '@/src/components/ui/separator';
+import { CreditBalanceBadge } from './CreditBalanceBadge';
 
 interface SidebarProps {
   user: User;
@@ -43,6 +44,7 @@ interface SidebarProps {
   planMaxStudents?: number;
   triagemCount?: number;
   unreadMessages?: number;
+  creditsAvailable?: number;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -55,6 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   planMaxStudents,
   triagemCount = 0,
   unreadMessages = 0,
+  creditsAvailable = 0,
 }) => {
   const limits = getPlanLimits(user.plan);
   const isPremium = user.plan === PlanTier.PREMIUM;
@@ -199,6 +202,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <Badge variant="outline" className="text-[10px] font-bold px-1.5 py-0 border-petrol/30 text-petrol">
               {planLabel}
             </Badge>
+          </div>
+          <div className="mb-3">
+            <CreditBalanceBadge
+              balance={creditsAvailable}
+              compact
+              onClick={() => setView('subscription')}
+            />
           </div>
           <div className="flex items-center justify-between text-[10px] font-semibold text-gray-500 mb-1.5">
             <span>Alunos</span>

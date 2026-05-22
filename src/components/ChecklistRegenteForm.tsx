@@ -10,6 +10,7 @@ import { printRegenteEnem } from './ChecklistEnemPDF';
 import { Student, User, SchoolConfig } from '../types';
 import { ObservationFormService, TimelineService } from '../services/persistenceService';
 import { callAIGateway } from '../services/aiGatewayService';
+import { AI_CREDIT_COSTS } from '../config/aiCosts';
 import { DEMO_MODE } from '../services/supabase';
 import { generateDocumentCode } from '../utils/documentCodes';
 
@@ -356,10 +357,11 @@ export const ChecklistRegenteForm: React.FC<Props> = ({ student, user, school, o
         userId:     user.id,
         formType:   'checklist_regente',
         title:      'Checklist de Observação em Sala — Professor Regente',
-        fieldsData: payload as Record<string, any>,
+        fieldsData: { ...payload as Record<string, any>, origin: 'digital' },
         auditCode:  code,
         createdBy:  user.name,
         status:     'finalizado',
+        origin:     'digital',
       });
       if (!savedId) {
         alert('Erro ao salvar. Verifique sua conexão.');
@@ -428,17 +430,19 @@ Elabore o parecer com as seguintes seções obrigatórias:
 7. Sugestão de encaminhamento
 
 REGRAS IMPORTANTES:
-- Use exclusivamente linguagem pedagógica. Não faça diagnóstico clínico.
-- Baseie-se apenas nas informações marcadas. Não invente dados.
-- Não use termos médicos. Não sugira diagnósticos.
-- Seja claro, objetivo e profissional.
-- Escreva em português do Brasil.
+- Use exclusivamente linguagem pedagógica. Não faça diagnóstico clínico nem clínico-pedagógico inferido.
+- Baseie-se APENAS nas observações marcadas no checklist. Não invente dados.
+- As observações do professor são evidências pedagógicas — nunca as eleve à categoria de laudo clínico.
+- Não use termos médicos clínicos. Não sugira diagnósticos, CID ou condições clínicas não informadas.
+- Termos proibidos: "CID provável", "diagnóstico compatível com", "certamente apresenta", "provavelmente possui".
+- Dado ausente → "Não observado neste período — recomenda-se acompanhamento continuado."
+- Seja claro, objetivo e profissional. Escreva em português do Brasil.
 - Máximo de 400 palavras no total.`;
 
       const { result } = await callAIGateway({
         task:             'text',
         prompt,
-        creditsRequired:  3,
+        creditsRequired:  AI_CREDIT_COSTS.FICHAS_PEDAGOGICAS,
         requestType:      'checklist_parecer',
         studentId:        student.id,
       });

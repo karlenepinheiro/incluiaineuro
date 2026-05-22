@@ -145,7 +145,7 @@ export const AEEActionPlanService = {
       paee_id:           sourceSnapshot.paeeId            ?? null,
       estudo_de_caso_id: sourceSnapshot.estudoDeCasoId   ?? null,
       pei_id:            sourceSnapshot.peiId            ?? null,
-      credits_consumed:  sourceSnapshot.creditsConsumed  ?? 10,
+      credits_consumed:  sourceSnapshot.creditsConsumed  ?? 7,
       gemini_model:      sourceSnapshot.geminiModel       ?? 'gemini-2.5-flash',
       generated_at:      new Date().toISOString(),
     } : null;

@@ -10,6 +10,7 @@ import { printCuidadoraEnem } from './ChecklistEnemPDF';
 import { Student, User, SchoolConfig } from '../types';
 import { ObservationFormService, TimelineService } from '../services/persistenceService';
 import { callAIGateway } from '../services/aiGatewayService';
+import { AI_CREDIT_COSTS } from '../config/aiCosts';
 import { DEMO_MODE } from '../services/supabase';
 import { generateDocumentCode } from '../utils/documentCodes';
 
@@ -389,10 +390,11 @@ export const ChecklistCuidadoraForm: React.FC<Props> = ({ student, user, school,
         userId:     user.id,
         formType:   'checklist_cuidadora',
         title:      'Análise de Rotina Semanal — Cuidadora',
-        fieldsData: payload as Record<string, any>,
+        fieldsData: { ...payload as Record<string, any>, origin: 'digital' },
         auditCode:  code,
         createdBy:  user.name,
         status:     'finalizado',
+        origin:     'digital',
       });
       if (!savedId) {
         alert('Erro ao salvar. Verifique sua conexão.');
@@ -461,17 +463,19 @@ Elabore o parecer com as seguintes seções obrigatórias:
 7. Indicações para documentos futuros
 
 REGRAS IMPORTANTES:
-- Use linguagem pedagógica e de cuidado escolar. Nunca diagnóstico clínico.
-- Baseie-se apenas nas informações registradas. Não invente dados.
-- Não use termos médicos inadequados ou diagnósticos presumidos.
-- Seja claro, respeitoso e objetivo.
-- Escreva em português do Brasil.
+- Use linguagem de cuidado escolar e rotina pedagógica. Nunca diagnóstico clínico.
+- Baseie-se APENAS nos itens registrados pela cuidadora. Não invente dados.
+- O registro da cuidadora documenta rotina e cuidado escolar — nunca transforme em laudo clínico ou diagnóstico.
+- Não use termos médicos clínicos, diagnósticos presumidos nem CID não fornecidos.
+- Termos proibidos: "CID provável", "diagnóstico compatível com", "certamente apresenta", "provavelmente possui".
+- Dado ausente → "Não observado nesta semana — recomenda-se monitoramento contínuo."
+- Seja claro, respeitoso e objetivo. Escreva em português do Brasil.
 - Máximo de 400 palavras no total.`;
 
       const { result } = await callAIGateway({
         task:             'text',
         prompt,
-        creditsRequired:  3,
+        creditsRequired:  AI_CREDIT_COSTS.ROTINA_CUIDADORA,
         requestType:      'cuidadora_parecer',
         studentId:        student.id,
       });

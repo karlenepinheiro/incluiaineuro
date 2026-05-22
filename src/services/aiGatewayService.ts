@@ -12,13 +12,17 @@ import { supabase } from './supabase';
 export type AITask = 'text' | 'json' | 'image' | 'document';
 
 export interface AIGatewayRequest {
-  task:              AITask;
-  prompt:            string;
-  imageBase64?:      string;
-  creditsRequired?:  number;
-  requestType?:      string;
-  studentId?:        string;
-  documentType?:     string;
+  task:                AITask;
+  prompt:              string;
+  imageBase64?:        string;
+  creditsRequired?:    number;
+  operationId?:        string;
+  requestType?:        string;
+  studentId?:          string;
+  documentType?:       string;
+  // Sprint IA-9: Opção C Híbrida — Edge monta contexto canônico via service_role
+  buildContextServer?: boolean; // quando true: Edge busca contexto do aluno pelo studentId
+  targetDocType?:      string;  // pei | paee | pdi | plano_acao_aee | plano_acao_regente | perfil_inteligente
 }
 
 export interface AIGatewayResponse {

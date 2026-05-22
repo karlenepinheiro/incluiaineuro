@@ -394,7 +394,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
   const [expandedDoc, setExpandedDoc] = useState<string | null>(null);
   const [generating, setGenerating] = useState<string | null>(null);
 
-  // HistÃ³ricos gerais: relatÃ³rios, fichas e planos exportÃ¡veis
+  // Históricos gerais: relatórios, fichas e planos exportáveis
   const [historyReports, setHistoryReports] = useState<PedagocicalDocument[]>([]);
   const [historyActionPlans, setHistoryActionPlans] = useState<ActionPlanRecord[]>([]);
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
@@ -532,7 +532,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
         if (cancelled) return;
         setHistoryReports([]);
         setHistoryActionPlans([]);
-        setHistoryError(e?.message || 'NÃ£o foi possÃ­vel carregar os histÃ³ricos.');
+        setHistoryError(e?.message || 'Não foi possível carregar os históricos.');
       })
       .finally(() => {
         if (!cancelled) setLoadingHistory(false);

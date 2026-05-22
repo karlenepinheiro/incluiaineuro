@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import {
   AdminRole, AdminUser, AdminLog, SiteConfig, PlanTier,
-  Subscriber, Plan, CreditLedgerEntry, LandingSection, SubscriptionStatus,
+  Subscriber, Plan, LandingSection, SubscriptionStatus,
   User, UserActivityLog
 } from '../types';
 import { PasswordResetModal } from '../components/ceo/PasswordResetModal';
@@ -20,25 +20,28 @@ import { PendingPurchasesDrawer } from '../components/ceo/PendingPurchasesDrawer
 import { SubscriberRowCard } from '../components/ceo/SubscriberRowCard';
 import { supabase, DEMO_MODE } from '../services/supabase';
 import { AdminService } from '../services/adminService';
-import { CreditLedgerService, CreditWalletService } from '../services/creditService';
 import { LandingService } from '../services/landingService';
 import { SubscriptionService } from '../services/billingService';
 import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
 import {
-  getCeoKpis, getCeoSubscribers, getKiwifyProducts, upsertKiwifyProduct,
+  getCeoKpis, getCeoCreditDashboard, getCeoSubscribersPage, getKiwifyProducts, upsertKiwifyProduct,
   getCoupons, upsertCoupon, toggleCoupon, deleteCoupon, buildCouponShareLink,
   getAdminAuditLog, logAction, getKiwifyPurchases, getCeoInactiveTenants,
-  setTenantInternal, computeKiwifyAlerts, reconcilePendingPurchases, buildPendingAccountInstructions,
+  setTenantInternal, reconcilePendingPurchases, buildPendingAccountInstructions,
   getCeoSubscribersContacts, adminUpdateUserContact, getCeoInternalTenants,
-  type CeoKpis, type CeoSubscriber, type KiwifyProduct, type CeoCoupon, type AdminAuditEntry,
-  type KiwifyPurchaseRow, type InactiveTenantRow, type ReconcileResult,
+  getCeoHealthDiagnostics, getCeoCreditCommandCenter, getCeoPricingAiAdmin, getCeoBillingKiwifyReconciliation, getCeoUsersTenantsAdmin, getCeoAlertsIncidentCenter, computeKiwifyAlerts,
+  type CeoKpis, type CeoCreditDashboard, type CeoSubscriber, type CeoSubscriberPage, type KiwifyProduct, type CeoCoupon, type AdminAuditEntry,
+  type KiwifyPurchaseRow, type InactiveTenantRow, type ReconcileResult, type CeoHealthDiagnostics, type CeoHealthAlert, type CeoCreditCommandCenter,
+  type CeoCreditWalletRow, type CeoPricingAiAdmin, type CeoPricingKiwifyProductRow, type CeoPricingCouponRow,
+  type CeoBillingKiwifyReconciliation, type CeoBillingKiwifyPurchaseRow, type CeoUsersTenantsAdmin, type CeoUsersTenantsAccountRow,
+  type CeoAlertsIncidentCenter, type CeoIncidentRow,
 } from '../services/ceoService';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-type Tab = 'overview' | 'plans' | 'subscribers' | 'monitoring' | 'credits' | 'landing' | 'kiwify' | 'coupons' | 'test_accounts' | 'admins' | 'user_logs' | 'logs';
+type Tab = 'overview' | 'diagnostics' | 'incident_center' | 'pricing_ai' | 'billing_kiwify' | 'accounts_admin' | 'plans' | 'subscribers' | 'monitoring' | 'credits' | 'landing' | 'kiwify' | 'coupons' | 'test_accounts' | 'admins' | 'user_logs' | 'logs';
 
 
 // ============================================================================
@@ -267,6 +270,7 @@ const SubSearchPicker = ({ onSelect, placeholder = 'Buscar por nome, escola ou e
 
 const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: boolean }) => {
   const [kpis, setKpis] = useState<CeoKpis | null>(null);
+  const [creditDashboard, setCreditDashboard] = useState<CeoCreditDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [aiStats, setAiStats] = useState<{ total: number; success: number; failed: number; copilotActed: number } | null>(null);
 
@@ -286,7 +290,9 @@ const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: 
       setLoading(false);
       return;
     }
-    getCeoKpis().then(k => { setKpis(k); setLoading(false); }).catch(() => setLoading(false));
+    Promise.all([getCeoKpis(), getCeoCreditDashboard()])
+      .then(([k, credit]) => { setKpis(k); setCreditDashboard(credit); setLoading(false); })
+      .catch(() => setLoading(false));
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     Promise.all([
       supabase.from('ai_requests').select('status', { count: 'exact', head: false }).gte('created_at', since),
@@ -417,6 +423,17 @@ const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: 
       </div>
 
       {/* Uso de IA */}
+      {creditDashboard && (
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+          <BillingHealthCard title="Wallet vs Ledger" value={creditDashboard.wallet_ledger_divergences} icon={AlertTriangle} severity={creditDashboard.wallet_ledger_divergences > 0 ? 'critical' : 'ok'} subtext="Divergencias detectadas" />
+          <BillingHealthCard title="Reservas" value={creditDashboard.pending_reservations} icon={Clock} severity={creditDashboard.pending_reservations > 0 ? 'warn' : 'ok'} subtext="Pendentes de commit/release" />
+          <BillingHealthCard title="Refunds" value={creditDashboard.refunds_total} icon={RotateCcw} severity={creditDashboard.refunds_total > 0 ? 'warn' : 'neutral'} subtext="Estornos e releases" />
+          <BillingHealthCard title="Falhas" value={creditDashboard.failed_operations} icon={XCircle} severity={creditDashboard.failed_operations > 0 ? 'critical' : 'ok'} subtext="Operacoes financeiras falhadas" />
+          <BillingHealthCard title="Retries" value={creditDashboard.suspicious_retries} icon={RefreshCw} severity={creditDashboard.suspicious_retries > 0 ? 'warn' : 'ok'} subtext="Idempotencias reaproveitadas" />
+        </div>
+      )}
+
+      {/* Uso de IA */}
       {aiStats && (
         <div>
           <div className="flex items-center gap-2 mb-4">
@@ -438,6 +455,235 @@ const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: 
             ))}
           </div>
         </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// TAB: DIAGNOSTICO / HEALTH CENTER
+// ============================================================================
+
+const healthStatusTone: Record<string, { label: string; cls: string; severity: 'ok' | 'warn' | 'critical' | 'neutral' }> = {
+  ok: { label: 'OK', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', severity: 'ok' },
+  attention: { label: 'Atenção', cls: 'bg-amber-50 text-amber-700 border-amber-200', severity: 'warn' },
+  critical: { label: 'Crítico', cls: 'bg-red-50 text-red-700 border-red-200', severity: 'critical' },
+  unmonitored: { label: 'Fonte não disponível', cls: 'bg-gray-50 text-gray-500 border-gray-200', severity: 'neutral' },
+};
+
+const alertSeverityTone: Record<CeoHealthAlert['severity'], { label: string; cls: string; dot: string }> = {
+  critical: { label: 'Crítico', cls: 'bg-red-50 text-red-700 border-red-200', dot: 'bg-red-500' },
+  high: { label: 'Alto', cls: 'bg-orange-50 text-orange-700 border-orange-200', dot: 'bg-orange-500' },
+  medium: { label: 'Médio', cls: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+  low: { label: 'Baixo', cls: 'bg-slate-50 text-slate-600 border-slate-200', dot: 'bg-slate-300' },
+};
+
+const alertCategoryLabel: Record<CeoHealthAlert['category'], string> = {
+  billing: 'Billing',
+  credits: 'Créditos',
+  kiwify: 'Kiwify',
+  users: 'Usuários',
+  ai: 'IA',
+  documents: 'Documentos',
+  security: 'Segurança',
+};
+
+const healthCardIcon = (key: string) => {
+  const map: Record<string, any> = {
+    overall: Activity,
+    financial: DollarSign,
+    pending_purchases: CreditCard,
+    plan_mismatch: AlertTriangle,
+    credit_divergences: Zap,
+    ai_failures: Brain,
+    webhook_events: Link,
+    internal_accounts: TestTube,
+    rls_policies: Shield,
+  };
+  return map[key] ?? Activity;
+};
+
+const HealthCenterTab = ({ onNavigate }: { onNavigate: (tab: Tab) => void }) => {
+  const [diagnostics, setDiagnostics] = useState<CeoHealthDiagnostics | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setDiagnostics(await getCeoHealthDiagnostics());
+    } catch (e: any) {
+      setError(e?.message ?? 'Erro ao carregar diagnóstico.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const groupedAlerts = diagnostics?.alerts.reduce((acc, alert) => {
+    (acc[alert.severity] ??= []).push(alert);
+    return acc;
+  }, {} as Record<CeoHealthAlert['severity'], CeoHealthAlert[]>) ?? {};
+
+  const orderedSeverities: CeoHealthAlert['severity'][] = ['critical', 'high', 'medium', 'low'];
+  const unavailableSources = diagnostics?.sources.filter(s => s.status === 'unavailable') ?? [];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-3 items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-2xl font-bold text-gray-900">Diagnóstico</h2>
+            {diagnostics && (
+              <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${healthStatusTone[diagnostics.overallStatus === 'OK' ? 'ok' : diagnostics.overallStatus === 'Crítico' ? 'critical' : 'attention'].cls}`}>
+                {diagnostics.overallStatus}
+              </span>
+            )}
+          </div>
+          <p className="text-gray-400 text-sm">
+            Health Center operacional do IncluiAI. Somente leitura, sem reconciliação automática.
+          </p>
+          {diagnostics?.generatedAt && (
+            <p className="text-[11px] text-gray-400 mt-1">
+              Última atualização: {new Date(diagnostics.generatedAt).toLocaleString('pt-BR')}
+            </p>
+          )}
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold flex items-center gap-2 hover:bg-gray-800 disabled:opacity-60"
+        >
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          Atualizar diagnóstico
+        </button>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {loading && !diagnostics ? (
+        <div className="text-gray-400 text-sm py-8">Carregando diagnóstico operacional...</div>
+      ) : diagnostics && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {diagnostics.summary.map(card => {
+              const tone = healthStatusTone[card.status] ?? healthStatusTone.unmonitored;
+              return (
+                <div key={card.key} className="relative">
+                  <BillingHealthCard
+                    title={card.title}
+                    value={card.value ?? 'N/D'}
+                    icon={healthCardIcon(card.key)}
+                    severity={tone.severity}
+                    subtext={card.subtext}
+                  />
+                  <span className={`absolute right-3 bottom-3 text-[9px] font-bold px-2 py-0.5 rounded-full border ${tone.cls}`}>
+                    {tone.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[1.7fr_1fr] gap-6">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-gray-900">Alertas operacionais</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Agrupados por severidade, com ação recomendada.</p>
+                </div>
+                <Badge color="gray">{diagnostics.alerts.length}</Badge>
+              </div>
+
+              <div className="space-y-4">
+                {orderedSeverities.map(severity => {
+                  const alerts = groupedAlerts[severity] ?? [];
+                  if (alerts.length === 0) return null;
+                  const tone = alertSeverityTone[severity];
+                  return (
+                    <div key={severity}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`w-2 h-2 rounded-full ${tone.dot}`} />
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">{tone.label}</span>
+                      </div>
+                      <div className="space-y-2">
+                        {alerts.map(alert => (
+                          <div key={alert.id} className="border border-gray-100 rounded-2xl p-4 hover:shadow-sm transition bg-white">
+                            <div className="flex flex-wrap gap-2 items-start justify-between mb-2">
+                              <div>
+                                <h4 className="text-sm font-bold text-gray-900">{alert.title}</h4>
+                                <p className="text-xs text-gray-500 mt-1">{alert.description}</p>
+                              </div>
+                              <div className="flex gap-1.5">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${tone.cls}`}>{tone.label}</span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{alertCategoryLabel[alert.category]}</span>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2 items-center justify-between">
+                              <p className="text-xs text-gray-400">
+                                Ação recomendada: <span className="text-gray-600 font-medium">{alert.recommendedAction}</span>
+                              </p>
+                              {alert.ctaTab && (
+                                <button
+                                  onClick={() => onNavigate(alert.ctaTab as Tab)}
+                                  className="text-[11px] font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-lg transition"
+                                >
+                                  Abrir área relacionada
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-bold text-gray-900 mb-3">Próximas ações recomendadas</h3>
+                <div className="space-y-2">
+                  {diagnostics.nextActions.map(action => (
+                    <div key={action} className="flex gap-2 text-sm text-gray-600">
+                      <CheckCircle size={14} className="text-emerald-500 mt-0.5 shrink-0" />
+                      <span>{action}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-bold text-gray-900 mb-3">Fontes monitoradas</h3>
+                <div className="space-y-2">
+                  {diagnostics.sources.map(source => (
+                    <div key={source.key} className="flex items-start gap-2 text-xs">
+                      {source.status === 'available'
+                        ? <CheckCircle size={13} className="text-emerald-500 mt-0.5 shrink-0" />
+                        : <AlertCircle size={13} className="text-gray-300 mt-0.5 shrink-0" />}
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-700">{source.label}</p>
+                        <p className="text-gray-400 truncate">{source.status === 'available' ? 'Disponível' : source.detail ?? 'Fonte não disponível'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {unavailableSources.length > 0 && (
+                  <p className="text-[11px] text-gray-400 mt-4 leading-relaxed">
+                    Fontes indisponíveis aparecem como não monitoradas para evitar números inventados.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
@@ -605,37 +851,11 @@ const PlansTab = ({ adminUser }: { adminUser: AdminUser }) => {
 // TAB: ASSINANTES
 // ============================================================================
 
-/** Retorna a compra Kiwify mais recente vinculada ao tenant, por tenant_id ou email. */
-function matchKiwifyPurchase(sub: CeoSubscriber, purchases: KiwifyPurchaseRow[]): KiwifyPurchaseRow | null {
-  const byTenant = purchases.find(p => p.tenant_id && p.tenant_id === sub.tenant_id);
-  if (byTenant) return byTenant;
-  const email = (sub.user_email ?? '').toLowerCase().trim();
-  if (!email) return null;
-  return purchases.find(p => p.email && p.email.toLowerCase().trim() === email) ?? null;
-}
-
-type DivergenceKind = 'paid_but_free' | 'plan_mismatch';
-type IntegrityKind = 'no_owner' | 'no_subscription' | 'wallet_mismatch';
-
-interface DivergenceInfo { kind: DivergenceKind; label: string; }
-interface IntegrityFlag  { kind: IntegrityKind;  label: string; color: string; }
-
-function computeDivergence(sub: CeoSubscriber, p: KiwifyPurchaseRow | null): DivergenceInfo | null {
-  if (!p || p.status !== 'APPROVED') return null;
-  const sysPlan = String(sub.plan_code).toUpperCase().replace('PREMIUM', 'MASTER');
-  const expectedPlan = (p.plan_code ?? '').toUpperCase().replace('PREMIUM', 'MASTER');
-  if (!expectedPlan) return null;
-  if (!p.activated_at && sysPlan === 'FREE') {
-    return { kind: 'paid_but_free', label: 'COMPRA PAGA MAS PLANO FREE' };
-  }
-  if (p.activated_at && expectedPlan && expectedPlan !== sysPlan) {
-    return { kind: 'plan_mismatch', label: 'PLANO DO SISTEMA DIFERENTE DO PRODUTO' };
-  }
-  return null;
-}
+// Dados de integridade/divergencia agora sao calculados no SQL.
 
 /** Detecta problemas de integridade de dados a partir do que a view retorna. */
-function computeIntegrityFlags(sub: CeoSubscriber): IntegrityFlag[] {
+/* legacy helper removed from flow
+legacy compute integrity helper removed
   const flags: IntegrityFlag[] = [];
   if (!sub.user_email || sub.user_email === '—') {
     flags.push({ kind: 'no_owner', label: 'SEM OWNER', color: 'bg-red-100 text-red-700 border border-red-200' });
@@ -651,12 +871,48 @@ function computeIntegrityFlags(sub: CeoSubscriber): IntegrityFlag[] {
   return flags;
 }
 
-const DIVERGENCE_COLORS: Record<DivergenceKind, string> = {
+legacy divergence color map removed {
   paid_but_free: 'bg-red-100 text-red-700 border border-red-200',
   plan_mismatch: 'bg-orange-100 text-orange-700 border border-orange-200',
 };
 
 // ── Modal CEO: editar telefone/CPF de assinante ──────────────────────────────
+*/
+function buildSubscriberPurchase(sub: CeoSubscriber): KiwifyPurchaseRow | null {
+  if (!sub.purchase_id) return null;
+  return {
+    id: sub.purchase_id,
+    email: sub.purchase_email ?? sub.user_email ?? '',
+    product_key: sub.purchase_product_key ?? null,
+    plan_code: sub.purchase_plan_code ?? null,
+    credits_amount: 0,
+    provider_order_id: sub.purchase_order_id ?? null,
+    status: (sub.purchase_status as KiwifyPurchaseRow['status']) ?? 'APPROVED',
+    activation_status: (sub.purchase_activation_status as KiwifyPurchaseRow['activation_status']) ?? null,
+    paid_at: sub.purchase_paid_at ?? null,
+    activated_at: sub.purchase_activated_at ?? null,
+    tenant_id: sub.tenant_id,
+    created_at: sub.purchase_paid_at ?? sub.tenant_created_at,
+  };
+}
+
+function mapSubscriberDivergence(sub: CeoSubscriber): { kind: string; label: string } | null {
+  if (!sub.divergence?.label) return null;
+  return { kind: sub.divergence.kind, label: sub.divergence.label };
+}
+
+function mapSubscriberIntegrityFlags(sub: CeoSubscriber): Array<{ kind: string; label: string; color: string }> {
+  const flags = Array.isArray(sub.integrity_flags) ? sub.integrity_flags : [];
+  const divergenceCode = sub.divergence?.code;
+  return flags
+    .filter(flag => flag.code !== divergenceCode)
+    .map(flag => ({
+      kind: flag.kind,
+      label: flag.label,
+      color: flag.color,
+    }));
+}
+
 function _applyPhoneMaskDash(v: string): string {
   const d = v.replace(/\D/g, '').slice(0, 11);
   if (d.length <= 2)  return d.replace(/(\d{1,2})/, '($1');
@@ -845,13 +1101,21 @@ const InternalConfirmModal: React.FC<InternalConfirmModalProps> = ({ tenantName,
 );
 
 const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [subscribers, setSubscribers] = useState<CeoSubscriber[]>([]);
+  const [subscriberPage, setSubscriberPage] = useState<CeoSubscriberPage>({
+    rows: [],
+    total: 0,
+    page: 1,
+    pageSize: 25,
+  });
   const [inactiveTenants, setInactiveTenants] = useState<InactiveTenantRow[]>([]);
   const [kiwifyPurchases, setKiwifyPurchases] = useState<KiwifyPurchaseRow[]>([]);
+  const [kpis, setKpis] = useState<CeoKpis | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterDivergence, setFilterDivergence] = useState(false);
+  const [page, setPage] = useState(1);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [resetTarget, setResetTarget] = useState<{ email: string; name: string } | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -862,44 +1126,67 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
   const [internalConfirmLoading, setInternalConfirmLoading] = useState(false);
   const [internalTenants, setInternalTenants] = useState<InactiveTenantRow[]>([]);
 
+  const subscribers = subscriberPage.rows;
+  const totalSubscribers = subscriberPage.total;
+  const totalPages = Math.max(1, Math.ceil(totalSubscribers / subscriberPage.pageSize));
+  const divergenceCount = kpis?.tenants_with_findings_count ?? 0;
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, filterStatus, filterDivergence]);
+
   const load = useCallback(async () => {
     setLoading(true);
-    const [subs, purchases, inactive, contactsMap, internal] = await Promise.all([
-      getCeoSubscribers({ limit: 500 }).catch((e: any) => {
+    const [pageData, purchases, inactive, contactsMap, internal, nextKpis] = await Promise.all([
+      getCeoSubscribersPage({
+        search: debouncedSearch || undefined,
+        status: filterStatus,
+        onlyFindings: filterDivergence,
+        page,
+        pageSize: subscriberPage.pageSize,
+      }).catch((e: any) => {
         console.error('[CEO Subscribers] Erro ao carregar v_ceo_subscribers:', e?.message ?? e);
-        return [] as CeoSubscriber[];
+        return {
+          rows: [] as CeoSubscriber[],
+          total: 0,
+          page,
+          pageSize: subscriberPage.pageSize,
+        } as CeoSubscriberPage;
       }),
       getKiwifyPurchases().catch(() => [] as KiwifyPurchaseRow[]),
       getCeoInactiveTenants().catch(() => [] as InactiveTenantRow[]),
       getCeoSubscribersContacts().catch(() => new Map()),
       getCeoInternalTenants().catch(() => [] as InactiveTenantRow[]),
+      getCeoKpis().catch(() => null),
     ]);
 
     // Mescla phone/cpf na lista de subscribers
-    const subsWithContact = subs.map(s => {
+    const subsWithContact = pageData.rows.map(s => {
       const contact = s.user_email ? contactsMap.get(s.user_email) : undefined;
       return {
         ...s,
         user_phone: contact?.phone ?? s.user_phone ?? null,
-        user_cpf:   contact?.cpf   ?? s.user_cpf   ?? null,
+        user_cpf: contact?.cpf ?? s.user_cpf ?? null,
       };
     });
 
-    // Logs de auditoria para anomalias detectadas
-    const noOwner = subsWithContact.filter(s => !s.user_email);
-    const noSub   = subsWithContact.filter(s => !s.next_due_date);
-    const noWallet = subsWithContact.filter(s => s.plan_code !== 'FREE' && (s.credits_remaining ?? 0) === 0 && (s.credits_limit ?? 0) <= 60);
-    if (noOwner.length)  console.warn('[CEO] Tenants SEM OWNER (user_email null):', noOwner.length, noOwner.map(s => s.tenant_id));
-    if (noSub.length)    console.warn('[CEO] Tenants SEM SUBSCRIPTION (next_due_date null):', noSub.length, noSub.map(s => s.tenant_id));
-    if (noWallet.length) console.warn('[CEO] Tenants SUBSCRIPTION SEM WALLET (créditos zerados em plano pago):', noWallet.length, noWallet.map(s => s.tenant_id));
     if (inactive.length) console.warn('[CEO] Tenants INATIVOS (is_active=false, ausentes da view):', inactive.length, inactive.map(t => t.id));
 
-    setSubscribers(subsWithContact);
+    setSubscriberPage({
+      ...pageData,
+      rows: subsWithContact,
+    });
     setKiwifyPurchases(purchases);
     setInactiveTenants(inactive);
     setInternalTenants(internal);
+    setKpis(nextKpis);
     setLoading(false);
-  }, []);
+  }, [debouncedSearch, filterStatus, filterDivergence, page, subscriberPage.pageSize]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -907,25 +1194,7 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
     p => !p.tenant_id && p.status === 'APPROVED' && !p.activated_at
   );
 
-  const kiwifyAlerts = computeKiwifyAlerts(kiwifyPurchases);
-
-  const filtered = subscribers.filter(s => {
-    const matchSearch = !search
-      || (s.tenant_name ?? '').toLowerCase().includes(search.toLowerCase())
-      || (s.user_email ?? '').toLowerCase().includes(search.toLowerCase());
-    const matchStatus = filterStatus === 'all' || s.subscription_status === filterStatus;
-    if (!matchSearch || !matchStatus) return false;
-    if (filterDivergence) {
-      const p = matchKiwifyPurchase(s, kiwifyPurchases);
-      return computeDivergence(s, p) !== null || computeIntegrityFlags(s).length > 0;
-    }
-    return true;
-  });
-
-  const divergenceCount = subscribers.filter(s => {
-    const p = matchKiwifyPurchase(s, kiwifyPurchases);
-    return computeDivergence(s, p) !== null || computeIntegrityFlags(s).length > 0;
-  }).length;
+  const filtered = subscribers;
 
   const doAction = async (action: () => Promise<void>, tenantId: string) => {
     setActionLoading(tenantId);
@@ -986,7 +1255,7 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
             <option value="OVERDUE">Em atraso</option>
             <option value="CANCELED">Cancelados</option>
             <option value="TRIAL">Trial</option>
-            <option value="INTERNAL_TEST">Teste interno</option>
+            <option value="NO_SUBSCRIPTION">Sem subscription</option>
           </select>
           <button
             onClick={() => setFilterDivergence(v => !v)}
@@ -1010,32 +1279,32 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <BillingHealthCard
             title="Ativos"
-            value={subscribers.filter(s => s.subscription_status === 'ACTIVE').length}
+            value={kpis?.active_subscribers ?? 0}
             icon={CheckCircle}
             severity="ok"
             subtext="assinaturas ativas"
           />
           <BillingHealthCard
             title="Em Atraso"
-            value={subscribers.filter(s => s.subscription_status === 'OVERDUE').length}
+            value={kpis?.overdue_subscribers ?? 0}
             icon={AlertTriangle}
-            severity={subscribers.filter(s => s.subscription_status === 'OVERDUE').length > 0 ? 'warn' : 'ok'}
+            severity={(kpis?.overdue_subscribers ?? 0) > 0 ? 'warn' : 'ok'}
             subtext="pagamentos vencidos"
           />
           <BillingHealthCard
             title="Pend. Ativação"
-            value={kiwifyAlerts.notActivated.length}
+            value={kpis?.pending_activation_count ?? 0}
             icon={Clock}
-            severity={kiwifyAlerts.notActivated.length > 0 ? 'warn' : 'ok'}
-            subtext="webhook falhou"
+            severity={(kpis?.pending_activation_count ?? 0) > 0 ? 'warn' : 'ok'}
+            subtext="compras aguardando ativação"
           />
           <BillingHealthCard
             title="Sem Conta"
-            value={orphanPurchases.length}
+            value={kpis?.orphan_purchase_count ?? 0}
             icon={UserIcon}
-            severity={orphanPurchases.length > 0 ? 'critical' : 'ok'}
+            severity={(kpis?.orphan_purchase_count ?? 0) > 0 ? 'critical' : 'ok'}
             subtext="pagaram sem cadastro"
-            cta={orphanPurchases.length > 0 ? { label: 'Ver compras', onClick: () => setDrawerOpen(true) } : undefined}
+            cta={(kpis?.orphan_purchase_count ?? 0) > 0 ? { label: 'Ver compras', onClick: () => setDrawerOpen(true) } : undefined}
           />
           <BillingHealthCard
             title="Divergências"
@@ -1047,7 +1316,7 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
           />
           <BillingHealthCard
             title="Inativos"
-            value={inactiveTenants.length}
+            value={kpis?.inactive_tenants_count ?? inactiveTenants.length}
             icon={EyeOff}
             severity="neutral"
             subtext="is_active = false"
@@ -1058,9 +1327,9 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
       {/* Kiwify health banner */}
       {!loading && (
         <KiwifyStatusBanner
-          noAccountCount={kiwifyAlerts.noAccount.length}
-          notActivatedCount={kiwifyAlerts.notActivated.length}
-          unknownProductCount={kiwifyAlerts.unknownProduct.length}
+          noAccountCount={kpis?.orphan_purchase_count ?? 0}
+          notActivatedCount={kpis?.pending_activation_count ?? 0}
+          unknownProductCount={kpis?.unknown_product_count ?? 0}
           onOpenDrawer={() => setDrawerOpen(true)}
         />
       )}
@@ -1071,9 +1340,9 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
       ) : (
         <div className="space-y-2">
           {filtered.map(sub => {
-            const kp = matchKiwifyPurchase(sub, kiwifyPurchases);
-            const divergence = computeDivergence(sub, kp);
-            const integrity = computeIntegrityFlags(sub);
+            const kp = buildSubscriberPurchase(sub);
+            const divergence = mapSubscriberDivergence(sub);
+            const integrity = mapSubscriberIntegrityFlags(sub);
             return (
               <SubscriberRowCard
                 key={sub.tenant_id}
@@ -1110,6 +1379,29 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
           {filtered.length === 0 && (
             <div className="py-12 text-center text-sm text-gray-400 bg-white rounded-2xl border border-gray-100">
               Nenhum assinante encontrado.
+            </div>
+          )}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-3 px-1">
+              <p className="text-xs text-gray-400">
+                Pág. {subscriberPage.page} de {totalPages} · {totalSubscribers} registros
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={subscriberPage.page <= 1}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40"
+                >
+                  Anterior
+                </button>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={subscriberPage.page >= totalPages}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40"
+                >
+                  Próxima
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1483,6 +1775,1372 @@ const CreditsTab = ({ adminUser }: { adminUser: AdminUser }) => {
 // ============================================================================
 
 // ── Shared types & styles ────────────────────────────────────────────────────
+
+const CreditCommandCenterTab = ({ onNavigate }: { onNavigate: (tab: Tab) => void }) => {
+  const [data, setData] = useState<CeoCreditCommandCenter | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [planFilter, setPlanFilter] = useState('all');
+  const [periodFilter, setPeriodFilter] = useState<'all' | '7d' | '30d'>('30d');
+  const [detail, setDetail] = useState<CeoCreditWalletRow | null>(null);
+  const [copiedTenantId, setCopiedTenantId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try { setData(await getCeoCreditCommandCenter()); }
+    catch (e: any) { setError(e?.message ?? 'Erro ao carregar Command Center de creditos.'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const cardSeverity = (status: string): 'ok' | 'warn' | 'critical' | 'neutral' =>
+    status === 'critical' ? 'critical' : status === 'attention' ? 'warn' : status === 'unmonitored' ? 'neutral' : 'ok';
+  const formatValue = (value: number | string | null) => typeof value === 'number' ? value.toLocaleString('pt-BR') : value ?? 'N/D';
+  const sourceUnavailable = (key: string) => data?.sources.some(s => s.key === key && s.status === 'unavailable') ?? false;
+  const matchesPeriod = (date?: string | null) => {
+    if (periodFilter === 'all' || !date) return true;
+    const days = periodFilter === '7d' ? 7 : 30;
+    return new Date(date).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
+  };
+
+  const statusTone: Record<CeoCreditWalletRow['status'], string> = {
+    ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    attention: 'bg-amber-50 text-amber-700 border-amber-200',
+    critical: 'bg-red-50 text-red-700 border-red-200',
+    unmonitored: 'bg-gray-50 text-gray-500 border-gray-200',
+  };
+
+  const wallets = (data?.wallets ?? []).filter(row => {
+    const q = search.trim().toLowerCase();
+    const matchesSearch = !q || row.tenant_name.toLowerCase().includes(q) || row.tenant_id.toLowerCase().includes(q) || (row.user_email ?? '').toLowerCase().includes(q);
+    return matchesSearch && (statusFilter === 'all' || row.status === statusFilter) && (planFilter === 'all' || row.plan_code === planFilter);
+  });
+  const plans = Array.from(new Set((data?.wallets ?? []).map(row => row.plan_code).filter(Boolean))).sort();
+  const reservations = (data?.reservations ?? []).filter(row => matchesPeriod(row.created_at));
+  const failures = (data?.failures ?? []).filter(row => matchesPeriod(row.created_at));
+  const refunds = (data?.refunds ?? []).filter(row => matchesPeriod(row.created_at));
+  const duplicates = (data?.duplicates ?? []).filter(row => matchesPeriod(row.last_seen_at));
+
+  const copyTenantId = async (tenantId: string) => {
+    try {
+      await navigator.clipboard?.writeText(tenantId);
+      setCopiedTenantId(tenantId);
+      setTimeout(() => setCopiedTenantId(null), 1400);
+    } catch { setCopiedTenantId(null); }
+  };
+
+  const Section = ({ title, sourceKey, count, children }: { title: string; sourceKey: string; count: number; children: React.ReactNode }) => (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div><h3 className="font-bold text-gray-900">{title}</h3><p className="text-xs text-gray-400 mt-0.5">{sourceUnavailable(sourceKey) ? 'Fonte nao disponivel' : `${count} registro(s)`}</p></div>
+        {sourceUnavailable(sourceKey) && <Badge color="gray">nao monitorado</Badge>}
+      </div>
+      {sourceUnavailable(sourceKey) ? <div className="px-5 py-8 text-sm text-gray-400 text-center">Fonte nao disponivel no Supabase atual.</div> : children}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-3 items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Command Center de Créditos</h2>
+          <p className="text-gray-400 text-sm">Monitoramento operacional somente-leitura de wallets, ledger, reservas e falhas.</p>
+          {data?.generatedAt && <p className="text-[11px] text-gray-400 mt-1">Última atualização: {new Date(data.generatedAt).toLocaleString('pt-BR')}</p>}
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => onNavigate('diagnostics')} className="px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 text-xs font-semibold flex items-center gap-2 hover:bg-gray-50"><Activity size={13} /> Ir para Diagnóstico</button>
+          <button onClick={load} disabled={loading} className="px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold flex items-center gap-2 hover:bg-gray-800 disabled:opacity-60"><RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Atualizar</button>
+        </div>
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
+      {loading && !data ? <div className="text-gray-400 text-sm py-8">Carregando Command Center de créditos...</div> : data && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            {data.cards.map(card => <BillingHealthCard key={card.key} title={card.title} value={formatValue(card.value)} icon={card.key === 'credit_failures' ? XCircle : card.key === 'divergences' ? AlertTriangle : card.key === 'duplicates' ? Copy : Zap} severity={cardSeverity(card.status)} subtext={card.subtext} />)}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[220px]"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={14} /><input className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-200" placeholder="Buscar tenant, email ou tenant_id..." value={search} onChange={e => setSearch(e.target.value)} /></div>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">Todos os status</option><option value="critical">Crítico</option><option value="attention">Atenção</option><option value="ok">OK</option><option value="unmonitored">Não monitorado</option></select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={planFilter} onChange={e => setPlanFilter(e.target.value)}><option value="all">Todos os planos</option>{plans.map(plan => <option key={plan} value={plan}>{plan}</option>)}</select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={periodFilter} onChange={e => setPeriodFilter(e.target.value as 'all' | '7d' | '30d')}><option value="30d">Últimos 30 dias</option><option value="7d">Últimos 7 dias</option><option value="all">Todo período carregado</option></select>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between"><div><h3 className="font-bold text-gray-900">Tenants e carteiras</h3><p className="text-xs text-gray-400 mt-0.5">{wallets.length} carteira(s) visíveis</p></div>{sourceUnavailable('v_credit_integrity') && <Badge color="gray">ledger calculado indisponível</Badge>}</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase"><tr><th className="px-4 py-3 text-left">Tenant</th><th className="px-4 py-3 text-left">Plano</th><th className="px-4 py-3 text-right">Wallet</th><th className="px-4 py-3 text-right">Ledger</th><th className="px-4 py-3 text-right">Dif.</th><th className="px-4 py-3 text-right">Consumo mês</th><th className="px-4 py-3 text-left">Última operação</th><th className="px-4 py-3 text-left">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead>
+                <tbody className="divide-y divide-gray-100">
+                  {wallets.length === 0 ? <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Nenhuma carteira encontrada.</td></tr> : wallets.map(row => (
+                    <tr key={row.tenant_id} className="hover:bg-gray-50/60">
+                      <td className="px-4 py-3"><p className="font-semibold text-gray-800 max-w-[220px] truncate">{row.tenant_name}</p><p className="text-[11px] text-gray-400 font-mono truncate max-w-[220px]">{row.user_email ?? row.tenant_id}</p></td>
+                      <td className="px-4 py-3"><Badge color={PLAN_COLOR[row.plan_code] ?? 'gray'}>{row.plan_code}</Badge></td>
+                      <td className="px-4 py-3 text-right font-bold tabular-nums">{row.wallet_balance === null ? 'N/D' : row.wallet_balance.toLocaleString('pt-BR')}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-gray-600">{row.ledger_balance === null ? 'N/D' : row.ledger_balance.toLocaleString('pt-BR')}</td>
+                      <td className={`px-4 py-3 text-right tabular-nums font-bold ${Math.abs(row.wallet_ledger_delta ?? 0) > 0 ? 'text-red-600' : 'text-gray-500'}`}>{row.wallet_ledger_delta === null ? 'N/D' : row.wallet_ledger_delta.toLocaleString('pt-BR')}</td>
+                      <td className="px-4 py-3 text-right tabular-nums text-gray-600">{row.consumed_month === null ? 'N/D' : row.consumed_month.toLocaleString('pt-BR')}</td>
+                      <td className="px-4 py-3"><p className="text-xs text-gray-600 max-w-[240px] truncate">{row.last_operation_label ?? 'Sem operação recente'}</p>{row.last_operation_at && <p className="text-[10px] text-gray-400">{new Date(row.last_operation_at).toLocaleString('pt-BR')}</p>}</td>
+                      <td className="px-4 py-3"><span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${statusTone[row.status]}`}>{row.status_label}</span></td>
+                      <td className="px-4 py-3 text-right"><div className="flex justify-end gap-1"><button onClick={() => setDetail(row)} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Detalhes</button><button onClick={() => copyTenantId(row.tenant_id)} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">{copiedTenantId === row.tenant_id ? 'Copiado' : 'Copiar ID'}</button></div></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <Section title="Reservas abertas" sourceKey="v_credit_reservations" count={reservations.length}><div className="divide-y divide-gray-100">{reservations.length === 0 ? <div className="px-5 py-8 text-sm text-gray-400 text-center">Nenhuma reserva aberta.</div> : reservations.map(row => <div key={row.id} className="px-5 py-3 flex items-center justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold text-gray-800 truncate">{row.tenant_name ?? row.tenant_id ?? 'Tenant não informado'}</p><p className="text-xs text-gray-400 truncate">{row.user_email ?? row.operation_id ?? 'Sem usuário'}</p><p className="text-[11px] text-gray-400 truncate">{row.description ?? 'Sem descrição'}</p></div><div className="text-right shrink-0"><p className="font-bold text-amber-700">{row.amount.toLocaleString('pt-BR')} cr.</p><p className={`text-[10px] font-bold ${row.stale ? 'text-red-600' : 'text-gray-400'}`}>{row.age_minutes} min</p></div></div>)}</div></Section>
+            <Section title="Falhas de crédito" sourceKey="v_credit_failures" count={failures.length}><div className="divide-y divide-gray-100">{failures.length === 0 ? <div className="px-5 py-8 text-sm text-gray-400 text-center">Nenhuma falha registrada.</div> : failures.map(row => <div key={row.id} className="px-5 py-3"><div className="flex justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold text-gray-800 truncate">{row.tenant_name ?? row.tenant_id ?? 'Tenant não informado'}</p><p className="text-xs text-gray-400 truncate">{row.user_email ?? row.operation_id ?? 'Sem usuário'}</p></div><p className="font-bold text-red-600 shrink-0">{row.amount ?? 'N/D'} cr.</p></div><p className="text-xs text-gray-500 mt-1 truncate">{row.operation_kind ?? 'operação'} · {row.reason ?? 'motivo não informado'}</p>{row.created_at && <p className="text-[10px] text-gray-400 mt-1">{new Date(row.created_at).toLocaleString('pt-BR')}</p>}</div>)}</div></Section>
+            <Section title="Refunds / releases" sourceKey="v_credit_refunds" count={refunds.length}><div className="divide-y divide-gray-100">{refunds.length === 0 ? <div className="px-5 py-8 text-sm text-gray-400 text-center">Nenhum refund/release registrado.</div> : refunds.map(row => <div key={row.id} className="px-5 py-3 flex justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold text-gray-800 truncate">{row.tenant_name ?? row.tenant_id ?? 'Tenant não informado'}</p><p className="text-xs text-gray-400 truncate">{row.operation_id ?? 'Operação original não informada'}</p><p className="text-[11px] text-gray-400 truncate">{row.reason ?? 'Sem motivo'}</p></div><div className="text-right shrink-0"><p className="font-bold text-emerald-600">{row.amount ?? 'N/D'} cr.</p>{row.created_at && <p className="text-[10px] text-gray-400">{new Date(row.created_at).toLocaleDateString('pt-BR')}</p>}</div></div>)}</div></Section>
+            <Section title="Duplicidades / retries" sourceKey="v_credit_duplicates" count={duplicates.length}><div className="divide-y divide-gray-100">{duplicates.length === 0 ? <div className="px-5 py-8 text-sm text-gray-400 text-center">Nenhuma duplicidade detectada.</div> : duplicates.map(row => <div key={row.id} className="px-5 py-3 flex justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold text-gray-800 truncate">{row.tenant_name ?? row.tenant_id ?? 'Tenant não informado'}</p><p className="text-xs text-gray-400 truncate">{row.operation_id ?? 'Sem operation_id'}</p><p className="text-[11px] text-gray-400 truncate">{row.operation_kind ?? 'operação'} · {row.status ?? 'sem status'}</p></div><div className="text-right shrink-0"><p className="font-bold text-amber-700">{row.attempt_count}x</p>{row.last_seen_at && <p className="text-[10px] text-gray-400">{new Date(row.last_seen_at).toLocaleDateString('pt-BR')}</p>}</div></div>)}</div></Section>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5"><h3 className="font-bold text-gray-900 mb-3">Fontes monitoradas</h3><div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">{data.sources.map(source => <div key={source.key} className="flex items-start gap-2 text-xs border border-gray-100 rounded-xl p-3">{source.status === 'available' ? <CheckCircle size={13} className="text-emerald-500 mt-0.5 shrink-0" /> : <AlertCircle size={13} className="text-gray-300 mt-0.5 shrink-0" />}<div className="min-w-0"><p className="font-semibold text-gray-700">{source.label}</p><p className="text-gray-400 truncate">{source.status === 'available' ? 'Disponível' : source.detail ?? 'Fonte não disponível'}</p></div></div>)}</div></div>
+
+          {detail && <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDetail(null)}><div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}><div className="flex items-start justify-between gap-3 mb-4"><div><h3 className="text-lg font-bold text-gray-900">{detail.tenant_name}</h3><p className="text-xs text-gray-400 font-mono break-all">{detail.tenant_id}</p></div><button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-700">×</button></div><div className="grid grid-cols-2 gap-3 text-sm"><div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Plano</p><p className="font-bold">{detail.plan_code}</p></div><div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Status</p><p className="font-bold">{detail.status_label}</p></div><div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Wallet</p><p className="font-bold">{detail.wallet_balance ?? 'N/D'}</p></div><div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Ledger</p><p className="font-bold">{detail.ledger_balance ?? 'N/D'}</p></div><div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Diferença</p><p className="font-bold">{detail.wallet_ledger_delta ?? 'N/D'}</p></div><div className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">Consumo mês</p><p className="font-bold">{detail.consumed_month ?? 'N/D'}</p></div></div><p className="text-xs text-gray-400 mt-4">Esta visualização é somente-leitura. Nenhum saldo é alterado por esta aba.</p></div></div>}
+        </>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// TAB: PLANOS & CUSTOS / PRICING & IA
+// ============================================================================
+
+const pricingCategoryLabel: Record<string, string> = {
+  plans: 'Planos',
+  kiwify: 'Kiwify',
+  coupons: 'Cupons',
+  credits: 'Pacotes',
+  ai: 'IA',
+  landing: 'Landing',
+};
+
+const pricingSeverityTone: Record<string, string> = {
+  critical: 'bg-red-50 text-red-700 border-red-200',
+  high: 'bg-orange-50 text-orange-700 border-orange-200',
+  medium: 'bg-amber-50 text-amber-700 border-amber-200',
+  low: 'bg-slate-50 text-slate-600 border-slate-200',
+  ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  attention: 'bg-amber-50 text-amber-700 border-amber-200',
+  unmonitored: 'bg-gray-50 text-gray-500 border-gray-200',
+};
+
+const PricingAiAdminTab = () => {
+  const [data, setData] = useState<CeoPricingAiAdmin | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [detail, setDetail] = useState<{ title: string; rows: Array<[string, React.ReactNode]> } | null>(null);
+  const [copied, setCopied] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try { setData(await getCeoPricingAiAdmin()); }
+    catch (e: any) { setError(e?.message ?? 'Erro ao carregar Planos & Custos.'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const q = search.trim().toLowerCase();
+  const sourceUnavailable = (key: string) => data?.sources.some(s => s.key === key && s.status === 'unavailable') ?? false;
+  const money = (value: number | null | undefined) => value === null || value === undefined ? 'N/D' : `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const numberOrNd = (value: number | null | undefined) => value === null || value === undefined ? 'N/D' : value.toLocaleString('pt-BR');
+  const cardSeverity = (status: string): 'ok' | 'warn' | 'critical' | 'neutral' =>
+    status === 'critical' ? 'critical' : status === 'attention' ? 'warn' : status === 'unmonitored' ? 'neutral' : 'ok';
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard?.writeText(text);
+      setCopied(text);
+      setTimeout(() => setCopied(''), 1300);
+    } catch { setCopied(''); }
+  };
+
+  const filteredProducts = (data?.kiwifyProducts ?? []).filter(product => {
+    const matchesSearch = !q || [
+      product.product_id,
+      product.product_name,
+      product.plan_code ?? '',
+      product.billing_cycle ?? '',
+    ].some(value => value.toLowerCase().includes(q));
+    const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' ? product.is_active !== false : product.is_active === false);
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredCoupons = (data?.coupons ?? []).filter(coupon => {
+    const matchesSearch = !q || [
+      coupon.code,
+      coupon.plan_code ?? '',
+      coupon.campaign_name ?? '',
+    ].some(value => value.toLowerCase().includes(q));
+    const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' ? coupon.is_active !== false : coupon.is_active === false);
+    return matchesSearch && matchesStatus;
+  });
+
+  const filteredAiCosts = (data?.aiCosts ?? []).filter(cost => {
+    const matchesSearch = !q || [cost.key, cost.friendly_name, cost.category, cost.source].some(value => value.toLowerCase().includes(q));
+    const matchesCategory = categoryFilter === 'all' || cost.category === categoryFilter;
+    return matchesSearch && matchesCategory;
+  });
+
+  const aiCategories = Array.from(new Set((data?.aiCosts ?? []).map(cost => cost.category))).sort();
+
+  const Section = ({ title, sourceKey, count, children }: { title: string; sourceKey: string; count: number; children: React.ReactNode }) => (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="font-bold text-gray-900">{title}</h3>
+          <p className="text-xs text-gray-400 mt-0.5">{sourceUnavailable(sourceKey) ? 'Fonte nao disponivel' : `${count} registro(s)`}</p>
+        </div>
+        {sourceUnavailable(sourceKey) && <Badge color="gray">nao monitorado</Badge>}
+      </div>
+      {sourceUnavailable(sourceKey) ? <div className="px-5 py-8 text-sm text-gray-400 text-center">Fonte nao disponivel no Supabase atual.</div> : children}
+    </div>
+  );
+
+  const openProductDetail = (product: CeoPricingKiwifyProductRow) => setDetail({
+    title: product.product_name || product.product_id,
+    rows: [
+      ['product_id', <span className="font-mono break-all">{product.product_id}</span>],
+      ['plan_code', product.plan_code ?? 'N/D'],
+      ['billing_cycle', product.billing_cycle ?? 'N/D'],
+      ['preco Kiwify', money(product.price_brl)],
+      ['preco esperado', money(product.expected_price_brl)],
+      ['status', product.is_active === false ? 'Inativo' : 'Ativo'],
+    ],
+  });
+
+  const openCouponDetail = (coupon: CeoPricingCouponRow) => setDetail({
+    title: coupon.code,
+    rows: [
+      ['code', <span className="font-mono">{coupon.code}</span>],
+      ['plan_code', coupon.plan_code ?? 'N/D'],
+      ['billing_cycle', coupon.billing_cycle ?? 'N/D'],
+      ['desconto', `${coupon.discount_value ?? 'N/D'} ${coupon.discount_type ?? ''}`.trim()],
+      ['campanha', coupon.campaign_name ?? 'N/D'],
+      ['status', coupon.is_active === false ? 'Inativo' : 'Ativo'],
+    ],
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-3 items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Planos & Custos</h2>
+          <p className="text-gray-400 text-sm">Auditoria somente-leitura de planos, Kiwify, cupons, pacotes e custos de IA.</p>
+          {data?.generatedAt && <p className="text-[11px] text-gray-400 mt-1">Ultima atualizacao: {new Date(data.generatedAt).toLocaleString('pt-BR')}</p>}
+        </div>
+        <button onClick={load} disabled={loading} className="px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold flex items-center gap-2 hover:bg-gray-800 disabled:opacity-60">
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          Atualizar
+        </button>
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
+      {loading && !data ? <div className="text-gray-400 text-sm py-8">Carregando Pricing & IA...</div> : data && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {data.cards.map(card => (
+              <BillingHealthCard
+                key={card.key}
+                title={card.title}
+                value={typeof card.value === 'number' ? card.value.toLocaleString('pt-BR') : card.value ?? 'N/D'}
+                icon={card.key.includes('kiwify') ? Link : card.key.includes('coupon') ? Tag : card.key.includes('ai') ? Brain : card.key.includes('divergence') ? AlertTriangle : Package}
+                severity={cardSeverity(card.status)}
+                subtext={card.subtext}
+              />
+            ))}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[220px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={14} />
+                <input className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-200" placeholder="Buscar produto, cupom, plano ou custo IA..." value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                <option value="all">Todos os status</option>
+                <option value="active">Ativos</option>
+                <option value="inactive">Inativos</option>
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+                <option value="all">Todas categorias IA</option>
+                {aiCategories.map(category => <option key={category} value={category}>{category}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <Section title="Planos" sourceKey="ai_costs_config" count={data.plans.length}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase"><tr><th className="px-4 py-3 text-left">Plano</th><th className="px-4 py-3 text-right">Mensal</th><th className="px-4 py-3 text-right">Anual</th><th className="px-4 py-3 text-right">Creditos</th><th className="px-4 py-3 text-right">Config</th><th className="px-4 py-3 text-left">Fonte</th><th className="px-4 py-3 text-left">Status</th></tr></thead>
+                <tbody className="divide-y divide-gray-100">
+                  {data.plans.map(plan => (
+                    <tr key={plan.code}>
+                      <td className="px-4 py-3"><p className="font-bold text-gray-900">{plan.display_name}</p><p className="text-[11px] text-gray-400">{plan.code}</p></td>
+                      <td className="px-4 py-3 text-right tabular-nums">{money(plan.price_monthly)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{money(plan.price_annual)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{numberOrNd(plan.credits_monthly)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{numberOrNd(plan.config_credits_monthly)}</td>
+                      <td className="px-4 py-3 text-gray-500">{plan.source}</td>
+                      <td className="px-4 py-3"><Badge color={plan.is_active === false ? 'gray' : 'green'}>{plan.is_active === false ? 'inativo' : 'ativo/config'}</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Section>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <Section title="Produtos Kiwify" sourceKey="kiwify_products" count={filteredProducts.length}>
+              <div className="divide-y divide-gray-100">
+                {filteredProducts.length === 0 ? <div className="px-5 py-8 text-sm text-gray-400 text-center">Nenhum produto encontrado.</div> : filteredProducts.map(product => (
+                  <div key={product.id || product.product_id} className="px-5 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">{product.product_name || product.product_id}</p>
+                      <p className="text-xs text-gray-400 truncate">{product.plan_code ?? 'sem plano'} · {product.billing_cycle ?? product.product_type}</p>
+                      <p className="text-[11px] text-gray-400 font-mono truncate">{product.product_id}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-gray-900">{money(product.price_brl)}</p>
+                      <p className="text-[10px] text-gray-400">esperado {money(product.expected_price_brl)}</p>
+                      <div className="mt-1 flex gap-1 justify-end">
+                        <button onClick={() => openProductDetail(product)} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Detalhes</button>
+                        <button onClick={() => copyText(product.product_id)} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">{copied === product.product_id ? 'Copiado' : 'Copiar ID'}</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+
+            <Section title="Cupons" sourceKey="ceo_coupons" count={filteredCoupons.length}>
+              <div className="divide-y divide-gray-100">
+                {filteredCoupons.length === 0 ? <div className="px-5 py-8 text-sm text-gray-400 text-center">Nenhum cupom encontrado.</div> : filteredCoupons.map(coupon => (
+                  <div key={coupon.id || coupon.code} className="px-5 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-800 truncate">{coupon.code}</p>
+                      <p className="text-xs text-gray-400 truncate">{coupon.campaign_name ?? 'Sem campanha'} · {coupon.plan_code ?? 'sem plano'}</p>
+                      {coupon.created_at && <p className="text-[11px] text-gray-400">{new Date(coupon.created_at).toLocaleDateString('pt-BR')}</p>}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-gray-900">{coupon.discount_value ?? 'N/D'} {coupon.discount_type ?? ''}</p>
+                      <div className="mt-1 flex gap-1 justify-end">
+                        <button onClick={() => openCouponDetail(coupon)} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Detalhes</button>
+                        <button onClick={() => copyText(coupon.code)} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">{copied === coupon.code ? 'Copiado' : 'Copiar code'}</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <Section title="Pacotes de Creditos" sourceKey="ai_costs_config" count={data.creditPackages.length}>
+              <div className="divide-y divide-gray-100">
+                {data.creditPackages.map(pkg => (
+                  <div key={pkg.code} className="px-5 py-3 flex justify-between gap-3">
+                    <div><p className="text-sm font-semibold text-gray-800">{pkg.code}</p><p className="text-xs text-gray-400">{pkg.label ?? pkg.source}</p></div>
+                    <div className="text-right"><p className="font-bold text-gray-900">{numberOrNd(pkg.credits)} cr. · {money(pkg.price_brl)}</p><p className="text-[11px] text-gray-400">{money(pkg.cost_per_credit)} / credito</p></div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+
+            <Section title="AI_COSTS" sourceKey="ai_costs_config" count={filteredAiCosts.length}>
+              <div className="max-h-[430px] overflow-y-auto divide-y divide-gray-100">
+                {filteredAiCosts.map(cost => (
+                  <div key={`${cost.source}-${cost.key}`} className="px-5 py-3 flex justify-between gap-3">
+                    <div className="min-w-0"><p className="text-sm font-semibold text-gray-800 truncate">{cost.friendly_name}</p><p className="text-xs text-gray-400 truncate">{cost.key} · {cost.category}</p></div>
+                    <div className="text-right shrink-0"><p className="font-bold text-gray-900">{cost.credits_cost} cr.</p><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${pricingSeverityTone[cost.severity]}`}>{cost.severity === 'attention' ? 'atenção' : cost.severity}</span></div>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-6">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4"><div><h3 className="font-bold text-gray-900">Divergencias</h3><p className="text-xs text-gray-400 mt-0.5">Alertas derivados apenas de fontes reais carregadas.</p></div><Badge color={data.divergences.length ? 'yellow' : 'green'}>{data.divergences.length}</Badge></div>
+              <div className="space-y-2">
+                {data.divergences.length === 0 ? <div className="text-sm text-gray-400 py-6 text-center">Nenhuma divergencia detectada nas fontes disponiveis.</div> : data.divergences.map(item => (
+                  <div key={item.id} className="border border-gray-100 rounded-2xl p-4">
+                    <div className="flex flex-wrap gap-2 items-start justify-between mb-2"><h4 className="text-sm font-bold text-gray-900">{item.title}</h4><div className="flex gap-1.5"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${pricingSeverityTone[item.severity]}`}>{item.severity}</span><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{pricingCategoryLabel[item.category]}</span></div></div>
+                    <p className="text-xs text-gray-500">{item.description}</p>
+                    <p className="text-xs text-gray-400 mt-2">Acao recomendada: <span className="text-gray-600 font-medium">{item.recommendedAction}</span></p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-bold text-gray-900 mb-3">Fontes monitoradas</h3>
+              <div className="space-y-2">
+                {data.sources.map(source => (
+                  <div key={source.key} className="flex items-start gap-2 text-xs border border-gray-100 rounded-xl p-3">
+                    {source.status === 'available' ? <CheckCircle size={13} className="text-emerald-500 mt-0.5 shrink-0" /> : <AlertCircle size={13} className="text-gray-300 mt-0.5 shrink-0" />}
+                    <div className="min-w-0"><p className="font-semibold text-gray-700">{source.label}</p><p className="text-gray-400 truncate">{source.status === 'available' ? 'Disponivel' : source.detail ?? 'Fonte nao disponivel'}</p></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {detail && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDetail(null)}>
+              <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex items-start justify-between gap-3 mb-4"><h3 className="text-lg font-bold text-gray-900">{detail.title}</h3><button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-700">×</button></div>
+                <div className="space-y-2">{detail.rows.map(([label, value]) => <div key={label} className="bg-gray-50 rounded-xl p-3 text-sm"><p className="text-xs text-gray-400">{label}</p><p className="font-semibold text-gray-800">{value}</p></div>)}</div>
+                <p className="text-xs text-gray-400 mt-4">Esta visualizacao e somente-leitura. Nenhum preco, cupom, checkout ou custo IA e alterado por esta aba.</p>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// TAB: BILLING / KIWIFY RECONCILIATION CENTER
+// ============================================================================
+
+const billingSeverityTone: Record<CeoBillingKiwifyPurchaseRow['severity'], string> = {
+  ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  attention: 'bg-amber-50 text-amber-700 border-amber-200',
+  critical: 'bg-red-50 text-red-700 border-red-200',
+};
+
+const BillingKiwifyReconciliationTab = () => {
+  const [data, setData] = useState<CeoBillingKiwifyReconciliation | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [paymentFilter, setPaymentFilter] = useState('all');
+  const [activationFilter, setActivationFilter] = useState('all');
+  const [planFilter, setPlanFilter] = useState('all');
+  const [severityFilter, setSeverityFilter] = useState('all');
+  const [periodFilter, setPeriodFilter] = useState<'all' | '7d' | '30d'>('30d');
+  const [detail, setDetail] = useState<CeoBillingKiwifyPurchaseRow | null>(null);
+  const [copied, setCopied] = useState('');
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<ReconcileResult[] | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try { setData(await getCeoBillingKiwifyReconciliation()); }
+    catch (e: any) { setError(e?.message ?? 'Erro ao carregar Billing & Kiwify.'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const q = search.trim().toLowerCase();
+  const sourceUnavailable = (key: string) => data?.sources.some(s => s.key === key && s.status === 'unavailable') ?? false;
+  const cardSeverity = (status: string): 'ok' | 'warn' | 'critical' | 'neutral' =>
+    status === 'critical' ? 'critical' : status === 'attention' ? 'warn' : status === 'unmonitored' ? 'neutral' : 'ok';
+  const money = (value: number | null | undefined) => value === null || value === undefined ? 'N/D' : `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const matchesPeriod = (date?: string | null) => {
+    if (periodFilter === 'all' || !date) return true;
+    const days = periodFilter === '7d' ? 7 : 30;
+    return new Date(date).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
+  };
+
+  const copyText = async (text?: string | null) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard?.writeText(text);
+      setCopied(text);
+      setTimeout(() => setCopied(''), 1300);
+    } catch { setCopied(''); }
+  };
+
+  const handleReconcile = async () => {
+    if (!confirm('Reconciliar compras pendentes agora?\n\nEsta acao usa a rotina administrativa existente e nao roda automaticamente.')) return;
+    setReconciling(true);
+    setReconcileResult(null);
+    try {
+      const result = await reconcilePendingPurchases();
+      setReconcileResult(result);
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? 'Erro ao reconciliar compras pendentes.');
+    } finally {
+      setReconciling(false);
+    }
+  };
+
+  const purchases = (data?.purchases ?? []).filter(row => {
+    const matchesSearch = !q || [
+      row.customer_email ?? '',
+      row.customer_name ?? '',
+      row.product_name ?? '',
+      row.product_id ?? '',
+      row.product_key ?? '',
+      row.provider_order_id ?? '',
+      row.tenant_id ?? '',
+      row.tenant_name ?? '',
+    ].some(value => value.toLowerCase().includes(q));
+    return matchesSearch
+      && (paymentFilter === 'all' || row.payment_status === paymentFilter)
+      && (activationFilter === 'all' || (row.activation_status ?? 'NONE') === activationFilter)
+      && (planFilter === 'all' || row.expected_plan_code === planFilter || row.tenant_plan_code === planFilter)
+      && (severityFilter === 'all' || row.severity === severityFilter)
+      && matchesPeriod(row.date);
+  });
+
+  const paymentStatuses = Array.from(new Set((data?.purchases ?? []).map(row => row.payment_status).filter(Boolean))).sort();
+  const activationStatuses = Array.from(new Set((data?.purchases ?? []).map(row => row.activation_status ?? 'NONE'))).sort();
+  const plans = Array.from(new Set((data?.purchases ?? []).flatMap(row => [row.expected_plan_code, row.tenant_plan_code]).filter(Boolean) as string[])).sort();
+  const manualPendingCount = data?.purchases.filter(row => row.payment_status === 'APPROVED' && (!row.tenant_id || !row.activated_at)).length ?? 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-3 items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Billing & Kiwify</h2>
+          <p className="text-gray-400 text-sm">Central de reconciliacao operacional. Leitura por padrao; reconciliacao apenas por clique manual.</p>
+          {data?.generatedAt && <p className="text-[11px] text-gray-400 mt-1">Ultima atualizacao: {new Date(data.generatedAt).toLocaleString('pt-BR')}</p>}
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleReconcile}
+            disabled={reconciling || manualPendingCount === 0}
+            className="px-4 py-2 rounded-xl bg-amber-500 text-white text-xs font-semibold flex items-center gap-2 hover:bg-amber-600 disabled:opacity-50"
+          >
+            <RotateCcw size={13} className={reconciling ? 'animate-spin' : ''} />
+            {reconciling ? 'Reconciliando...' : `Reconciliar pendentes${manualPendingCount ? ` (${manualPendingCount})` : ''}`}
+          </button>
+          <button onClick={load} disabled={loading} className="px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold flex items-center gap-2 hover:bg-gray-800 disabled:opacity-60">
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            Atualizar
+          </button>
+        </div>
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
+      {reconcileResult !== null && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-sm text-blue-700">
+          <div className="flex items-center justify-between gap-3">
+            <p className="font-bold">Reconciliação manual concluída: {reconcileResult.length} resultado(s).</p>
+            <button onClick={() => setReconcileResult(null)} className="text-xs font-semibold underline">Fechar</button>
+          </div>
+          {reconcileResult.length > 0 && (
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+              {reconcileResult.slice(0, 12).map((result, index) => (
+                <div key={`${result.purchase_email}-${index}`} className="bg-white/70 border border-blue-100 rounded-xl p-3 text-xs">
+                  <p className="font-mono text-blue-900 truncate">{result.purchase_email}</p>
+                  <p className="text-blue-600">{result.purchase_plan ?? 'sem plano'} · {result.result_action}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {loading && !data ? <div className="text-gray-400 text-sm py-8">Carregando Billing & Kiwify...</div> : data && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            {data.cards.map(card => (
+              <BillingHealthCard
+                key={card.key}
+                title={card.title}
+                value={typeof card.value === 'number' ? card.value.toLocaleString('pt-BR') : card.value ?? 'N/D'}
+                icon={card.key.includes('tenant') || card.key.includes('free') ? Users : card.key.includes('product') ? Package : card.key.includes('activation') ? CheckCircle : card.key.includes('critical') ? AlertTriangle : CreditCard}
+                severity={cardSeverity(card.status)}
+                subtext={card.subtext}
+              />
+            ))}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[230px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={14} />
+                <input className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-200" placeholder="Buscar email, nome, product_id, order ou tenant..." value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={paymentFilter} onChange={e => setPaymentFilter(e.target.value)}>
+                <option value="all">Todos pagamentos</option>
+                {paymentStatuses.map(status => <option key={status} value={status}>{status}</option>)}
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={activationFilter} onChange={e => setActivationFilter(e.target.value)}>
+                <option value="all">Todas ativações</option>
+                {activationStatuses.map(status => <option key={status} value={status}>{status === 'NONE' ? 'Sem status' : status}</option>)}
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={planFilter} onChange={e => setPlanFilter(e.target.value)}>
+                <option value="all">Todos planos</option>
+                {plans.map(plan => <option key={plan} value={plan}>{plan}</option>)}
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={severityFilter} onChange={e => setSeverityFilter(e.target.value)}>
+                <option value="all">Todas severidades</option>
+                <option value="critical">Crítico</option>
+                <option value="attention">Atenção</option>
+                <option value="ok">OK</option>
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={periodFilter} onChange={e => setPeriodFilter(e.target.value as 'all' | '7d' | '30d')}>
+                <option value="30d">Últimos 30 dias</option>
+                <option value="7d">Últimos 7 dias</option>
+                <option value="all">Todo período carregado</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div><h3 className="font-bold text-gray-900">Compras Kiwify</h3><p className="text-xs text-gray-400 mt-0.5">{sourceUnavailable('kiwify_purchases') ? 'Fonte nao disponivel' : `${purchases.length} compra(s) visiveis`}</p></div>
+              {sourceUnavailable('kiwify_purchases') && <Badge color="gray">nao monitorado</Badge>}
+            </div>
+            {sourceUnavailable('kiwify_purchases') ? <div className="px-5 py-8 text-sm text-gray-400 text-center">Fonte nao disponivel no Supabase atual.</div> : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Data</th>
+                      <th className="px-4 py-3 text-left">Cliente</th>
+                      <th className="px-4 py-3 text-left">Produto</th>
+                      <th className="px-4 py-3 text-left">Plano</th>
+                      <th className="px-4 py-3 text-left">Pagamento</th>
+                      <th className="px-4 py-3 text-left">Ativação</th>
+                      <th className="px-4 py-3 text-left">Tenant</th>
+                      <th className="px-4 py-3 text-right">Valor</th>
+                      <th className="px-4 py-3 text-left">Severidade</th>
+                      <th className="px-4 py-3 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {purchases.length === 0 ? <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Nenhuma compra encontrada.</td></tr> : purchases.map(row => (
+                      <tr key={row.id} className="hover:bg-gray-50/60">
+                        <td className="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">{row.date ? new Date(row.date).toLocaleDateString('pt-BR') : 'N/D'}</td>
+                        <td className="px-4 py-3"><p className="font-semibold text-gray-800 max-w-[200px] truncate">{row.customer_name ?? row.customer_email ?? 'Sem email'}</p><p className="text-[11px] text-gray-400 font-mono truncate max-w-[200px]">{row.customer_email ?? 'N/D'}</p></td>
+                        <td className="px-4 py-3"><p className="font-semibold text-gray-800 max-w-[220px] truncate">{row.product_name ?? 'Produto N/D'}</p><p className="text-[11px] text-gray-400 font-mono truncate max-w-[220px]">{row.product_id ?? row.product_key ?? 'sem product_id'}</p></td>
+                        <td className="px-4 py-3"><Badge color={PLAN_COLOR[row.expected_plan_code ?? ''] ?? 'gray'}>{row.expected_plan_code ?? 'N/D'}</Badge><p className="text-[10px] text-gray-400 mt-1">{row.billing_cycle ?? 'sem ciclo'}</p></td>
+                        <td className="px-4 py-3"><Badge color={row.payment_status === 'APPROVED' ? 'green' : row.payment_status === 'PENDING' ? 'yellow' : 'gray'}>{row.payment_status}</Badge></td>
+                        <td className="px-4 py-3 text-xs text-gray-500">{row.activation_status ?? 'Sem status'}</td>
+                        <td className="px-4 py-3"><p className="font-semibold text-gray-800 max-w-[180px] truncate">{row.tenant_name ?? 'Sem tenant'}</p><p className="text-[11px] text-gray-400 truncate max-w-[180px]">{row.tenant_plan_code ?? 'N/D'} · {row.tenant_id ?? 'sem id'}</p></td>
+                        <td className="px-4 py-3 text-right tabular-nums font-semibold">{money(row.price_brl)}</td>
+                        <td className="px-4 py-3"><span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${billingSeverityTone[row.severity]}`}>{row.severity_label}</span></td>
+                        <td className="px-4 py-3 text-right"><div className="flex gap-1 justify-end"><button onClick={() => setDetail(row)} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Detalhes</button><button onClick={() => copyText(row.customer_email)} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">{copied === row.customer_email ? 'Copiado' : 'Email'}</button><button onClick={() => copyText(row.tenant_id)} disabled={!row.tenant_id} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-40">{copied === row.tenant_id ? 'Copiado' : 'Tenant'}</button></div></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-6">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4"><div><h3 className="font-bold text-gray-900">Divergências</h3><p className="text-xs text-gray-400 mt-0.5">Alertas reais derivados das compras carregadas.</p></div><Badge color={data.alerts.length ? 'yellow' : 'green'}>{data.alerts.length}</Badge></div>
+              <div className="space-y-2">
+                {data.alerts.length === 0 ? <div className="text-sm text-gray-400 py-6 text-center">Nenhuma divergência detectada nas fontes disponíveis.</div> : data.alerts.map(alert => (
+                  <div key={alert.id} className="border border-gray-100 rounded-2xl p-4">
+                    <div className="flex flex-wrap gap-2 items-start justify-between mb-2"><h4 className="text-sm font-bold text-gray-900">{alert.title}</h4><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${pricingSeverityTone[alert.severity]}`}>{alert.severity} · {alert.count}</span></div>
+                    <p className="text-xs text-gray-500">{alert.description}</p>
+                    <p className="text-xs text-gray-400 mt-2">Ação recomendada: <span className="text-gray-600 font-medium">{alert.recommendedAction}</span></p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-bold text-gray-900 mb-3">Próximas ações recomendadas</h3>
+                <div className="space-y-2">{data.nextActions.map(action => <div key={action} className="flex gap-2 text-sm text-gray-600"><CheckCircle size={14} className="text-emerald-500 mt-0.5 shrink-0" /><span>{action}</span></div>)}</div>
+              </div>
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-bold text-gray-900 mb-3">Fontes monitoradas</h3>
+                <div className="space-y-2">
+                  {data.sources.map(source => (
+                    <div key={source.key} className="flex items-start gap-2 text-xs border border-gray-100 rounded-xl p-3">
+                      {source.status === 'available' ? <CheckCircle size={13} className="text-emerald-500 mt-0.5 shrink-0" /> : <AlertCircle size={13} className="text-gray-300 mt-0.5 shrink-0" />}
+                      <div className="min-w-0"><p className="font-semibold text-gray-700">{source.label}</p><p className="text-gray-400 truncate">{source.status === 'available' ? 'Disponível' : source.detail ?? 'Fonte não disponível'}</p></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {detail && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDetail(null)}>
+              <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex items-start justify-between gap-3 mb-4"><div><h3 className="text-lg font-bold text-gray-900">{detail.product_name ?? 'Compra Kiwify'}</h3><p className="text-xs text-gray-400 font-mono break-all">{detail.provider_order_id ?? detail.id}</p></div><button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-700">×</button></div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  {[
+                    ['Email', detail.customer_email ?? 'N/D'],
+                    ['Cliente', detail.customer_name ?? 'N/D'],
+                    ['Produto', detail.product_name ?? 'N/D'],
+                    ['Product ID', detail.product_id ?? detail.product_key ?? 'N/D'],
+                    ['Plano esperado', detail.expected_plan_code ?? 'N/D'],
+                    ['Plano tenant', detail.tenant_plan_code ?? 'N/D'],
+                    ['Tenant', detail.tenant_id ?? 'N/D'],
+                    ['Valor', money(detail.price_brl)],
+                    ['Pagamento', detail.payment_status],
+                    ['Ativação', detail.activation_status ?? 'Sem status'],
+                    ['Wallet', detail.wallet_balance === null ? 'N/D' : `${detail.wallet_balance} cr.`],
+                    ['Mapping', detail.mapping_source],
+                  ].map(([label, value]) => <div key={label} className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">{label}</p><p className="font-semibold text-gray-800 break-all">{value}</p></div>)}
+                </div>
+                <div className="mt-4 bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400 mb-1">Flags</p><p className="text-sm font-semibold text-gray-700">{detail.flags.length ? detail.flags.join(', ') : 'Sem divergências detectadas'}</p></div>
+                <p className="text-xs text-gray-400 mt-4">Detalhes locais somente-leitura. Reconciliação só ocorre pelo botão manual da tela principal.</p>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// TAB: ALERTAS & INCIDENTES
+// ============================================================================
+
+const incidentSeverityTone: Record<CeoIncidentRow['severity'], string> = {
+  critical: 'bg-red-50 text-red-700 border-red-200',
+  high: 'bg-orange-50 text-orange-700 border-orange-200',
+  medium: 'bg-amber-50 text-amber-700 border-amber-200',
+  low: 'bg-slate-50 text-slate-600 border-slate-200',
+};
+
+const incidentCategoryLabel: Record<CeoIncidentRow['category'], string> = {
+  ai: 'IA',
+  billing: 'Billing/Kiwify',
+  credits: 'Creditos',
+  users: 'Usuarios/Tenants',
+  documents: 'Documentos',
+  security: 'Seguranca/RLS',
+  system: 'Sistema',
+};
+
+const incidentStatusTone: Record<CeoIncidentRow['status'], string> = {
+  open: 'bg-red-50 text-red-700 border-red-200',
+  monitored: 'bg-blue-50 text-blue-700 border-blue-200',
+  resolved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  no_status: 'bg-gray-50 text-gray-500 border-gray-200',
+};
+
+const incidentRelatedTabs: Partial<Record<string, { label: string; tab: Tab }>> = {
+  diagnostics: { label: 'Ir para Diagnostico', tab: 'diagnostics' },
+  credits: { label: 'Ir para Creditos', tab: 'credits' },
+  billing_kiwify: { label: 'Ir para Billing & Kiwify', tab: 'billing_kiwify' },
+  accounts_admin: { label: 'Ir para Usuarios & Tenants', tab: 'accounts_admin' },
+};
+
+const AlertsIncidentCenterTab = ({ onNavigate }: { onNavigate: (tab: Tab) => void }) => {
+  const [data, setData] = useState<CeoAlertsIncidentCenter | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [severityFilter, setSeverityFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [periodFilter, setPeriodFilter] = useState<'all' | '24h' | '7d' | '30d'>('7d');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [detail, setDetail] = useState<CeoIncidentRow | null>(null);
+  const [copied, setCopied] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try { setData(await getCeoAlertsIncidentCenter()); }
+    catch (e: any) { setError(e?.message ?? 'Erro ao carregar Alertas & Incidentes.'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const q = search.trim().toLowerCase();
+  const cardSeverity = (status: string): 'ok' | 'warn' | 'critical' | 'neutral' =>
+    status === 'critical' ? 'critical' : status === 'attention' ? 'warn' : status === 'unmonitored' ? 'neutral' : 'ok';
+  const matchesPeriod = (date?: string | null) => {
+    if (periodFilter === 'all' || !date) return true;
+    const hours = periodFilter === '24h' ? 24 : periodFilter === '7d' ? 24 * 7 : 24 * 30;
+    return new Date(date).getTime() >= Date.now() - hours * 60 * 60 * 1000;
+  };
+
+  const copyText = async (text?: string | null) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard?.writeText(text);
+      setCopied(text);
+      setTimeout(() => setCopied(''), 1300);
+    } catch { setCopied(''); }
+  };
+
+  const incidents = (data?.incidents ?? []).filter(row => {
+    const matchesSearch = !q || [
+      row.title,
+      row.description,
+      row.source,
+      row.tenant_id ?? '',
+      row.email ?? '',
+      row.recommended_action,
+    ].some(value => value.toLowerCase().includes(q));
+    return matchesSearch
+      && (severityFilter === 'all' || row.severity === severityFilter)
+      && (categoryFilter === 'all' || row.category === categoryFilter)
+      && (statusFilter === 'all' || row.status === statusFilter)
+      && matchesPeriod(row.occurred_at);
+  });
+
+  const categories = Array.from(new Set((data?.incidents ?? []).map(row => row.category))).sort();
+  const statuses = Array.from(new Set((data?.incidents ?? []).map(row => row.status))).sort();
+  const groupedBySeverity = incidents.reduce((acc, row) => {
+    (acc[row.severity] ??= []).push(row);
+    return acc;
+  }, {} as Record<CeoIncidentRow['severity'], CeoIncidentRow[]>);
+  const severityOrder: CeoIncidentRow['severity'][] = ['critical', 'high', 'medium', 'low'];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-3 items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Alertas & Incidentes</h2>
+          <p className="text-gray-400 text-sm">Central operacional somente-leitura. Sem correcao ou reconciliacao automatica.</p>
+          {data?.generatedAt && <p className="text-[11px] text-gray-400 mt-1">Ultima atualizacao: {new Date(data.generatedAt).toLocaleString('pt-BR')}</p>}
+        </div>
+        <button onClick={load} disabled={loading} className="px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold flex items-center gap-2 hover:bg-gray-800 disabled:opacity-60">
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          Atualizar
+        </button>
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
+
+      {loading && !data ? <div className="text-gray-400 text-sm py-8">Carregando incidentes operacionais...</div> : data && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            {data.cards.map(card => (
+              <BillingHealthCard
+                key={card.key}
+                title={card.title}
+                value={typeof card.value === 'number' ? card.value.toLocaleString('pt-BR') : card.value ?? 'N/D'}
+                icon={card.key.includes('ai') ? Brain : card.key.includes('billing') ? CreditCard : card.key.includes('credit') || card.key.includes('reservation') ? Zap : card.key.includes('source') ? AlertCircle : AlertTriangle}
+                severity={cardSeverity(card.status)}
+                subtext={card.subtext}
+              />
+            ))}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={14} />
+                <input className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-200" placeholder="Buscar por tenant, email, fonte ou descricao..." value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={severityFilter} onChange={e => setSeverityFilter(e.target.value)}>
+                <option value="all">Todas severidades</option>
+                <option value="critical">Critico</option>
+                <option value="high">Alto</option>
+                <option value="medium">Medio</option>
+                <option value="low">Baixo</option>
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}>
+                <option value="all">Todas categorias</option>
+                {categories.map(category => <option key={category} value={category}>{incidentCategoryLabel[category]}</option>)}
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={periodFilter} onChange={e => setPeriodFilter(e.target.value as 'all' | '24h' | '7d' | '30d')}>
+                <option value="7d">Ultimos 7 dias</option>
+                <option value="24h">Ultimas 24h</option>
+                <option value="30d">Ultimos 30 dias</option>
+                <option value="all">Todo periodo carregado</option>
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                <option value="all">Todos status</option>
+                {statuses.map(status => <option key={status} value={status}>{data.incidents.find(i => i.status === status)?.status_label ?? status}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[1.55fr_0.8fr] gap-6">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-gray-900">Lista principal de incidentes</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">{incidents.length} incidente(s) visiveis</p>
+                </div>
+                <Badge color="gray">sem mutation</Badge>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {incidents.length === 0 ? <div className="px-5 py-10 text-sm text-gray-400 text-center">Nenhum incidente encontrado para os filtros atuais.</div> : severityOrder.map(severity => {
+                  const rows = groupedBySeverity[severity] ?? [];
+                  if (rows.length === 0) return null;
+                  return (
+                    <div key={severity} className="p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${incidentSeverityTone[severity]}`}>{severity}</span>
+                        <span className="text-xs text-gray-400">{rows.length} item(ns)</span>
+                      </div>
+                      <div className="space-y-2">
+                        {rows.map(row => {
+                          const related = row.related_tab ? incidentRelatedTabs[row.related_tab] : undefined;
+                          return (
+                            <div key={row.id} className="border border-gray-100 rounded-2xl p-4 hover:shadow-sm transition">
+                              <div className="flex flex-wrap gap-2 items-start justify-between mb-2">
+                                <div className="min-w-0">
+                                  <h4 className="text-sm font-bold text-gray-900">{row.title}</h4>
+                                  <p className="text-xs text-gray-500 mt-1">{row.description}</p>
+                                </div>
+                                <div className="flex gap-1.5 shrink-0">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${incidentSeverityTone[row.severity]}`}>{row.severity}</span>
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">{incidentCategoryLabel[row.category]}</span>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${incidentStatusTone[row.status]}`}>{row.status_label}</span>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-gray-400 mb-3">
+                                <span>Fonte: <strong className="text-gray-600">{row.source}</strong></span>
+                                <span>Tenant/email: <strong className="text-gray-600">{row.tenant_id ?? row.email ?? 'N/D'}</strong></span>
+                                <span>Data: <strong className="text-gray-600">{row.occurred_at ? new Date(row.occurred_at).toLocaleString('pt-BR') : 'sem data'}</strong></span>
+                              </div>
+                              <div className="flex flex-wrap gap-2 items-center justify-between">
+                                <p className="text-xs text-gray-500">Acao recomendada: <span className="font-medium text-gray-700">{row.recommended_action}</span></p>
+                                <div className="flex gap-1.5">
+                                  <button onClick={() => setDetail(row)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Detalhes</button>
+                                  <button onClick={() => copyText(row.tenant_id ?? row.email)} disabled={!row.tenant_id && !row.email} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-40">{copied === (row.tenant_id ?? row.email) ? 'Copiado' : 'Copiar'}</button>
+                                  {related && <button onClick={() => onNavigate(related.tab)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-gray-900 text-white hover:bg-gray-800">{related.label}</button>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-bold text-gray-900 mb-3">Proximas acoes recomendadas</h3>
+                <div className="space-y-2">{data.nextActions.map(action => <div key={action} className="flex gap-2 text-sm text-gray-600"><CheckCircle size={14} className="text-emerald-500 mt-0.5 shrink-0" /><span>{action}</span></div>)}</div>
+              </div>
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-bold text-gray-900 mb-3">Fontes monitoradas</h3>
+                <div className="space-y-2">
+                  {data.sources.map(source => (
+                    <div key={source.key} className="flex items-start gap-2 text-xs border border-gray-100 rounded-xl p-3">
+                      {source.status === 'available' ? <CheckCircle size={13} className="text-emerald-500 mt-0.5 shrink-0" /> : <AlertCircle size={13} className="text-gray-300 mt-0.5 shrink-0" />}
+                      <div className="min-w-0"><p className="font-semibold text-gray-700">{source.label}</p><p className="text-gray-400 truncate">{source.status === 'available' ? 'Disponivel' : source.detail ?? 'Fonte nao disponivel'}</p></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {detail && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDetail(null)}>
+              <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">{detail.title}</h3>
+                    <p className="text-xs text-gray-400">{incidentCategoryLabel[detail.category]} · {detail.source}</p>
+                  </div>
+                  <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-700">x</button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  {[
+                    ['Severidade', detail.severity],
+                    ['Status', detail.status_label],
+                    ['Tenant', detail.tenant_id ?? 'N/D'],
+                    ['Email', detail.email ?? 'N/D'],
+                    ['Data/hora', detail.occurred_at ? new Date(detail.occurred_at).toLocaleString('pt-BR') : 'sem data'],
+                    ['Fonte', detail.source],
+                  ].map(([label, value]) => <div key={label} className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">{label}</p><p className="font-semibold text-gray-800 break-all">{value}</p></div>)}
+                </div>
+                <div className="mt-4 bg-gray-50 rounded-xl p-4">
+                  <p className="text-xs font-bold text-gray-500 uppercase mb-2">Descricao</p>
+                  <p className="text-sm text-gray-700">{detail.description}</p>
+                </div>
+                <div className="mt-4 bg-gray-50 rounded-xl p-4">
+                  <p className="text-xs font-bold text-gray-500 uppercase mb-2">Acao recomendada</p>
+                  <p className="text-sm text-gray-700">{detail.recommended_action}</p>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2 justify-end">
+                  <button onClick={() => copyText(detail.tenant_id)} disabled={!detail.tenant_id} className="px-3 py-2 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-40">{copied === detail.tenant_id ? 'Tenant copiado' : 'Copiar tenant'}</button>
+                  <button onClick={() => copyText(detail.email)} disabled={!detail.email} className="px-3 py-2 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-40">{copied === detail.email ? 'Email copiado' : 'Copiar email'}</button>
+                  {detail.related_tab && incidentRelatedTabs[detail.related_tab] && <button onClick={() => onNavigate(incidentRelatedTabs[detail.related_tab]!.tab)} className="px-3 py-2 text-xs font-semibold rounded-lg bg-gray-900 text-white hover:bg-gray-800">{incidentRelatedTabs[detail.related_tab]!.label}</button>}
+                </div>
+                <p className="text-xs text-gray-400 mt-4">Detalhes locais somente-leitura. Esta tela nao executa correcao, reconciliacao ou mutation.</p>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// TAB: USUARIOS & TENANTS / ADMIN DE CONTAS
+// ============================================================================
+
+const accountSeverityTone: Record<CeoUsersTenantsAccountRow['severity'], string> = {
+  ok: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  attention: 'bg-amber-50 text-amber-700 border-amber-200',
+  critical: 'bg-red-50 text-red-700 border-red-200',
+  unmonitored: 'bg-gray-50 text-gray-500 border-gray-200',
+};
+
+const UsersTenantsAdminTab = ({ adminUser }: { adminUser: AdminUser }) => {
+  const [data, setData] = useState<CeoUsersTenantsAdmin | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [planFilter, setPlanFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [internalFilter, setInternalFilter] = useState('all');
+  const [divergenceFilter, setDivergenceFilter] = useState('all');
+  const [detail, setDetail] = useState<CeoUsersTenantsAccountRow | null>(null);
+  const [copied, setCopied] = useState('');
+  const [resetTarget, setResetTarget] = useState<{ email: string; name: string } | null>(null);
+  const [internalTarget, setInternalTarget] = useState<CeoUsersTenantsAccountRow | null>(null);
+  const [internalLoading, setInternalLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try { setData(await getCeoUsersTenantsAdmin()); }
+    catch (e: any) { setError(e?.message ?? 'Erro ao carregar Usuarios & Tenants.'); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const canManageInternal = ['super_admin', 'operacional'].includes(adminUser.role);
+  const canResetPassword = ['super_admin', 'operacional', 'suporte'].includes(adminUser.role);
+  const sourceUnavailable = (key: string) => data?.sources.some(s => s.key === key && s.status === 'unavailable') ?? false;
+  const q = search.trim().toLowerCase();
+  const cardSeverity = (status: string): 'ok' | 'warn' | 'critical' | 'neutral' =>
+    status === 'critical' ? 'critical' : status === 'attention' ? 'warn' : status === 'unmonitored' ? 'neutral' : 'ok';
+
+  const copyText = async (text?: string | null) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard?.writeText(text);
+      setCopied(text);
+      setTimeout(() => setCopied(''), 1300);
+    } catch { setCopied(''); }
+  };
+
+  const confirmMarkInternal = async () => {
+    if (!internalTarget) return;
+    setInternalLoading(true);
+    try {
+      await setTenantInternal(internalTarget.tenant_id, true, adminUser);
+      setInternalTarget(null);
+      await load();
+    } catch (e: any) {
+      alert(e?.message ?? 'Erro ao marcar conta interna.');
+    } finally {
+      setInternalLoading(false);
+    }
+  };
+
+  const handleRemoveInternal = async (row: CeoUsersTenantsAccountRow) => {
+    if (!confirm(`Remover ${row.tenant_name} das contas internas?\n\nA conta voltara a entrar nas metricas do CEO se as views considerarem is_internal=false.`)) return;
+    setInternalLoading(true);
+    try {
+      await setTenantInternal(row.tenant_id, false, adminUser);
+      await load();
+      if (detail?.tenant_id === row.tenant_id) setDetail(null);
+    } catch (e: any) {
+      alert(e?.message ?? 'Erro ao remover marcacao interna.');
+    } finally {
+      setInternalLoading(false);
+    }
+  };
+
+  const accounts = (data?.accounts ?? []).filter(row => {
+    const matchesSearch = !q || [
+      row.tenant_id,
+      row.tenant_name,
+      row.primary_email ?? '',
+      row.owner_name ?? '',
+      row.linked_purchase?.email ?? '',
+      row.linked_purchase?.provider_order_id ?? '',
+    ].some(value => value.toLowerCase().includes(q));
+    const hasDivergence = Boolean(row.divergence_label);
+    return matchesSearch
+      && (planFilter === 'all' || (row.plan_code ?? 'N/D') === planFilter)
+      && (statusFilter === 'all' || (row.status ?? 'N/D') === statusFilter)
+      && (internalFilter === 'all' || (internalFilter === 'internal' ? row.is_internal : !row.is_internal))
+      && (divergenceFilter === 'all' || (divergenceFilter === 'with' ? hasDivergence : !hasDivergence));
+  });
+
+  const plans = Array.from(new Set((data?.accounts ?? []).map(row => row.plan_code ?? 'N/D'))).sort();
+  const statuses = Array.from(new Set((data?.accounts ?? []).map(row => row.status ?? 'N/D'))).sort();
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap gap-3 items-start justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Usuarios & Tenants</h2>
+          <p className="text-gray-400 text-sm">Admin de contas somente-leitura, com acoes manuais seguras ja existentes.</p>
+          {data?.generatedAt && <p className="text-[11px] text-gray-400 mt-1">Ultima atualizacao: {new Date(data.generatedAt).toLocaleString('pt-BR')}</p>}
+        </div>
+        <button onClick={load} disabled={loading} className="px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold flex items-center gap-2 hover:bg-gray-800 disabled:opacity-60">
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          Atualizar
+        </button>
+      </div>
+
+      {error && <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">{error}</div>}
+
+      {loading && !data ? <div className="text-gray-400 text-sm py-8">Carregando usuarios, tenants e contas internas...</div> : data && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {data.cards.map(card => (
+              <BillingHealthCard
+                key={card.key}
+                title={card.title}
+                value={typeof card.value === 'number' ? card.value.toLocaleString('pt-BR') : card.value ?? 'N/D'}
+                icon={card.key.includes('user') ? UserIcon : card.key.includes('internal') ? TestTube : card.key.includes('divergence') || card.key.includes('activation') ? AlertTriangle : Users}
+                severity={cardSeverity(card.status)}
+                subtext={card.subtext}
+              />
+            ))}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="relative flex-1 min-w-[240px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-300" size={14} />
+                <input className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-200" placeholder="Buscar escola, email, tenant_id ou compra..." value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={planFilter} onChange={e => setPlanFilter(e.target.value)}>
+                <option value="all">Todos planos</option>
+                {plans.map(plan => <option key={plan} value={plan}>{plan}</option>)}
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                <option value="all">Todos status</option>
+                {statuses.map(status => <option key={status} value={status}>{status}</option>)}
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={internalFilter} onChange={e => setInternalFilter(e.target.value)}>
+                <option value="all">Internas e externas</option>
+                <option value="internal">Somente internas</option>
+                <option value="external">Somente externas</option>
+              </select>
+              <select className="border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white" value={divergenceFilter} onChange={e => setDivergenceFilter(e.target.value)}>
+                <option value="all">Com/sem divergencia</option>
+                <option value="with">Com divergencia</option>
+                <option value="without">Sem divergencia</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-gray-900">Tabela operacional</h3>
+                <p className="text-xs text-gray-400 mt-0.5">{sourceUnavailable('v_ceo_subscribers') && sourceUnavailable('tenants') ? 'Fonte nao disponivel' : `${accounts.length} conta(s) visiveis`}</p>
+              </div>
+              <Badge color="gray">somente leitura</Badge>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Tenant</th>
+                    <th className="px-4 py-3 text-left">Responsavel</th>
+                    <th className="px-4 py-3 text-left">Plano</th>
+                    <th className="px-4 py-3 text-left">Status</th>
+                    <th className="px-4 py-3 text-left">Origem</th>
+                    <th className="px-4 py-3 text-left">Compra</th>
+                    <th className="px-4 py-3 text-left">Divergencia</th>
+                    <th className="px-4 py-3 text-left">Severidade</th>
+                    <th className="px-4 py-3 text-right">Acoes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {accounts.length === 0 ? <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Nenhuma conta encontrada nas fontes disponiveis.</td></tr> : accounts.map(row => (
+                    <tr key={row.tenant_id} className="hover:bg-gray-50/60">
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-gray-800 max-w-[220px] truncate">{row.tenant_name}</p>
+                        <p className="text-[11px] text-gray-400 font-mono truncate max-w-[220px]">{row.tenant_id}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-gray-800 max-w-[190px] truncate">{row.owner_name ?? 'N/D'}</p>
+                        <p className="text-[11px] text-gray-400 truncate max-w-[190px]">{row.primary_email ?? 'sem email'}</p>
+                      </td>
+                      <td className="px-4 py-3"><Badge color={PLAN_COLOR[row.plan_code ?? ''] ?? 'gray'}>{row.plan_code ?? 'N/D'}</Badge></td>
+                      <td className="px-4 py-3"><Badge color={row.status === 'ACTIVE' ? 'green' : row.status === 'INACTIVE' ? 'gray' : 'yellow'}>{row.status ?? 'N/D'}</Badge>{row.is_internal && <span className="ml-2"><Badge color="gray">interno</Badge></span>}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500 max-w-[160px] truncate">{row.origin}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500">{row.linked_purchase ? <><p>{row.linked_purchase.status ?? 'N/D'} / {row.linked_purchase.activation_status ?? 'sem ativacao'}</p><p className="text-[10px] text-gray-400 font-mono truncate max-w-[160px]">{row.linked_purchase.provider_order_id ?? row.linked_purchase.id}</p></> : 'Sem compra vinculada'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500 max-w-[200px] truncate">{row.divergence_label ?? 'Sem divergencia'}</td>
+                      <td className="px-4 py-3"><span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${accountSeverityTone[row.severity]}`}>{row.severity_label}</span></td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex gap-1 justify-end">
+                          <button onClick={() => setDetail(row)} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Detalhes</button>
+                          <button onClick={() => copyText(row.tenant_id)} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">{copied === row.tenant_id ? 'Copiado' : 'Tenant'}</button>
+                          <button onClick={() => copyText(row.primary_email)} disabled={!row.primary_email} className="px-2 py-1 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-40">{copied === row.primary_email ? 'Copiado' : 'Email'}</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_1fr] gap-6">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="font-bold text-gray-900">Contas internas - fora das metricas</h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Fonte: tenants.is_internal / getCeoInternalTenants().</p>
+                </div>
+                <Badge color="gray">{data.internalAccounts.length}</Badge>
+              </div>
+              <div className="space-y-2">
+                {data.internalAccounts.length === 0 ? <div className="text-sm text-gray-400 py-6 text-center">Nenhuma conta interna encontrada.</div> : data.internalAccounts.map(row => (
+                  <div key={row.tenant_id} className="border border-gray-100 rounded-2xl p-4 flex flex-wrap gap-3 items-center justify-between">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-800 truncate">{row.tenant_name}</p>
+                      <p className="text-xs text-gray-400 truncate">{row.primary_email ?? 'sem email'} · {row.plan_code ?? 'sem plano'}</p>
+                      <p className="text-[11px] text-gray-400 mt-1">{row.marked_internal_at ? `Marcada em ${new Date(row.marked_internal_at).toLocaleString('pt-BR')}` : 'Data de marcacao nao disponivel'}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setDetail(row)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Detalhes</button>
+                      {canManageInternal && (
+                        <button onClick={() => handleRemoveInternal(row)} disabled={internalLoading} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 disabled:opacity-50">
+                          Remover interna
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-bold text-gray-900 mb-3">Proximas acoes recomendadas</h3>
+                <div className="space-y-2">{data.nextActions.map(action => <div key={action} className="flex gap-2 text-sm text-gray-600"><CheckCircle size={14} className="text-emerald-500 mt-0.5 shrink-0" /><span>{action}</span></div>)}</div>
+              </div>
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-bold text-gray-900 mb-3">Fontes monitoradas</h3>
+                <div className="space-y-2">
+                  {data.sources.map(source => (
+                    <div key={source.key} className="flex items-start gap-2 text-xs border border-gray-100 rounded-xl p-3">
+                      {source.status === 'available' ? <CheckCircle size={13} className="text-emerald-500 mt-0.5 shrink-0" /> : <AlertCircle size={13} className="text-gray-300 mt-0.5 shrink-0" />}
+                      <div className="min-w-0"><p className="font-semibold text-gray-700">{source.label}</p><p className="text-gray-400 truncate">{source.status === 'available' ? 'Disponivel' : source.detail ?? 'Fonte nao disponivel'}</p></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {detail && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDetail(null)}>
+              <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">{detail.tenant_name}</h3>
+                    <p className="text-xs text-gray-400 font-mono break-all">{detail.tenant_id}</p>
+                  </div>
+                  <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-700">x</button>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  {[
+                    ['Email principal', detail.primary_email ?? 'N/D'],
+                    ['Responsavel', detail.owner_name ?? 'N/D'],
+                    ['Plano atual', detail.plan_code ?? 'N/D'],
+                    ['Status', detail.status ?? 'N/D'],
+                    ['Conta interna', detail.is_internal ? 'Sim' : 'Nao'],
+                    ['Origem', detail.origin],
+                    ['Ultima atividade', detail.last_activity_at ? new Date(detail.last_activity_at).toLocaleString('pt-BR') : detail.last_activity_source],
+                    ['Divergencia', detail.divergence_label ?? 'Sem divergencia'],
+                  ].map(([label, value]) => <div key={label} className="bg-gray-50 rounded-xl p-3"><p className="text-xs text-gray-400">{label}</p><p className="font-semibold text-gray-800 break-all">{value}</p></div>)}
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <p className="text-xs font-bold text-gray-500 uppercase mb-2">Usuarios associados</p>
+                    {detail.users.length === 0 ? <p className="text-sm text-gray-400">Fonte users indisponivel ou sem usuarios vinculados.</p> : detail.users.map(user => (
+                      <div key={user.id ?? user.email ?? 'user'} className="text-sm border-b border-gray-100 py-2 last:border-0">
+                        <p className="font-semibold text-gray-800">{user.name ?? 'Sem nome'}</p>
+                        <p className="text-xs text-gray-400">{user.email ?? 'sem email'} · {user.is_active === false ? 'inativo' : 'ativo/N/D'}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-4">
+                    <p className="text-xs font-bold text-gray-500 uppercase mb-2">Compra vinculada</p>
+                    {detail.linked_purchase ? (
+                      <div className="text-sm text-gray-700 space-y-1">
+                        <p><strong>Status:</strong> {detail.linked_purchase.status ?? 'N/D'} / {detail.linked_purchase.activation_status ?? 'sem ativacao'}</p>
+                        <p><strong>Plano:</strong> {detail.linked_purchase.plan_code ?? 'N/D'}</p>
+                        <p><strong>Produto:</strong> {detail.linked_purchase.product_key ?? 'N/D'}</p>
+                        <p className="font-mono text-xs break-all">{detail.linked_purchase.provider_order_id ?? detail.linked_purchase.id}</p>
+                      </div>
+                    ) : <p className="text-sm text-gray-400">Sem compra vinculada nas fontes carregadas.</p>}
+                  </div>
+                </div>
+
+                <div className="mt-4 bg-gray-50 rounded-xl p-4">
+                  <p className="text-xs font-bold text-gray-500 uppercase mb-2">Ultimos eventos administrativos</p>
+                  {detail.audit_events.length === 0 ? <p className="text-sm text-gray-400">Sem eventos disponiveis em admin_audit_log.</p> : detail.audit_events.map(event => (
+                    <div key={`${event.action_type}-${event.created_at}`} className="text-sm border-b border-gray-100 py-2 last:border-0">
+                      <p className="font-semibold text-gray-800">{event.action_type}</p>
+                      <p className="text-xs text-gray-400">{event.description ?? 'Sem descricao'} · {event.created_at ? new Date(event.created_at).toLocaleString('pt-BR') : 'sem data'}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-5 flex flex-wrap gap-2 justify-end">
+                  <button onClick={() => copyText(detail.tenant_id)} className="px-3 py-2 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">{copied === detail.tenant_id ? 'Tenant copiado' : 'Copiar tenant_id'}</button>
+                  <button onClick={() => copyText(detail.primary_email)} disabled={!detail.primary_email} className="px-3 py-2 text-xs font-semibold rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-40">{copied === detail.primary_email ? 'Email copiado' : 'Copiar email'}</button>
+                  {canResetPassword && detail.primary_email && <button onClick={() => setResetTarget({ email: detail.primary_email!, name: detail.owner_name ?? detail.tenant_name })} className="px-3 py-2 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100">Reset de senha</button>}
+                  {canManageInternal && !detail.is_internal && <button onClick={() => setInternalTarget(detail)} className="px-3 py-2 text-xs font-semibold rounded-lg bg-gray-900 text-white hover:bg-gray-800">Marcar interna</button>}
+                  {canManageInternal && detail.is_internal && <button onClick={() => handleRemoveInternal(detail)} disabled={internalLoading} className="px-3 py-2 text-xs font-semibold rounded-lg bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 disabled:opacity-50">Remover interna</button>}
+                </div>
+                <p className="text-xs text-gray-400 mt-4">Detalhes locais. Nenhuma acao de delete, plano, assinatura, credito ou Kiwify esta exposta nesta tela.</p>
+              </div>
+            </div>
+          )}
+
+          {internalTarget && (
+            <InternalConfirmModal
+              tenantName={internalTarget.tenant_name}
+              onConfirm={confirmMarkInternal}
+              onClose={() => setInternalTarget(null)}
+              loading={internalLoading}
+            />
+          )}
+
+          {resetTarget && (
+            <PasswordResetModal
+              targetEmail={resetTarget.email}
+              targetName={resetTarget.name}
+              adminUser={adminUser}
+              onClose={() => setResetTarget(null)}
+              onSuccess={() => setResetTarget(null)}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+};
 
 type LDSectionDraft = {
   title: string;
@@ -3474,6 +5132,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
 
   const TABS: { id: Tab; label: string; icon: any; roles: AdminRole[] }[] = [
     { id: 'overview',      label: 'Visão Geral',      icon: PieChart,    roles: ['super_admin', 'financeiro', 'operacional', 'comercial', 'suporte', 'auditoria', 'viewer'] },
+    { id: 'diagnostics',   label: 'Diagnóstico',       icon: Activity,    roles: ['super_admin', 'financeiro', 'operacional', 'suporte', 'auditoria', 'viewer'] },
+    { id: 'incident_center', label: 'Alertas & Incidentes', icon: AlertTriangle, roles: ['super_admin', 'financeiro', 'operacional', 'suporte', 'auditoria', 'viewer'] },
+    { id: 'pricing_ai',    label: 'Planos & Custos',   icon: DollarSign,  roles: ['super_admin', 'financeiro', 'operacional', 'comercial', 'auditoria', 'viewer'] },
+    { id: 'billing_kiwify', label: 'Billing & Kiwify', icon: CreditCard,  roles: ['super_admin', 'financeiro', 'operacional', 'comercial', 'suporte', 'auditoria', 'viewer'] },
+    { id: 'accounts_admin', label: 'Usuarios & Tenants', icon: Users,     roles: ['super_admin', 'financeiro', 'operacional', 'suporte', 'auditoria', 'viewer'] },
     { id: 'plans',         label: 'Planos',            icon: Package,     roles: ['super_admin', 'financeiro'] },
     { id: 'subscribers',   label: 'Assinantes',        icon: Users,       roles: ['super_admin', 'financeiro', 'operacional', 'comercial', 'suporte', 'viewer'] },
     { id: 'monitoring',    label: 'Monitoramento',     icon: Activity,    roles: ['super_admin', 'operacional', 'suporte'] },
@@ -3583,10 +5246,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
       {/* CONTENT */}
       <main className="flex-1 overflow-y-auto p-8">
         {activeTab === 'overview'      && <OverviewTab adminUser={adminUser} darkMode={darkMode} />}
+        {activeTab === 'diagnostics'   && <HealthCenterTab onNavigate={setActiveTab} />}
+        {activeTab === 'incident_center' && <AlertsIncidentCenterTab onNavigate={setActiveTab} />}
+        {activeTab === 'pricing_ai'    && <PricingAiAdminTab />}
+        {activeTab === 'billing_kiwify' && <BillingKiwifyReconciliationTab />}
+        {activeTab === 'accounts_admin' && <UsersTenantsAdminTab adminUser={adminUser} />}
         {activeTab === 'plans'         && <PlansTab adminUser={adminUser} />}
         {activeTab === 'subscribers'   && <SubscribersTab adminUser={adminUser} />}
         {activeTab === 'monitoring'    && <MonitoringTab adminUser={adminUser} />}
-        {activeTab === 'credits'       && <CreditsTab adminUser={adminUser} />}
+        {activeTab === 'credits'       && <CreditCommandCenterTab onNavigate={setActiveTab} />}
         {activeTab === 'landing'       && <LandingTab adminUser={adminUser} />}
         {activeTab === 'kiwify'        && <KiwifyProductsTab adminUser={adminUser} />}
         {activeTab === 'coupons'       && <CouponsTab adminUser={adminUser} />}

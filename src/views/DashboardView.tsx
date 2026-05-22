@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
   Users, FileText, Zap, CheckCircle2, Clock, ArrowRight,
   ChevronLeft, ChevronRight, MapPin, User, Sparkles,
@@ -12,6 +12,7 @@ import { PaymentService } from '../services/paymentService';
 import { PlanTier } from '../types';
 import { NumberTicker } from '@/src/components/magicui/number-ticker';
 import { supabase } from '../services/supabase';
+import { CreditBalanceBadge } from '../components/CreditBalanceBadge';
 
 // ─── Diagnosis normalizer ────────────────────────────────────────────────────
 function normalizeDiagnosis(value: unknown): string {
@@ -769,7 +770,7 @@ export function DashboardView({
       action: 'Ver pacotes', nav: 'subscription' });
   } else if (creditsLevel === 'warning') {
     suggestions.push({ icon: Zap, color: C.amber, title: 'Créditos em atenção',
-      body: `${available} créditos disponíveis. Renova em ${resetBR ?? 'breve'}.` });
+      body: `${available} créditos disponíveis. Próxima renovação dos créditos: ${resetBR ?? 'breve'}.` });
   }
   if (isFree || isPro) {
     suggestions.push({ icon: Star, color: C.gold,
@@ -933,13 +934,13 @@ export function DashboardView({
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard
           icon={ShieldCheck} label="Plano atual" value={planBadge}
-          sub={subscriptionExpiry ? `Vence ${fmtDateBR(subscriptionExpiry)}` : monthlyCredits > 0 ? `${monthlyCredits} créditos/mês` : undefined}
+          sub={subscriptionExpiry ? `Próxima renovação do plano: ${fmtDateBR(subscriptionExpiry)}` : monthlyCredits > 0 ? `${monthlyCredits} créditos/mês` : undefined}
           color={planColor} badge={planBadge !== 'PREMIUM' ? 'Ativo' : undefined}
           onClick={() => onNavigate?.('subscription')}
         />
         <StatCard
           icon={Zap} label="Créditos IA" value={available}
-          sub={resetBR ? `Renova em ${resetBR}` : 'Créditos disponíveis'}
+          sub={resetBR ? `Próxima renovação dos créditos: ${resetBR}` : 'Saldo disponível'}
           color={creditsLevel === 'danger' ? C.rose : creditsLevel === 'warning' ? C.amber : C.petrol}
           pct={creditsPct} onClick={() => onNavigate?.('subscription')}
         />
@@ -957,6 +958,15 @@ export function DashboardView({
       </div>
 
       {/* ── ROTINA DO DIA ────────────────────────────────────────────────── */}
+      <CreditBalanceBadge
+        balance={available}
+        planCreditsMonthly={monthlyCredits}
+        consumedThisCycle={creditsUsed}
+        purchasedCreditsHistory={creditsPurchased}
+        resetAt={creditsResetAt}
+        onClick={() => onNavigate?.('subscription')}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
           <TodayAppointments appointments={appointments} onNavigate={onNavigate} />
@@ -1313,3 +1323,6 @@ export function DashboardView({
     </div>
   );
 }
+
+
+

@@ -1,27 +1,30 @@
 /**
- * _credits.ts — Validação e débito de créditos no servidor (Sub-etapa 2A)
- *
- * Usa service_role para bypassar RLS e ter acesso autoritativo ao saldo.
- * Durante a 2A, o frontend ainda debita em paralelo (duplicação temporária).
- * Entradas do ledger geradas aqui têm prefixo "[gateway]" para rastreabilidade.
+ * _credits.ts
+ * Operações financeiras autoritativas do ai-gateway usando RPCs atômicas.
  */
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// ─── Contexto do tenant/usuário ───────────────────────────────────────────────
-
 export interface TenantContext {
   tenantId: string;
-  userId:   string;
+  userId: string;
 }
 
-/**
- * Busca tenant_id e userId a partir do uid do JWT.
- * Usa service_role para garantir acesso mesmo com RLS restritiva.
- */
+export interface WalletState {
+  walletId: string;
+  balance: number;
+}
+
+export interface CreditReservationResult {
+  operationId: string;
+  reservationId: string;
+  finalBalance: number;
+  idempotent: boolean;
+}
+
 export async function getTenantContext(
   adminDb: SupabaseClient,
-  uid:     string,
+  uid: string,
 ): Promise<TenantContext> {
   const { data, error } = await adminDb
     .from('users')
@@ -36,20 +39,8 @@ export async function getTenantContext(
   return { tenantId: data.tenant_id as string, userId: data.id as string };
 }
 
-// ─── Verificação de saldo ─────────────────────────────────────────────────────
-
-export interface WalletState {
-  walletId: string;
-  balance:  number;
-}
-
-/**
- * Lê o saldo atual do tenant.
- * Retorna null se a wallet não existir (tenant sem carteira = permite a operação,
- * compatível com o comportamento atual do frontend).
- */
 export async function getWallet(
-  adminDb:  SupabaseClient,
+  adminDb: SupabaseClient,
   tenantId: string,
 ): Promise<WalletState | null> {
   const { data, error } = await adminDb
@@ -64,27 +55,19 @@ export async function getWallet(
   }
 
   if (!data) return null;
-
   return { walletId: data.id as string, balance: Number(data.balance ?? 0) };
 }
 
-/**
- * Verifica se o tenant tem saldo suficiente.
- * Lança erro estruturado capturável pelo index.ts:
- *   INSUFFICIENT_CREDITS:<balance>:<required>
- *
- * Se a wallet não existir, permite (fallback gracioso — mesma regra do frontend).
- */
 export async function checkCredits(
-  adminDb:  SupabaseClient,
+  adminDb: SupabaseClient,
   tenantId: string,
   required: number,
 ): Promise<WalletState | null> {
-  if (required <= 0) return null; // sem requisito mínimo — pula a verificação
+  if (required <= 0) return null;
 
   const wallet = await getWallet(adminDb, tenantId);
   if (!wallet) {
-    console.warn('[_credits] Wallet não encontrada para tenant', tenantId, '— operação permitida');
+    console.warn('[_credits] Wallet nao encontrada para tenant', tenantId, '- operacao permitida');
     return null;
   }
 
@@ -95,55 +78,118 @@ export async function checkCredits(
   return wallet;
 }
 
-// ─── Débito ───────────────────────────────────────────────────────────────────
+type RpcCreditResult = {
+  ok: boolean;
+  reason?: string;
+  operation_id?: string;
+  reservation_id?: string;
+  final_balance?: number;
+  current_balance?: number;
+  requested_amount?: number;
+  idempotent?: boolean;
+};
 
-/**
- * Debita créditos e registra no ledger com prefixo "[gateway]".
- * Retorna o saldo restante.
- *
- * Usa tenant_id (não walletId) para garantir que o UPDATE sempre acerta a linha
- * correta — evita o bug silencioso onde .eq('id', null) afeta 0 rows sem erro.
- * Lança em caso de falha para que o index.ts deixe creditsRemaining undefined
- * e o frontend realize o débito como fallback.
- */
-export async function debitCredits(
-  adminDb:     SupabaseClient,
-  wallet:      WalletState,
-  tenantId:    string,
-  userId:      string,
-  cost:        number,
-  description: string,
-): Promise<number> {
-  const next = Math.max(0, wallet.balance - cost);
+async function callCreditRpc(
+  adminDb: SupabaseClient,
+  fn: string,
+  payload: Record<string, unknown>,
+): Promise<RpcCreditResult> {
+  const { data, error } = await adminDb.rpc(fn, payload);
+  if (error) throw new Error(`${fn}:${error.message}`);
 
-  // UPDATE usando tenant_id — mais robusto que walletId (evita 0-row silencioso)
-  const { data: updatedRows, error: updateErr } = await adminDb
-    .from('credits_wallet')
-    .update({ balance: next })
-    .eq('tenant_id', tenantId)
-    .select('balance');
+  const result = (data ?? null) as RpcCreditResult | null;
+  if (!result) throw new Error(`${fn}:EMPTY_RESULT`);
 
-  if (updateErr) {
-    console.error('[_credits] debitCredits update error:', updateErr.message);
-    throw new Error(`WALLET_UPDATE_FAILED: ${updateErr.message}`);
+  if (!result.ok) {
+    if (result.reason === 'insufficient_credits') {
+      throw new Error(`INSUFFICIENT_CREDITS:${result.current_balance ?? 0}:${result.requested_amount ?? 0}`);
+    }
+    throw new Error(`${fn}:${result.reason ?? 'UNKNOWN_ERROR'}`);
   }
 
-  if (!updatedRows || updatedRows.length === 0) {
-    // UPDATE afetou 0 rows — wallet não existe ou tenant_id incorreto
-    console.error('[_credits] debitCredits: 0 rows updated for tenant', tenantId);
-    throw new Error('WALLET_UPDATE_NO_ROWS');
-  }
+  return result;
+}
 
-  // Ledger entry SOMENTE após update confirmado — prefixo "[gateway]" para rastreabilidade
-  await adminDb.from('credits_ledger').insert({
-    tenant_id:   tenantId,
-    user_id:     userId,
-    type:        'usage_ai',
-    amount:      -cost,
-    description: `[gateway] ${description}`,
-  }).then(({ error }) => {
-    if (error) console.warn('[_credits] ledger insert warn:', error.message);
+export async function reserveCredits(
+  adminDb: SupabaseClient,
+  params: {
+    operationId: string;
+    tenantId: string;
+    userId: string;
+    amount: number;
+    description: string;
+    requestType?: string;
+    task: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<CreditReservationResult> {
+  const result = await callCreditRpc(adminDb, 'atomic_reserve_credits', {
+    p_operation_id: params.operationId,
+    p_amount: params.amount,
+    p_description: params.description,
+    p_tenant_id: params.tenantId,
+    p_user_id: params.userId,
+    p_metadata: {
+      request_type: params.requestType ?? null,
+      task: params.task,
+      ...(params.metadata ?? {}),
+    },
+    p_source: 'ai_gateway.reserve',
   });
 
-  return next;
+  return {
+    operationId: result.operation_id ?? params.operationId,
+    reservationId: result.reservation_id as string,
+    finalBalance: Number(result.final_balance ?? 0),
+    idempotent: !!result.idempotent,
+  };
+}
+
+export async function commitReservedCredits(
+  adminDb: SupabaseClient,
+  params: {
+    operationId: string;
+    reservationId: string;
+    tenantId: string;
+    userId: string;
+    description: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<number> {
+  const result = await callCreditRpc(adminDb, 'atomic_commit_reserved_credits', {
+    p_operation_id: params.operationId,
+    p_reservation_id: params.reservationId,
+    p_description: params.description,
+    p_tenant_id: params.tenantId,
+    p_user_id: params.userId,
+    p_metadata: params.metadata ?? {},
+    p_final_ledger_type: 'usage_ai',
+    p_source: 'ai_gateway.commit',
+  });
+
+  return Number(result.final_balance ?? 0);
+}
+
+export async function releaseReservedCredits(
+  adminDb: SupabaseClient,
+  params: {
+    operationId: string;
+    reservationId: string;
+    tenantId: string;
+    userId: string;
+    description: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<number> {
+  const result = await callCreditRpc(adminDb, 'atomic_release_reserved_credits', {
+    p_operation_id: params.operationId,
+    p_reservation_id: params.reservationId,
+    p_description: params.description,
+    p_tenant_id: params.tenantId,
+    p_user_id: params.userId,
+    p_metadata: params.metadata ?? {},
+    p_source: 'ai_gateway.release',
+  });
+
+  return Number(result.final_balance ?? 0);
 }

@@ -1,6 +1,6 @@
 // geminiService.ts
 import { AIService } from "./aiService";
-import { ProtocolType, Student, User } from "../types";
+import { ProtocolType, Student, User, AIProtocolResult } from "../types";
 import type { StudentContext } from "./studentContextService";
 
 // This file is now a facade for the new AIService that enforces credits.
@@ -13,7 +13,7 @@ export const generateProtocolAI = async (
   user: User,
   laudoBase64?: string,
   studentContext?: StudentContext
-): Promise<string> => {
+): Promise<AIProtocolResult> => {
   return AIService.generateProtocolJSON(type, student, user, studentContext);
 };
 

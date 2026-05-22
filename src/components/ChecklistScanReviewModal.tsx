@@ -138,19 +138,22 @@ export const ChecklistScanReviewModal: React.FC<ChecklistScanReviewModalProps> =
       };
 
       const title = isRegente
-        ? 'Checklist de Observação em Sala (scan ENEM-like)'
-        : 'Análise de Rotina Semanal — Cuidadora (scan ENEM-like)';
+        ? 'Checklist de Observação em Sala (leitura automática)'
+        : 'Rotina Semanal — Cuidadora / Apoio Escolar (leitura automática)';
 
       const formId = await ObservationFormService.save({
-        tenantId:   user.tenant_id,
-        studentId:  student.id,
-        userId:     user.id,
-        formType:   scan.checklistType,
+        tenantId:      user.tenant_id,
+        studentId:     student.id,
+        userId:        user.id,
+        formType:      scan.checklistType,
         title,
-        fieldsData: fieldsData as Record<string, any>,
+        fieldsData:    fieldsData as Record<string, any>,
         auditCode,
-        createdBy:  user.name,
-        status:     'finalizado',
+        createdBy:     user.name,
+        status:        'finalizado',
+        origin:        'scan_sheet',
+        confidence:    scan.overallConfidence,
+        sourceFileUrl: fileUrl,
       });
 
       if (formId && !DEMO_MODE) {
@@ -164,7 +167,7 @@ export const ChecklistScanReviewModal: React.FC<ChecklistScanReviewModalProps> =
           fileSize:     file.size,
           mimeType:     file.type,
           uploadedBy:   user.name,
-          notes: `Scan ENEM-like · Confiança: ${pct}% · ${markedCodes.length} itens · Código: ${auditCode}`,
+          notes: `Leitura automática IncluiAI · Confiança: ${pct}% · ${markedCodes.length} itens · Código: ${auditCode}`,
         });
 
         await TimelineService.add({
@@ -172,7 +175,7 @@ export const ChecklistScanReviewModal: React.FC<ChecklistScanReviewModalProps> =
           studentId:   student.id,
           eventType:   'ficha',
           title:       `${title} registrado`,
-          description: `Scan ENEM-like — ${markedCodes.length} itens — Confiança: ${pct}% — por ${user.name}`,
+          description: `Leitura automática IncluiAI — ${markedCodes.length} itens — Confiança: ${pct}% — por ${user.name}`,
           linkedId:    formId,
           linkedTable: 'observation_forms',
           icon:        'ClipboardCheck',

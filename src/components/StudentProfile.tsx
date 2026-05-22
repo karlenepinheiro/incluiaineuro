@@ -524,9 +524,12 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       const t = ordered[i];
       setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'generating' } : p));
       try {
-        const jsonStr = await AIService.generateProtocolJSON(t.id, student, user as any);
-        const parsed = JSON.parse(jsonStr);
+        const aiResult = await AIService.generateProtocolJSON(t.id, student, user as any);
+        const parsed   = JSON.parse(aiResult.json);
         const sections = parsed?.sections ?? [];
+
+        const isFallback = aiResult.status === 'fallback_used';
+        const docStatus  = isFallback ? 'DRAFT' : 'DRAFT';
 
         // Gera código de auditoria único para este documento
         const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -541,26 +544,31 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           userId:         (user as any).id,
           doc_type:       t.id,
           title:          `${t.label} — ${student.name}`,
-          content:        jsonStr,
+          content:        aiResult.json,
           structuredData: { sections },
-          status:         'DRAFT',
+          status:         docStatus,
           generatedBy:    (user as any).name || 'Sistema',
           auditCode,
         });
 
         // Registra evento na linha do tempo
         if ((user as any)?.tenant_id) {
+          const statusNote = isFallback ? ' (geração parcial — revisar)' : '';
           TimelineService.add({
             tenantId:    (user as any).tenant_id,
             studentId:   student.id,
             eventType:   'documento',
-            title:       `${t.label} gerado em lote`,
-            description: `Documento gerado por ${(user as any).name ?? 'Sistema'} · Cód. ${auditCode}`,
+            title:       `${t.label} gerado em lote${statusNote}`,
+            description: `Documento gerado por ${(user as any).name ?? 'Sistema'} · Cód. ${auditCode}${aiResult.warning ? ` · ${aiResult.warning}` : ''}`,
             author:      (user as any).name,
           }).catch(() => {});
         }
 
-        setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'done' } : p));
+        setBatchProgress(prev => prev.map((p, idx) =>
+          idx === i
+            ? { ...p, status: isFallback ? 'done' : 'done', msg: aiResult.warning }
+            : p
+        ));
       } catch (err: any) {
         setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'error', msg: err?.message || 'Erro' } : p));
       }
@@ -2306,7 +2314,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 <button
                   onClick={() => printRegenteEnem(student, (user as any)?.schoolConfigs?.[0] ?? null)}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 transition"
-                  title="Ficha com gabarito ENEM-like, para scan automático pela IA"
+                  title="Ficha com leitura automática IncluiAI"
                 >
                   <Download size={14}/> Baixar ficha (leitura automática)
                 </button>
@@ -2441,7 +2449,7 @@ ${['Comunica-se verbalmente','Usa gestos para comunicar','Usa recursos de CAA','
                 <button
                   onClick={() => printCuidadoraEnem(student, (user as any)?.schoolConfigs?.[0] ?? null)}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 transition"
-                  title="Ficha com gabarito ENEM-like para scan automático"
+                  title="Ficha com leitura automática IncluiAI"
                 >
                   <Download size={14}/> Baixar ficha (leitura automática)
                 </button>
