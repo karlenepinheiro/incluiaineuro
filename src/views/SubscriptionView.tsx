@@ -226,7 +226,7 @@ export const SubscriptionView: React.FC<Props> = ({ user, creditsAvailable, plan
   const planShortCode = isFree ? 'FREE' : isPro ? 'PRO' : 'PREMIUM';
 
   // Nome de exibição com ciclo: "PRO MENSAL", "PREMIUM ANUAL", etc.
-  const planDisplayName = formatPlanDisplayName(rawCode, sub?.billingCycle ?? 'monthly');
+  const planDisplayName = formatPlanDisplayName(rawCode, sub?.billingCycle ?? undefined);
 
   // ── Abrir checkout de assinatura ─────────────────────────────────────────
   async function handleSubscribe(code: 'PRO' | 'MASTER', cycle?: 'monthly' | 'annual') {

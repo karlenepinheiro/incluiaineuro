@@ -28,6 +28,7 @@ export type DocumentCategory =
   | 'estudo_de_caso'
   | 'pei'
   | 'paee'
+  | 'documento_unificado_pei_paee'
   | 'pdi'
   | 'relatorio'
   | 'atividade_adaptada'
@@ -283,6 +284,7 @@ const CATEGORY_LABELS: Record<DocumentCategory, string> = {
   estudo_de_caso:     'Estudo de Caso',
   pei:                'PEI (Plano Educacional Individualizado)',
   paee:               'PAEE (Plano de AEE)',
+  documento_unificado_pei_paee: 'Documento Unificado PEI + PAEE',
   pdi:                'PDI (Plano de Desenvolvimento Individual)',
   relatorio:          'Relatório',
   atividade_adaptada: 'Atividade Adaptada',
@@ -300,8 +302,10 @@ function getRelevantDocTypes(docType: DocumentCategory): DocumentCategory[] {
       return ['estudo_de_caso'];
     case 'pdi':
       return ['pei', 'paee', 'estudo_de_caso'];
+    case 'documento_unificado_pei_paee':
+      return ['estudo_de_caso', 'paee', 'pei'];
     case 'plano_acao_regente':
-      return ['pei', 'estudo_de_caso', 'plano_acao_aee'];
+      return ['estudo_de_caso', 'pei', 'paee', 'plano_acao_aee'];
     case 'plano_acao_aee':
       return ['paee', 'estudo_de_caso'];
     case 'perfil_inteligente':
@@ -979,6 +983,17 @@ function buildEvidenceLayers(
       complementary.forms         = observationForms.slice(4);
       break;
 
+    case 'documento_unificado_pei_paee':
+      priority.cognitiveProfiles = cognitiveProfiles.slice(0, 2);
+      priority.reports            = medicalReports.slice(0, 2);
+      priority.forms              = observationForms.slice(0, 4);
+      priority.timeline           = timeline.filter(t => ['evolucao', 'protocolo', 'documento'].includes(t.eventType)).slice(0, 10);
+      priority.appointments       = appointments.slice(-10);
+      complementary.cognitiveProfiles = cognitiveProfiles.slice(2, 3);
+      complementary.reports           = medicalReports.slice(2, 4);
+      complementary.forms             = observationForms.slice(4, 6);
+      break;
+
     case 'ficha_cognitiva':
       priority.cognitiveProfiles = cognitiveProfiles;
       priority.reports            = medicalReports.slice(0, 3);
@@ -1351,13 +1366,15 @@ const DOC_PRIORITY_INSTRUCTIONS: Partial<Record<DocumentCategory, string>> = {
   paee:
     'Baseie o PAEE prioritariamente no Estudo de Caso, na Ficha do Aluno e nos laudos/relatórios subidos. O PAEE deve tratar de barreiras, acessibilidade, tecnologia assistiva, recursos, estratégias do AEE e articulação com sala comum.',
   pdi:
-    'Baseie o PDI no Estudo de Caso, PEI, PAEE e Ficha do Aluno. O PDI deve integrar metas de desenvolvimento, evolução, indicadores e monitoramento.',
+    'Baseie o PDI no Estudo de Caso, PEI, PAEE e Ficha do Aluno. O PDI deve integrar metas de desenvolvimento, indicadores e monitoramento; evolução, avanço, regressão ou manutenção só devem ser mencionados quando houver registros temporais comparáveis.',
+  documento_unificado_pei_paee:
+    'Baseie o Documento Unificado PEI + PAEE prioritariamente no Estudo de Caso, PAEE e PEI. Sintetize e integre as fontes sem copiar integralmente. Use ficha do aluno, família registrada, laudos/documentos analisados, ficha cognitiva, observações e registros pedagógicos apenas como fontes secundárias. Perfil Inteligente, Planos de Ação e atividades geradas não devem ser base principal.',
   plano_acao_regente:
-    'Baseie o Plano Regente no PEI, Estudo de Caso, Ficha do Aluno, laudos, fichas cognitivas, relatório da cuidadora, Plano AEE e observação do professor regente. O plano deve ser prático, com ações, materiais, jogos, vídeos, dinâmicas, adaptações e evidências.',
+    'Baseie o Plano Regente prioritariamente no Estudo de Caso, PEI e PAEE quando existirem. Use o PAEE como fonte de acessibilidade, apoios e barreiras, sem transformar o documento em Plano AEE. Recursos e atividades só devem ser sugeridos quando houver relação com barreira, objetivo pedagógico, necessidade de acesso ou registro disponível.',
   plano_acao_aee:
-    'Baseie o Plano AEE obrigatoriamente no PAEE e no Estudo de Caso. Use ficha do aluno, laudos, fichas cognitivas, relatório da cuidadora, Perfil Inteligente e evolução como evidências complementares. O plano deve ser prático, com acolhida, roteiro de atendimento, jogos, vídeos, materiais, atividade impressa, recurso digital, como aplicar e como registrar resposta.',
+    'Baseie o Plano AEE obrigatoriamente no PAEE e no Estudo de Caso. Use ficha do aluno, laudos, fichas cognitivas, relatório da cuidadora e Perfil Inteligente como evidências complementares. Mantenha foco em acessibilidade, barreiras, recursos e acompanhamento do AEE; não transforme o plano em currículo de sala comum. Recursos e atividades só devem ser sugeridos quando houver evidência ou indicação no PAEE/contexto.',
   perfil_inteligente:
-    'Considere todos os documentos e evidências disponíveis. Produza uma síntese viva do aluno, sem inventar dados e diferenciando laudo, observação pedagógica, rotina, documento oficial e evolução.',
+    'Considere todos os documentos e evidências disponíveis. Produza uma síntese pedagógica objetiva, sem inventar dados e diferenciando laudo, observação pedagógica, rotina e documento oficial. Perfil anterior pode ser usado como histórico complementar, nunca como verdade única; evolução só deve ser mencionada com registros temporais comparáveis.',
   estudo_de_caso:
     'Integre todos os dados disponíveis: laudos, fichas, linha do tempo, família e perfil cognitivo. O Estudo de Caso é o documento-base de toda a cadeia pedagógica — deve ser analítico e interpretativo, não meramente descritivo.',
 };
@@ -1437,12 +1454,22 @@ export function selectDocumentChainForTarget(
       if (!paeeDoc) warnings.push('PAEE ausente — perspectiva de acessibilidade pode ficar incompleta no PDI');
       break;
 
+    case 'documento_unificado_pei_paee':
+      primarySources       = [ec, paee, pei];
+      secondarySources     = [ficha, laudos, fichas, cuid, reg, evol];
+      complementarySources = [perfil];
+      if (!ecDoc) criticalGaps.push('Estudo de Caso ausente — o Documento Unificado deve sinalizar a lacuna e sintetizar apenas as fontes disponíveis');
+      if (!paeeDoc) criticalGaps.push('PAEE ausente — o bloco de apoios e acessibilidade deve reconhecer a ausência e não inventar barreiras ou recursos');
+      if (!peiDoc) criticalGaps.push('PEI ausente — o bloco curricular deve reconhecer a ausência e não inventar objetivos, BNCC ou adaptações');
+      break;
+
     case 'plano_acao_regente':
-      primarySources       = [pei, ec];
-      secondarySources     = [ficha, laudos, fichas, cuid, aee, reg];
+      primarySources       = [ec, pei, paee];
+      secondarySources     = [ficha, laudos, fichas, cuid, reg];
       complementarySources = [perfil];
       if (!peiDoc) criticalGaps.push('PEI ausente — o Plano Regente deve se basear no PEI; foque no Estudo de Caso e nos dados do aluno');
-      if (!ecDoc && !peiDoc) criticalGaps.push('Estudo de Caso e PEI ausentes — use laudos, fichas e dados do aluno como base principal');
+      if (!paeeDoc) warnings.push('PAEE ausente — apoios de acessibilidade e barreiras podem ficar incompletos; não invente recursos ou estratégias de acessibilidade');
+      if (!ecDoc && !peiDoc && !paeeDoc) criticalGaps.push('Estudo de Caso, PEI e PAEE ausentes — use apenas dados registrados, laudos, fichas e observações disponíveis');
       break;
 
     case 'plano_acao_aee':
@@ -1812,11 +1839,11 @@ export function buildPromptBlock(pack: EvidencePack): string {
   lines.push(`\nScore de completude: ${enriched.scoreCompletude}%`);
   lines.push('\n===== FIM DO CONTEXTO CANÔNICO =====');
   lines.push(
-    '\nINSTRUÇÃO CRÍTICA: Use TODOS os dados acima.' +
-    ' Cite datas, frequências e padrões temporais.' +
+    '\nINSTRUÇÃO CRÍTICA: Use apenas os dados acima que tenham evidência disponível.' +
+    ' Cite datas, frequências e padrões temporais somente quando estiverem registrados.' +
     ' Use o perfil pedagógico inicial para calibrar complexidade.' +
-    ' Use os laudos na seção clínica. Use a linha do tempo para embasar progresso.' +
-    ' Não invente dados. Se há lacunas, infira a partir do diagnóstico — nunca escreva "não informado".' +
+    ' Use laudos apenas como fonte registrada e diferencie-os de observações pedagógicas. Use a linha do tempo para embasar progresso somente quando houver registros temporais comparáveis.' +
+    ' Não invente dados. Se não houver evidência nos dados disponíveis, use ausência neutra. Não deduza informação a partir de diagnóstico/CID. Não transforme ausência de dado em hipótese.' +
     '\n\nGUARDRAILS ÉTICOS OBRIGATÓRIOS:' +
     ' (1) Não invente laudos, diagnósticos, CID ou histórico não fornecido.' +
     ' (2) Não afirme ter lido arquivo cujo conteúdo não foi disponibilizado.' +
@@ -1824,7 +1851,8 @@ export function buildPromptBlock(pack: EvidencePack): string {
     ' (4) Não prescreva conduta médica ou terapêutica.' +
     ' (5) Diferencie sempre: laudo clínico (profissional de saúde) ≠ observação pedagógica (professor/AEE) ≠ registro de rotina (cuidadora) ≠ documento pedagógico oficial.' +
     ' (6) Sinalize lacunas quando informação essencial estiver ausente.' +
-    ' (7) Não crie CID inexistente. Use apenas diagnósticos presentes nos dados.',
+    ' (7) Não crie CID inexistente. Use apenas diagnósticos presentes nos dados.' +
+    ' (8) Diagnóstico e CID são contexto cadastral, não prova funcional; não os use isoladamente para deduzir comportamento, autonomia, comunicação, suporte, frequência, evolução, estratégia ou dificuldade pedagógica.',
   );
   return lines.join('\n');
 }
@@ -2033,13 +2061,16 @@ export function buildRepairPrompt(
   ctx: CanonicalStudentContext,
 ): string {
   const failedDims = validation.dimensions.filter(d => !d.passed).map(d => `${d.name} (score ${d.score})`);
-  return `O documento gerado apresentou problemas de qualidade. Regenere corrigindo TODOS os problemas.
+  return `O documento gerado apresentou problemas de qualidade. Regenere corrigindo os problemas indicados sem criar conteúdo artificial.
 
 GUARDRAILS OBRIGATÓRIOS NO REPARO:
 - NUNCA gere: "CID provável", "diagnóstico provável", "certamente apresenta", "provavelmente possui", "tratamento medicamentoso", "prescrição de", "terapia obrigatória".
-- Dado ausente → "Não há registro no sistema sobre..." — nunca inventar dados clínicos.
+- Dado ausente → use ausência neutra ou deixe vazio conforme o schema — nunca inventar dados clínicos, pedagógicos ou familiares.
+- Diagnóstico e CID são contexto cadastral, não prova funcional. Não deduza comportamento, autonomia, comunicação, suporte, frequência, evolução, estratégia ou dificuldade pedagógica a partir deles.
+- Evolução, avanço, regressão ou manutenção só podem ser mencionados quando houver registros temporais comparáveis.
 - Não transforme observação pedagógica em diagnóstico clínico.
 - Não afirme ter lido arquivo cujo conteúdo não foi extraído.
+- Preserve o schema, os nomes de campos e o formato JSON esperado. O reparo deve corrigir formato, JSON e aderência às evidências, não preencher lacunas por suposição.
 
 DIMENSÕES COM FALHA: ${failedDims.join(', ')}
 
@@ -2051,14 +2082,13 @@ ${failedOutput.slice(0, 800)}...
 
 INSTRUÇÕES DE REPARO OBRIGATÓRIAS:
 1. Use o nome real do aluno: "${ctx.student.name}"
-2. Substitua TODA linguagem genérica por análise específica baseada nas evidências
-3. Frequência: cite ${ctx.enriched.totalAtendimentos} atendimentos e ${ctx.enriched.totalFaltas} faltas${ctx.enriched.temporal.faltasConsecutivasMax >= 3 ? ` (${ctx.enriched.temporal.faltasConsecutivasMax} faltas consecutivas)` : ''}
-4. Laudos: use síntese dos ${ctx.enriched.laudosAnalisados} laudos analisados na seção clínica
-5. Cognitivo: cite média ${ctx.enriched.latestCognitiveAvg ?? 'N/A'}/5 e áreas impactadas: ${ctx.enriched.areasMaisImpactadas.join(', ')}
-6. Conhecimento prévio: use perfil pedagógico inicial para calibrar estratégias e linguagem
-7. PEI: inclua Português, Matemática, Ciências e Geografia
-8. Relatório: inclua mínimo 4 questões com escala 1–5 no blocoAvaliacao
-9. Analise impacto temporal: ${ctx.enriched.temporal.sequenciaInterrompida ? `atendimento interrompido há ${ctx.enriched.temporal.diasDesdeUltimoAtendimento} dias` : 'use datas e períodos no documento'}
+2. Substitua linguagem genérica por conteúdo específico somente quando houver evidência.
+3. Frequência, faltas e atendimento só devem aparecer se houver registros disponíveis no contexto.
+4. Laudos só devem ser usados quando houver síntese ou dados registrados; não invente seção clínica.
+5. Perfil cognitivo e conhecimento prévio só devem calibrar estratégias quando houver dados registrados.
+6. PEI, PAEE, PDI, Estudo de Caso e relatórios anteriores devem ser usados apenas como fontes registradas; não copie conteúdo integral.
+7. Não crie mínimos artificiais de itens, perguntas, disciplinas, recursos, jogos, vídeos, materiais, frequência ou análise temporal.
+8. Se faltar evidência para um campo, use ausência neutra ou lista vazia quando o schema permitir.
 
 CONTEXTO DO ALUNO:
 ${buildPromptBlock(selectEvidence(ctx, ctx.enriched.riscosPedagogicos.length > 0 ? 'estudo_de_caso' : 'relatorio'))}
@@ -2247,6 +2277,7 @@ export const CanonicalStudentContextService = {
 
 export function mapDocTypeToCategory(type: string): DocumentCategory {
   const t = String(type).toUpperCase().replace(/\s+/g, '_').normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (t.includes('DOCUMENTO_UNIFICADO_PEI_PAEE') || (t.includes('UNIFICADO') && t.includes('PEI') && t.includes('PAEE'))) return 'documento_unificado_pei_paee';
   if (t.includes('ESTUDO'))                                   return 'estudo_de_caso';
   if (t.includes('PEI'))                                      return 'pei';
   if (t.includes('PAEE'))                                     return 'paee';

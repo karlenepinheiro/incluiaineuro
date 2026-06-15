@@ -308,13 +308,18 @@ MAPA COMPLETO (código → descrição do item):
 ${codeEntries}
 
 INSTRUÇÕES:
-1. Identifique quais círculos ou quadrados têm marcação visível (X, ●, preenchimento, tique, risco dentro do marcador).
-2. Mapeie cada marcação ao código impresso ao lado (A1, C3, AW5, etc.).
-3. Use APENAS os códigos da lista acima. Jamais invente códigos.
-4. Se a marcação for duvidosa (borrão, rasura, má qualidade): coloque em "uncertainCodes", não em "markedCodes".
-5. Extraia dados do cabeçalho: nome do profissional, data, turno/série se visíveis.
-6. Transcreva observações manuscritas da área livre em "freeNotes".
-7. "overallConfidence": valor de 0.0 a 1.0 refletindo a qualidade geral da imagem e leitura.
+1. Use SOMENTE o conteúdo visível nesta imagem/PDF enviado. Não use contexto externo, documentos anteriores, diagnóstico, PEI, PAEE, Estudo de Caso, perfil ou memória.
+2. Identifique apenas círculos ou quadrados com marcação visível (X, ●, preenchimento, tique, risco dentro do marcador).
+3. Mapeie cada marcação ao código impresso ao lado (A1, C3, AW5, etc.) somente quando a marcação estiver clara.
+4. Use APENAS os códigos da lista acima. Jamais invente códigos.
+5. Código sem marcação clara não deve entrar em "markedCodes".
+6. Se a marcação for duvidosa (borrão, rasura, má qualidade): coloque em "uncertainCodes", não em "markedCodes".
+7. Não complete lacunas, não deduza respostas e não interprete marcação ausente como presente.
+8. Extraia dados do cabeçalho: nome do profissional, data, turno/série somente se visíveis.
+9. Transcreva observações manuscritas legíveis da área livre em "freeNotes"; texto ilegível deve aparecer como "ilegível" ou ficar vazio.
+10. Não cite diagnóstico, suporte, frequência, comportamento ou condição se isso não aparecer literalmente no arquivo.
+11. Não gere parecer pedagógico, recomendações clínicas ou explicações; retorne apenas JSON extrativo.
+12. "overallConfidence": valor de 0.0 a 1.0 refletindo a qualidade geral da imagem e leitura.
    Imagem nítida e marcações claras → acima de 0.8.
    Imagem borrada ou marcações ambíguas → abaixo de 0.6.
 

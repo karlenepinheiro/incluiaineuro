@@ -228,10 +228,10 @@ Deno.serve(async (req: Request) => {
       if (task === 'image') {
         return await generateVertexImage(finalPrompt.trim());
       }
-      if (task === 'json' || task === 'document') {
-        return await generateGeminiJSON(finalPrompt.trim());
-      }
       const img = typeof imageBase64 === 'string' && imageBase64.length > 0 ? imageBase64 : undefined;
+      if (task === 'json' || task === 'document') {
+        return await generateGeminiJSON(finalPrompt.trim(), img);
+      }
       return await generateGeminiText(finalPrompt.trim(), img);
     };
 

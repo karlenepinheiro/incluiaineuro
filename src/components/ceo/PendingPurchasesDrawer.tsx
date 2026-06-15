@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
-import { X, Copy, ExternalLink, CheckCircle, User, RefreshCw } from 'lucide-react';
+import { X, Copy, ExternalLink, CheckCircle, User, RefreshCw, AlertTriangle } from 'lucide-react';
 import {
   buildPendingAccountInstructions,
   reconcilePendingPurchases,
   type KiwifyPurchaseRow,
   type ReconcileResult,
 } from '../../services/ceoService';
+import type { AdminUser } from '../../types';
 
 interface Props {
   open: boolean;
   purchases: KiwifyPurchaseRow[];
   onClose: () => void;
   onReconcileSuccess?: (results: ReconcileResult[]) => void;
+  adminUser?: AdminUser;
 }
 
 export const PendingPurchasesDrawer: React.FC<Props> = ({
@@ -19,10 +21,14 @@ export const PendingPurchasesDrawer: React.FC<Props> = ({
   purchases,
   onClose,
   onReconcileSuccess,
+  adminUser,
 }) => {
   const [copied, setCopied] = useState<string | null>(null);
   const [reconciling, setReconciling] = useState(false);
   const [reconcileResults, setReconcileResults] = useState<ReconcileResult[] | null>(null);
+  const [reconcileConfirm, setReconcileConfirm] = useState(false);
+  const [reconcileReason, setReconcileReason] = useState('');
+  const [reconcileError, setReconcileError] = useState('');
 
   if (!open) return null;
 
@@ -32,11 +38,20 @@ export const PendingPurchasesDrawer: React.FC<Props> = ({
     setTimeout(() => setCopied(null), 1800);
   };
 
-  const handleReconcile = async () => {
-    if (!confirm('Reconciliar todas as compras pendentes?\n\nIsso tentará ativar automaticamente as contas que já existem no sistema.')) return;
+  const handleReconcile = () => {
+    setReconcileConfirm(true);
+    setReconcileReason('');
+    setReconcileError('');
+  };
+
+  const confirmReconcile = async () => {
+    if (!reconcileReason.trim()) { setReconcileError('Motivo administrativo é obrigatório.'); return; }
+    setReconcileConfirm(false);
+    setReconcileReason('');
+    setReconcileError('');
     setReconciling(true);
     try {
-      const results = await reconcilePendingPurchases();
+      const results = await reconcilePendingPurchases(adminUser, reconcileReason, 'pending_purchases_drawer');
       setReconcileResults(results);
       onReconcileSuccess?.(results);
     } catch (e: any) {
@@ -185,6 +200,55 @@ export const PendingPurchasesDrawer: React.FC<Props> = ({
           )}
         </div>
       </div>
+
+      {/* Reconcile confirmation modal */}
+      {reconcileConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 480, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <AlertTriangle size={20} color="#d97706" />
+              <span style={{ fontWeight: 700, fontSize: 16, color: '#1a1a1a' }}>Reconciliar ativações pendentes?</span>
+            </div>
+            <p style={{ fontSize: 13, color: '#4b5563', marginBottom: 8 }}>
+              Esta ação executa uma reconciliação global das compras Kiwify aprovadas que ainda estão pendentes de ativação. Ela pode ativar outros tenants além do item visualizado, caso existam compras pendentes válidas.
+            </p>
+            <p style={{ fontSize: 12, color: '#92400e', fontWeight: 600, marginBottom: 16, background: '#fef3c7', padding: '8px 12px', borderRadius: 8 }}>
+              Use apenas quando houver divergência real entre Kiwify, assinantes e tenants.
+            </p>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                Motivo administrativo *
+              </label>
+              <input
+                autoFocus
+                style={{ width: '100%', border: `1px solid ${reconcileError ? '#dc2626' : '#d1d5db'}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                placeholder="Ex: Divergência detectada no painel, reconciliação solicitada pelo suporte"
+                value={reconcileReason}
+                onChange={e => { setReconcileReason(e.target.value); setReconcileError(''); }}
+              />
+              {reconcileError && (
+                <p style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, marginTop: 4 }}>{reconcileError}</p>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setReconcileConfirm(false); setReconcileReason(''); setReconcileError(''); }}
+                disabled={reconciling}
+                style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', fontSize: 13, cursor: 'pointer', color: '#374151', opacity: reconciling ? 0.5 : 1 }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmReconcile}
+                disabled={reconciling}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#d97706', color: '#fff', fontSize: 13, fontWeight: 600, cursor: reconciling ? 'not-allowed' : 'pointer', opacity: reconciling ? 0.5 : 1 }}
+              >
+                {reconciling ? 'Reconciliando...' : 'Sim, reconciliar pendências'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

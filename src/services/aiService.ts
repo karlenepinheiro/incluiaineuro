@@ -117,6 +117,8 @@ export const CREDIT_COSTS: Record<string, number> = {
   PEI:                  AI_CREDIT_COSTS.PEI,
   PAEE:                 AI_CREDIT_COSTS.PAEE,
   PDI:                  AI_CREDIT_COSTS.PDI,
+  DOCUMENTO_UNIFICADO_PEI_PAEE: AI_CREDIT_COSTS.DOCUMENTO_UNIFICADO_PEI_PAEE,
+  [DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE]: AI_CREDIT_COSTS.DOCUMENTO_UNIFICADO_PEI_PAEE,
   PLANO_ACAO:           AI_CREDIT_COSTS.PLANO_ACAO,
   PLANO_ACAO_AEE:       AI_CREDIT_COSTS.PLANO_ACAO_AEE,
   ATIVIDADE:            AI_CREDIT_COSTS.ATIVIDADE_TEXTO,
@@ -134,6 +136,39 @@ export const CREDIT_COSTS: Record<string, number> = {
   TEMPLATE:             AI_CREDIT_COSTS.TEMPLATE,
   PERFIL_INTELIGENTE:   AI_CREDIT_COSTS.PERFIL_INTELIGENTE,
 };
+
+const UNIFIED_MISSING_PEI_MESSAGE =
+  'Para gerar o Plano Unificado PAEE + PEI com segurança, é necessário ter um PEI registrado para este estudante.';
+const UNIFIED_MISSING_PAEE_MESSAGE =
+  'Para gerar o Plano Unificado PAEE + PEI com segurança, é necessário ter um PAEE registrado para este estudante.';
+const UNIFIED_MISSING_BOTH_MESSAGE =
+  'O Plano Unificado PAEE + PEI integra informações do PEI e do PAEE. Gere ou registre esses documentos antes de usar a geração automática.';
+const UNIFIED_SOURCE_CONTEXT_UNAVAILABLE_MESSAGE =
+  'Não foi possível verificar os documentos prévios registrados para este estudante. Tente novamente antes de usar a geração automática.';
+const PAEE_MISSING_CASE_STUDY_MESSAGE =
+  'Para gerar o PAEE com segurança, é necessário ter um Estudo de Caso registrado para este estudante.';
+const PEI_MISSING_PAEE_MESSAGE =
+  'Para gerar o PEI com segurança, é necessário ter um PAEE registrado para este estudante.';
+
+function hasCanonicalSourceDocument(ctx: CanonicalStudentContext, category: 'estudo_de_caso' | 'pei' | 'paee'): boolean {
+  return ctx.savedDocuments.some(doc =>
+    doc.category === category &&
+    doc.contentSummary.trim()
+  );
+}
+
+function getFormalSourceGuardMessage(target: 'PAEE' | 'PEI' | 'DOCUMENTO_UNIFICADO_PEI_PAEE', ctx: CanonicalStudentContext | null): string | null {
+  if (!ctx) return UNIFIED_SOURCE_CONTEXT_UNAVAILABLE_MESSAGE;
+  if (target === 'PAEE') return hasCanonicalSourceDocument(ctx, 'estudo_de_caso') ? null : PAEE_MISSING_CASE_STUDY_MESSAGE;
+  if (target === 'PEI') return hasCanonicalSourceDocument(ctx, 'paee') ? null : PEI_MISSING_PAEE_MESSAGE;
+
+  const hasPEI = hasCanonicalSourceDocument(ctx, 'pei');
+  const hasPAEE = hasCanonicalSourceDocument(ctx, 'paee');
+  if (!hasPEI && !hasPAEE) return UNIFIED_MISSING_BOTH_MESSAGE;
+  if (!hasPEI) return UNIFIED_MISSING_PEI_MESSAGE;
+  if (!hasPAEE) return UNIFIED_MISSING_PAEE_MESSAGE;
+  return null;
+}
 
 // ─── Modelos de IA ────────────────────────────────────────────────────────────
 
@@ -212,7 +247,7 @@ function insufficientCreditsError(_req?: number, _bal?: number, _action?: string
   return new Error(CREDIT_INSUFFICIENT_MSG);
 }
 
-// Bloco interpretado de contexto familiar — interpreta, não transcreve
+// Bloco de contexto familiar registrado — não interpreta por diagnóstico
 function buildFamilyBlock(student: Student): string {
   const lines: string[] = [];
   if (student.familyContext?.trim()) {
@@ -225,7 +260,7 @@ function buildFamilyBlock(student: Student): string {
     lines.push(`Vínculo: ${(student as any).guardianRelationship}`);
   }
   if (lines.length === 0) return '';
-  return `\nCONTEXTO FAMILIAR (interprete — não transcreva literalmente; use para embasar recomendações à família):\n${lines.join('\n')}\nINSTRUÇÃO: A fala da família deve ser interpretada à luz do diagnóstico. Identifique percepções relevantes, lacunas de informação e pontos que precisam de orientação profissional.\n`;
+  return `\nCONTEXTO FAMILIAR REGISTRADO (use apenas as informações explicitamente registradas; não deduza pelo diagnóstico):\n${lines.join('\n')}\nINSTRUÇÃO: Use estes dados somente como relato/contexto registrado. Não transforme fala da família em conclusão clínica, diagnóstico, dificuldade presumida ou histórico não documentado.\n`;
 }
 
 // Formata o bloco de conhecimento prévio do aluno para injeção nos prompts de atividade
@@ -390,7 +425,8 @@ ${GLOBAL_AI_GUARDRAILS}`;
     const t0 = Date.now();
 
     const docLabel     = String(type);
-    const diagnosis    = (student.diagnosis || []).join(', ') || 'Não informado';
+    const missingData  = 'não há registro nos dados disponíveis';
+    const diagnosis    = (student.diagnosis || []).join(', ') || missingData;
     const cid          = Array.isArray(student.cid) ? student.cid.join(', ') : (student.cid || 'Não informado');
     const abilities    = (student.abilities || []).join('; ') || 'Não informado';
     const difficulties = (student.difficulties || []).join('; ') || 'Não informado';
@@ -429,13 +465,189 @@ IMPORTANTE: "Nome do aluno" refere-se APENAS ao estudante. "Responsável legal" 
     const isPAEE         = typeUpper.includes('PAEE');
     const isPDI          = typeUpper.includes('PDI') && !typeUpper.includes('PLANO');
     const isPlanoAcaoAEE = typeUpper.includes('PLANO_ACAO') || typeUpper.includes('PLANO_DE_ACAO');
+    const isDocumentoUnificadoPeiPaee =
+      typeUpper.includes('DOCUMENTO_UNIFICADO_PEI_PAEE') ||
+      (typeUpper.includes('UNIFICADO') && typeUpper.includes('PEI') && typeUpper.includes('PAEE'));
+
+    const formalSourceGuardTarget = isDocumentoUnificadoPeiPaee
+      ? 'DOCUMENTO_UNIFICADO_PEI_PAEE'
+      : isPAEE
+        ? 'PAEE'
+        : isPEI
+          ? 'PEI'
+          : null;
+
+    if (formalSourceGuardTarget) {
+      const sourceGuardMessage = getFormalSourceGuardMessage(formalSourceGuardTarget, canonicalCtx);
+      if (sourceGuardMessage) {
+        if (auditId) {
+          AiAuditService.completeRequest(auditId, {
+            status: 'failed',
+            latencyMs: Date.now() - t0,
+            outputType: 'json',
+            content: 'missing_required_formal_sources',
+          });
+        }
+        throw new Error(sourceGuardMessage);
+      }
+    }
 
     const familyBlock = buildFamilyBlock(student);
 
+    const formalDocumentGuardrails = `REGRAS DE OBJETIVIDADE, EVIDÊNCIA E ANTIRREPETIÇÃO:
+- Preencha apenas campos com dados suficientes nos dados cadastrais, contexto canônico, observações, laudos, fichas, documentos salvos ou registros pedagógicos.
+- Quando não houver evidência para um campo, use string vazia ou "Não informado nos dados disponíveis", conforme fizer mais sentido para leitura do documento.
+- Não invente dados, não deduza clinicamente e não transforme observação pedagógica em diagnóstico.
+- Não repita a mesma informação em campos diferentes. Se uma evidência já foi usada em uma seção, nas próximas seções apenas complemente com informação nova.
+- Não atribua automaticamente comportamentos, barreiras ou dificuldades apenas pelo diagnóstico. Use diagnóstico como contexto, mas priorize registros pedagógicos, observações, fichas, laudos e informações efetivamente disponíveis.
+- Use linguagem técnica, objetiva, pedagógica, com frases curtas. Evite juridiquês excessivo e não repita legislação em campos pedagógicos.
+- A base legal deve aparecer apenas no campo/bloco legal quando existir; fora dele, cite normas somente se for indispensável.`;
+
     let prompt: string;
 
+    // ── Documento Unificado PEI + PAEE ─────────────────────────────────────────
+    if (isDocumentoUnificadoPeiPaee) {
+      prompt = `Você é especialista em educação inclusiva e documentação pedagógica institucional.
+
+FINALIDADE DO DOCUMENTO: Gerar o Plano Unificado PAEE + PEI, documento formal de síntese articulada entre Estudo de Caso, PEI e PAEE. Ele integra, em um único instrumento, planejamento do AEE, acessibilidade, apoios, objetivos pedagógicos e acessibilidade curricular. Não substitui os documentos separados PEI e PAEE; organiza a articulação entre eles para orientar a equipe escolar.
+
+FONTES PRIORITÁRIAS OBRIGATÓRIAS:
+- Estudo de Caso.
+- PEI.
+- PAEE.
+
+REGRA DE FONTE DO PLANO UNIFICADO:
+- Este documento NÃO é relatório genérico e NÃO deve nascer apenas de dados cadastrais.
+- Use prioritariamente Estudo de Caso + PEI + PAEE, nessa ordem de articulação: Estudo de Caso como base interpretativa, PEI como fonte curricular/pedagógica e PAEE como fonte de acessibilidade/AEE.
+- Se alguma fonte estiver incompleta no contexto, declare o limite no campo correspondente e não preencha com suposições.
+- PEI e PAEE são pré-requisitos da geração automática. Se o contexto indicar ausência de um deles, não invente integração; registre a lacuna de forma objetiva.
+
+FONTES SECUNDÁRIAS PERMITIDAS:
+- Ficha do aluno e dados familiares registrados.
+- Ficha cognitiva, registros pedagógicos, checklists e observações.
+- Laudos/documentos analisados, apenas como fonte registrada e sem transformar este documento em laudo.
+- Monitoramento/evolução somente quando houver registros temporais comparáveis.
+
+FONTES QUE NÃO PODEM SER BASE PRINCIPAL:
+- Diagnóstico/CID isolado.
+- Perfil Inteligente como verdade única.
+- Plano de Ação AEE ou Plano do Regente.
+- Atividades geradas.
+- Documentos não validados ou sem conteúdo recuperável.
+
+REGRA CENTRAL:
+Sintetizar, não copiar. Integrar, não repetir. Orientar, não diagnosticar.
+
+VOZ DOCUMENTAL:
+- Escreva como equipe pedagógica especializada: técnica, humana, orientadora, institucional e segura.
+- Evite texto frio, robótico ou genérico; cada recomendação deve ter relação clara com Estudo de Caso, PEI, PAEE ou dado pedagógico registrado.
+- Prefira formulações como "Considerando os registros do Estudo de Caso, do PEI e do PAEE...", "A articulação entre sala comum e AEE deverá priorizar..." e "O acompanhamento deverá observar evidências como...".
+- Não use juridiquês excessivo e não repita "O aluno apresenta" em sequência.
+
+BNCC E ACESSIBILIDADE CURRICULAR:
+- Quando houver habilidades BNCC no PEI/PAEE, crie um bloco claro chamado "BNCC e acessibilidade curricular".
+- Para cada habilidade ou grupo de habilidades, apresente: Código BNCC; foco pedagógico; justificativa pedagógica; adaptação necessária; ação na sala comum; ação no AEE; evidência esperada.
+- Explique por que a habilidade foi considerada, como ela se conecta às necessidades do estudante e quais estratégias derivam dela.
+- Se não houver BNCC no PEI/PAEE, não invente códigos. Use exatamente: "Não foram identificadas habilidades BNCC vinculadas nos documentos de origem. Recomenda-se revisar o PEI/PAEE para registrar as habilidades prioritárias."
+
+REGRAS OBRIGATÓRIAS:
+- Documento enxuto: preferência de 2 laudas, máximo aceitável de 3 laudas.
+- Não criar sumário executivo, fundamentação legal extensa ou introdução longa.
+- Não copiar integralmente Estudo de Caso, PEI ou PAEE.
+- Não repetir a mesma informação em vários blocos.
+- Não inventar diagnóstico, CID, medicação, terapia, frequência, evolução, acompanhamento externo ou histórico familiar.
+- Diagnóstico/CID é dado cadastral e não pode deduzir comportamento, autonomia, suporte, dificuldade ou estratégia.
+- Se faltar dado, use "não há registro nos dados disponíveis" ou campo vazio, conforme o schema.
+- Não afirmar evolução, avanço, regressão ou manutenção sem registros temporais comparáveis.
+- Não criar parecer clínico.
+- Não prescrever terapia, medicação ou conduta médica.
+- Não afirmar incapacidade.
+- Não transformar PAEE em PEI.
+- Não transformar PEI em PAEE.
+- BNCC/habilidades só devem aparecer quando houver habilidade confiável registrada no PEI/PAEE ou nos documentos de origem. Nunca invente código BNCC.
+
+${studentDataBlock}
+${familyBlock}
+
+RETORNE SOMENTE JSON válido compatível com o DocumentBuilder. Preserve exatamente a estrutura sections -> fields -> value.
+Os campos "value" devem conter texto final, curto e institucional, nunca instruções ou placeholders.
+
+{
+  "sections": [
+    {
+      "id": "identificacao_estudo",
+      "title": "Identificação e Estudo de Caso resumido",
+      "fields": [
+        { "id": "identificacao_escolar", "label": "Identificação escolar do estudante", "type": "textarea", "value": "${student.name} — ${student.schoolName || 'não há registro nos dados disponíveis'} — ${student.grade || 'não há registro nos dados disponíveis'} — ${student.shift || 'não há registro nos dados disponíveis'}" },
+        { "id": "periodo_vigencia", "label": "Período de vigência", "type": "text", "value": "Ano letivo ${new Date().getFullYear()}" },
+        { "id": "sintese_estudo_caso", "label": "Síntese do Estudo de Caso", "type": "textarea", "value": "" },
+        { "id": "potencialidades", "label": "Potencialidades principais", "type": "textarea", "value": "" },
+        { "id": "necessidades_educacionais", "label": "Necessidades educacionais prioritárias", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "apoios_paee",
+      "title": "Definição de apoios — foco PAEE",
+      "fields": [
+        { "id": "barreiras_prioritarias", "label": "Barreiras prioritárias", "type": "textarea", "value": "" },
+        { "id": "apoios_necessarios", "label": "Apoios necessários", "type": "textarea", "value": "" },
+        { "id": "recursos_acessibilidade", "label": "Recursos de acessibilidade", "type": "textarea", "value": "" },
+        { "id": "foco_atendimento_aee", "label": "Foco do atendimento AEE", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "acessibilidade_curricular",
+      "title": "BNCC e acessibilidade curricular",
+      "fields": [
+        { "id": "objetivos_pedagogicos", "label": "Objetivos pedagógicos prioritários", "type": "textarea", "value": "" },
+        { "id": "adaptacoes_curriculares", "label": "Adaptações curriculares e metodológicas", "type": "textarea", "value": "" },
+        { "id": "estrategias_avaliacao", "label": "Estratégias de avaliação", "type": "textarea", "value": "" },
+        { "id": "bncc_habilidades", "label": "BNCC e acessibilidade curricular contextualizada", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "articulacao",
+      "title": "Articulação AEE e classe comum",
+      "fields": [
+        { "id": "responsabilidades_aee", "label": "Responsabilidades do AEE", "type": "textarea", "value": "" },
+        { "id": "responsabilidades_regente", "label": "Responsabilidades do professor regente", "type": "textarea", "value": "" },
+        { "id": "comunicacao_aee_sala", "label": "Comunicação entre AEE e sala comum", "type": "textarea", "value": "" },
+        { "id": "registro_acompanhamento", "label": "Registro e acompanhamento", "type": "textarea", "value": "" }
+      ]
+    },
+    {
+      "id": "monitoramento_familia",
+      "title": "Monitoramento e família",
+      "fields": [
+        { "id": "indicadores_observaveis", "label": "Indicadores observáveis", "type": "textarea", "value": "" },
+        { "id": "periodicidade_revisao", "label": "Periodicidade de revisão", "type": "text", "value": "" },
+        { "id": "participacao_familia", "label": "Participação e comunicação com a família", "type": "textarea", "value": "" },
+        { "id": "proxima_revisao", "label": "Próxima revisão", "type": "text", "value": "" },
+        { "id": "fechamento", "label": "Fechamento institucional", "type": "textarea", "value": "" }
+      ]
+    }
+  ]
+}
+
+LIMITES DE CONTEÚDO:
+- Síntese do Estudo de Caso: até 2 parágrafos curtos.
+- Potencialidades: até 3.
+- Necessidades educacionais: até 3.
+- Barreiras: até 3.
+- Apoios: até 3.
+- Recursos: até 3.
+- Objetivos pedagógicos: até 3.
+- Adaptações: até 4.
+- Estratégias de avaliação: até 3.
+- Responsabilidades do AEE: até 3.
+- Responsabilidades do regente: até 3.
+- Indicadores de acompanhamento: até 3.
+- Fechamento: 1 parágrafo curto.
+
+Preencha somente com dados sustentados pelas fontes disponíveis. Se Estudo de Caso, PAEE ou PEI estiverem ausentes, reconheça a lacuna no campo pertinente sem inventar conteúdo. Português brasileiro formal e JSON válido.`;
+
     // ── PEI ─────────────────────────────────────────────────────────────────────
-    if (isPEI) {
+    } else if (isPEI) {
       prompt = `Você é psicopedagogo especialista em Plano Educacional Individualizado (PEI) conforme a Lei Brasileira de Inclusão (Lei 13.146/2015) e a PNEEPEI.
 
 FINALIDADE DO PEI: Instrumento que orienta o PROFESSOR DA SALA COMUM. Traduz o diagnóstico em metas anuais mensuráveis por disciplina/BNCC, com estratégias adaptadas ao perfil real do aluno e critérios observáveis de avaliação. Não é relatório — é plano de ação para o cotidiano da sala regular.
@@ -451,15 +663,25 @@ ${FORBIDDEN_TERMS_BLOCK}
 ${studentDataBlock}
 ${familyBlock}
 
+${formalDocumentGuardrails}
+
 REGRAS DE GERAÇÃO — aplique a cada campo:
 1. Cada objetivo deve ser SMART: específico, mensurável, atingível, relevante e com prazo anual implícito.
 2. Habilidades BNCC: cite os códigos reais da BNCC adequados ao ano/série e ao nível de desenvolvimento do aluno.
-3. Estratégias: cite recursos concretos ligados ao diagnóstico (TEA → sequências visuais, antecipação; DI → etapas simplificadas, repetição; TDAH → tarefas curtas, pausas estruturadas).
+3. Estratégias: cite recursos concretos ligados às evidências disponíveis sobre o aluno; use o diagnóstico apenas como contexto de apoio, nunca como única justificativa.
 4. Critérios de avaliação: comportamentos OBSERVÁVEIS (nunca "melhorar" — sempre "identificar", "escrever", "resolver", "completar com apoio").
 5. Nunca repita o mesmo texto entre disciplinas. Cada área tem conteúdo diferenciado.
 6. Para Ensino Religioso e Educação Física: gere apenas se houver dados suficientes; caso contrário, deixe os campos com string vazia.
-7. Linguagem técnica formal. Português brasileiro. Sem "não informado" ou "a definir" em campos de conteúdo.
+7. Linguagem técnica formal, objetiva e em português brasileiro. Use "Não informado nos dados disponíveis" apenas quando a ausência de informação precisar ficar explícita.
 8. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use-as para embasar estratégias concretas e comportamentos observados. Cite como "conforme observações em sala" ou "segundo registro do professor regente". Nunca transforme observação pedagógica em diagnóstico clínico. Diferencie: laudo clínico (profissional de saúde) ≠ observação pedagógica (professor/AEE) ≠ registro de rotina (cuidadora).
+
+LIMITES DO PEI:
+- Objetivos: até 3 objetivos por área, em frases curtas e mensuráveis.
+- Estratégias: até 4 estratégias por área.
+- Adaptações: até 4 adaptações por campo.
+- Critérios de avaliação: até 3 critérios observáveis.
+- Sínteses narrativas: até 1 parágrafo de 4 a 6 linhas.
+- Evite repetir a mesma justificativa em todas as disciplinas.
 
 RETORNE SOMENTE o JSON válido. Os campos "value" devem conter CONTEÚDO REAL — não instruções nem placeholders:
 {
@@ -609,7 +831,7 @@ RETORNE SOMENTE o JSON válido. Os campos "value" devem conter CONTEÚDO REAL �
   ]
 }
 
-Preencha TODOS os campos "value" com conteúdo real gerado a partir dos dados do aluno. Nenhum campo de conteúdo deve ficar vazio. Português brasileiro formal.`;
+Preencha os campos "value" somente quando houver dados suficientes. Campos sem evidência podem ficar com string vazia ou "Não informado nos dados disponíveis". Mantenha JSON válido e português brasileiro formal.`;
 
     // ── PAEE ─────────────────────────────────────────────────────────────────────
     } else if (isPAEE) {
@@ -627,15 +849,25 @@ ${FORBIDDEN_TERMS_BLOCK}
 ${studentDataBlock}
 ${familyBlock}
 
+${formalDocumentGuardrails}
+
 REGRAS DE GERAÇÃO:
 1. Distinguir claramente: PAEE é sobre COMO o aluno acessa o ambiente e o currículo — não sobre O QUE ele aprende.
 2. Cada adaptação deve especificar: (a) o recurso ou estratégia, (b) a barreira que remove, (c) quem é responsável pela implementação.
 3. Tecnologia Assistiva: cite recursos concretos e gratuitos ou acessíveis ao contexto público (ex: CAA, pranchas de comunicação, leitores de tela, materiais em Braille, software de acessibilidade).
 4. Não repita o diagnóstico como se fosse limitação — foque nas barreiras ambientais que precisam ser removidas.
-5. Inclua adaptações para: ambiente físico, comunicação, material didático, avaliação, interação social.
-6. Se há perfil cognitivo ou laudos no contexto, use para justificar cada adaptação proposta.
-7. A seção de família deve orientar como reforçar a comunicação aumentativa ou estratégias de inclusão no contexto domiciliar.
+5. Inclua adaptações para ambiente físico, comunicação, material didático, avaliação e interação social somente quando houver evidência ou necessidade pedagógica suficiente.
+6. Se há perfil cognitivo, laudos ou registros no contexto, use-os de forma objetiva para justificar adaptações; se não houver, não invente.
+7. A seção de família deve orientar apenas apoios domiciliares sustentados pelos dados disponíveis.
 8. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use barreiras identificadas em sala e alertas de rotina para embasar as adaptações propostas. Cite como "conforme observações do professor regente" ou "segundo registro de rotina escolar". Nunca transforme comportamento observado em diagnóstico clínico.
+
+LIMITES DO PAEE:
+- Barreiras: até 5 barreiras principais.
+- Recursos: até 5 recursos prioritários.
+- Estratégias: até 5 estratégias práticas por campo.
+- Responsáveis: objetivo e direto.
+- Campos narrativos: até 1 parágrafo de 4 a 6 linhas.
+- Não transforme cada adaptação em redação longa e não repita o PEI.
 
 RETORNE SOMENTE o JSON válido. Os campos "value" devem conter conteúdo REAL:
 {
@@ -698,7 +930,7 @@ RETORNE SOMENTE o JSON válido. Os campos "value" devem conter conteúdo REAL:
   ]
 }
 
-Preencha TODOS os campos "value" com conteúdo real. Cada adaptação deve ser concreta, justificada e implementável. Português brasileiro formal.`;
+Preencha os campos "value" somente quando houver dados suficientes. Campos sem evidência podem ficar com string vazia ou "Não informado nos dados disponíveis". Cada adaptação deve ser concreta, breve, justificada e implementável. Português brasileiro formal.`;
 
     // ── PDI ─────────────────────────────────────────────────────────────────────
     } else if (isPDI) {
@@ -712,17 +944,26 @@ Este PDI é fundamentado na Lei Brasileira de Inclusão (Lei nº 13.146/2015), n
 ${studentDataBlock}
 ${familyBlock}
 
+${formalDocumentGuardrails}
+
 REGRAS DE GERAÇÃO:
-1. O PDI deve ter profundidade interpretativa — analise padrões, não apenas descreva situações.
+1. O PDI deve ser interpretativo e objetivo — analise padrões apenas quando houver registros suficientes.
 2. Use dados temporais sempre que disponíveis: datas de atendimento, evolução ao longo do tempo, padrões de frequência.
-3. Cada meta deve ter: situação atual (baseline) → meta de período → indicador de alcance.
-4. Conecte explicitamente: perfil cognitivo → metas de desenvolvimento → estratégias → papel da família.
-5. Inclua análise do contexto familiar como fator de suporte ou risco — não apenas como informação neutra.
-6. Identifique PADRÕES: o que o aluno avança, o que regride, sob quais condições cada um ocorre.
-7. Mencione outros profissionais que acompanham o aluno e como articular o trabalho (fonoaudiologia, psicologia, TO).
+3. Cada meta deve ter: situação atual (baseline) → meta de período → indicador de alcance, de forma curta.
+4. Conecte perfil cognitivo, metas, estratégias e papel da família somente quando esses dados existirem no contexto.
+5. Inclua análise do contexto familiar como suporte ou risco apenas quando houver informação suficiente.
+6. Identifique padrões de avanço ou regressão sem repetir a mesma evidência em várias áreas.
+7. Mencione outros profissionais que acompanham o aluno somente se constarem nos dados disponíveis.
 8. Linguagem técnica formal. Nunca capacitista. Português brasileiro.
 9. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use-as para identificar padrões de progresso e barreiras recorrentes. Cite como "conforme registros escolares" ou "observado em sala/rotina". Diferencie laudo clínico de observação pedagógica — não transforme comportamento observado em diagnóstico.
 ${FORBIDDEN_TERMS_BLOCK}
+
+LIMITES DO PDI:
+- Metas: até 3 por área.
+- Indicadores: objetivos, observáveis e curtos.
+- Estratégias: curtas e aplicáveis.
+- Acompanhamento e próximos passos: direto.
+- Campos narrativos: até 1 parágrafo de 4 a 6 linhas.
 
 RETORNE SOMENTE o JSON válido com estas seções obrigatórias:
 {
@@ -763,7 +1004,7 @@ RETORNE SOMENTE o JSON válido com estas seções obrigatórias:
   ]
 }
 
-Preencha TODOS os campos "value" com conteúdo real e técnico baseado nos dados do aluno. Português brasileiro formal.`;
+Preencha os campos "value" somente quando houver dados suficientes. Campos sem evidência podem ficar com string vazia ou "Não informado nos dados disponíveis". Mantenha conteúdo técnico, objetivo e JSON válido. Português brasileiro formal.`;
 
     // ── Estudo de Caso ────────────────────────────────────────────────────────────
     } else if (isEstudoCaso) {
@@ -784,13 +1025,21 @@ ${FORBIDDEN_TERMS_BLOCK}
 ${studentDataBlock}
 ${familyBlock}
 
+${formalDocumentGuardrails}
+
 REGRAS DE GERAÇÃO:
 1. USE dados temporais disponíveis: datas, padrões, faltas, impacto das ausências no progresso.
-2. INTERPRETE laudos: o que o diagnóstico implica pedagogicamente na prática diária.
-3. IDENTIFIQUE padrões: o que evolui, o que regride, em quais condições cada movimento ocorre.
-4. CONECTE dados: perfil cognitivo ↔ laudos ↔ fichas de observação ↔ fala familiar.
+2. INTERPRETE laudos somente quando existirem no contexto; não atribua implicações pedagógicas automáticas apenas pelo diagnóstico.
+3. IDENTIFIQUE padrões: o que evolui, o que regride e em quais condições, apenas quando houver registros suficientes.
+4. CONECTE dados: perfil cognitivo ↔ laudos ↔ fichas de observação ↔ fala familiar, sem repetir a mesma evidência em seções diferentes.
 5. Linguagem técnico-científica. Português brasileiro formal. Sem frases genéricas.
 6. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", integre-as na análise pedagógica e nas seções de atenção, engajamento e comunicação. Cite a origem: "observação em sala (professor regente)" ou "registro de rotina escolar (cuidadora)". Nunca apresente observação pedagógica como diagnóstico. Estratégias que funcionaram devem aparecer na seção de encaminhamentos.
+
+LIMITES DO ESTUDO DE CASO:
+- Campos narrativos: até 1 parágrafo de 4 a 6 linhas.
+- Listas: até 3 bullets quando o campo pedir enumeração.
+- Análises: objetivas, baseadas em evidências e sem repetir diagnóstico em toda seção.
+- Campos sem informação devem deixar clara a ausência quando necessário, sem preencher com suposições.
 
 RETORNE SOMENTE o JSON válido com estas seções:
 {
@@ -862,7 +1111,7 @@ RETORNE SOMENTE o JSON válido com estas seções:
   ]
 }
 
-Preencha TODOS os campos "value" com análise real, técnica e específica. Deixe vazio apenas o que for genuinamente desconhecido. Português brasileiro formal.`;
+Preencha os campos "value" somente quando houver dados suficientes para análise real, técnica e específica. Campos sem evidência podem ficar com string vazia ou "Não informado nos dados disponíveis". Português brasileiro formal e JSON válido.`;
 
     // ── Plano de Ação AEE ────────────────────────────────────────────────────────
     } else if (isPlanoAcaoAEE) {
@@ -875,9 +1124,16 @@ ORIENTAÇÕES ÉTICAS DA IA:
 - Todo conteúdo deve ser específico para ESTE aluno — nunca genérico.
 - Não invente diagnósticos, laudos ou dados ausentes.
 - Não use linguagem clínica como se fosse médico. Foco pedagógico/AEE.
-- Se um dado estiver ausente, infira com base no diagnóstico e no nível de suporte.
+- PAEE deve ser a fonte principal quando estiver disponível. Use Estudo de Caso, PEI, registros AEE e observações apenas como apoio.
+- Se não houver PAEE ou dados suficientes, use "não há registro nos dados disponíveis" ou deixe o campo vazio/lista vazia conforme o schema.
+- Não transforme ausência de dado em hipótese.
+- Diagnóstico/CID é contexto cadastral, não prova funcional. Não deduza comportamento, suporte, autonomia, frequência, evolução, barreiras ou estratégias apenas pelo diagnóstico/CID.
+- Evolução, avanço, regressão ou manutenção só podem ser mencionados quando houver registros temporais comparáveis.
 - Não faça prescrição terapêutica. Não prometa cura.
 - Tom: técnico-pedagógico, claro, direto, orientado para ação.
+- Não invente barreiras, recursos, jogos, vídeos, materiais, estratégias ou roteiro de atendimento.
+- Cada ação deve se relacionar a barreira registrada, necessidade de acesso, recurso indicado, objetivo do PAEE ou observação pedagógica disponível.
+- Recursos, jogos, vídeos, materiais e tecnologias assistivas são opcionais e só devem aparecer quando houver evidência que justifique o uso.
 ${FORBIDDEN_TERMS_BLOCK}
 
 PROIBIDO — nunca gere frases como:
@@ -885,24 +1141,32 @@ PROIBIDO — nunca gere frases como:
 - "adaptar atividades conforme necessário"
 - "promover participação do aluno"
 
-OBRIGATÓRIO — substitua por ações concretas como:
+EXEMPLOS DE AÇÕES CONCRETAS — use apenas quando houver evidência nos dados disponíveis:
 - "usar cartões visuais com as etapas numeradas (1, 2, 3) antes de cada atividade"
 - "dividir a tarefa em blocos de 3 itens com pausa de 2 minutos entre blocos"
 - "usar timer visual de 5 minutos para delimitar início e fim da atividade"
-- "iniciar com jogo de pareamento de figuras antes da proposta principal"
+- "iniciar com atividade de pareamento de figuras antes da proposta principal"
 - "oferecer escolha entre duas opções antes de cada etapa ('você quer o cartão azul ou o verde?')"
 - "usar prancha de comunicação com os símbolos: 'quero', 'não quero', 'ajuda', 'pausa'"
 - "registrar se realizou com autonomia, com mediação verbal ou recusou a proposta"
 
-EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para preencher os campos de recursos e ações concretas, e use barreiras identificadas para preencher "barreira_prioritaria" e "barreiras_perfil". Cite como "conforme observações em sala" ou "segundo registros escolares". Nunca transforme observação pedagógica em diagnóstico clínico.
+EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para preencher recursos e ações concretas somente quando houver registro claro. Use barreiras identificadas para preencher "barreira_prioritaria" e "barreiras_perfil". Cite como "conforme observações em sala" ou "segundo registros escolares". Nunca transforme observação pedagógica em diagnóstico clínico. Na ausência de evidência, use ausência neutra.
+
+LIMITES DO PLANO:
+- Objetivos: até 3.
+- Ações: até 5.
+- Recursos: até 5.
+- Acompanhamento e registros: objetivos, sem repetição.
+- Roteiro de atendimento: somente se houver dados suficientes para orientar uma sequência real.
 
 ${studentDataBlock}
 ${familyBlock}
 
 RETORNE SOMENTE o JSON válido abaixo. Os campos "value" devem conter CONTEÚDO REAL gerado especificamente para este aluno.
-- Seções 1 a 10: preencha TODOS os campos com conteúdo real e concreto.
-- Checklists de "barreira_prioritaria" e "recursos_materiais": selecione os itens relevantes para este aluno.
+- Seções 1 a 10: preencha somente com conteúdo sustentado pelos dados disponíveis. Se faltar evidência, use "não há registro nos dados disponíveis" ou vazio/lista vazia conforme o tipo de campo.
+- Checklists de "barreira_prioritaria" e "recursos_materiais": selecione somente itens registrados ou diretamente sustentados por evidência. Não marque por diagnóstico.
 - Checklists de "resposta_aluno" e "proximos_passos": deixe value = [] (serão preenchidos APÓS o atendimento pelo profissional).
+- Campos sobre jogos, vídeos, materiais, recursos e tecnologias: use somente se houver relação com barreira, objetivo pedagógico, necessidade de acessibilidade ou registro disponível.
 - Seção de assinaturas: deixe value vazio.
 - Português brasileiro formal.
 
@@ -1093,7 +1357,7 @@ RETORNE SOMENTE o JSON válido abaixo. Os campos "value" devem conter CONTEÚDO 
   ]
 }
 
-Ano de referência: ${anoAtual}. Preencha TODOS os campos "value" das seções 1–10 com conteúdo real, específico e prático. Português brasileiro formal.`;
+Ano de referência: ${anoAtual}. Preencha os campos "value" das seções 1–10 somente com conteúdo real, específico, prático e sustentado pelos dados disponíveis. Quando não houver evidência, use ausência neutra ou deixe vazio/lista vazia conforme o schema. Português brasileiro formal.`;
 
     // ── Genérico (FICHA, outros tipos) ───────────────────────────────────────────
     } else {
@@ -1107,8 +1371,12 @@ ${familyBlock}
 REGRAS:
 1. Nunca gere texto genérico. Todo conteúdo deve partir dos dados reais fornecidos.
 2. Se a fala da família estiver disponível, interprete-a — não transcreva.
-3. Linguagem técnica formal, sem "não informado". Se um dado estiver ausente, infira a partir do diagnóstico.
-4. Mínimo 4 seções, máximo 8. Cada seção: 2 a 5 campos.
+3. Preencha apenas campos com evidência nos dados disponíveis.
+4. Quando não houver dado, use "não há registro nos dados disponíveis" ou string vazia, conforme o schema e a necessidade de leitura.
+5. Não invente diagnóstico, CID, medicação, frequência, terapia, evolução, histórico familiar ou acompanhamento externo.
+6. Diagnóstico/CID é dado cadastral e não pode ser usado para deduzir dificuldade, comportamento, autonomia, suporte, evolução ou estratégia.
+7. Não crie parecer clínico, não gere texto longo sem fonte e não repita a mesma informação em várias seções.
+8. Crie somente as seções necessárias para organizar os dados disponíveis, em formato objetivo e compatível com o schema genérico.
 
 RETORNE SOMENTE o JSON válido. Campos "value" devem conter conteúdo REAL:
 {
@@ -1123,7 +1391,7 @@ RETORNE SOMENTE o JSON válido. Campos "value" devem conter conteúdo REAL:
   ]
 }
 
-Preencha TODOS os "value" com conteúdo gerado. Português brasileiro formal.`;
+Preencha os campos "value" somente com conteúdo sustentado por evidência nos dados disponíveis. Preserve JSON válido e português brasileiro formal.`;
     }
 
     let jsonResult: string;
@@ -1780,7 +2048,8 @@ Retorne SOMENTE a atividade adaptada, pronta para uso, em português brasileiro.
       throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
     }
 
-    const diagnosis    = (student.diagnosis || []).join(', ') || 'Não informado';
+    const missingData  = 'não há registro nos dados disponíveis';
+    const diagnosis    = (student.diagnosis || []).join(', ') || missingData;
     const cid          = Array.isArray(student.cid) ? student.cid.join(', ') : (student.cid || '');
     const abilities    = (student.abilities || []).join('; ') || '';
     const difficulties = (student.difficulties || []).join('; ') || '';
@@ -1807,25 +2076,25 @@ Retorne SOMENTE a atividade adaptada, pronta para uso, em português brasileiro.
     const pkBlock = buildPKBlock(student);
     const familyBlock = buildFamilyBlock(student);
 
-    const prompt = `Você é uma psicopedagoga especialista em educação inclusiva, neuroeducação e atendimento educacional especializado (AEE).
+    const prompt = `Você é especialista em educação inclusiva, documentação pedagógica escolar e atendimento educacional especializado (AEE).
 
-Sua tarefa é criar o PERFIL INTELIGENTE do aluno abaixo — um documento pedagógico humanizado que ajuda o professor a planejar intervenções, adaptar atividades e fortalecer o vínculo com o aluno.
+Sua tarefa é criar o PERFIL INTELIGENTE do aluno abaixo — uma síntese pedagógica objetiva, institucional e útil para apoiar planejamento escolar, adaptação de atividades e acompanhamento da equipe. Não escreva laudo clínico, parecer psicológico ou diagnóstico.
 
 ═══════════════════════════════════════════════════
 DADOS DO ALUNO
 ═══════════════════════════════════════════════════
 Nome: ${student.name}
 Diagnóstico(s): ${diagnosis}${cid ? ` (CID: ${cid})` : ''}
-Nível de Suporte: ${student.supportLevel || 'Não informado'}
-Série/Turno: ${student.grade || '—'} / ${student.shift || '—'}
-Professor Regente: ${student.regentTeacher || '—'}
-Professor AEE: ${student.aeeTeacher || '—'}
-Habilidades observadas: ${abilities || 'Não informado'}
-Dificuldades observadas: ${difficulties || 'Não informado'}
-Estratégias que funcionam: ${strategies || 'Não informado'}
-Comunicação: ${(student.communication || []).join('; ') || 'Não informado'}
-Histórico escolar: ${student.schoolHistory || 'Não informado'}
-Observações gerais: ${student.observations || ''}
+Nível de Suporte: ${student.supportLevel || missingData}
+Série/Turno: ${student.grade || missingData} / ${student.shift || missingData}
+Professor Regente: ${student.regentTeacher || missingData}
+Professor AEE: ${student.aeeTeacher || missingData}
+Habilidades observadas: ${abilities || missingData}
+Dificuldades observadas: ${difficulties || missingData}
+Estratégias que funcionam: ${strategies || missingData}
+Comunicação: ${(student.communication || []).join('; ') || missingData}
+Histórico escolar: ${student.schoolHistory || missingData}
+Observações gerais: ${student.observations || missingData}
 ${pkBlock}
 ${familyBlock}
 ${docChainBlockPerfil ? `\n${docChainBlockPerfil}` : ''}${ctxBlock}
@@ -1833,19 +2102,24 @@ ${docChainBlockPerfil ? `\n${docChainBlockPerfil}` : ''}${ctxBlock}
 ═══════════════════════════════════════════════════
 REGRAS OBRIGATÓRIAS
 ═══════════════════════════════════════════════════
-1. NUNCA invente dados que não foram fornecidos. Se houver poucos dados, diga explicitamente no campo humanizedIntroduction.text: "As informações disponíveis ainda são limitadas. Este perfil deve ser complementado com observações diretas do professor."
-2. NUNCA faça diagnóstico médico. NUNCA afirme transtornos além dos listados. NUNCA gere: "CID provável", "diagnóstico compatível com", "certamente apresenta", "provavelmente possui".
-3. Use linguagem humana, acolhedora, respeitosa — sem rótulos, sem termos frios, sem capacitismo.
-4. Não reduza o aluno ao diagnóstico. Fale da PESSOA.
-5. Os checklists devem refletir APENAS o que pode ser inferido dos dados reais — não invente.
-6. Para os status dos checklists: "presente" se claramente observado nos dados; "em_desenvolvimento" se parcialmente evidenciado; "nao_observado" se não há dados suficientes.
-7. As atividades recomendadas devem ser práticas, aplicáveis e conectadas ao perfil real.
-8. O campo incluiLabPrompt deve ser um prompt pronto para usar no IncluiLAB — específico, com o nome do aluno e suas características.
-9. Português brasileiro formal. Sem markdown no interior dos textos (sem asteriscos, sem #).
-10. RETORNE SOMENTE o JSON válido abaixo. Sem markdown, sem \`\`\`json, sem texto antes ou depois.
-11. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para preencher "bestLearningStrategies" e as ações do "neuropsychologicalReport". Use observações principais para embasar "humanizedIntroduction" e "pedagogicalReport". Cite como "observado em sala" — nunca como laudo clínico.
-12. ATUALIZAÇÃO DE PERFIL: Se o contexto incluir seção "=== PERFIL INTELIGENTE MAIS RECENTE ===" (versão anterior), compare com os dados atuais e destaque no campo "changesSinceLastVersion" a evolução observada, mudanças de estratégia e novas prioridades. Não repita o perfil anterior — avance sobre ele.
-13. FONTES CONSIDERADAS: Preencha "sourcesConsidered" listando os tipos de documentos e evidências que você usou para gerar este perfil (ex: "Estudo de Caso", "Laudos clínicos", "Fichas cognitivas preenchidas", "Perfil anterior versão N", "Dados da ficha do aluno"). Seja específico.
+1. Toda conclusão deve se apoiar em fonte disponível. Quando possível, cite a origem no próprio texto de forma curta: ficha do aluno, Estudo de Caso, PAEE, PEI, PDI, ficha cognitiva, laudo/documento analisado, observação, registro pedagógico, atendimento, atividade gerada ou perfil anterior.
+2. Se não houver evidência para um campo, use exatamente "${missingData}" ou deixe lista vazia quando o schema permitir. Não preencha lacunas por suposição.
+3. Diagnóstico ou CID não podem ser usados sozinhos para deduzir comportamento, dificuldade, autonomia, comunicação, evolução, frequência, suporte, estratégia, medicação, terapia ou histórico familiar.
+4. Priorize registros pedagógicos, observações, ficha cognitiva, Estudo de Caso, PAEE, PEI, laudos/documentos analisados, atendimentos e atividades geradas. Diferencie fonte clínica de uso pedagógico.
+5. NUNCA faça diagnóstico médico. NUNCA afirme transtornos além dos listados. NUNCA gere: "CID provável", "diagnóstico compatível com", "certamente apresenta", "provavelmente possui".
+6. Use linguagem humana, acolhedora, objetiva e institucional — sem rótulos, sem termos clínicos indevidos, sem capacitismo.
+7. Não reduza o aluno ao diagnóstico. Fale da pessoa e dos registros escolares disponíveis.
+8. Não copie integralmente PEI, PAEE, Estudo de Caso ou perfil anterior. Sintetize apenas o que for relevante e cite a fonte.
+9. Se houver conflito entre fontes, aponte necessidade de revisão pela equipe escolar; não escolha arbitrariamente.
+10. Os checklists devem refletir APENAS dados observados ou registrados. "presente" se claramente observado; "em_desenvolvimento" se parcialmente evidenciado; "nao_observado" se não há dado suficiente.
+11. Limites obrigatórios: humanizedIntroduction.text com no máximo 1 parágrafo curto; cada síntese com 1 parágrafo curto; bestLearningStrategies.items até 5; nextSteps até 5; carePoints até 3; observationPoints.checklist até 3; recommendedActivities até 3; sourcesConsidered em lista objetiva.
+12. Atividades recomendadas são opcionais: gere até 3 somente se houver base suficiente. Se não houver dados suficientes, retorne [] em recommendedActivities ou uma orientação geral curta em nextSteps. Não use diagnóstico como motor da atividade.
+13. O campo incluiLabPrompt deve ser específico, pedagógico e baseado em habilidade/objetivo/apoio registrado. Não use placeholder [diagnóstico] e não dependa de diagnóstico para justificar a atividade.
+14. PERFIL ANTERIOR: use apenas como histórico complementar. Não trate como verdade única, não copie e não repita. Só mencione evolução em changesSinceLastVersion se houver registros temporais comparáveis; caso contrário, escreva "${missingData}" ou string vazia.
+15. EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para bestLearningStrategies e observações principais para humanizedIntroduction/pedagogicalReport. Cite como "conforme registro pedagógico" ou "observado em sala" — nunca como laudo clínico.
+16. FONTES CONSIDERADAS: Preencha "sourcesConsidered" apenas com fontes efetivamente usadas. Seja específico e objetivo.
+17. Português brasileiro formal. Sem markdown no interior dos textos (sem asteriscos, sem #).
+18. RETORNE SOMENTE o JSON válido abaixo. Sem markdown, sem \`\`\`json, sem texto antes ou depois.
 
 ═══════════════════════════════════════════════════
 ESTRUTURA JSON OBRIGATÓRIA
@@ -1855,22 +2129,21 @@ ESTRUTURA JSON OBRIGATÓRIA
   "generatedAt": "${new Date().toISOString()}",
   "generatedBy": "${user.name || ''}",
   "version": ${versionNumber},
-  "firstPersonLetter": "Carta curta (3-5 frases) escrita em 1ª pessoa, como se fosse o próprio aluno falando ao professor — acolhedora, honesta, baseada nas características reais do aluno. Reflita seus desafios, seus interesses e seu pedido implícito de compreensão. Ex: 'Oi, professor(a)! Eu sou o ${student.name}...'",
+  "firstPersonLetter": "Carta curta (2-3 frases) em 1ª pessoa, acolhedora e baseada apenas em características registradas. Se não houver dados suficientes sobre interesses ou preferências, escreva uma apresentação neutra sem inventar.",
   "humanizedIntroduction": {
     "title": "Conhecendo ${student.name}",
-    "text": "3 a 5 parágrafos narrativos sobre quem é o aluno — características, interesses, potencialidades, vínculo, autonomia e participação. Linguagem humana, sem rótulos."
+    "text": "No máximo 1 parágrafo curto sobre quem é o aluno, com potencialidades, participação, autonomia ou interesses apenas quando houver registro. Indique fonte quando couber."
   },
   "neuropsychologicalReport": {
-    "text": "Parágrafo sobre o perfil neuropsicológico pedagógico — processamento sensorial, funções executivas, reatividade. Linguagem pedagógica, nunca clínica. Nunca afirme diagnóstico além do informado.",
+    "text": "Síntese pedagógica/institucional sobre aspectos de aprendizagem, organização, atenção, autorregulação ou participação observados em contexto escolar. Linguagem pedagógica, nunca clínica. Use o nome do campo por compatibilidade, mas não escreva parecer neuropsicológico clínico.",
     "checklist": [
-      "Ação terapêutica/adaptação concreta 1 (ex: Reduzir estímulos visuais concorrentes na mesa)",
-      "Ação concreta 2 (ex: Usar abafador de ruído em atividades coletivas)",
-      "Ação concreta 3 (ex: Aplicar pausa motora de 3 min a cada 20 min)",
-      "Ação concreta 4 (ex: Antecipar quebra de rotina com suporte visual)"
+      "Apoio pedagógico/adaptação concreta baseada em fonte registrada 1",
+      "Apoio pedagógico/adaptação concreta baseada em fonte registrada 2",
+      "Apoio pedagógico/adaptação concreta baseada em fonte registrada 3"
     ]
   },
   "pedagogicalReport": {
-    "text": "Parágrafo sobre o perfil pedagógico atual — o que já foi consolidado, o que está em desenvolvimento, como o professor pode mediar.",
+    "text": "1 parágrafo curto sobre o perfil pedagógico atual, citando o que está registrado como consolidado, em desenvolvimento ou sem registro suficiente.",
     "checklist": [
       { "label": "Autonomia nas atividades", "status": "presente|em_desenvolvimento|nao_observado" },
       { "label": "Resposta a comandos simples", "status": "presente|em_desenvolvimento|nao_observado" },
@@ -1885,7 +2158,7 @@ ESTRUTURA JSON OBRIGATÓRIA
     ]
   },
   "neuroPedagogicalReport": {
-    "text": "Parágrafo sobre a intersecção entre funcionamento cerebral e aprendizagem — como o aluno processa, organiza, regula e responde. Use linguagem pedagógica.",
+    "text": "1 parágrafo curto sobre necessidades pedagógicas observáveis relacionadas a aprendizagem, organização, mediação e rotina escolar. Não use linguagem clínica nem deduza funcionamento cerebral.",
     "checklist": [
       { "label": "Atenção sustentada", "status": "presente|em_desenvolvimento|nao_observado" },
       { "label": "Memória de trabalho", "status": "presente|em_desenvolvimento|nao_observado" },
@@ -1898,77 +2171,71 @@ ESTRUTURA JSON OBRIGATÓRIA
     ]
   },
   "learningProfile": {
-    "text": "2 parágrafos sobre o estilo de aprendizagem predominante (visual, cinestésico, auditivo ou combinado) e como isso se manifesta em sala.",
-    "attentionSpan": "X a Y minutos (informe o tempo estimado de atenção sustentada)"
+    "text": "1 parágrafo curto sobre formas de aprendizagem observadas nos registros. Não classifique estilo de aprendizagem sem evidência.",
+    "attentionSpan": "Informe somente se houver registro objetivo; caso contrário use não há registro nos dados disponíveis"
   },
   "bestLearningStrategies": {
-    "text": "Parágrafo curto sobre como este aluno aprende melhor.",
+    "text": "Parágrafo curto sobre estratégias registradas como úteis ou possibilidades pedagógicas diretamente sustentadas pelos dados.",
     "items": [
-      "Estratégia concreta 1 (ex: Rotina visual clara antes da atividade)",
-      "Estratégia concreta 2",
-      "Estratégia concreta 3",
-      "Estratégia concreta 4"
+      "Estratégia concreta baseada em fonte registrada 1",
+      "Estratégia concreta baseada em fonte registrada 2",
+      "Estratégia concreta baseada em fonte registrada 3"
     ]
   },
   "recommendedActivities": [
     {
       "title": "Título da atividade 1",
       "objective": "Objetivo pedagógico",
-      "howToApply": "Como aplicar em 2-3 frases.",
-      "whyItHelps": "Por que beneficia este aluno.",
+      "howToApply": "Como aplicar em 1-2 frases.",
+      "whyItHelps": "Por que ajuda, citando a evidência pedagógica que sustenta a sugestão.",
       "supportLevel": "Baixo|Médio|Alto",
-      "incluiLabPrompt": "Crie uma atividade de [tipo] para ${student.name}, aluno com [diagnóstico], série [série]. A atividade deve [objetivo]. Use [recursos]. Nível: adaptado."
+      "incluiLabPrompt": "Crie uma atividade pedagógica para ${student.name}, da série/ano registrado, com objetivo de [habilidade/objetivo registrado]. Use [apoio/recurso registrado]."
     },
-    { "title": "Atividade 2", "objective": "", "howToApply": "", "whyItHelps": "", "supportLevel": "Médio", "incluiLabPrompt": "" },
-    { "title": "Atividade 3", "objective": "", "howToApply": "", "whyItHelps": "", "supportLevel": "Alto", "incluiLabPrompt": "" },
-    { "title": "Atividade 4", "objective": "", "howToApply": "", "whyItHelps": "", "supportLevel": "Baixo", "incluiLabPrompt": "" }
+    { "title": "Atividade 2 opcional", "objective": "", "howToApply": "", "whyItHelps": "", "supportLevel": "Médio", "incluiLabPrompt": "" },
+    { "title": "Atividade 3 opcional", "objective": "", "howToApply": "", "whyItHelps": "", "supportLevel": "Alto", "incluiLabPrompt": "" }
   ],
   "strengths": [
-    "Potencialidade concreta 1 (ex: Excelente memória visual e espacial)",
-    "Potencialidade 2",
-    "Potencialidade 3",
-    "Potencialidade 4"
+    "Potencialidade concreta registrada 1",
+    "Potencialidade concreta registrada 2",
+    "Potencialidade concreta registrada 3"
   ],
   "challenges": [
     {
-      "title": "Nome do desafio 1 (ex: Regulação Emocional)",
-      "description": "Descrição específica do desafio em 1-2 frases, com manifestação observável."
+      "title": "Nome do desafio/barreira registrado 1",
+      "description": "Descrição específica em 1 frase, com manifestação observável e fonte quando possível."
     },
     {
-      "title": "Nome do desafio 2 (ex: Sobrecarga Sensorial)",
+      "title": "Nome do desafio/barreira registrado 2",
       "description": "Descrição."
     },
     {
-      "title": "Nome do desafio 3 (ex: Grafomotricidade)",
+      "title": "Nome do desafio/barreira registrado 3",
       "description": "Descrição."
     }
   ],
   "observationPoints": {
-    "text": "Parágrafo orientando o professor sobre o que observar nas próximas semanas para calibrar intervenções.",
+    "text": "Parágrafo curto orientando a equipe sobre o que observar nas próximas semanas, sem afirmar evolução sem registros temporais.",
     "checklist": [
       "Aumento de autonomia nas tarefas propostas",
       "Engajamento nas atividades recomendadas",
-      "Resposta ao apoio visual oferecido",
-      "Qualidade da interação com colegas",
-      "Tolerância a mudanças na rotina",
-      "Sinais de cansaço ou sobrecarga"
+      "Resposta aos apoios pedagógicos registrados"
     ]
   },
   "carePoints": [
-    "Ponto de cuidado 1",
-    "Ponto de cuidado 2",
-    "Ponto de cuidado 3"
+    "Ponto de cuidado pedagógico registrado 1",
+    "Ponto de cuidado pedagógico registrado 2",
+    "Ponto de cuidado pedagógico registrado 3"
   ],
   "nextSteps": [
-    "Próximo passo pedagógico 1",
-    "Próximo passo 2",
-    "Próximo passo 3"
+    "Próximo passo pedagógico baseado em evidência 1",
+    "Próximo passo pedagógico baseado em evidência 2",
+    "Próximo passo pedagógico baseado em evidência 3"
   ],
   "sourcesConsidered": [
     "Fonte 1 utilizada (ex: Ficha do aluno)",
     "Fonte 2 (ex: Estudo de Caso, Laudos, Fichas cognitivas, Perfil anterior versão N)"
   ],
-  "changesSinceLastVersion": "Apenas quando version >= 2 e houver perfil anterior no contexto: descreva em 1-3 frases as principais mudanças observadas em relação à versão anterior (evolução, novas estratégias, novas prioridades). Deixe como string vazia se for a primeira geração."
+  "changesSinceLastVersion": "Apenas quando version >= 2, houver perfil anterior no contexto e houver registros temporais comparáveis: descreva em 1-2 frases mudanças sustentadas por evidência. Se não houver base temporal, use string vazia ou não há registro nos dados disponíveis."
 }`;
 
     const t0 = Date.now();
@@ -2038,7 +2305,8 @@ ESTRUTURA JSON OBRIGATÓRIA
       throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
     }
 
-    const diagnosis    = (student.diagnosis || []).join(', ') || 'Não informado';
+    const missingData  = 'não há registro nos dados disponíveis';
+    const diagnosis    = (student.diagnosis || []).join(', ') || missingData;
     const cid          = Array.isArray(student.cid) ? student.cid.join(', ') : (student.cid || '');
     const abilities    = (student.abilities || []).join('; ') || '';
     const difficulties = (student.difficulties || []).join('; ') || '';
@@ -2065,23 +2333,23 @@ ESTRUTURA JSON OBRIGATÓRIA
       period === 'bimestral' ? 'BIMESTRAL (próximo bimestre letivo)'  :
       'MACRO ANUAL (referência ampla)';
 
-    const prompt = `Você é especialista em educação inclusiva e Atendimento Educacional Especializado (AEE) conforme a Resolução CNE/CEB nº 4/2009 e a Lei Brasileira de Inclusão (Lei 13.146/2015).
+    const prompt = `Você é especialista em educação inclusiva, planejamento pedagógico de sala comum e orientação prática ao professor regente.
 
-Sua tarefa: gerar um PLANO DE AÇÃO DO PROFESSOR REGENTE — documento PRÁTICO, DIRETO e APLICÁVEL para o período ${periodLabel}. Este plano é o guia de bolso do professor de sala comum. Cada item deve ser executável imediatamente.
+Sua tarefa: gerar um PLANO DE AÇÃO DO PROFESSOR REGENTE — documento PRÁTICO, DIRETO e APLICÁVEL para o período ${periodLabel}. Este plano é o guia de sala comum para rotina pedagógica, participação, adaptação de atividades, avaliação, comunicação com AEE/família e continuidade pedagógica. Não é Plano AEE e não substitui PEI, PAEE ou Estudo de Caso.
 
 ═══════════════════════════════════════
 DADOS DO ALUNO
 ═══════════════════════════════════════
 Nome: ${student.name}
 Diagnóstico(s): ${diagnosis}${cid ? ` (CID: ${cid})` : ''}
-Nível de Suporte: ${student.supportLevel || 'Não informado'}
-Série/Turno: ${student.grade || '—'} / ${student.shift || '—'}
-Professor Regente: ${student.regentTeacher || '—'}
-Professor AEE: ${student.aeeTeacher || '—'}
-Habilidades: ${abilities || 'Não informado'}
-Dificuldades: ${difficulties || 'Não informado'}
-Estratégias que funcionam: ${strategies || 'Não informado'}
-Comunicação: ${(student.communication || []).join('; ') || 'Não informado'}
+Nível de Suporte: ${student.supportLevel || missingData}
+Série/Turno: ${student.grade || missingData} / ${student.shift || missingData}
+Professor Regente: ${student.regentTeacher || missingData}
+Professor AEE: ${student.aeeTeacher || missingData}
+Habilidades: ${abilities || missingData}
+Dificuldades: ${difficulties || missingData}
+Estratégias que funcionam: ${strategies || missingData}
+Comunicação: ${(student.communication || []).join('; ') || missingData}
 ${pkBlock}
 ${docChainBlockRegente ? `\n${docChainBlockRegente}` : ''}${ctxBlock ? `\n═══ CONTEXTO PEDAGÓGICO ADICIONAL ═══\n${ctxBlock}` : ''}
 
@@ -2103,21 +2371,26 @@ OBRIGATÓRIO — substitua por ações concretas como:
 - "Oferecer a atividade com metade das questões da turma, mas com os mesmos objetivos"
 - "Registrar se concluiu com autonomia, com mediação verbal ou recusou a proposta"
 
-MANDATÓRIO NESTE PLANO:
-- "suggestedGames" deve ter pelo menos 2 jogos concretos com nome e como usar
-- "suggestedVideos" deve ter pelo menos 1 vídeo com tipo, duração máx. 3 min e objetivo
-- "suggestedMaterials" deve ter pelo menos 4 materiais com como usar cada um
-- "suggestedDynamics" deve ter pelo menos 2 dinâmicas com passos de como aplicar
-- Os 6 blocos principais devem ter 5 a 8 itens cada, todos concretos e específicos
+FONTES E LIMITES DO PLANO REGENTE:
+- Considere Estudo de Caso + PEI + PAEE quando estiverem disponíveis no contexto. Use a Ficha do Aluno, observações, registros pedagógicos, laudos/documentos analisados e Perfil Inteligente apenas como apoio.
+- Se PAEE, PEI ou Estudo de Caso não estiverem no contexto recebido, reconheça a ausência quando relevante e não invente recursos, barreiras, adaptações ou estratégias.
+- Não copie integralmente PEI, PAEE ou Estudo de Caso. Sintetize somente o que vira ação prática de sala comum.
+- Prioridades/focusPlan: até 3 itens.
+- Ações práticas nos blocos beforeClass, duringClass e activitiesStrategies: até 5 itens por bloco.
+- Adaptações: até 5 itens.
+- Avaliação/acompanhamento: até 3 critérios objetivos.
+- Comunicação com AEE/família: objetiva e relacionada à rotina escolar.
+- Jogos, vídeos, materiais e dinâmicas são opcionais; gere somente quando houver evidência pedagógica suficiente. Se não houver base, deixe o bloco com lista vazia ou omita o bloco opcional mantendo o JSON parseável.
 
-EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para preencher "suggestedStrategies" e os blocos de ação em sala, e use barreiras identificadas para embasar "mainBarrier" e "focusPlan". Cite como "conforme observações do professor regente em sala" quando aplicável. Nunca transforme observação pedagógica em diagnóstico clínico.
-HISTÓRICO DE ATIVIDADES E ESTRATÉGIAS: Se o contexto incluir seção "ATIVIDADES PEDAGÓGICAS JÁ GERADAS", use o histórico para propor atividades com continuidade pedagógica em "weeklyPlan" e "suggestedActivities" — nunca repetir formato idêntico sem justificativa. Se houver seção "ESTRATÉGIAS QUE FUNCIONARAM", priorize-as em "suggestedStrategies" e nas orientações do plano. Se houver "ESTRATÉGIAS QUE EXIGEM CAUTELA", reflita isso em "mainBarrier" e nas adaptações.
+EVIDÊNCIAS PEDAGÓGICAS: Se o contexto incluir seção "EVIDÊNCIAS PEDAGÓGICAS E DE ROTINA", use estratégias que funcionaram para embasar beforeClass, duringClass, activitiesStrategies, adaptations e communicationTeam. Use barreiras identificadas para embasar mainBarrier e focusPlan. Cite como "conforme observações do professor regente em sala" quando aplicável. Nunca transforme observação pedagógica em diagnóstico clínico.
+HISTÓRICO DE ATIVIDADES E ESTRATÉGIAS: Se o contexto incluir seção "ATIVIDADES PEDAGÓGICAS JÁ GERADAS", use o histórico apenas para continuidade pedagógica em activitiesStrategies, suggestedGames, suggestedMaterials ou suggestedDynamics quando houver base — nunca repetir formato idêntico sem justificativa. Se houver seção "ESTRATÉGIAS QUE FUNCIONARAM", priorize-as nas ações práticas. Se houver "ESTRATÉGIAS QUE EXIGEM CAUTELA", reflita isso em mainBarrier, adaptations e attentionObservations.
+REGRAS DE EVIDÊNCIA: Toda ação deve se apoiar em dado disponível. Diagnóstico ou CID não podem ser usados sozinhos para deduzir comportamento, suporte, autonomia, comunicação, estratégia, frequência ou evolução. Se faltar evidência, use "${missingData}" ou lista vazia quando o schema permitir. Não invente diagnóstico, CID, terapia, medicação, acompanhamento externo, jogos, vídeos, dinâmicas, materiais, frequência ou evolução. Não fale de evolução sem registros temporais comparáveis. Não transforme este plano em Plano AEE, prescrição clínica ou intervenção terapêutica.
 ${FORBIDDEN_TERMS_BLOCK}
 
 ═══════════════════════════════════════
 ESTRUTURA JSON OBRIGATÓRIA
 ═══════════════════════════════════════
-Retorne SOMENTE o JSON abaixo. Preencha TODOS os campos "text" com conteúdo real e específico para ${student.name}. Nunca repita itens entre blocos. Nenhum placeholder.
+Retorne SOMENTE o JSON abaixo. Preserve exatamente os nomes dos campos. Preencha campos "text" somente quando houver evidência suficiente para ${student.name}. Nunca repita itens entre blocos. Nenhum placeholder. Blocos opcionais podem ter "items": [] quando não houver base.
 
 {
   "period": "${period}",
@@ -2289,7 +2562,7 @@ Retorne SOMENTE o JSON abaixo. Preencha TODOS os campos "text" com conteúdo rea
   "nextStep": "Próximo passo concreto — ex: Manter estratégia e registrar evolução / Ajustar duração dos blocos / Conversar com família sobre rotina em casa / Encaminhar ao AEE para discussão"
 }
 
-IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específicas para ${student.name} com base no diagnóstico e no perfil pedagógico. Nunca repita item entre blocos. Português brasileiro formal.`;
+IMPORTANTE: substitua os textos de exemplo por ações reais e específicas para ${student.name} com base nas fontes disponíveis, especialmente Estudo de Caso, PEI e PAEE quando presentes. Use diagnóstico apenas como dado registrado, nunca como motor das ações. Nunca repita item entre blocos. Português brasileiro formal.`;
 
     const t0 = Date.now();
     const auditId = await AiAuditService.logRequest({
@@ -2343,7 +2616,8 @@ IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específica
       throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
     }
 
-    const diagnosis    = (student.diagnosis || []).join(', ') || 'Não informado';
+    const missingData  = 'não há registro nos dados disponíveis';
+    const diagnosis    = (student.diagnosis || []).join(', ') || missingData;
     const cid          = Array.isArray(student.cid) ? student.cid.join(', ') : (student.cid || '');
     const abilities    = (student.abilities || []).join('; ') || '';
     const difficulties = (student.difficulties || []).join('; ') || '';
@@ -2369,16 +2643,16 @@ DADOS DO ALUNO
 ═══════════════════════════════════════
 Nome: ${student.name}
 Diagnóstico(s): ${diagnosis}${cid ? ` (CID: ${cid})` : ''}
-Nível de Suporte: ${student.supportLevel || 'Não informado'}
-Série/Turno: ${student.grade || '—'} / ${student.shift || '—'}
-Professor AEE: ${student.aeeTeacher || '—'}
-Professor Regente: ${student.regentTeacher || '—'}
-Habilidades: ${abilities || 'Não informado'}
-Dificuldades: ${difficulties || 'Não informado'}
-Estratégias que funcionam: ${strategies || 'Não informado'}
-Comunicação: ${(student.communication || []).join('; ') || 'Não informado'}
+Nível de Suporte: ${student.supportLevel || missingData}
+Série/Turno: ${student.grade || missingData} / ${student.shift || missingData}
+Professor AEE: ${student.aeeTeacher || missingData}
+Professor Regente: ${student.regentTeacher || missingData}
+Habilidades: ${abilities || missingData}
+Dificuldades: ${difficulties || missingData}
+Estratégias que funcionam: ${strategies || missingData}
+Comunicação: ${(student.communication || []).join('; ') || missingData}
 ${pkBlock}
-${paeeContent ? `\n═══ PAEE — DOCUMENTO NORTEADOR ═══\n${paeeContent}` : ''}
+${paeeContent ? `\n═══ PAEE — DOCUMENTO NORTEADOR PRINCIPAL ═══\n${paeeContent}` : `\n═══ PAEE — DOCUMENTO NORTEADOR PRINCIPAL ═══\n${missingData}`}
 
 ═══════════════════════════════════════
 REGRAS CRÍTICAS — LEIA ANTES DE GERAR
@@ -2397,22 +2671,26 @@ OBRIGATÓRIO — substitua por ações concretas do AEE como:
 - "Timer visual de 8 minutos para cada bloco de atividade"
 - "Se recusar: oferecer escolha entre duas opções e aguardar 30 segundos antes de intervir"
 
-MANDATÓRIO NESTE PLANO AEE:
-- "gamesResources" deve ter pelo menos 2 jogos concretos com nome e como usar no AEE
-- "videosResources" deve ter pelo menos 1 vídeo com tipo, duração máx. 3 min e objetivo pedagógico
-- "materials" deve ter pelo menos 5 materiais com como usar cada um no AEE
-- "sessionScript" deve ter 6 a 8 itens descrevendo passo a passo da sessão (início→atividade→pausa→retomada→encerramento→registro)
-- "responseRecord" deve ter exatamente 8 itens de registro possível da resposta do aluno
-- "welcomeRoutine" deve ter 4 a 6 itens de como receber e acolher o aluno
+FONTES E LIMITES DO PLANO AEE:
+- O PAEE é a fonte principal. Use-o para definir barreira prioritária, objetivo do atendimento, recursos de acessibilidade, estratégias AEE e forma de acompanhamento.
+- Se o PAEE estiver ausente, vazio ou incompleto, reconheça a ausência de dados suficientes e gere apenas orientações mínimas e cautelosas. Não invente plano completo.
+- Cada ação deve se relacionar a barreira registrada, necessidade de acessibilidade, recurso indicado, observação pedagógica ou objetivo do PAEE.
+- Objetivos: até 3, objetivos e observáveis.
+- Ações/roteiro de atendimento: até 5 itens e somente quando houver dados suficientes.
+- Recursos, jogos, vídeos, materiais, atividades impressas, recursos digitais e dinâmicas são opcionais. Gere somente quando houver evidência ou indicação no PAEE/contexto. Caso contrário, deixe o bloco com lista vazia ou omita o bloco opcional mantendo o JSON parseável.
+- Materiais: até 5.
+- Registros e acompanhamento: objetivos, sem afirmar evolução antes do atendimento.
+- Não transformar este plano em currículo da sala comum. Não substituir PEI. Não prescrever terapia, conduta clínica ou intervenção médica.
 
-FONTES: use o PAEE como norteador principal. Use as habilidades e estratégias do perfil para embasar jogos e atividades concretas. Use as dificuldades para embasar a barreira prioritária. Nunca invente diagnóstico clínico.
+FONTES: use o PAEE como norteador principal. Use Estudo de Caso, registros AEE, observações pedagógicas, laudos/documentos analisados, ficha cognitiva, Perfil Inteligente e atividades anteriores apenas como evidências complementares. Não use diagnóstico sozinho para deduzir barreira, recurso, frequência, suporte, estratégia ou evolução.
 HISTÓRICO DE ATIVIDADES E ESTRATÉGIAS: Se o contexto incluir seção "ATIVIDADES PEDAGÓGICAS JÁ GERADAS", use o histórico para propor sequência pedagógica progressiva em "sessionScript" e "gamesResources" — nunca repetir atividades idênticas. Se houver seção "ESTRATÉGIAS QUE FUNCIONARAM", priorize-as em "welcomeRoutine" e nos recursos do atendimento. Se houver "ESTRATÉGIAS QUE EXIGEM CAUTELA", reflita isso na barreira prioritária e nas observações do plano.
+REGRAS DE EVIDÊNCIA: Toda ação deve se apoiar em dado disponível. Se faltar evidência, use "${missingData}" ou lista vazia quando o schema permitir. Não invente diagnóstico, CID, terapia, medicação, acompanhamento externo, frequência, evolução, barreiras, recursos, jogos, vídeos, materiais, estratégias ou roteiro completo. Não fale de evolução sem registros temporais comparáveis. Não repita a mesma orientação em vários campos.
 ${FORBIDDEN_TERMS_BLOCK}
 
 ═══════════════════════════════════════
 ESTRUTURA JSON OBRIGATÓRIA
 ═══════════════════════════════════════
-Retorne SOMENTE o JSON abaixo. Preencha TODOS os campos com conteúdo real e específico para ${student.name}. Nunca repita itens entre blocos. Nenhum placeholder.
+Retorne SOMENTE o JSON abaixo. Preserve exatamente os nomes dos campos. Preencha campos e listas somente quando houver evidência suficiente para ${student.name}. Nunca repita itens entre blocos. Nenhum placeholder. Blocos opcionais podem ter "items": [] quando não houver base.
 
 {
   "period": "${period}",
@@ -2546,7 +2824,7 @@ Retorne SOMENTE o JSON abaixo. Preencha TODOS os campos com conteúdo real e esp
   "nextStep": "Próximo passo concreto para o AEE — ex: Avançar para comunicação com 8 figuras / Introduzir leitura silábica na próxima sessão / Relatar evolução ao professor regente / Conversar com família sobre continuidade em casa"
 }
 
-IMPORTANTE: substitua TODOS os textos de exemplo por ações reais e específicas para ${student.name} com base no diagnóstico, no PAEE e no perfil pedagógico. Nunca repita item entre blocos. Português brasileiro formal.`;
+IMPORTANTE: substitua os textos de exemplo por ações reais e específicas para ${student.name} com base principalmente no PAEE e nas evidências disponíveis. Use diagnóstico apenas como dado registrado, nunca como motor das ações. Nunca repita item entre blocos. Português brasileiro formal.`;
 
     const t0 = Date.now();
     const auditId = await AiAuditService.logRequest({

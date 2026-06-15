@@ -15,8 +15,9 @@ import type { CanonicalData } from './_contextBuilder.ts';
 const DOC_RELEVANCE: Record<string, string[]> = {
   pei:                 ['ESTUDO_DE_CASO', 'PAEE', 'estudo_de_caso', 'paee'],
   paee:                ['ESTUDO_DE_CASO', 'estudo_de_caso'],
+  documento_unificado_pei_paee: ['ESTUDO_CASO', 'ESTUDO_DE_CASO', 'PEI', 'PAEE', 'estudo_de_caso', 'pei', 'paee'],
   pdi:                 ['PEI', 'PAEE', 'ESTUDO_DE_CASO', 'pei', 'paee', 'estudo_de_caso'],
-  plano_acao_regente:  ['PEI', 'ESTUDO_DE_CASO', 'pei', 'estudo_de_caso'],
+  plano_acao_regente:  ['ESTUDO_DE_CASO', 'PEI', 'PAEE', 'estudo_de_caso', 'pei', 'paee'],
   plano_acao_aee:      ['PAEE', 'ESTUDO_DE_CASO', 'paee', 'estudo_de_caso'],
   perfil_inteligente:  ['PEI', 'PAEE', 'PDI', 'ESTUDO_DE_CASO', 'pei', 'paee', 'pdi', 'estudo_de_caso'],
   relatorio:           ['PEI', 'PAEE', 'ESTUDO_DE_CASO', 'pei', 'paee', 'estudo_de_caso'],
@@ -297,7 +298,7 @@ function buildIntelligentProfileBlock(profile: any | null): string {
   const dt  = formatDate(profile.created_at);
 
   let block = `\n=== PERFIL INTELIGENTE MAIS RECENTE (v${ver} — ${dt}) ===\n`;
-  block += 'INSTRUÇÃO: Se gerando novo Perfil Inteligente, destaque evolução desde esta versão.\n';
+  block += 'INSTRUÇÃO: Use este perfil apenas como histórico complementar. Não copie, não trate como verdade única e só mencione evolução se houver registros temporais comparáveis.\n';
 
   if (typeof pj.humanizedIntroduction?.text === 'string') {
     block += `Introdução: ${truncate(pj.humanizedIntroduction.text, 300)}\n`;
@@ -385,6 +386,8 @@ function arrFromField(fd: any, key: string): string[] {
  */
 export function formatContextForPrompt(data: CanonicalData, targetDocType: string): string {
   const sections: string[] = [];
+  const normalizedTarget = targetDocType.toLowerCase();
+  const isDocumentoUnificado = normalizedTarget === 'documento_unificado_pei_paee';
 
   // Perfil cognitivo (student_profiles)
   const cogBlock = buildCognitiveBlock(data.profile ? [data.profile] : []);
@@ -411,20 +414,28 @@ export function formatContextForPrompt(data: CanonicalData, targetDocType: strin
   if (savedDocsBlock) sections.push(savedDocsBlock);
 
   // Planos de ação do professor regente (student_action_plans)
-  const actionPlansBlock = buildActionPlansBlock(data.saved_action_plans, 'Planos de Ação — Professor Regente');
-  if (actionPlansBlock) sections.push(actionPlansBlock);
+  if (!isDocumentoUnificado) {
+    const actionPlansBlock = buildActionPlansBlock(data.saved_action_plans, 'Planos de Ação — Professor Regente');
+    if (actionPlansBlock) sections.push(actionPlansBlock);
+  }
 
   // Planos de ação AEE (student_aee_action_plans)
-  const aeeActionPlansBlock = buildActionPlansBlock(data.saved_aee_action_plans, 'Planos de Ação AEE Anteriores');
-  if (aeeActionPlansBlock) sections.push(aeeActionPlansBlock);
+  if (!isDocumentoUnificado) {
+    const aeeActionPlansBlock = buildActionPlansBlock(data.saved_aee_action_plans, 'Planos de Ação AEE Anteriores');
+    if (aeeActionPlansBlock) sections.push(aeeActionPlansBlock);
+  }
 
   // Perfil Inteligente salvo (student_intelligent_profiles)
-  const profileBlock = buildIntelligentProfileBlock(data.saved_intelligent_profile);
-  if (profileBlock) sections.push(profileBlock);
+  if (!isDocumentoUnificado) {
+    const profileBlock = buildIntelligentProfileBlock(data.saved_intelligent_profile);
+    if (profileBlock) sections.push(profileBlock);
+  }
 
   // Atividades geradas (generated_activities)
-  const activitiesBlock = buildActivitiesBlock(data.generated_activities);
-  if (activitiesBlock) sections.push(activitiesBlock);
+  if (!isDocumentoUnificado) {
+    const activitiesBlock = buildActivitiesBlock(data.generated_activities);
+    if (activitiesBlock) sections.push(activitiesBlock);
+  }
 
   if (sections.length === 0) return '';
 
@@ -432,9 +443,11 @@ export function formatContextForPrompt(data: CanonicalData, targetDocType: strin
     '\n\n═══════════════════════════════════════════════════\n' +
     'CONTEXTO CANÔNICO DO ALUNO — FONTES OFICIAIS DO SISTEMA\n' +
     '═══════════════════════════════════════════════════\n' +
-    'GUARDRAILS: (1) Dado ausente → "Não há registro no sistema sobre...". ' +
+    'GUARDRAILS: (1) Dado ausente → use ausência neutra ou deixe vazio conforme o schema. ' +
     '(2) Observação pedagógica ≠ diagnóstico clínico. ' +
-    '(3) Nunca invente CID, diagnóstico ou laudo não listado aqui.\n' +
+    '(3) Nunca invente CID, diagnóstico ou laudo não listado aqui. ' +
+    '(4) Diagnóstico/CID é contexto cadastral, não prova funcional; não deduza comportamento, autonomia, comunicação, suporte, frequência, evolução, estratégia ou dificuldade pedagógica a partir dele. ' +
+    '(5) Evolução, avanço, regressão ou manutenção só devem aparecer com registros temporais comparáveis.\n' +
     sections.join('') +
     '\n═══════════════════════════════════════════════════\n' +
     'FIM DO CONTEXTO CANÔNICO\n' +

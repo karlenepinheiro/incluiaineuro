@@ -92,6 +92,11 @@ export const SubscriberRowCard: React.FC<Props> = ({
   const [emailCopied, setEmailCopied] = useState(false);
   const [highlightKiwify, setHighlightKiwify] = useState(false);
   const [orderIdCopied, setOrderIdCopied] = useState(false);
+  const [suspendConfirm, setSuspendConfirm] = useState(false);
+  const [reactivateConfirm, setReactivateConfirm] = useState(false);
+  const [planChangeConfirm, setPlanChangeConfirm] = useState(false);
+  const [planChangeReason, setPlanChangeReason] = useState('');
+  const [planChangeError, setPlanChangeError] = useState('');
 
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -131,7 +136,11 @@ export const SubscriberRowCard: React.FC<Props> = ({
       if (!amt || !reason.trim()) { alert('Preencha quantidade e motivo.'); return; }
       await onGrantCredits(sub.tenant_id, amt, reason);
     } else if (panel === 'plan') {
-      await onChangePlan(sub.tenant_id, plan);
+      setPanel(null);
+      setPlanChangeReason('');
+      setPlanChangeError('');
+      setPlanChangeConfirm(true);
+      return;
     } else if (panel === 'courtesy') {
       if (!reason.trim()) { alert('Informe o motivo da cortesia.'); return; }
       await onGrantCourtesy(sub.tenant_id, reason);
@@ -301,14 +310,14 @@ export const SubscriberRowCard: React.FC<Props> = ({
                     </button>
                     {sub.subscription_status === 'ACTIVE' ? (
                       <button
-                        onClick={() => { onSuspend(sub.tenant_id); setMenuOpen(false); }}
+                        onClick={() => { setSuspendConfirm(true); setMenuOpen(false); }}
                         className="w-full text-left px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2"
                       >
                         <XCircle size={12} />Suspender assinatura
                       </button>
                     ) : (
                       <button
-                        onClick={() => { onReactivate(sub.tenant_id); setMenuOpen(false); }}
+                        onClick={() => { setReactivateConfirm(true); setMenuOpen(false); }}
                         className="w-full text-left px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 flex items-center gap-2"
                       >
                         <CheckCircle size={12} />Reativar assinatura
@@ -625,6 +634,131 @@ export const SubscriberRowCard: React.FC<Props> = ({
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Suspend confirmation modal */}
+      {suspendConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 420, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <XCircle size={20} color="#dc2626" />
+              <span style={{ fontWeight: 700, fontSize: 16, color: '#1a1a1a' }}>Suspender assinatura?</span>
+            </div>
+            <p style={{ fontSize: 13, color: '#4b5563', marginBottom: 8 }}>
+              O acesso de <strong>{sub.tenant_name ?? sub.user_email}</strong> será bloqueado imediatamente.
+            </p>
+            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 20 }}>
+              O assinante não conseguirá mais entrar na plataforma até que a assinatura seja reativada manualmente.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setSuspendConfirm(false)}
+                style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', fontSize: 13, cursor: 'pointer', color: '#374151' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => { setSuspendConfirm(false); onSuspend(sub.tenant_id); }}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Sim, suspender
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Plan change confirmation modal */}
+      {planChangeConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 460, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <Package size={20} color="#2563eb" />
+              <span style={{ fontWeight: 700, fontSize: 16, color: '#1a1a1a' }}>Confirmar alteração de plano?</span>
+            </div>
+            <p style={{ fontSize: 13, color: '#4b5563', marginBottom: 4 }}>
+              Assinante: <strong>{sub.tenant_name ?? sub.user_email}</strong>
+            </p>
+            <p style={{ fontSize: 13, color: '#4b5563', marginBottom: 16 }}>
+              Plano atual: <strong style={{ color: '#374151' }}>{sub.plan_code}</strong>
+              {' → '}
+              Novo plano: <strong style={{ color: '#2563eb' }}>{plan}</strong>
+            </p>
+            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 16 }}>
+              A alteração é imediata. Créditos e limites de alunos serão ajustados conforme o novo plano.
+            </p>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                Motivo administrativo *
+              </label>
+              <input
+                autoFocus
+                style={{ width: '100%', border: `1px solid ${planChangeError ? '#dc2626' : '#d1d5db'}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                placeholder="Ex: Upgrade solicitado via suporte, correção de plano, cortesia comercial"
+                value={planChangeReason}
+                onChange={e => { setPlanChangeReason(e.target.value); setPlanChangeError(''); }}
+              />
+              {planChangeError && (
+                <p style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, marginTop: 4 }}>{planChangeError}</p>
+              )}
+              {/* TODO: future sprint — passar planChangeReason para onChangePlan quando a função aceitar motivo para auditoria */}
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setPlanChangeConfirm(false); setPlanChangeReason(''); setPlanChangeError(''); }}
+                style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', fontSize: 13, cursor: 'pointer', color: '#374151' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={async () => {
+                  if (!planChangeReason.trim()) { setPlanChangeError('Motivo administrativo é obrigatório.'); return; }
+                  if (plan === sub.plan_code) { setPlanChangeError('Selecione um plano diferente do atual.'); return; }
+                  setPlanChangeConfirm(false);
+                  setPlanChangeReason('');
+                  setPlanChangeError('');
+                  await onChangePlan(sub.tenant_id, plan);
+                }}
+                disabled={actionLoading}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 600, cursor: actionLoading ? 'not-allowed' : 'pointer', opacity: actionLoading ? 0.5 : 1 }}
+              >
+                {actionLoading ? 'Aguarde...' : 'Confirmar alteração'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reactivate confirmation modal */}
+      {reactivateConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 420, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <CheckCircle size={20} color="#059669" />
+              <span style={{ fontWeight: 700, fontSize: 16, color: '#1a1a1a' }}>Reativar assinatura?</span>
+            </div>
+            <p style={{ fontSize: 13, color: '#4b5563', marginBottom: 8 }}>
+              O acesso de <strong>{sub.tenant_name ?? sub.user_email}</strong> será restaurado imediatamente.
+            </p>
+            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 20 }}>
+              O assinante voltará a ter acesso completo à plataforma conforme o plano vigente.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setReactivateConfirm(false)}
+                style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', fontSize: 13, cursor: 'pointer', color: '#374151' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => { setReactivateConfirm(false); onReactivate(sub.tenant_id); }}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#059669', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Sim, reativar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

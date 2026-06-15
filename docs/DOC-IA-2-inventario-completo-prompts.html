@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DOC-IA-2 - Inventario Completo dos Prompts</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --paper: #ffffff;
+      --ink: #111827;
+      --muted: #667085;
+      --line: #d9e2ec;
+      --brand: #1f6f78;
+      --gold: #b7791f;
+      --red: #b42318;
+      --orange: #b54708;
+      --green: #067647;
+      --blue: #175cd3;
+      --soft-red: #fef3f2;
+      --soft-orange: #fff7ed;
+      --soft-green: #ecfdf3;
+      --soft-blue: #eff6ff;
+      --soft-brand: #e7f4f3;
+      --shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, rgba(31, 111, 120, 0.12), transparent 340px), var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      line-height: 1.5;
+    }
+    main {
+      width: min(1380px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 36px 0 64px;
+    }
+    header {
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 30px;
+      box-shadow: var(--shadow);
+      margin-bottom: 22px;
+    }
+    .eyebrow {
+      color: var(--brand);
+      font-weight: 800;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(30px, 4.8vw, 54px);
+      line-height: 1.03;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0 0 14px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+    p { margin: 0 0 12px; }
+    .lead {
+      color: #344054;
+      max-width: 980px;
+      font-size: 17px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin: 20px 0 0;
+    }
+    .card, section {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: 0 10px 26px rgba(15, 23, 42, 0.05);
+    }
+    .card { padding: 16px; }
+    .card strong {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 5px;
+    }
+    .card span {
+      font-size: 24px;
+      font-weight: 850;
+    }
+    section {
+      margin: 18px 0;
+      padding: 22px;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+    .note {
+      background: var(--soft-brand);
+      border: 1px solid #b8dcda;
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      box-shadow: 0 10px 26px rgba(15, 23, 42, 0.04);
+    }
+    table {
+      border-collapse: collapse;
+      min-width: 4300px;
+      width: 100%;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      border-right: 1px solid #eef2f6;
+      padding: 10px 11px;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f8fafc;
+      color: #344054;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    td:nth-child(1), th:nth-child(1) {
+      position: sticky;
+      left: 0;
+      z-index: 3;
+      background: #fff;
+      min-width: 44px;
+      text-align: center;
+      font-weight: 800;
+    }
+    th:nth-child(1) { background: #f8fafc; }
+    tr:hover td { background: #fbfdff; }
+    tr:hover td:nth-child(1) { background: #fbfdff; }
+    ul { margin: 0; padding-left: 19px; }
+    li { margin: 5px 0; }
+    code {
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: #eef2f6;
+      color: #344054;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 0.92em;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .critica { color: var(--red); background: var(--soft-red); }
+    .alta { color: var(--orange); background: var(--soft-orange); }
+    .media { color: var(--blue); background: var(--soft-blue); }
+    .baixa { color: var(--green); background: var(--soft-green); }
+    .sim { color: var(--green); background: var(--soft-green); }
+    .nao { color: var(--muted); background: #f2f4f7; }
+    .incerto, .depois { color: var(--gold); background: #fffaeb; }
+    .diag-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+    .diag {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 16px;
+      background: #fff;
+    }
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 20px;
+    }
+    @media (max-width: 920px) {
+      .cards, .summary-grid, .diag-grid { grid-template-columns: 1fr; }
+      header, section { padding: 18px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">DOC-IA-2 / Auditoria tecnica</div>
+    <h1>Inventario completo dos prompts e fluxos de IA do IncluiAI</h1>
+    <p class="lead">
+      Documento de auditoria sem correcao de codigo. Mapeia prompts centralizados, prompts hardcoded,
+      wrappers genericos, uso de contexto canonico, provider/modelo, custo, schema esperado e riscos.
+    </p>
+    <div class="cards">
+      <div class="card"><strong>Prompts/fluxos mapeados</strong><span>39</span></div>
+      <div class="card"><strong>Arquivos de prompt</strong><span>6</span></div>
+      <div class="card"><strong>Provider principal</strong><span>Gemini</span></div>
+      <div class="card"><strong>Edicoes em produto</strong><span>0</span></div>
+    </div>
+  </header>
+
+  <section>
+    <h2>Resumo do que foi encontrado</h2>
+    <div class="summary-grid">
+      <div class="note">
+        <h3>Concentrado</h3>
+        <p>Documentos formais estao concentrados em <code>AIService.generateProtocolJSON</code>, usando <code>task: json</code>, custo oficial de 3 creditos e contexto canonico server-side.</p>
+      </div>
+      <div class="note">
+        <h3>Espalhado</h3>
+        <p>IncluiLAB, fichas, importacao, OCR e sugestoes usam prompts hardcoded em services, views e components, alem dos arquivos em <code>src/prompts</code>.</p>
+      </div>
+      <div class="note">
+        <h3>Risco maior</h3>
+        <p>Relatorios, Perfil Inteligente, Planos de Acao e OCR com <code>task: document</code> concentram os maiores riscos de inferencia, verborragia, JSON fragil e custo invisivel.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Tabela completa</h2>
+    <p class="small">A tabela e larga de proposito para preservar todas as 28 colunas solicitadas. Role horizontalmente.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>N</th><th>Familia</th><th>Nome do fluxo/prompt</th><th>Arquivo</th><th>Linha aprox.</th><th>Funcao/metodo/componente</th><th>Tela/modulo</th><th>Acao do usuario</th><th>O que pede para a IA fazer</th><th>Saida esperada</th><th>Usa gateway?</th><th>task</th><th>buildContextServer?</th><th>targetDocType</th><th>Contexto recebido</th><th>Provider/modelo</th><th>Custo</th><th>Fonte do custo</th><th>Schema esperado</th><th>Risco inventar</th><th>Risco repeticao</th><th>Risco JSON</th><th>Risco custo invisivel</th><th>Problema observado</th><th>Recomendacao inicial</th><th>Prioridade</th><th>Centralizar?</th><th>Obsoleto?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>1</td><td>Documentos formais</td><td>Estudo de Caso</td><td><code>src/services/aiService.ts</code></td><td>807</td><td><code>generateProtocolJSON</code></td><td>StudentProfile / DocumentBuilder</td><td>Gerar documento individual ou em lote</td><td>Gerar estudo de caso pedagogico baseado em evidencias</td><td>documento JSON</td><td>sim</td><td>json</td><td>sim</td><td><code>estudo_de_caso</code></td><td>dados aluno, familia, schema, contexto canonico server, repair local</td><td>Gemini 2.5 Flash via ai-gateway</td><td>3</td><td><code>AI_CREDIT_COSTS.ESTUDO_DE_CASO</code></td><td><code>{sections:[{id,title,fields:[{id,label,type,value}]}]}</code></td><td>medio</td><td>medio</td><td>medio</td><td>baixo</td><td>Schema longo pode gerar analise repetida</td><td>Manter limites e revisar campos com maior texto</td><td><span class="pill alta">alta</span></td><td>depois</td><td>nao</td></tr>
+          <tr><td>2</td><td>Documentos formais</td><td>PEI</td><td><code>src/services/aiService.ts</code></td><td>447</td><td><code>generateProtocolJSON</code></td><td>StudentProfile / lote</td><td>Gerar PEI por IA</td><td>Gerar plano educacional individualizado por disciplinas, BNCC, objetivos, estrategias e avaliacao</td><td>documento JSON</td><td>sim</td><td>json</td><td>sim</td><td><code>pei</code></td><td>aluno, familia, schema PEI, contexto canonico server</td><td>Gemini 2.5 Flash</td><td>3</td><td><code>AI_CREDIT_COSTS.PEI</code></td><td>sections/fields/value com areas curriculares</td><td>medio</td><td>alto</td><td>medio</td><td>baixo</td><td>Muitas areas induzem repeticao e BNCC incerta</td><td>Separar BNCC segura, limitar por disciplina, evitar justificativa repetida</td><td><span class="pill alta">alta</span></td><td>depois</td><td>nao</td></tr>
+          <tr><td>3</td><td>Documentos formais</td><td>PAEE</td><td><code>src/services/aiService.ts</code></td><td>634</td><td><code>generateProtocolJSON</code></td><td>StudentProfile / lote</td><td>Gerar PAEE por IA</td><td>Gerar plano AEE focado em barreiras, recursos, acessibilidade e responsaveis</td><td>documento JSON</td><td>sim</td><td>json</td><td>sim</td><td><code>paee</code></td><td>aluno, familia, schema PAEE, contexto canonico server</td><td>Gemini 2.5 Flash</td><td>3</td><td><code>AI_CREDIT_COSTS.PAEE</code></td><td>sections/fields/value</td><td>medio</td><td>medio</td><td>medio</td><td>baixo</td><td>Pode repetir PEI ou virar relatorio clinico</td><td>Reforcar foco em acesso e nao conteudo curricular</td><td><span class="pill alta">alta</span></td><td>depois</td><td>nao</td></tr>
+          <tr><td>4</td><td>Documentos formais</td><td>PDI</td><td><code>src/services/aiService.ts</code></td><td>733</td><td><code>generateProtocolJSON</code></td><td>StudentProfile / lote</td><td>Gerar PDI por IA</td><td>Gerar metas de desenvolvimento, indicadores e acompanhamento</td><td>documento JSON</td><td>sim</td><td>json</td><td>sim</td><td><code>pdi</code></td><td>aluno, familia, schema PDI, contexto canonico server</td><td>Gemini 2.5 Flash</td><td>3</td><td><code>AI_CREDIT_COSTS.PDI</code></td><td>sections/fields/value</td><td>medio</td><td>medio</td><td>medio</td><td>baixo</td><td>Metas podem ficar genericas se poucos dados</td><td>Exigir indicadores observaveis e campos vazios quando sem evidencia</td><td><span class="pill media">media</span></td><td>depois</td><td>nao</td></tr>
+          <tr><td>5</td><td>Documentos formais</td><td>Plano de Acao AEE dentro de protocolo</td><td><code>src/services/aiService.ts</code></td><td>916</td><td><code>generateProtocolJSON</code></td><td>DocumentBuilder / docs formais</td><td>Gerar tipo Plano de Acao AEE pela rota generica</td><td>Gerar plano operacional com secoes e campos</td><td>documento JSON</td><td>sim</td><td>json</td><td>sim</td><td><code>plano_acao_aee</code></td><td>aluno, familia, schema, contexto canonico server</td><td>Gemini 2.5 Flash</td><td>7 ou fallback por tipo</td><td><code>CREDIT_COSTS</code></td><td>sections/fields/value</td><td>alto</td><td>alto</td><td>medio</td><td>baixo</td><td>Ainda contem instrucoes de preencher todos em bloco especifico</td><td>Revisar junto com planos, sem misturar com PAEE</td><td><span class="pill alta">alta</span></td><td>depois</td><td>incerto</td></tr>
+          <tr><td>6</td><td>Documentos formais</td><td>Documento generico/ficha</td><td><code>src/services/aiService.ts</code></td><td>1146</td><td><code>generateProtocolJSON</code></td><td>DocumentBuilder / tipos nao priorizados</td><td>Gerar documento nao PEI/PAEE/PDI/Estudo</td><td>Gerar documento pedagogico generico</td><td>documento JSON</td><td>sim</td><td>json</td><td>sim</td><td>via <code>mapDocTypeToCategory</code></td><td>aluno, familia, contexto canonico server</td><td>Gemini 2.5 Flash</td><td>varia</td><td><code>CREDIT_COSTS[type] || 1</code></td><td>sections genericas</td><td>alto</td><td>alto</td><td>alto</td><td>medio</td><td>Prompt manda inferir se ausente e preencher todos</td><td>Aplicar guardrails DOC-IA-1 tambem no generico</td><td><span class="pill alta">alta</span></td><td>sim</td><td>incerto</td></tr>
+          <tr><td>7</td><td>Documentos formais</td><td>Protocolo legado texto</td><td><code>src/services/aiService.ts</code></td><td>354</td><td><code>generateProtocol</code></td><td>App/geminiService legado</td><td>Gerar protocolo antigo</td><td>Gerar protocolo textual simples</td><td>texto</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>aluno, laudo/doc opcional extraido</td><td>Gemini text</td><td>por tipo</td><td><code>CREDIT_COSTS</code></td><td>sem schema</td><td>alto</td><td>alto</td><td>baixo</td><td>baixo</td><td>Saida livre e possivelmente legada</td><td>Confirmar uso e migrar para JSON ou aposentar</td><td><span class="pill media">media</span></td><td>sim</td><td>incerto</td></tr>
+          <tr><td>8</td><td>Relatorios e perfis</td><td>Perfil Inteligente</td><td><code>src/services/aiService.ts</code></td><td>1819</td><td><code>generateIntelligentProfile</code></td><td>IntelligentProfileTab</td><td>Gerar/atualizar Perfil Inteligente</td><td>Gerar perfil humanizado, checklists, estrategias, atividades e fontes</td><td>JSON</td><td>sim</td><td>json</td><td>nao</td><td>nao</td><td>aluno, conhecimento previo, familia, cadeia documental, contexto canonico local, perfil anterior</td><td>Gemini 2.5 Flash</td><td>6</td><td><code>AI_CREDIT_COSTS.PERFIL_INTELIGENTE</code></td><td>schema grande de perfil inteligente</td><td>alto</td><td>alto</td><td>alto</td><td>baixo</td><td>Schema muito amplo e campos narrativos longos</td><td>Adicionar limites, evidencias por bloco e reduzir atividades obrigatorias</td><td><span class="pill alta">alta</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>9</td><td>Relatorios e perfis</td><td>Relatorio simples</td><td><code>src/prompts/generate-report-simple.md</code></td><td>1</td><td><code>generateRelatorioAluno</code></td><td>FichasComplementaresView</td><td>Gerar relatorio simples/historico</td><td>Gerar relatorio tecnico pedagogico para orgaos publicos, INSS, saude, assistencia social</td><td>JSON relatorio</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>studentContext, scores, observacao, escola, contexto canonico local</td><td>Gemini text via <code>generateReport</code></td><td>1/2/4</td><td>modelo <code>economico/padrao/premium</code></td><td>objeto JSON de relatorio simples</td><td>alto</td><td>medio</td><td>medio</td><td>baixo</td><td>Prompt diz para inferir e nunca escrever nao informado</td><td>Trocar por regra de evidencia e ausencia explicita</td><td><span class="pill critica">critica</span></td><td>ja</td><td>nao</td></tr>
+          <tr><td>10</td><td>Relatorios e perfis</td><td>Relatorio completo/evolutivo</td><td><code>src/prompts/generate-report-full.md</code></td><td>1</td><td><code>generateRelatorioAluno</code></td><td>FichasComplementaresView</td><td>Gerar relatorio completo/evolutivo</td><td>Gerar parecer descritivo evolutivo premium</td><td>JSON relatorio</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>studentContext, scores, observacao, contexto canonico local, repair opcional</td><td>Gemini text</td><td>1/2/4</td><td>modelo relatorio</td><td>objeto JSON com cabecalho, dimensoes, recomendacoes</td><td>alto</td><td>alto</td><td>medio</td><td>baixo</td><td>Extensao 3-5 paginas e inferencia quando ausente</td><td>Limitar tamanho e remover regra anti-nao-informado</td><td><span class="pill critica">critica</span></td><td>ja</td><td>nao</td></tr>
+          <tr><td>11</td><td>Relatorios e perfis</td><td>Parecer cognitivo direto</td><td><code>src/views/ReportsView.tsx</code></td><td>389</td><td><code>handleGenerateParecer</code></td><td>ReportsView</td><td>Clicar gerar parecer</td><td>Gerar parecer descritivo de perfil cognitivo</td><td>relatorio texto</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>aluno, idade, scores, criterios, observacao atual</td><td>Gemini text</td><td>1/2/4</td><td><code>REPORT_MODELS</code></td><td>texto 4-6 paragrafos</td><td>medio</td><td>alto</td><td>baixo</td><td>baixo</td><td>Prompt hardcoded e potencialmente longo</td><td>Centralizar e alinhar com relatorios</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>12</td><td>Relatorios e perfis</td><td>Relatorio familia/escola/INSS</td><td><code>src/prompts/generate-report-simple.md</code></td><td>1</td><td>mesmo fluxo de relatorio simples</td><td>FichasComplementaresView</td><td>Gerar relatorio simples com finalidade externa</td><td>Texto para orgaos publicos, familia/escola por contexto geral; INSS citado explicitamente</td><td>JSON relatorio</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>dados cadastrais e contexto canonico local</td><td>Gemini text</td><td>1/2/4</td><td>modelo relatorio</td><td>JSON simples</td><td>alto</td><td>medio</td><td>medio</td><td>baixo</td><td>Nao ha prompt dedicado por publico; INSS aparece no prompt simples</td><td>Separar finalidade: familia, escola, orgao publico/INSS</td><td><span class="pill alta">alta</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>13</td><td>Relatorios e perfis</td><td>Historico/evolucao</td><td><code>src/views/FichasComplementaresView.tsx</code></td><td>816</td><td><code>handleGenerateHistoryReport</code></td><td>Fichas complementares</td><td>Gerar relatorio de historico</td><td>Delegar para relatorio simples/completo e salvar documento historico</td><td>JSON relatorio</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>student, scores, escola</td><td>Gemini text</td><td>1/2/4</td><td>modelo relatorio</td><td>JSON simple/full</td><td>alto</td><td>alto</td><td>medio</td><td>baixo</td><td>Herda riscos dos prompts de relatorio</td><td>Corrigir prompts base antes de calibrar tela</td><td><span class="pill alta">alta</span></td><td>ja/depois</td><td>nao</td></tr>
+          <tr><td>14</td><td>Planos e registros</td><td>Plano de Acao Professor Regente</td><td><code>src/services/aiService.ts</code></td><td>2076</td><td><code>generateActionPlan</code></td><td>ActionPlanTab</td><td>Gerar plano de acao</td><td>Gerar plano pratico para professor de sala comum</td><td>JSON</td><td>sim</td><td>json</td><td>nao</td><td>nao</td><td>aluno, periodo, contexto canonico local, cadeia documental</td><td>Gemini 2.5 Flash</td><td>6</td><td><code>AI_CREDIT_COSTS.PLANO_ACAO</code></td><td><code>ActionPlanJSON</code></td><td>alto</td><td>alto</td><td>alto</td><td>baixo</td><td>Muito prescritivo; pode criar acoes sem evidencia</td><td>Exigir base por acao e limites por bloco</td><td><span class="pill alta">alta</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>15</td><td>Planos e registros</td><td>Plano de Acao AEE</td><td><code>src/services/aiService.ts</code></td><td>2380</td><td><code>generateAEEActionPlan</code></td><td>AEEActionPlanTab</td><td>Gerar plano AEE</td><td>Gerar roteiro de sessoes AEE com jogos, videos, recursos e registros</td><td>JSON</td><td>sim</td><td>json</td><td>sim</td><td><code>plano_acao_aee</code></td><td>aluno, PAEE, periodo, contexto canonico server</td><td>Gemini 2.5 Flash</td><td>7</td><td><code>AI_CREDIT_COSTS.PLANO_ACAO_AEE</code></td><td><code>AEEActionPlanJSON</code></td><td>alto</td><td>alto</td><td>alto</td><td>baixo</td><td>Exige jogos/videos concretos mesmo com poucos dados</td><td>Separar sugestoes baseadas em evidencia de sugestoes gerais</td><td><span class="pill alta">alta</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>16</td><td>Planos e registros</td><td>Parecer checklist regente</td><td><code>src/components/ChecklistRegenteForm.tsx</code></td><td>408</td><td>geracao de parecer IA</td><td>Checklist Regente</td><td>Clicar gerar parecer</td><td>Sintetizar observacoes marcadas em parecer pedagogico</td><td>texto</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>aluno, serie, professor, contexto, itens marcados, observacoes livres</td><td>Gemini text</td><td>2</td><td><code>AI_CREDIT_COSTS.FICHAS_PEDAGOGICAS</code></td><td>texto ate 400 palavras</td><td>medio</td><td>baixo</td><td>baixo</td><td>baixo</td><td>Bom limite, mas pode extrapolar checklist</td><td>Manter guardrails e talvez centralizar</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>17</td><td>Planos e registros</td><td>Parecer rotina cuidadora</td><td><code>src/components/ChecklistCuidadoraForm.tsx</code></td><td>441</td><td>geracao de parecer IA</td><td>Rotina cuidadora</td><td>Clicar gerar parecer</td><td>Sintetizar rotina semanal e necessidades de apoio</td><td>texto</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>aluno, turno, semana, itens marcados, observacoes livres</td><td>Gemini text</td><td>2</td><td><code>AI_CREDIT_COSTS.ROTINA_CUIDADORA</code></td><td>texto ate 400 palavras</td><td>medio</td><td>baixo</td><td>baixo</td><td>baixo</td><td>Pode transformar rotina em conclusao pedagogica ampla</td><td>Reforcar evidencia semanal e nao diagnostico</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>18</td><td>IncluiLAB</td><td>Atividade texto Markdown</td><td><code>src/services/aiService.ts</code></td><td>1351</td><td><code>generateActivity</code></td><td>Fluxos legados/AtivaIA</td><td>Gerar atividade textual</td><td>Criar atividade adaptada concisa com BNCC</td><td>texto/Markdown</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>aluno, disciplina, serie, BNCC, historico de atividades, estrategias</td><td>Gemini text</td><td>1 ou modelo</td><td><code>modelCfg.credit_cost</code></td><td>Markdown com secoes fixas</td><td>medio</td><td>baixo</td><td>baixo</td><td>baixo</td><td>BNCC sugerida pode soar oficial</td><td>Padronizar linguagem de validacao BNCC</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>19</td><td>IncluiLAB</td><td>Atividade JSON estruturada</td><td><code>src/services/aiService.ts</code></td><td>1448</td><td><code>generateActivityStructured</code></td><td>Renderer de atividade</td><td>Gerar atividade estruturada</td><td>Criar blocos de questoes e metadados BNCC</td><td>JSON</td><td>sim</td><td>json</td><td>nao</td><td>nao</td><td>aluno, tema, disciplina, serie, BNCC, historico e estrategias</td><td>Gemini 2.5 Flash</td><td>1</td><td><code>modelCfg.credit_cost</code></td><td><code>AtividadeJSON</code></td><td>medio</td><td>medio</td><td>medio</td><td>baixo</td><td>Schema validado, mas BNCC pode falhar</td><td>Manter validator e centralizar prompt</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>20</td><td>IncluiLAB</td><td>Atividade com imagem</td><td><code>src/services/aiService.ts</code></td><td>1572</td><td><code>generateActivityImage</code></td><td>Fluxo visual legado</td><td>Gerar atividade visual</td><td>Gerar orientacao textual e imagem pedagogica sem texto</td><td>texto + imagem</td><td>sim</td><td>text + image</td><td>nao</td><td>nao</td><td>descricao, aluno, disciplina, serie, BNCC</td><td>Gemini text + Vertex Imagen</td><td>15</td><td><code>CREDIT_COSTS.ATIVIDADE_IMAGEM</code></td><td>sem schema JSON</td><td>medio</td><td>medio</td><td>baixo</td><td>baixo</td><td>Chamada auxiliar text sem custo e imagem com custo</td><td>Unificar com IncluiLAB atual ou aposentar legado</td><td><span class="pill media">media</span></td><td>sim</td><td>incerto</td></tr>
+          <tr><td>21</td><td>IncluiLAB</td><td>A4 Economica</td><td><code>src/views/IncluiLabView.tsx</code></td><td>487 / 2321</td><td><code>buildPremiumActivityPrompt</code> / <code>generateA4Economica</code></td><td>IncluiLAB</td><td>Selecionar A4 Economica e gerar</td><td>Gerar folha A4 JSON com campos, secoes e questoes</td><td>JSON atividade</td><td>sim</td><td>json</td><td>nao</td><td>nao</td><td>topico, contexto aluno, serie</td><td>Gemini JSON</td><td>2</td><td><code>INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA</code> e debito manual</td><td>schema IncluiLAB normalizado</td><td>medio</td><td>medio</td><td>medio</td><td>alto</td><td>Gateway recebe 0 creditos; custo e debitado fora</td><td>Documentar fluxo ou passar operation/custo unico</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>22</td><td>IncluiLAB</td><td>A4 Visual</td><td><code>src/views/IncluiLabView.tsx</code></td><td>692 / 763 / 2348</td><td><code>buildGuiaEConteudoPrompt</code>, <code>buildOpenAIActivityImagePrompt</code></td><td>IncluiLAB</td><td>Selecionar A4 Visual e gerar</td><td>Gerar guia do professor, descricao da folha e imagem A4</td><td>JSON + imagem</td><td>sim</td><td>json interno + image</td><td>nao</td><td>nao</td><td>topico, targetType, serie, contexto aluno, descricao da folha</td><td>Gemini JSON + Vertex Imagen</td><td>8</td><td><code>INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX</code> com reserva/commit</td><td><code>{titulo_atividade, guia_pedagogico, descricao_folha}</code></td><td>medio</td><td>medio</td><td>medio</td><td>medio</td><td>Nome da funcao cita OpenAI, mas fluxo usa Vertex Imagen</td><td>Renomear e centralizar prompts</td><td><span class="pill alta">alta</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>23</td><td>IncluiLAB</td><td>A4 Premium</td><td><code>src/views/IncluiLabView.tsx</code></td><td>692 / 763 / 2436</td><td><code>generateA4Premium</code></td><td>IncluiLAB</td><td>Selecionar Premium e gerar</td><td>Gerar guia e worksheet premium em imagem</td><td>JSON + imagem</td><td>sim</td><td>json interno + image</td><td>nao</td><td>nao</td><td>topico, contexto aluno, descricao folha</td><td>Gemini JSON + Vertex Imagen</td><td>15</td><td><code>INCLUILAB_ACTIVITY_COSTS.A4_PREMIUM</code></td><td>guia + descricao folha</td><td>medio</td><td>medio</td><td>medio</td><td>medio</td><td>Prompt grande e imagem pode cortar texto</td><td>Separar conteudo textual final da imagem ou reduzir texto visivel</td><td><span class="pill alta">alta</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>24</td><td>IncluiLAB</td><td>Adaptar economico</td><td><code>src/views/IncluiLabView.tsx</code></td><td>565 / 557 / 2523</td><td><code>buildAdaptImagePrompt</code>, <code>buildPremiumAdaptActivityPrompt</code></td><td>IncluiLAB</td><td>Enviar imagem e adaptar</td><td>Analisar atividade original e reconstruir JSON A4</td><td>OCR/analise texto + JSON</td><td>sim</td><td>text + json</td><td>nao</td><td>nao</td><td>imagem, contexto aluno, instrucao extra</td><td>Gemini vision/text + Gemini JSON</td><td>2</td><td><code>INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO</code> debito manual</td><td>schema IncluiLAB</td><td>medio</td><td>medio</td><td>alto</td><td>alto</td><td>Duas chamadas sem custo no gateway; custo manual</td><td>Padronizar operacao unica e schemas</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>25</td><td>IncluiLAB</td><td>Adaptar visual/premium</td><td><code>src/views/IncluiLabView.tsx</code></td><td>728 / 763 / 2552</td><td><code>buildGuiaEConteudoAdaptarPrompt</code>, <code>generateAdaptarVisual/Premium</code></td><td>IncluiLAB</td><td>Enviar atividade e gerar versao visual/premium</td><td>Analisar original, gerar guia, descricao e imagem A4</td><td>texto + JSON + imagem</td><td>sim</td><td>text + json + image</td><td>nao</td><td>nao</td><td>imagem, analise, contexto aluno, instrucoes</td><td>Gemini vision + Gemini JSON + Vertex Imagen</td><td>8/15</td><td><code>INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX/ADAPTAR_PREMIUM</code></td><td>guia + descricao folha</td><td>medio</td><td>alto</td><td>medio</td><td>medio</td><td>Multietapas podem divergir entre analise e imagem final</td><td>Adicionar resumo canonico entre etapas e limites</td><td><span class="pill alta">alta</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>26</td><td>IncluiLAB</td><td>Imagens pequenas de assets</td><td><code>src/views/IncluiLabView.tsx</code></td><td>242</td><td><code>generateSmallImagesForAssets</code></td><td>IncluiLAB renderer</td><td>Gerar imagens auxiliares quando placeholder existe</td><td>Gerar pequenas ilustracoes a partir de <code>imagePrompt</code></td><td>imagem</td><td>nao para ai-gateway</td><td>API <code>/api/generate-image</code></td><td>nao</td><td>nao</td><td>prompt gerado no JSON da atividade ou fallback</td><td>Imagen 4.0 via API local</td><td>2 por imagem gerada</td><td><code>safeDeductCredits</code></td><td>data URL</td><td>medio</td><td>baixo</td><td>baixo</td><td>medio</td><td>Prompt de imagem pode ser produzido pela IA anterior</td><td>Sanitizar prompts de imagem e limitar dados pessoais</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>27</td><td>IncluiLAB</td><td>API imagem Imagen</td><td><code>api/generate-image.ts</code></td><td>34</td><td><code>buildSafePrompt</code> / handler</td><td>IncluiLAB / imageService</td><td>Gerar imagem pedagogica</td><td>Acrescentar guardrails visuais e idioma ao prompt de imagem</td><td>imagem</td><td>nao</td><td>API serverless</td><td>nao</td><td>nao</td><td>prompt do frontend</td><td>Vertex Imagen <code>imagen-4.0-generate-001</code>, fallback fast</td><td>externo/manual</td><td>quem chama debita</td><td>base64DataUrl</td><td>baixo</td><td>baixo</td><td>baixo</td><td>medio</td><td>Custo nao e proprio da API</td><td>Manter como provider adapter, nao prompt pedagogico principal</td><td><span class="pill baixa">baixa</span></td><td>nao</td><td>nao</td></tr>
+          <tr><td>28</td><td>IncluiLAB</td><td>OpenAI imagem A4</td><td><code>src/services/openaiActivityImageService.ts</code> / <code>api/openai-generate-activity-image.ts</code></td><td>18 / 59</td><td><code>OpenAIActivityImageService.generate</code></td><td>Nao encontrado uso ativo</td><td>Possivel geracao A4 visual/premium antiga</td><td>Gerar imagem por OpenAI</td><td>imagem</td><td>nao</td><td>API OpenAI</td><td>nao</td><td>nao</td><td>prompt e modo</td><td>OpenAI <code>gpt-image-1</code>, fallback <code>dall-e-3</code></td><td>nao identificado no service</td><td>externa/indefinida</td><td>base64DataUrl</td><td>baixo</td><td>baixo</td><td>baixo</td><td>alto</td><td>Parece orfao; comentarios antigos confundem provider</td><td>Confirmar obsolescencia antes de remover</td><td><span class="pill baixa">baixa</span></td><td>nao</td><td>incerto</td></tr>
+          <tr><td>29</td><td>Analise/OCR/importacao</td><td>Analise documento por nome</td><td><code>src/services/aiService.ts</code></td><td>1259</td><td><code>analyzeDocument</code></td><td>StudentProfile documentos</td><td>Analisar documento anexado/metadado</td><td>Gerar sintese, pontos pedagogicos e sugestoes</td><td>JSON</td><td>sim</td><td>json</td><td>nao</td><td>nao</td><td>nome documento + perfil aluno; nem sempre conteudo real</td><td>Gemini JSON</td><td>3</td><td><code>CREDIT_COSTS.ANALISE_DOCUMENTO</code></td><td><code>{id,documentName,date,synthesis,pedagogicalPoints,suggestions,auditCode}</code></td><td>alto</td><td>medio</td><td>medio</td><td>baixo</td><td>Pode analisar sem ter lido conteudo do arquivo</td><td>Exigir conteudo ou deixar aviso mais forte</td><td><span class="pill alta">alta</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>30</td><td>Analise/OCR/importacao</td><td>Analise upload arquivo</td><td><code>src/services/aiService.ts</code></td><td>1615</td><td><code>analyzeUploadedDocument</code></td><td>Upload/anexos</td><td>Enviar arquivo para analise</td><td>Extrair achados pedagogicos, recomendacoes e alertas</td><td>JSON pedido, parse flexivel</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>base64/docx extraido, aluno, tipo documento</td><td>Gemini text/vision</td><td>3</td><td><code>CREDIT_COSTS.ANALISE_DOCUMENTO</code></td><td>resumo, achados, recomendacoes, sinais, adaptacoes</td><td>medio</td><td>medio</td><td>alto</td><td>baixo</td><td>Pede JSON mas usa <code>task: text</code></td><td>Usar <code>task: json</code> ou schema validado futuramente</td><td><span class="pill alta">alta</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>31</td><td>Analise/OCR/importacao</td><td>OCR generico imagem</td><td><code>src/services/aiService.ts</code></td><td>1690</td><td><code>extractTextFromImage</code></td><td>AtivaIA/OCR</td><td>Extrair texto de imagem</td><td>Transcrever todo texto visivel preservando estrutura</td><td>OCR/texto</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>imagem base64</td><td>Gemini vision text</td><td>1</td><td><code>CREDIT_COSTS.OCR</code></td><td>texto livre</td><td>baixo</td><td>baixo</td><td>baixo</td><td>baixo</td><td>Fluxo simples e adequado</td><td>Manter</td><td><span class="pill baixa">baixa</span></td><td>nao</td><td>nao</td></tr>
+          <tr><td>32</td><td>Analise/OCR/importacao</td><td>Importacao aluno por texto</td><td><code>src/services/studentDocumentImportService.ts</code></td><td>125</td><td><code>mapDocumentTextToStudentPayload</code></td><td>StudentImportModal</td><td>Importar aluno via documento texto</td><td>Extrair dados de aluno(s) de ficha/anamnese/relatorio</td><td>JSON</td><td>sim</td><td>json</td><td>nao</td><td>nao</td><td>texto ate 8000 chars</td><td>Gemini JSON</td><td>3</td><td><code>CREDITS_DOC_TEXT</code></td><td><code>{students:[...]}</code></td><td>baixo</td><td>baixo</td><td>medio</td><td>medio</td><td>Custo local fora de aiCosts; bom guardrail de omissao</td><td>Centralizar custo futuramente e manter omissao</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>33</td><td>Analise/OCR/importacao</td><td>Importacao aluno visual</td><td><code>src/services/studentDocumentImportService.ts</code></td><td>434</td><td>importacao visual</td><td>StudentImportModal</td><td>Importar aluno por PDF imagem/foto</td><td>Ler documento escaneado e extrair dados visiveis</td><td>JSON via vision</td><td>sim</td><td>image</td><td>nao</td><td>nao</td><td>imagem/PDF primeira pagina</td><td>Gemini vision ou gateway image conforme task atual</td><td>5</td><td><code>CREDITS_VISUAL</code></td><td><code>{students:[...]}</code></td><td>medio</td><td>baixo</td><td>alto</td><td>medio</td><td>Usa <code>task: image</code> para extracao JSON; provider image no gateway gera imagem, nao leitura</td><td>Revisar task; provavelmente deveria ser text/document vision</td><td><span class="pill critica">critica</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>34</td><td>Analise/OCR/importacao</td><td>OCR checklist modal</td><td><code>src/components/ChecklistUploadModal.tsx</code></td><td>83 / 389</td><td><code>buildOCRPrompt</code></td><td>ChecklistUploadModal</td><td>Enviar checklist preenchido</td><td>Identificar itens marcados e texto manuscrito</td><td>JSON/OCR</td><td>sim</td><td>document</td><td>nao explicito; gateway injeta para task document</td><td>vazio</td><td>imagem + studentId + contexto canonico automatico</td><td>Gemini JSON com contexto server</td><td>3</td><td><code>AI_CREDIT_COSTS.ANALISE_DOCUMENTO</code></td><td>AnalysisResult checklist</td><td>medio</td><td>baixo</td><td>medio</td><td>baixo</td><td>Contexto canonico entra indevidamente em OCR</td><td>Usar task sem contexto canonico para leitura visual</td><td><span class="pill critica">critica</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>35</td><td>Analise/OCR/importacao</td><td>Scan checklist ENEM-like</td><td><code>src/services/checklistSheetService.ts</code> / <code>checklistScanService.ts</code></td><td>290 / 54</td><td><code>buildScanPrompt</code>, <code>scanChecklistSheet</code></td><td>Scanner checklist</td><td>Escanear folha padronizada</td><td>Ler codigos marcados e campos extras</td><td>JSON/OCR</td><td>sim</td><td>document</td><td>nao explicito; gateway injeta para task document</td><td>vazio</td><td>imagem + studentId + mapa de codigos + contexto canonico automatico</td><td>Gemini JSON com contexto server</td><td>3</td><td><code>AI_CREDIT_COSTS.ANALISE_DOCUMENTO</code></td><td><code>ScanRawResult</code></td><td>medio</td><td>baixo</td><td>medio</td><td>baixo</td><td>Contexto do aluno pode contaminar leitura de marcacoes</td><td>Remover studentId ou criar flag sem contexto</td><td><span class="pill critica">critica</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>36</td><td>Auxiliares</td><td>Upload modelo Word/classificador</td><td><code>src/services/templateService.ts</code></td><td>196</td><td><code>analyzeWithAI</code></td><td>SchoolTemplatesView</td><td>Enviar modelo DOCX da escola</td><td>Classificar tipo de documento e mapear tags em lacunas</td><td>JSON</td><td>sim</td><td>json via wrapper</td><td>nao</td><td>nao</td><td>texto DOCX e dicionario de tags</td><td>Gemini JSON</td><td>0 explicito</td><td><code>generateFromPrompt</code> sem creditsRequired</td><td><code>{documentType,confidence,reasoning,replacements}</code></td><td>medio</td><td>baixo</td><td>medio</td><td>alto</td><td>Sem custo explicito e comentario diz Gemini interno</td><td>Definir custo de template ou marcar como interno</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>37</td><td>Auxiliares</td><td>Importar documento para DocumentBuilder</td><td><code>src/components/DocumentBuilder.tsx</code></td><td>1394 / 1441</td><td>prompts locais de importacao</td><td>DocumentBuilder</td><td>Importar DOCX/PDF/imagem para secoes</td><td>Reorganizar conteudo externo em sections/fields</td><td>JSON documento</td><td>sim</td><td>json ou text vision via wrapper</td><td>nao</td><td>nao</td><td>texto docx ou base64, aluno, tipo documento</td><td>Gemini</td><td>0 explicito ou upload modelo na UI</td><td>wrapper sem creditsRequired</td><td>sections/fields/value</td><td>medio</td><td>medio</td><td>alto</td><td>alto</td><td>Arquivo proibido para edicao, mas prompt existe hardcoded e custo pouco claro</td><td>Planejar sprint especifico sem mexer agora</td><td><span class="pill alta">alta</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>38</td><td>Auxiliares</td><td>Sugestao de campo pedagogico</td><td><code>src/components/StudentForm.tsx</code></td><td>251</td><td>prompt array + <code>generateTextFromPrompt</code></td><td>Formulario do aluno</td><td>Clicar sugestao IA em campo</td><td>Gerar 2 ou 3 bullets curtos para campo pedagogico</td><td>texto</td><td>sim</td><td>text</td><td>nao</td><td>nao</td><td>nome, serie, historico, familia, observacoes, score/campo atual</td><td>Gemini text</td><td>0 explicito</td><td><code>generateTextFromPrompt</code> sem creditsRequired</td><td>bullets iniciando com "- "</td><td>medio</td><td>baixo</td><td>baixo</td><td>alto</td><td>Sem custo e sem usuario real no wrapper</td><td>Definir se e cortesia ou cobrar texto simples</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>39</td><td>Auxiliares</td><td>Deteccao de intencao</td><td><code>src/services/intentDetectionService.ts</code></td><td>63</td><td><code>detectIntent</code>, <code>getReportSystemPrompt</code></td><td>Nao encontrado uso ativo</td><td>Classificar texto do usuario em atividade/imagem/relatorio</td><td>Escolher system prompt centralizado</td><td>IntentResult</td><td>nao</td><td>nao</td><td>nao</td><td>nao</td><td>texto usuario, hasImage, contexto tela</td><td>sem provider direto</td><td>0</td><td>n/a</td><td><code>{intent,systemPrompt,forcedLocale}</code></td><td>baixo</td><td>baixo</td><td>baixo</td><td>baixo</td><td>Servico parece sem referencias externas</td><td>Confirmar uso; se usado, integrar melhor com prompts centralizados</td><td><span class="pill baixa">baixa</span></td><td>ja</td><td>incerto</td></tr>
+          <tr><td>40</td><td>Auxiliares</td><td>Repair canonico</td><td><code>src/services/canonicalStudentContext.ts</code></td><td>2029 / 2205</td><td><code>buildRepairPrompt</code>, <code>validateAndRepair</code></td><td>Relatorios/formais</td><td>Automatico apos resposta ruim</td><td>Regenerar JSON corrigindo problemas de qualidade</td><td>JSON reparado</td><td>sim</td><td>json</td><td>nao</td><td>n/a</td><td>prompt original, saida falha, validacao, contexto canonico local</td><td>Gemini JSON</td><td>0</td><td><code>creditsRequired: 0</code></td><td>mesmo JSON do fluxo original</td><td>medio</td><td>alto</td><td>medio</td><td>medio</td><td>Pode reintroduzir verborragia ou obrigatoriedades</td><td>Reparador deve herdar limites do prompt original</td><td><span class="pill media">media</span></td><td>sim</td><td>nao</td></tr>
+          <tr><td>41</td><td>Auxiliares</td><td>Wrappers genericos</td><td><code>src/services/aiService.ts</code></td><td>1643</td><td><code>generateFromPrompt*</code>, <code>generateTextFromPrompt</code></td><td>Varios</td><td>Chamadas internas diversas</td><td>Executar prompt recebido sem prompt proprio</td><td>JSON/texto</td><td>sim</td><td>json/text</td><td>nao</td><td>nao</td><td>prompt do chamador</td><td>Gemini via gateway</td><td>0 explicito</td><td>sem <code>creditsRequired</code></td><td>depende do chamador</td><td>varia</td><td>varia</td><td>varia</td><td>alto</td><td>Concentra risco de custo invisivel e auditoria fraca</td><td>Substituir por wrappers nomeados por fluxo</td><td><span class="pill alta">alta</span></td><td>nao</td><td>nao</td></tr>
+          <tr><td>42</td><td>Auxiliares</td><td>Pictogram library prompts</td><td><code>src/data/incluilab/pictogramLibrary.ts</code></td><td>12+</td><td>dados de biblioteca</td><td>IncluiLAB renderer</td><td>Fallback/apoio visual por assunto</td><td>Fragmentos de prompt em ingles para imagens/pictogramas</td><td>prompt fragment</td><td>nao direto</td><td>n/a</td><td>nao</td><td>nao</td><td>keywords e labels</td><td>sem provider direto</td><td>0</td><td>n/a</td><td>lista de pictogramas</td><td>baixo</td><td>baixo</td><td>baixo</td><td>baixo</td><td>Conteudo em ingles pode aparecer em prompts visuais</td><td>Padronizar idioma se for enviado a modelos</td><td><span class="pill baixa">baixa</span></td><td>nao</td><td>nao</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Listas diagnosticas</h2>
+    <div class="diag-grid">
+      <div class="diag">
+        <h3>1. Prompts centralizados hoje em src/prompts</h3>
+        <ul>
+          <li><code>system-base.md</code>: guardrails gerais.</li>
+          <li><code>generate-activity.md</code>: atividade pedagogica textual/A4.</li>
+          <li><code>generate-image.md</code>: imagem pedagogica A4.</li>
+          <li><code>adapt-image.md</code>: adaptacao de imagem/atividade existente.</li>
+          <li><code>generate-report-simple.md</code>: relatorio tecnico simples/INSS/orgaos.</li>
+          <li><code>generate-report-full.md</code>: relatorio evolutivo premium.</li>
+        </ul>
+      </div>
+      <div class="diag">
+        <h3>2. Prompts hardcoded fora de src/prompts</h3>
+        <ul>
+          <li><code>aiService.ts</code>: documentos formais, atividades, OCR, relatorios wrapper, Perfil, Planos.</li>
+          <li><code>IncluiLabView.tsx</code>: quase todos os prompts ativos de IncluiLAB.</li>
+          <li><code>ReportsView.tsx</code>: parecer cognitivo.</li>
+          <li><code>ChecklistRegenteForm.tsx</code> e <code>ChecklistCuidadoraForm.tsx</code>: pareceres.</li>
+          <li><code>ChecklistUploadModal.tsx</code>, <code>checklistSheetService.ts</code>: OCR/checklists.</li>
+          <li><code>studentDocumentImportService.ts</code>, <code>templateService.ts</code>, <code>StudentForm.tsx</code>, <code>DocumentBuilder.tsx</code>, <code>WorkflowCanvas.tsx</code>.</li>
+        </ul>
+      </div>
+      <div class="diag">
+        <h3>3. Prompts duplicados ou parecidos</h3>
+        <ul>
+          <li><code>generate-activity.md</code> vs <code>buildPremiumActivityPrompt</code> e <code>generateActivity</code>.</li>
+          <li><code>generate-image.md</code> vs <code>buildOpenAIActivityImagePrompt</code> e <code>buildSafePrompt</code>.</li>
+          <li><code>adapt-image.md</code> vs <code>buildAdaptImagePrompt</code> e <code>adaptActivityText</code>.</li>
+          <li>Relatorios em <code>src/prompts</code> vs parecer cognitivo hardcoded em <code>ReportsView</code>.</li>
+          <li>OCR de checklist modal vs scan ENEM-like.</li>
+        </ul>
+      </div>
+      <div class="diag">
+        <h3>4. Prompts que parecem nao usados</h3>
+        <ul>
+          <li><code>intentDetectionService.ts</code>: nao encontrei chamada para <code>detectIntent</code>.</li>
+          <li><code>openaiActivityImageService.ts</code>: classe exportada sem import ativo encontrado.</li>
+          <li><code>api/openai-generate-activity-image.ts</code>: API possivelmente legado/backup.</li>
+          <li><code>generateProtocol</code> legado texto: uso indireto incerto.</li>
+        </ul>
+      </div>
+      <div class="diag">
+        <h3>5. Contexto canonico possivelmente indevido</h3>
+        <ul>
+          <li><code>ChecklistUploadModal</code>: usa <code>task: document</code> com <code>studentId</code>, gateway injeta contexto.</li>
+          <li><code>checklistScanService</code>: mesmo problema em leitura de codigos marcados.</li>
+          <li>OCR puro deveria ler apenas pixels/texto visivel, sem contexto do aluno.</li>
+        </ul>
+      </div>
+      <div class="diag">
+        <h3>6. Pedem JSON mas usam task text</h3>
+        <ul>
+          <li><code>analyzeUploadedDocument</code>: pede JSON, usa <code>task: text</code>.</li>
+          <li><code>generateReport</code> recebe prompts de relatorio JSON, mas chama <code>task: text</code>.</li>
+          <li><code>generateFromPromptWithImage</code> e prompts do <code>DocumentBuilder</code> podem pedir JSON, mas usam text vision.</li>
+        </ul>
+      </div>
+      <div class="diag">
+        <h3>7. IA sem creditsRequired explicito</h3>
+        <ul>
+          <li><code>generateFromPrompt</code>, <code>generateFromPromptWithImage</code>, <code>generateTextFromPrompt</code>, <code>generateIncluiLabActivitySchema</code>.</li>
+          <li><code>templateService.analyzeWithAI</code>.</li>
+          <li><code>StudentForm</code> sugestoes de campo.</li>
+          <li>IncluiLAB economico/adaptar economico: debito manual fora do gateway.</li>
+          <li>AtivaIA BNCC via <code>generateFromPrompt</code>.</li>
+        </ul>
+      </div>
+      <div class="diag">
+        <h3>8. Maior risco pedagogico/juridico</h3>
+        <ul>
+          <li>Relatorios simples/completos por inferencia quando falta dado.</li>
+          <li>Perfil Inteligente por amplitude e linguagem humanizada.</li>
+          <li>Planos de Acao por prescricoes praticas sem evidencia suficiente.</li>
+          <li>Analise de documentos sem conteudo real.</li>
+          <li>Importacao visual de aluno com campos sensiveis.</li>
+        </ul>
+      </div>
+      <div class="diag">
+        <h3>9. Maior risco de custo inesperado</h3>
+        <ul>
+          <li>Wrappers genericos sem <code>creditsRequired</code>.</li>
+          <li>IncluiLAB multietapas com reserva/commit e chamadas de gateway a custo zero.</li>
+          <li>AtivaIA imagens com <code>skipDeduction=true</code> e debito em lote.</li>
+          <li>Servicos de imagem API local cujo custo depende do chamador.</li>
+          <li>Template/upload/importacao com custo fora de <code>AI_CREDIT_COSTS</code>.</li>
+        </ul>
+      </div>
+      <div class="diag">
+        <h3>10. Observacoes de provider/modelo</h3>
+        <ul>
+          <li>ai-gateway: Gemini 2.5 Flash para texto/JSON.</li>
+          <li>ai-gateway: Vertex Imagen para imagem.</li>
+          <li><code>/api/generate-image</code>: Imagen 4.0 primary + fast fallback.</li>
+          <li><code>/api/openai-generate-activity-image</code>: OpenAI <code>gpt-image-1</code> + <code>dall-e-3</code>, sem uso ativo encontrado.</li>
+          <li>Nao encontrei Claude ou Manus em fluxo ativo.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Ordem recomendada de correcao</h2>
+    <ol>
+      <li><strong>OCR/checklists com <code>task: document</code></strong>: prioridade critica, porque contexto canonico pode contaminar leitura objetiva de imagem.</li>
+      <li><strong>Importacao visual de aluno</strong>: prioridade critica, porque usa <code>task: image</code> para extracao JSON sensivel; validar se a rota correta e vision/text/document.</li>
+      <li><strong>Relatorios simples/completos</strong>: prioridade critica, remover regra de inferencia e "nunca escreva nao informado".</li>
+      <li><strong>Perfil Inteligente</strong>: prioridade alta, reduzir schema, limitar textos e exigir fontes por bloco.</li>
+      <li><strong>Planos de Acao Regente/AEE</strong>: prioridade alta, limitar acoes e separar evidencias de sugestoes gerais.</li>
+      <li><strong>Wrappers sem custo explicito</strong>: prioridade alta, nomear fluxos e documentar/corrigir cobranca.</li>
+      <li><strong>IncluiLAB</strong>: prioridade alta/media, centralizar prompts, corrigir nomenclatura OpenAI/Vertex e reduzir duplicidade.</li>
+      <li><strong>DocumentBuilder/template import</strong>: prioridade alta/media, planejar sprint isolado porque envolve arquivo sensivel e schema do editor.</li>
+      <li><strong>Prompts centralizados em <code>src/prompts</code></strong>: prioridade media, transformar em fonte oficial por familia.</li>
+      <li><strong>Servicos possivelmente obsoletos</strong>: prioridade baixa, confirmar uso antes de remover.</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>Arquivos apenas lidos nesta auditoria</h2>
+    <ul>
+      <li><code>src/services/aiService.ts</code></li>
+      <li><code>src/services/aiGatewayService.ts</code></li>
+      <li><code>src/services/reportService.ts</code></li>
+      <li><code>src/services/intentDetectionService.ts</code></li>
+      <li><code>src/services/canonicalStudentContext.ts</code></li>
+      <li><code>src/services/studentDocumentImportService.ts</code></li>
+      <li><code>src/services/templateService.ts</code></li>
+      <li><code>src/services/checklistScanService.ts</code></li>
+      <li><code>src/services/checklistSheetService.ts</code></li>
+      <li><code>src/services/imageGenerationService.ts</code>, <code>src/services/imageService.ts</code>, <code>src/services/openaiActivityImageService.ts</code></li>
+      <li><code>src/config/aiCosts.ts</code></li>
+      <li><code>src/prompts/system-base.md</code>, <code>generate-activity.md</code>, <code>generate-image.md</code>, <code>adapt-image.md</code>, <code>generate-report-simple.md</code>, <code>generate-report-full.md</code></li>
+      <li><code>src/views/IncluiLabView.tsx</code>, <code>src/views/ReportsView.tsx</code>, <code>src/views/FichasComplementaresView.tsx</code></li>
+      <li><code>src/components/ActionPlanTab.tsx</code>, <code>AEEActionPlanTab.tsx</code>, <code>ChecklistRegenteForm.tsx</code>, <code>ChecklistCuidadoraForm.tsx</code>, <code>ChecklistUploadModal.tsx</code>, <code>DocumentBuilder.tsx</code>, <code>StudentForm.tsx</code>, <code>IntelligentProfileTab.tsx</code></li>
+      <li><code>src/components/ativaIA/WorkflowCanvas.tsx</code></li>
+      <li><code>src/data/incluilab/pictogramLibrary.ts</code></li>
+      <li><code>api/generate-image.ts</code>, <code>api/openai-generate-activity-image.ts</code></li>
+      <li><code>supabase/functions/ai-gateway/index.ts</code>, <code>_contextBuilder.ts</code>, <code>_contextFormatter.ts</code>, <code>_credits.ts</code>, <code>_vertex.ts</code>, <code>_audit.ts</code>, <code>_aiUtils.ts</code></li>
+    </ul>
+  </section>
+
+  <p class="footer">
+    Artefato de auditoria DOC-IA-2. Nao houve correcao de prompts, build, refatoracao ou alteracao de fluxo de produto.
+  </p>
+</main>
+</body>
+</html>

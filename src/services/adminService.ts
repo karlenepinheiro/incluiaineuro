@@ -495,6 +495,15 @@ export const AdminService = {
 
     if (!result.success) throw new Error(result.error ?? 'Erro ao criar conta de teste');
 
+    // CEO-11B: logAction executado antes do return de qualquer fluxo (com ou sem senha).
+    // Indica que senha foi definida pelo admin sem expor o valor da senha.
+    AdminService.logAction(
+      params.adminUser,
+      'CREATE_TEST_ACCOUNT',
+      params.email,
+      `Conta de teste criada: ${params.accountName} (${params.planCode}) — tenant: ${result.tenant_id}${params.password ? ' — senha definida pelo admin' : ''}`,
+    );
+
     // Altera a mensagem de sucesso se a senha foi criada.
     if (result.success && params.password) {
       return {
@@ -503,13 +512,6 @@ export const AdminService = {
         message: `Conta de teste "${params.accountName}" criada com sucesso. O usuário pode logar com a senha definida.`,
       };
     }
-
-    AdminService.logAction(
-      params.adminUser,
-      'CREATE_TEST_ACCOUNT',
-      params.email,
-      `Conta de teste criada: ${params.accountName} (${params.planCode}) — tenant: ${result.tenant_id}`,
-    );
 
     return {
       tenantId: result.tenant_id ?? '',

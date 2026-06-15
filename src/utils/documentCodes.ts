@@ -2,7 +2,15 @@ export type DocumentCodeKind = 'validation' | 'registration';
 
 export const INCLUIAI_SITE = 'www.incluiai.app.br';
 
-const VALIDATED_TYPES = new Set(['PEI', 'PAEE', 'ESTUDO_CASO', 'ESTUDO DE CASO', 'PLANO_ACAO_AEE', 'PLANO DE ACAO AEE', 'PLANO DE AÇÃO AEE']);
+const VALIDATED_TYPES = new Set([
+  'PEI',
+  'PAEE',
+  'ESTUDO_CASO',
+  'ESTUDO DE CASO',
+  'DOCUMENTO_UNIFICADO_PEI_PAEE',
+  'DOCUMENTO UNIFICADO PEI PAEE',
+  'DOCUMENTO UNIFICADO PEI + PAEE',
+]);
 const SUFFIX_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 export function normalizeDocumentType(type?: string | null): string {

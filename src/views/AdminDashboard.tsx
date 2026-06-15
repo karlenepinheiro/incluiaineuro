@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, User as UserIcon, DollarSign, TrendingUp, AlertCircle, Brain, Zap,
   PieChart, Activity, ArrowUpRight, ArrowDownRight, PlusCircle,
@@ -36,6 +36,16 @@ import {
   type CeoBillingKiwifyReconciliation, type CeoBillingKiwifyPurchaseRow, type CeoUsersTenantsAdmin, type CeoUsersTenantsAccountRow,
   type CeoAlertsIncidentCenter, type CeoIncidentRow,
 } from '../services/ceoService';
+import { Badge } from '../components/ceo/shared/Badge';
+import { PLAN_COLOR } from '../components/ceo/shared/planColors';
+import { PlansTab } from '../components/ceo/tabs/PlansTab';
+import { MonitoringTab } from '../components/ceo/tabs/MonitoringTab';
+import { LandingTab } from '../components/ceo/tabs/LandingTab';
+import { TestAccountsTab } from '../components/ceo/tabs/TestAccountsTab';
+import { AdminsTab } from '../components/ceo/tabs/AdminsTab';
+import { UserLogsTab } from '../components/ceo/tabs/UserLogsTab';
+import { LogsTab } from '../components/ceo/tabs/LogsTab';
+import { CouponsTab } from '../components/ceo/tabs/CouponsTab';
 
 // ============================================================================
 // TYPES
@@ -170,26 +180,6 @@ const KPICard = ({ title, value, subtext, icon: Icon, trend, color, prefix = '' 
   </div>
 );
 
-const Badge = ({ children, color = 'gray' }: { children: React.ReactNode; color?: string }) => {
-  const colors: Record<string, string> = {
-    green: 'bg-green-100 text-green-700',
-    red: 'bg-red-100 text-red-700',
-    blue: 'bg-blue-100 text-blue-700',
-    yellow: 'bg-yellow-100 text-yellow-700',
-    purple: 'bg-purple-100 text-purple-700',
-    gray: 'bg-gray-100 text-gray-600',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wide ${colors[color] ?? colors.gray}`}>
-      {children}
-    </span>
-  );
-};
-
-const PLAN_COLOR: Record<string, string> = {
-  FREE: 'gray', PRO: 'blue', MASTER: 'purple', INSTITUTIONAL: 'green',
-};
-
 // ============================================================================
 // SUB SEARCH PICKER — busca tenant por nome/e-mail (sem UUID)
 // ============================================================================
@@ -285,6 +275,12 @@ const OverviewTab = ({ adminUser, darkMode }: { adminUser: AdminUser; darkMode: 
         mrr_premium_monthly: 22 * 147, mrr_premium_annual: 14 * 99,
         mrr_estimated: 35*79 + 17*59 + 22*147 + 14*99,
         extra_revenue_mtd: 1240, low_credit_count: 18, expiring_7d_count: 7,
+        integrity_finding_count: 0, tenants_with_findings_count: 0,
+        tenants_with_critical_findings: 0, wallet_divergence_count: 0,
+        plan_mismatch_count: 0, subscription_mismatch_count: 0,
+        no_owner_count: 0, inactive_tenants_count: 0,
+        orphan_purchase_count: 0, pending_activation_count: 0,
+        unknown_product_count: 0, financial_inconsistency_count: 0,
       });
       setAiStats({ total: 1284, success: 1201, failed: 83, copilotActed: 342 });
       setLoading(false);
@@ -690,164 +686,6 @@ const HealthCenterTab = ({ onNavigate }: { onNavigate: (tab: Tab) => void }) => 
 };
 
 // ============================================================================
-// TAB: PLANOS
-// ============================================================================
-
-const PlansTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [editing, setEditing] = useState<Partial<Plan> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const canEdit = ['super_admin', 'financeiro'].includes(adminUser.role);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setPlans(await AdminService.getPlans());
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const handleSave = async () => {
-    if (!editing?.code) return;
-    setSaving(true);
-    try {
-      await AdminService.upsertPlan(editing as Plan & { code: string }, adminUser);
-      setEditing(null);
-      await load();
-    } catch (e: any) { alert(e.message); }
-    finally { setSaving(false); }
-  };
-
-  const handleToggle = async (plan: Plan) => {
-    if (!canEdit) return;
-    try {
-      await AdminService.togglePlanActive(plan.id, !plan.is_active, adminUser);
-      await load();
-    } catch (e: any) { alert(e.message); }
-  };
-
-  const EMPTY_PLAN: Partial<Plan> = { code: '', name: '', price_monthly: 0, price_yearly: 0, credits_monthly: 0, max_entities: 5, features_json: [], is_active: true };
-
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-2xl font-bold">Gerenciar Planos</h2>
-          <p className="text-gray-400 text-sm">Cadastre e configure os planos disponíveis.</p>
-        </div>
-        {canEdit && (
-          <button onClick={() => setEditing(EMPTY_PLAN)} className="bg-gray-900 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-gray-800 transition">
-            <PlusCircle size={16} /> Novo Plano
-          </button>
-        )}
-      </div>
-
-      {/* Form de edição */}
-      {editing && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6 shadow-sm">
-          <h3 className="font-bold text-gray-800 mb-4">{editing.id ? `Editar: ${editing.name}` : 'Novo Plano'}</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Código (ex: PRO)</label>
-              <input className="w-full border rounded-lg p-2 text-sm font-mono uppercase focus:ring-2 focus:ring-gray-300 outline-none" value={editing.code ?? ''} onChange={e => setEditing({ ...editing, code: e.target.value.toUpperCase() })} placeholder="FREE / PRO / MASTER" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Nome do Plano</label>
-              <input className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={editing.name ?? ''} onChange={e => setEditing({ ...editing, name: e.target.value })} placeholder="Ex: Profissional" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Preço Mensal (R$)</label>
-              <input type="number" className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={editing.price_monthly ?? 0} onChange={e => setEditing({ ...editing, price_monthly: Number(e.target.value) })} />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Preço Anual (R$/mês)</label>
-              <input type="number" className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={editing.price_yearly ?? 0} onChange={e => setEditing({ ...editing, price_yearly: Number(e.target.value) })} />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Créditos IA / Mês</label>
-              <input type="number" className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={editing.credits_monthly ?? 0} onChange={e => setEditing({ ...editing, credits_monthly: Number(e.target.value) })} />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Limite de Alunos/Entidades</label>
-              <input type="number" className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={editing.max_entities ?? 5} onChange={e => setEditing({ ...editing, max_entities: Number(e.target.value) })} />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-500 mb-1">Features (uma por linha)</label>
-              <textarea
-                className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none"
-                rows={4}
-                value={(editing.features_json ?? []).join('\n')}
-                onChange={e => setEditing({ ...editing, features_json: e.target.value.split('\n').filter(Boolean) })}
-                placeholder="30 alunos&#10;500 créditos IA/mês&#10;Código de auditoria"
-              />
-            </div>
-          </div>
-          <div className="flex gap-3 justify-end mt-4">
-            <button onClick={() => setEditing(null)} className="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition">Cancelar</button>
-            <button onClick={handleSave} disabled={saving || !editing.code} className="bg-gray-900 text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gray-800 disabled:opacity-50 transition">
-              {saving ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />} Salvar Plano
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Tabela de planos */}
-      {loading ? <div className="text-gray-400 text-sm">Carregando planos...</div> : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
-              <tr>
-                <th className="px-5 py-3 text-left">Código / Nome</th>
-                <th className="px-5 py-3 text-left">Preços</th>
-                <th className="px-5 py-3 text-left">Créditos</th>
-                <th className="px-5 py-3 text-left">Max Entidades</th>
-                <th className="px-5 py-3 text-left">Status</th>
-                <th className="px-5 py-3 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {plans.map(plan => (
-                <tr key={plan.id} className="hover:bg-gray-50/50">
-                  <td className="px-5 py-3">
-                    <Badge color={PLAN_COLOR[plan.code] ?? 'gray'}>{plan.code}</Badge>
-                    <p className="text-gray-700 font-medium mt-1">{plan.name}</p>
-                  </td>
-                  <td className="px-5 py-3 text-gray-600">
-                    <p>Mensal: <strong>R$ {plan.price_monthly.toFixed(2)}</strong></p>
-                    <p className="text-xs text-gray-400">Anual: R$ {plan.price_yearly.toFixed(2)}/mês</p>
-                  </td>
-                  <td className="px-5 py-3">
-                    <span className="font-bold text-purple-700">{plan.credits_monthly === 9999 ? '∞' : plan.credits_monthly}</span>
-                    <span className="text-gray-400 text-xs"> /mês</span>
-                  </td>
-                  <td className="px-5 py-3 font-mono text-gray-700">{plan.max_entities >= 9999 ? '∞' : plan.max_entities}</td>
-                  <td className="px-5 py-3">
-                    {plan.is_active
-                      ? <span className="flex items-center gap-1 text-green-700 text-xs font-bold"><CheckCircle size={12} /> Ativo</span>
-                      : <span className="flex items-center gap-1 text-gray-400 text-xs font-bold"><XCircle size={12} /> Inativo</span>}
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    {canEdit && (
-                      <div className="flex gap-2 justify-end">
-                        <button onClick={() => setEditing(plan)} className="p-1.5 hover:bg-gray-100 rounded text-gray-500"><Edit3 size={14} /></button>
-                        <button onClick={() => handleToggle(plan)} className={`p-1.5 rounded text-xs font-bold ${plan.is_active ? 'hover:bg-red-50 text-red-500' : 'hover:bg-green-50 text-green-600'}`}>
-                          {plan.is_active ? <EyeOff size={14} /> : <Eye size={14} />}
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ============================================================================
 // TAB: ASSINANTES
 // ============================================================================
 
@@ -896,18 +734,24 @@ function buildSubscriberPurchase(sub: CeoSubscriber): KiwifyPurchaseRow | null {
   };
 }
 
-function mapSubscriberDivergence(sub: CeoSubscriber): { kind: string; label: string } | null {
-  if (!sub.divergence?.label) return null;
-  return { kind: sub.divergence.kind, label: sub.divergence.label };
+function mapSubscriberDivergence(sub: CeoSubscriber): { kind: 'paid_but_free' | 'plan_mismatch'; label: string } | null {
+  // Preferencia: objeto divergence estruturado vindo da view.
+  // Fallback: campos flat paid_but_free / plan_mismatch (consistente com getCeoUsersTenantsAdmin).
+  if (sub.divergence?.label) {
+    return { kind: sub.divergence.kind as 'paid_but_free' | 'plan_mismatch', label: sub.divergence.label };
+  }
+  if (sub.paid_but_free) return { kind: 'paid_but_free', label: 'Compra paga com tenant em FREE' };
+  if (sub.plan_mismatch)  return { kind: 'plan_mismatch',  label: 'Divergencia de plano' };
+  return null;
 }
 
-function mapSubscriberIntegrityFlags(sub: CeoSubscriber): Array<{ kind: string; label: string; color: string }> {
+function mapSubscriberIntegrityFlags(sub: CeoSubscriber): Array<{ kind: 'no_owner' | 'no_subscription' | 'wallet_mismatch'; label: string; color: string }> {
   const flags = Array.isArray(sub.integrity_flags) ? sub.integrity_flags : [];
   const divergenceCode = sub.divergence?.code;
   return flags
     .filter(flag => flag.code !== divergenceCode)
     .map(flag => ({
-      kind: flag.kind,
+      kind: flag.kind as 'no_owner' | 'no_subscription' | 'wallet_mismatch',
       label: flag.label,
       color: flag.color,
     }));
@@ -1100,6 +944,93 @@ const InternalConfirmModal: React.FC<InternalConfirmModalProps> = ({ tenantName,
   </div>
 );
 
+interface RemoveInternalConfirmModalProps {
+  row: CeoUsersTenantsAccountRow;
+  reason: string;
+  onReasonChange: (v: string) => void;
+  error: string;
+  onConfirm: () => void;
+  onClose: () => void;
+  loading: boolean;
+}
+const RemoveInternalConfirmModal: React.FC<RemoveInternalConfirmModalProps> = ({
+  row, reason, onReasonChange, error, onConfirm, onClose, loading,
+}) => (
+  <div style={{
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 9999, padding: 16,
+  }}>
+    <div style={{
+      background: 'white', borderRadius: 16, padding: 28,
+      width: '100%', maxWidth: 460, boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 12, background: '#FEF3C7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <AlertTriangle size={20} style={{ color: '#D97706' }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h3 style={{ fontWeight: 800, fontSize: 15, color: '#111827', margin: 0 }}>Remover conta interna?</h3>
+          <p style={{ fontSize: 12, color: '#6B7280', margin: '2px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {row.tenant_name}{row.primary_email ? ` · ${row.primary_email}` : ''}
+          </p>
+        </div>
+        <span style={{ fontSize: 9, fontWeight: 700, padding: '3px 8px', borderRadius: 4, background: '#FEF3C7', color: '#D97706', border: '1px solid #FDE68A', letterSpacing: '0.06em', textTransform: 'uppercase', flexShrink: 0 }}>
+          INTERNO
+        </span>
+      </div>
+      <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, marginBottom: 10 }}>
+        Esta ação fará este tenant deixar de ser tratado como conta interna. A partir disso, ele poderá voltar a impactar métricas financeiras e operacionais, como MRR, ARR, churn, conversão e divergências administrativas.
+      </p>
+      <p style={{ fontSize: 12, color: '#B45309', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '8px 12px', marginBottom: 18 }}>
+        Use apenas se esta conta realmente deve voltar a ser considerada nas métricas reais do produto.
+      </p>
+      <div style={{ marginBottom: 18 }}>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+          Motivo administrativo <span style={{ color: '#EF4444' }}>*</span>
+        </label>
+        <textarea
+          value={reason}
+          onChange={e => onReasonChange(e.target.value)}
+          disabled={loading}
+          placeholder="Descreva o motivo para remover esta conta das internas…"
+          rows={3}
+          style={{
+            width: '100%', boxSizing: 'border-box', borderRadius: 8,
+            border: error ? '1.5px solid #EF4444' : '1.5px solid #E5E7EB',
+            padding: '8px 10px', fontSize: 13, color: '#111827', resize: 'vertical',
+            outline: 'none', fontFamily: 'inherit',
+          }}
+        />
+        {error && <p style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{error}</p>}
+      </div>
+      {/* TODO: futura sprint — enviar motivo para tabela de auditoria administrativa */}
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button
+          onClick={onConfirm}
+          disabled={loading || !reason.trim()}
+          style={{
+            flex: 1, padding: '10px', borderRadius: 8, border: 'none',
+            background: loading || !reason.trim() ? '#9CA3AF' : '#D97706',
+            color: 'white', fontWeight: 700, fontSize: 13,
+            cursor: loading || !reason.trim() ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {loading ? 'Aguarde…' : 'Sim, remover das internas'}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={loading}
+          style={{ padding: '10px 18px', borderRadius: 8, border: '1.5px solid #E5E7EB', background: 'white', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
   const [subscriberPage, setSubscriberPage] = useState<CeoSubscriberPage>({
     rows: [],
@@ -1125,10 +1056,14 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
   const [internalConfirm, setInternalConfirm] = useState<{ tenantId: string; tenantName: string } | null>(null);
   const [internalConfirmLoading, setInternalConfirmLoading] = useState(false);
   const [internalTenants, setInternalTenants] = useState<InactiveTenantRow[]>([]);
+  const [reconcileConfirm, setReconcileConfirm] = useState<{ tenantName: string } | null>(null);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
+  const [reconcileResultLocal, setReconcileResultLocal] = useState<ReconcileResult[] | null>(null);
 
   const subscribers = subscriberPage.rows;
   const totalSubscribers = subscriberPage.total;
   const totalPages = Math.max(1, Math.ceil(totalSubscribers / subscriberPage.pageSize));
+  // tenants_with_findings_count: qualquer finding administrativo (plano, owner, wallet, assinatura) — nao apenas plano/ativacao
   const divergenceCount = kpis?.tenants_with_findings_count ?? 0;
 
   useEffect(() => {
@@ -1218,8 +1153,20 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
     finally { setInternalConfirmLoading(false); }
   };
 
-  const handleFixDivergence = async (tenantId: string) => {
-    await doAction(() => reconcilePendingPurchases().then(() => {}), tenantId);
+  const handleFixDivergence = async (tenantId: string): Promise<void> => {
+    const sub = subscriberPage.rows.find(s => s.tenant_id === tenantId);
+    setReconcileConfirm({ tenantName: sub?.tenant_name ?? sub?.user_email ?? tenantId });
+  };
+
+  const confirmReconcile = async () => {
+    setReconcileLoading(true);
+    try {
+      const result = await reconcilePendingPurchases(adminUser, undefined, 'subscribers');
+      setReconcileResultLocal(result ?? []);
+      setReconcileConfirm(null);
+      await load();
+    } catch (e: any) { alert(e.message); setReconcileConfirm(null); }
+    finally { setReconcileLoading(false); }
   };
 
   return (
@@ -1311,7 +1258,7 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
             value={divergenceCount}
             icon={AlertTriangle}
             severity={divergenceCount > 0 ? 'critical' : 'ok'}
-            subtext="plano ou ativação incorretos"
+            subtext="findings: plano, owner, wallet ou assinatura"
             cta={divergenceCount > 0 && !filterDivergence ? { label: 'Filtrar', onClick: () => setFilterDivergence(true) } : undefined}
           />
           <BillingHealthCard
@@ -1493,279 +1440,55 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
         purchases={orphanPurchases}
         onClose={() => setDrawerOpen(false)}
         onReconcileSuccess={() => load()}
+        adminUser={adminUser}
       />
-    </div>
-  );
-};
 
-// ============================================================================
-// TAB: MONITORAMENTO DE ASSINANTES
-// ============================================================================
-
-const MonitoringTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [filter, setFilter] = useState<'low_credit' | 'overdue' | 'expiring'>('low_credit');
-  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      if (filter === 'low_credit') setSubscribers(await AdminService.getLowCreditUsers(20));
-      else if (filter === 'overdue') setSubscribers(await AdminService.getOverdueUsers());
-      else if (filter === 'expiring') setSubscribers(await AdminService.getExpiringSoonUsers(7));
-    } catch (e) { console.error(e); }
-    setLoading(false);
-  }, [filter]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const doAction = async (subId: string, action: () => Promise<void>) => {
-    setActionLoading(subId);
-    try { await action(); await load(); }
-    catch (e: any) { alert(e.message); }
-    finally { setActionLoading(null); }
-  };
-
-  const handleCredit = (sub: Subscriber) => {
-    const amt = prompt('Créditos a conceder (ex: 50):');
-    if (amt && !isNaN(Number(amt))) doAction(sub.id, () => AdminService.grantCredits(sub.tenant_id, Number(amt), 'Monitoramento: Reforço manual', adminUser));
-  };
-
-  const handleExtend = (sub: Subscriber) => {
-    const date = prompt('Nova data de vencimento (AAAA-MM-DD):', new Date().toISOString().slice(0, 10));
-    if (date) doAction(sub.id, () => AdminService.extendSubscription(sub.tenant_id, date, adminUser));
-  };
-
-  const handleAlert = (sub: Subscriber) => {
-    const msg = prompt('Mensagem de alerta persistente para o usuário:');
-    if (msg) doAction(sub.id, () => AdminService.sendCustomAlert(sub.tenant_id, msg, adminUser));
-  };
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
-        <div>
-          <h2 className="text-2xl font-bold">Monitoramento de Risco</h2>
-          <p className="text-gray-400 text-sm">Controle proativo de churn, uso de créditos e atrasos.</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setFilter('low_credit')} className={`px-4 py-2 rounded-xl text-sm font-bold transition ${filter === 'low_credit' ? 'bg-orange-100 text-orange-700' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>Pouco Crédito</button>
-          <button onClick={() => setFilter('overdue')} className={`px-4 py-2 rounded-xl text-sm font-bold transition ${filter === 'overdue' ? 'bg-red-100 text-red-700' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>Vencidos</button>
-          <button onClick={() => setFilter('expiring')} className={`px-4 py-2 rounded-xl text-sm font-bold transition ${filter === 'expiring' ? 'bg-yellow-100 text-yellow-700' : 'bg-white border text-gray-500 hover:bg-gray-50'}`}>Vencendo (7 dias)</button>
-          <button onClick={load} className="p-2 border rounded-xl text-gray-500 hover:bg-gray-50"><RefreshCw size={16} /></button>
-        </div>
-      </div>
-
-      {loading ? <div className="text-gray-400 text-sm">Carregando dados...</div> : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
-          <table className="w-full text-sm min-w-[800px]">
-            <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
-              <tr>
-                <th className="px-5 py-3 text-left">Assinante</th>
-                <th className="px-5 py-3 text-left">Status / Vencimento</th>
-                <th className="px-5 py-3 text-left">Uso de Créditos</th>
-                <th className="px-5 py-3 text-right">Ações Rápidas</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {subscribers.map(sub => (
-                <tr key={sub.id} className="hover:bg-gray-50/50">
-                  <td className="px-5 py-3">
-                    <p className="font-bold text-gray-900">{sub.name}</p>
-                    <p className="text-xs text-gray-400">{sub.email}</p>
-                  </td>
-                  <td className="px-5 py-3">
-                    <SubscriptionStatusBadge status={sub.status} size="sm" />
-                    <p className={`text-xs mt-1 font-mono ${filter === 'overdue' ? 'text-red-500 font-bold' : 'text-gray-500'}`}>{sub.nextBilling}</p>
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-20 bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${sub.creditsLimit - sub.creditsUsed <= 20 ? 'bg-red-500' : 'bg-purple-500'}`} style={{ width: `${Math.min(100, (sub.creditsUsed / Math.max(1, sub.creditsLimit)) * 100)}%` }} />
-                      </div>
-                      <span className={`text-xs font-bold ${sub.creditsLimit - sub.creditsUsed <= 20 ? 'text-red-500' : 'text-gray-500'}`}>{sub.creditsUsed}/{sub.creditsLimit}</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    {actionLoading === sub.id ? <RefreshCw size={14} className="animate-spin text-gray-400 ml-auto" /> : (
-                      <div className="flex gap-1 justify-end">
-                        <button onClick={() => handleAlert(sub)} className="px-2 py-1 text-xs font-bold bg-orange-50 text-orange-700 rounded hover:bg-orange-100"><AlertCircle size={11} className="inline mr-0.5"/> Alerta</button>
-                        <button onClick={() => handleCredit(sub)} className="px-2 py-1 text-xs font-bold bg-purple-50 text-purple-700 rounded hover:bg-purple-100"><Zap size={11} className="inline mr-0.5"/> Crédito</button>
-                        <button onClick={() => handleExtend(sub)} className="px-2 py-1 text-xs font-bold bg-blue-50 text-blue-700 rounded hover:bg-blue-100"><Clock size={11} className="inline mr-0.5"/> Prazo</button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {subscribers.length === 0 && <tr><td colSpan={4} className="px-5 py-8 text-center text-gray-400">Nenhum assinante nesta lista.</td></tr>}
-            </tbody>
-          </table>
+      {/* Reconcile result banner */}
+      {reconcileResultLocal !== null && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9000, background: '#1F4E5F', color: '#fff', borderRadius: 10, padding: '14px 20px', maxWidth: 360, boxShadow: '0 4px 20px rgba(0,0,0,0.25)', display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+          <CheckCircle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+          <div>
+            <p style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Reconciliação concluída</p>
+            <p style={{ fontSize: 12, opacity: 0.85 }}>{reconcileResultLocal.length} ativação(ões) processada(s).</p>
+          </div>
+          <button onClick={() => setReconcileResultLocal(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#fff', cursor: 'pointer', opacity: 0.7, fontSize: 16, lineHeight: 1 }}>×</button>
         </div>
       )}
-    </div>
-  );
-};
 
-// ============================================================================
-// TAB: CRÉDITOS
-// ============================================================================
-
-const CreditsTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [tenantId, setTenantId] = useState('');
-  const [selectedSubName, setSelectedSubName] = useState('');
-  const [balance, setBalance] = useState<number | null>(null);
-  const [ledger, setLedger] = useState<CreditLedgerEntry[]>([]);
-  const [loadingLedger, setLoadingLedger] = useState(false);
-  const [grantAmount, setGrantAmount] = useState('');
-  const [grantReason, setGrantReason] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [globalLedger, setGlobalLedger] = useState<CreditLedgerEntry[]>([]);
-
-  // Carregar ledger global no mount
-  useEffect(() => {
-    CreditLedgerService.getGlobalHistory(50)
-      .then(setGlobalLedger)
-      .catch(() => {});
-  }, []);
-
-  const handleSearch = async () => {
-    if (!tenantId.trim()) return;
-    setLoadingLedger(true);
-    try {
-      const [bal, hist] = await Promise.all([
-        CreditWalletService.getBalance(tenantId),
-        CreditLedgerService.getHistory(tenantId, 30),
-      ]);
-      setBalance(bal);
-      setLedger(hist);
-    } catch (e: any) { alert('Tenant não encontrado: ' + e.message); }
-    finally { setLoadingLedger(false); }
-  };
-
-  const handleGrant = async () => {
-    const amount = Number(grantAmount);
-    if (!tenantId || isNaN(amount) || amount === 0 || !grantReason) {
-      alert('Preencha todos os campos.');
-      return;
-    }
-    setSaving(true);
-    try {
-      await AdminService.grantCredits(tenantId, amount, grantReason, adminUser);
-      setGrantAmount('');
-      setGrantReason('');
-      await handleSearch();
-      const updated = await CreditLedgerService.getGlobalHistory(50);
-      setGlobalLedger(updated);
-    } catch (e: any) { alert(e.message); }
-    finally { setSaving(false); }
-  };
-
-  const TYPE_LABELS: Record<string, { label: string; color: string }> = {
-    renewal:     { label: 'Renovação',    color: 'text-green-700 bg-green-50' },
-    purchase:    { label: 'Compra',       color: 'text-blue-700 bg-blue-50' },
-    bonus:       { label: 'Bônus',        color: 'text-purple-700 bg-purple-50' },
-    consumption: { label: 'Consumo IA',   color: 'text-red-600 bg-red-50' },
-    refund:      { label: 'Estorno',      color: 'text-orange-700 bg-orange-50' },
-    adjustment:  { label: 'Ajuste',       color: 'text-gray-700 bg-gray-100' },
-  };
-
-  const renderLedgerTable = (entries: CreditLedgerEntry[], title: string) => (
-    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      <div className="px-5 py-3 border-b border-gray-100 font-bold text-sm text-gray-700">{title}</div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
-            <tr>
-              <th className="px-4 py-2 text-left">Data</th>
-              <th className="px-4 py-2 text-left">Tipo</th>
-              <th className="px-4 py-2 text-left">Descrição</th>
-              <th className="px-4 py-2 text-right">Qtd</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {entries.length === 0 ? (
-              <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">Nenhuma movimentação.</td></tr>
-            ) : entries.map(entry => {
-              const t = TYPE_LABELS[entry.type] ?? { label: entry.type, color: 'text-gray-700 bg-gray-100' };
-              return (
-                <tr key={entry.id} className="hover:bg-gray-50/50">
-                  <td className="px-4 py-2 text-xs text-gray-400 font-mono">{new Date(entry.created_at).toLocaleString('pt-BR')}</td>
-                  <td className="px-4 py-2"><span className={`px-2 py-0.5 rounded text-xs font-bold ${t.color}`}>{t.label}</span></td>
-                  <td className="px-4 py-2 text-gray-600 text-xs max-w-xs truncate">{entry.description ?? '—'}</td>
-                  <td className={`px-4 py-2 text-right font-bold text-sm ${entry.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {entry.amount > 0 ? '+' : ''}{entry.amount}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-
-  return (
-    <div>
-      <h2 className="text-2xl font-bold mb-1">Gestão de Créditos</h2>
-      <p className="text-gray-400 text-sm mb-6">Visualize, conceda e estorne créditos por tenant.</p>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        {/* Busca por tenant */}
-        <div className="lg:col-span-2 bg-white p-5 rounded-2xl border border-gray-200">
-          <h3 className="font-bold text-sm text-gray-700 mb-3">Buscar Tenant</h3>
-          <div className="mb-4">
-            <SubSearchPicker onSelect={r => { setTenantId(r.tenant_id); setSelectedSubName(r.name); handleSearch(); }} />
-          </div>
-          {selectedSubName && tenantId && (
-            <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-gray-50 rounded-xl border border-gray-100">
-              <CheckCircle size={14} className="text-green-500 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-gray-800 truncate">{selectedSubName}</p>
-                <p className="text-xs text-gray-400 font-mono truncate">{tenantId}</p>
-              </div>
-              <button onClick={() => { setTenantId(''); setSelectedSubName(''); setBalance(null); setLedger([]); }} className="text-gray-400 hover:text-gray-600 text-xs">✕</button>
+      {/* Reconcile confirmation modal */}
+      {reconcileConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 460, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <AlertTriangle size={20} color="#d97706" />
+              <span style={{ fontWeight: 700, fontSize: 16, color: '#1a1a1a' }}>Reconciliar ativações pendentes?</span>
             </div>
-          )}
-
-          {balance !== null && (
-            <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-4">
-              <p className="text-xs text-purple-600 font-bold uppercase mb-1">Saldo Atual</p>
-              <p className="text-3xl font-bold text-purple-700">{balance} <span className="text-base font-normal">créditos</span></p>
+            <p style={{ fontSize: 13, color: '#4b5563', marginBottom: 8 }}>
+              Esta ação processa <strong>todas as compras pendentes de todos os tenants</strong>, não apenas de "{reconcileConfirm.tenantName}".
+            </p>
+            <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 20 }}>
+              Planos e créditos de múltiplos assinantes podem ser alterados. Use apenas se tiver certeza de que há ativações travadas no sistema.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setReconcileConfirm(null)}
+                disabled={reconcileLoading}
+                style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', fontSize: 13, cursor: 'pointer', color: '#374151' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmReconcile}
+                disabled={reconcileLoading}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#1F4E5F', color: '#fff', fontSize: 13, fontWeight: 600, cursor: reconcileLoading ? 'not-allowed' : 'pointer', opacity: reconcileLoading ? 0.7 : 1, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {reconcileLoading && <RefreshCw size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+                Sim, reconciliar pendências
+              </button>
             </div>
-          )}
-
-          {ledger.length > 0 && renderLedgerTable(ledger, `Histórico — ${selectedSubName || tenantId.slice(0, 8) + '...'}`)}
-        </div>
-
-        {/* Formulário de concessão */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200">
-          <h3 className="font-bold text-sm text-gray-700 mb-3">Conceder / Estornar Créditos</h3>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Tenant selecionado</label>
-              <div className="w-full border rounded-lg px-3 py-2 text-xs bg-gray-50 text-gray-600 min-h-[36px]">
-                {selectedSubName ? <><strong>{selectedSubName}</strong><br/><span className="font-mono text-gray-400">{tenantId.slice(0,16)}…</span></> : <span className="text-gray-400">Selecione via busca ao lado</span>}
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Quantidade (negativo = estorno)</label>
-              <input type="number" className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={grantAmount} onChange={e => setGrantAmount(e.target.value)} placeholder="Ex: 50 ou -10" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Motivo (auditoria)</label>
-              <textarea className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none resize-none" rows={3} value={grantReason} onChange={e => setGrantReason(e.target.value)} placeholder="Ex: Bonificação por feedback, erro de cobrança..." />
-            </div>
-            <button onClick={handleGrant} disabled={saving || !tenantId || !grantAmount || !grantReason} className="w-full bg-purple-600 text-white py-2 rounded-xl text-sm font-bold hover:bg-purple-700 disabled:opacity-50 transition flex items-center justify-center gap-2">
-              {saving ? <RefreshCw size={14} className="animate-spin" /> : <Gift size={14} />}
-              {Number(grantAmount) < 0 ? 'Estornar Créditos' : 'Conceder Créditos'}
-            </button>
-            <p className="text-xs text-gray-400 text-center">Toda operação é registrada no ledger para auditoria.</p>
           </div>
         </div>
-      </div>
-
-      {renderLedgerTable(globalLedger, 'Movimentações Recentes (Todos os Tenants)')}
+      )}
     </div>
   );
 };
@@ -2227,7 +1950,7 @@ const billingSeverityTone: Record<CeoBillingKiwifyPurchaseRow['severity'], strin
   critical: 'bg-red-50 text-red-700 border-red-200',
 };
 
-const BillingKiwifyReconciliationTab = () => {
+const BillingKiwifyReconciliationTab = ({ adminUser }: { adminUser: AdminUser }) => {
   const [data, setData] = useState<CeoBillingKiwifyReconciliation | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -2241,6 +1964,9 @@ const BillingKiwifyReconciliationTab = () => {
   const [copied, setCopied] = useState('');
   const [reconciling, setReconciling] = useState(false);
   const [reconcileResult, setReconcileResult] = useState<ReconcileResult[] | null>(null);
+  const [reconcileConfirm, setReconcileConfirm] = useState(false);
+  const [reconcileReason, setReconcileReason] = useState('');
+  const [reconcileError, setReconcileError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2272,12 +1998,21 @@ const BillingKiwifyReconciliationTab = () => {
     } catch { setCopied(''); }
   };
 
-  const handleReconcile = async () => {
-    if (!confirm('Reconciliar compras pendentes agora?\n\nEsta acao usa a rotina administrativa existente e nao roda automaticamente.')) return;
+  const handleReconcile = () => {
+    setReconcileConfirm(true);
+    setReconcileReason('');
+    setReconcileError('');
+  };
+
+  const confirmReconcile = async () => {
+    if (!reconcileReason.trim()) { setReconcileError('Motivo administrativo é obrigatório.'); return; }
+    setReconcileConfirm(false);
+    setReconcileReason('');
+    setReconcileError('');
     setReconciling(true);
     setReconcileResult(null);
     try {
-      const result = await reconcilePendingPurchases();
+      const result = await reconcilePendingPurchases(adminUser, reconcileReason, 'billing_kiwify');
       setReconcileResult(result);
       await load();
     } catch (e: any) {
@@ -2504,6 +2239,53 @@ const BillingKiwifyReconciliationTab = () => {
             </div>
           )}
         </>
+      )}
+      {reconcileConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 480, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <AlertTriangle size={20} color="#d97706" />
+              <span style={{ fontWeight: 700, fontSize: 16, color: '#1a1a1a' }}>Reconciliar ativações pendentes?</span>
+            </div>
+            <p style={{ fontSize: 13, color: '#4b5563', marginBottom: 8 }}>
+              Esta ação executa uma reconciliação global das compras Kiwify aprovadas que ainda estão pendentes de ativação. Ela pode ativar outros tenants além do item visualizado, caso existam compras pendentes válidas.
+            </p>
+            <p style={{ fontSize: 12, color: '#92400e', fontWeight: 600, marginBottom: 16, background: '#fef3c7', padding: '8px 12px', borderRadius: 8 }}>
+              Use apenas quando houver divergência real entre Kiwify, assinantes e tenants.
+            </p>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                Motivo administrativo *
+              </label>
+              <input
+                autoFocus
+                style={{ width: '100%', border: `1px solid ${reconcileError ? '#dc2626' : '#d1d5db'}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                placeholder="Ex: Divergência detectada no painel, reconciliação solicitada pelo suporte"
+                value={reconcileReason}
+                onChange={e => { setReconcileReason(e.target.value); setReconcileError(''); }}
+              />
+              {reconcileError && (
+                <p style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, marginTop: 4 }}>{reconcileError}</p>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setReconcileConfirm(false); setReconcileReason(''); setReconcileError(''); }}
+                disabled={reconciling}
+                style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', fontSize: 13, cursor: 'pointer', color: '#374151', opacity: reconciling ? 0.5 : 1 }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmReconcile}
+                disabled={reconciling}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#d97706', color: '#fff', fontSize: 13, fontWeight: 600, cursor: reconciling ? 'not-allowed' : 'pointer', opacity: reconciling ? 0.5 : 1 }}
+              >
+                {reconciling ? 'Reconciliando...' : 'Sim, reconciliar pendências'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -2814,6 +2596,9 @@ const UsersTenantsAdminTab = ({ adminUser }: { adminUser: AdminUser }) => {
   const [resetTarget, setResetTarget] = useState<{ email: string; name: string } | null>(null);
   const [internalTarget, setInternalTarget] = useState<CeoUsersTenantsAccountRow | null>(null);
   const [internalLoading, setInternalLoading] = useState(false);
+  const [removeInternalTarget, setRemoveInternalTarget] = useState<CeoUsersTenantsAccountRow | null>(null);
+  const [removeInternalReason, setRemoveInternalReason] = useState('');
+  const [removeInternalError, setRemoveInternalError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2855,15 +2640,29 @@ const UsersTenantsAdminTab = ({ adminUser }: { adminUser: AdminUser }) => {
     }
   };
 
-  const handleRemoveInternal = async (row: CeoUsersTenantsAccountRow) => {
-    if (!confirm(`Remover ${row.tenant_name} das contas internas?\n\nA conta voltara a entrar nas metricas do CEO se as views considerarem is_internal=false.`)) return;
+  const handleRemoveInternal = (row: CeoUsersTenantsAccountRow) => {
+    setRemoveInternalTarget(row);
+    setRemoveInternalReason('');
+    setRemoveInternalError('');
+  };
+
+  const confirmRemoveInternal = async () => {
+    if (!removeInternalTarget) return;
+    if (!removeInternalReason.trim()) {
+      setRemoveInternalError('Motivo administrativo é obrigatório.');
+      return;
+    }
     setInternalLoading(true);
     try {
-      await setTenantInternal(row.tenant_id, false, adminUser);
+      // TODO: futura sprint — enviar removeInternalReason para tabela de auditoria administrativa
+      await setTenantInternal(removeInternalTarget.tenant_id, false, adminUser);
       await load();
-      if (detail?.tenant_id === row.tenant_id) setDetail(null);
+      if (detail?.tenant_id === removeInternalTarget.tenant_id) setDetail(null);
+      setRemoveInternalTarget(null);
+      setRemoveInternalReason('');
+      setRemoveInternalError('');
     } catch (e: any) {
-      alert(e?.message ?? 'Erro ao remover marcacao interna.');
+      setRemoveInternalError(e?.message ?? 'Erro ao remover marcacao interna.');
     } finally {
       setInternalLoading(false);
     }
@@ -3127,6 +2926,18 @@ const UsersTenantsAdminTab = ({ adminUser }: { adminUser: AdminUser }) => {
             />
           )}
 
+          {removeInternalTarget && (
+            <RemoveInternalConfirmModal
+              row={removeInternalTarget}
+              reason={removeInternalReason}
+              onReasonChange={v => { setRemoveInternalReason(v); if (removeInternalError) setRemoveInternalError(''); }}
+              error={removeInternalError}
+              onConfirm={confirmRemoveInternal}
+              onClose={() => { setRemoveInternalTarget(null); setRemoveInternalReason(''); setRemoveInternalError(''); }}
+              loading={internalLoading}
+            />
+          )}
+
           {resetTarget && (
             <PasswordResetModal
               targetEmail={resetTarget.email}
@@ -3142,1288 +2953,6 @@ const UsersTenantsAdminTab = ({ adminUser }: { adminUser: AdminUser }) => {
   );
 };
 
-type LDSectionDraft = {
-  title: string;
-  subtitle: string;
-  content_json: Record<string, any>;
-  updated_at?: string;
-};
-type LDDrafts = Record<string, LDSectionDraft>;
-type LDEditorProps = { sectionKey: string; draft: LDSectionDraft; setJson: (patch: Record<string, any>) => void };
-
-const LD_FIELD: React.CSSProperties = {
-  width: '100%', border: '1.5px solid #E2E8F0', borderRadius: 10,
-  padding: '10px 14px', fontSize: 14, color: '#0F172A', outline: 'none',
-  boxSizing: 'border-box', fontFamily: 'inherit', background: '#FFFFFF',
-  transition: 'border-color 0.15s',
-};
-const LD_LABEL: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 };
-const LD_SECTION_TAG: React.CSSProperties = { fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#94A3B8', marginBottom: 14, display: 'block' };
-const LD_CARD: React.CSSProperties = { background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18, padding: '24px 28px', marginBottom: 16 };
-const LD_GRID2: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 };
-const LD_ADDBUTTON = (color: string): React.CSSProperties => ({
-  display: 'flex', alignItems: 'center', gap: 5, padding: '5px 14px',
-  borderRadius: 8, border: `1px solid ${color}40`, background: `${color}10`,
-  color, fontSize: 12, fontWeight: 700, cursor: 'pointer',
-});
-const LD_DELBTN: React.CSSProperties = {
-  padding: '9px 12px', background: '#FEF2F2', border: '1px solid #FECACA',
-  color: '#DC2626', borderRadius: 9, cursor: 'pointer', display: 'flex', alignItems: 'center', flexShrink: 0,
-};
-
-// ── Section definitions ──────────────────────────────────────────────────────
-
-const LD_SECTIONS = [
-  { key: 'hero',      label: 'Hero',           icon: Layers,       color: '#6366F1', desc: 'Título, subtítulo e botões da página inicial' },
-  { key: 'planos',    label: 'Planos',         icon: Package,      color: '#0EA5E9', desc: 'Preços, taglines e features dos planos PRO e PREMIUM' },
-  { key: 'descontos', label: 'Descontos',      icon: CreditCard,   color: '#16A34A', desc: 'Cupons promocionais e textos de urgência' },
-  { key: 'kiwify',    label: 'Links Kiwify',   icon: CreditCard,   color: '#16A34A', desc: 'URLs de checkout dos produtos na Kiwify' },
-  { key: 'creditos',  label: 'Créditos',       icon: Zap,          color: '#D97706', desc: 'Pacotes de créditos avulsos (adicionar / editar / remover)' },
-  { key: 'avisos',    label: 'Avisos',         icon: AlertCircle,  color: '#DC2626', desc: '48h, vitalício, parcelamento e selos de confiança' },
-  { key: 'faq',       label: 'FAQ',            icon: FileText,     color: '#7C3AED', desc: 'Perguntas e respostas (adicionar / editar / remover)' },
-];
-
-const LD_DEFAULTS: LDDrafts = {
-  hero: {
-    title: 'A IA que entende a educação inclusiva',
-    subtitle: 'Gere documentos, PEI, PAEE e relatórios em segundos. Devolvendo seu tempo e sua energia.',
-    content_json: { cta_primary: 'Começar grátis', cta_secondary: 'Entrar' },
-  },
-  planos: {
-    title: 'Invista onde o impacto é real.',
-    subtitle: 'Chega de levar o planejamento para o domingo.',
-    content_json: {
-      pro_full_price: 79, pro_discount_price: 59,
-      pro_tagline: 'Para professores e especialistas',
-      pro_features: ['Até 30 alunos', 'PEI, PAEE, PDI e relatórios', 'Atividades com BNCC', 'Histórico do aluno', 'Suporte padrão'],
-      premium_full_price: 122, premium_discount_price: 99,
-      premium_tagline: 'Para escolas e clínicas',
-      premium_features: ['Alunos ilimitados', 'Tudo do plano Pro', 'Análise de laudos com IA', 'Geração avançada de atividades', 'Relatórios evolutivos completos', 'Prioridade em novos recursos'],
-    },
-  },
-  descontos: {
-    title: 'Cupons e descontos ativos',
-    subtitle: 'Configure os cupons exibidos na landing page.',
-    content_json: {
-      pro_coupon: 'INCLUIAI59', pro_coupon_active: true,
-      premium_coupon: 'INCLUIAI99', premium_coupon_active: true,
-      badge_label: 'Valores promocionais por tempo limitado',
-      urgency_label: 'Oferta válida por 48 horas',
-    },
-  },
-  kiwify: {
-    title: 'Links de Checkout Kiwify',
-    subtitle: 'Cole aqui as URLs completas dos produtos criados na Kiwify.',
-    content_json: {
-      pro_monthly_url: '',
-      pro_annual_url: '',
-      premium_monthly_url: '',
-      premium_annual_url: '',
-      credits_100_url: '',
-      credits_300_url: '',
-      credits_900_url: '',
-    },
-  },
-  creditos: {
-    title: 'Pacotes de créditos avulsos',
-    subtitle: 'Configure os pacotes exibidos na landing e no app.',
-    content_json: {
-      packages: [
-        { id: 'pkg_100', credits: 100, price: 29.90, label: 'Pacote Básico' },
-        { id: 'pkg_300', credits: 300, price: 79.90, label: 'Pacote Intermediário' },
-        { id: 'pkg_900', credits: 900, price: 149.90, label: 'Pacote Avançado' },
-      ],
-    },
-  },
-  avisos: {
-    title: 'Avisos comerciais',
-    subtitle: 'Mensagens e selos exibidos na landing page.',
-    content_json: {
-      urgency_badge: 'Valores promocionais por tempo limitado',
-      urgency_clock: 'Oferta válida por 48 horas',
-      installment_title: 'Parcelamento inteligente que facilita a aprovação',
-      installment_items: ['Mais leve no limite do cartão', 'Sem necessidade de limite alto disponível', 'Parcele em até 12x'],
-      lifetime_active: false,
-      lifetime_text: 'Acesso vitalício disponível para fundadores',
-      trust_items: ['Cancele quando quiser', 'Sem taxa de instalação', 'LGPD conforme', 'Suporte incluído'],
-    },
-  },
-  faq: {
-    title: 'Perguntas frequentes',
-    subtitle: 'Tire suas dúvidas sobre o IncluiAI.',
-    content_json: {
-      items: [
-        { q: 'Para quem é o IncluiAI?', a: 'Para professores de AEE, psicopedagogos, fonoaudiólogos e demais profissionais de educação inclusiva.' },
-        { q: 'Os dados dos alunos são seguros?', a: 'Sim. Armazenamos em conformidade com a LGPD, com criptografia e auditoria SHA-256.' },
-        { q: 'Posso cancelar a qualquer momento?', a: 'Sim, sem multas ou taxas de cancelamento.' },
-      ],
-    },
-  },
-};
-
-// ── Sub-editors ──────────────────────────────────────────────────────────────
-
-const LDHeroEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
-  const cj = draft.content_json;
-  return (
-    <div style={LD_CARD}>
-      <span style={LD_SECTION_TAG}>Botões e CTAs</span>
-      <div style={LD_GRID2}>
-        {([
-          { k: 'cta_primary',   label: 'Botão principal (CTA primário)' },
-          { k: 'cta_secondary', label: 'Botão secundário (login / entrar)' },
-        ] as const).map(({ k, label }) => (
-          <div key={k}>
-            <label style={LD_LABEL}>{label}</label>
-            <input style={LD_FIELD} value={String(cj[k] ?? '')} onChange={e => setJson({ [k]: e.target.value })} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const LDPlanosEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
-  const cj = draft.content_json;
-  const updateFeature = (plan: string, i: number, val: string) => {
-    const arr = [...(cj[`${plan}_features`] ?? [])]; arr[i] = val;
-    setJson({ [`${plan}_features`]: arr });
-  };
-  const addFeature = (plan: string) => setJson({ [`${plan}_features`]: [...(cj[`${plan}_features`] ?? []), 'Nova feature'] });
-  const removeFeature = (plan: string, i: number) => setJson({ [`${plan}_features`]: (cj[`${plan}_features`] ?? []).filter((_: any, idx: number) => idx !== i) });
-
-  const PlanCard = ({ plan, label, color }: { plan: string; label: string; color: string }) => (
-    <div style={{ border: `1.5px solid ${color}25`, borderRadius: 16, padding: 20, background: `${color}05` }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 7 }}>
-        <Package size={14} color={color} /> Plano {label}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-        <div>
-          <label style={LD_LABEL}>Preço De (riscado) R$</label>
-          <input type="number" style={LD_FIELD} value={Number(cj[`${plan}_full_price`] ?? 0)} onChange={e => setJson({ [`${plan}_full_price`]: Number(e.target.value) })} />
-        </div>
-        <div>
-          <label style={LD_LABEL}>Preço por (desconto) R$</label>
-          <input type="number" style={LD_FIELD} value={Number(cj[`${plan}_discount_price`] ?? 0)} onChange={e => setJson({ [`${plan}_discount_price`]: Number(e.target.value) })} />
-        </div>
-      </div>
-      <div style={{ marginBottom: 14 }}>
-        <label style={LD_LABEL}>Tagline do plano</label>
-        <input style={LD_FIELD} value={String(cj[`${plan}_tagline`] ?? '')} onChange={e => setJson({ [`${plan}_tagline`]: e.target.value })} />
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <label style={{ ...LD_LABEL, marginBottom: 0 }}>Features</label>
-        <button onClick={() => addFeature(plan)} style={LD_ADDBUTTON(color)}>
-          <PlusCircle size={12} /> Adicionar
-        </button>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {(cj[`${plan}_features`] ?? []).map((f: string, i: number) => (
-          <div key={i} style={{ display: 'flex', gap: 8 }}>
-            <input style={{ ...LD_FIELD, flex: 1 }} value={f} onChange={e => updateFeature(plan, i, e.target.value)} />
-            <button onClick={() => removeFeature(plan, i)} style={LD_DELBTN}><Trash2 size={13} /></button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  return (
-    <div style={LD_CARD}>
-      <span style={LD_SECTION_TAG}>Planos PRO e PREMIUM — preços, taglines e features</span>
-      <div style={LD_GRID2}>
-        <PlanCard plan="pro" label="PRO" color="#1E3A5F" />
-        <PlanCard plan="premium" label="PREMIUM" color="#7C3AED" />
-      </div>
-    </div>
-  );
-};
-
-const LDDescontosEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
-  const cj = draft.content_json;
-  return (
-    <>
-      <div style={LD_CARD}>
-        <span style={LD_SECTION_TAG}>Cupons de desconto</span>
-        <div style={LD_GRID2}>
-          {/* PRO */}
-          <div style={{ border: '1.5px solid #BBF7D0', borderRadius: 14, padding: 18, background: '#F0FDF4' }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: '#16A34A', marginBottom: 14 }}>Cupom PRO</div>
-            <label style={LD_LABEL}>Código</label>
-            <input style={{ ...LD_FIELD, fontFamily: 'monospace', fontWeight: 800, fontSize: 17, letterSpacing: '0.06em', marginBottom: 12 }}
-              value={String(cj.pro_coupon ?? '')}
-              onChange={e => setJson({ pro_coupon: e.target.value.toUpperCase() })} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 600 }}>
-              <input type="checkbox" checked={Boolean(cj.pro_coupon_active ?? true)} onChange={e => setJson({ pro_coupon_active: e.target.checked })} />
-              Ativo — exibir na landing
-            </label>
-          </div>
-          {/* MASTER */}
-          <div style={{ border: '1.5px solid #DDD6FE', borderRadius: 14, padding: 18, background: '#FAF5FF' }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: '#7C3AED', marginBottom: 14 }}>Cupom PREMIUM</div>
-            <label style={LD_LABEL}>Código</label>
-            <input style={{ ...LD_FIELD, fontFamily: 'monospace', fontWeight: 800, fontSize: 17, letterSpacing: '0.06em', marginBottom: 12 }}
-              value={String(cj.premium_coupon ?? '')}
-              onChange={e => setJson({ premium_coupon: e.target.value.toUpperCase() })} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 600 }}>
-              <input type="checkbox" checked={Boolean(cj.master_coupon_active ?? true)} onChange={e => setJson({ master_coupon_active: e.target.checked })} />
-              Ativo — exibir na landing
-            </label>
-          </div>
-        </div>
-      </div>
-      <div style={LD_CARD}>
-        <span style={LD_SECTION_TAG}>Textos de urgência</span>
-        <div style={LD_GRID2}>
-          <div>
-            <label style={LD_LABEL}>Badge superior (barra chama)</label>
-            <input style={LD_FIELD} value={String(cj.badge_label ?? '')} onChange={e => setJson({ badge_label: e.target.value })} />
-          </div>
-          <div>
-            <label style={LD_LABEL}>Badge do relógio (48h etc)</label>
-            <input style={LD_FIELD} value={String(cj.urgency_label ?? '')} onChange={e => setJson({ urgency_label: e.target.value })} />
-          </div>
-        </div>
-      </div>
-    </>
-  );
-};
-
-const LDKiwifyEditor: React.FC<LDEditorProps> = ({ draft, setJson }) => {
-  const cj = draft.content_json;
-  const fields = [
-      { key: 'pro_monthly_url', label: 'PRO Mensal' },
-      { key: 'pro_annual_url', label: 'PRO Anual' },
-      { key: 'premium_monthly_url', label: 'PREMIUM Mensal' },
-      { key: 'premium_annual_url', label: 'PREMIUM Anual' },
-      { key: 'credits_100_url', label: 'Créditos 100 (AI100)' },
-      { key: 'credits_300_url', label: 'Créditos 300 (AI300)' },
-      { key: 'credits_900_url', label: 'Créditos 900 (AI900)' },
-  ] as const;
-
-  return (
-      <div style={LD_CARD}>
-          <span style={LD_SECTION_TAG}>URLs de Checkout</span>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              {fields.map(({ key, label }) => (
-                  <div key={key}>
-                      <label style={LD_LABEL}>{label}</label>
-                      <input
-                          style={LD_FIELD}
-                          value={String(cj[key] ?? '')}
-                          onChange={e => setJson({ [key]: e.target.value })}
-                          placeholder="https://kiwify.app/..."
-                      />
-                  </div>
-              ))}
-          </div>
-      </div>
-  );
-};
-
-const LDCreditosEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
-  const packages: any[] = draft.content_json.packages ?? [];
-  const updatePkg = (i: number, field: string, val: any) => setJson({ packages: packages.map((p, idx) => idx === i ? { ...p, [field]: val } : p) });
-  const addPkg = () => setJson({ packages: [...packages, { id: `pkg_${Date.now()}`, credits: 100, price: 29.90, label: 'Novo pacote' }] });
-  const removePkg = (i: number) => setJson({ packages: packages.filter((_, idx) => idx !== i) });
-
-  return (
-    <div style={LD_CARD}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <span style={{ ...LD_SECTION_TAG, marginBottom: 0 }}>Pacotes de créditos ({packages.length})</span>
-        <button onClick={addPkg} style={LD_ADDBUTTON('#D97706')}>
-          <PlusCircle size={13} /> Novo pacote
-        </button>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {packages.map((pkg, i) => (
-          <div key={i} style={{ border: '1.5px solid #FDE68A', borderRadius: 14, padding: '18px 20px', background: '#FFFBEB', display: 'grid', gridTemplateColumns: '130px 140px 1fr auto', gap: 14, alignItems: 'flex-end' }}>
-            <div>
-              <label style={LD_LABEL}>Créditos</label>
-              <input type="number" style={LD_FIELD} value={pkg.credits} onChange={e => updatePkg(i, 'credits', Number(e.target.value))} />
-            </div>
-            <div>
-              <label style={LD_LABEL}>Preço (R$)</label>
-              <input type="number" step="0.01" style={LD_FIELD} value={pkg.price} onChange={e => updatePkg(i, 'price', Number(e.target.value))} />
-            </div>
-            <div>
-              <label style={LD_LABEL}>Descrição do pacote</label>
-              <input style={LD_FIELD} value={pkg.label ?? ''} onChange={e => updatePkg(i, 'label', e.target.value)} />
-            </div>
-            <button onClick={() => removePkg(i)} style={LD_DELBTN}><Trash2 size={14} /></button>
-          </div>
-        ))}
-        {packages.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '28px 0', color: '#94A3B8', fontSize: 14 }}>Nenhum pacote cadastrado.</div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-const LDAvisosEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
-  const cj = draft.content_json;
-  const updList = (field: string, i: number, val: string) => { const a = [...(cj[field] ?? [])]; a[i] = val; setJson({ [field]: a }); };
-  const addList = (field: string) => setJson({ [field]: [...(cj[field] ?? []), 'Novo item'] });
-  const rmList  = (field: string, i: number) => setJson({ [field]: (cj[field] ?? []).filter((_: any, idx: number) => idx !== i) });
-
-  const ListEditor = ({ field, label, color }: { field: string; label: string; color: string }) => (
-    <div style={{ marginBottom: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <label style={{ ...LD_LABEL, marginBottom: 0 }}>{label}</label>
-        <button onClick={() => addList(field)} style={LD_ADDBUTTON(color)}><PlusCircle size={12} /> Adicionar</button>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {(cj[field] ?? []).map((item: string, i: number) => (
-          <div key={i} style={{ display: 'flex', gap: 8 }}>
-            <input style={{ ...LD_FIELD, flex: 1 }} value={item} onChange={e => updList(field, i, e.target.value)} />
-            <button onClick={() => rmList(field, i)} style={LD_DELBTN}><Trash2 size={13} /></button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  return (
-    <>
-      <div style={LD_CARD}>
-        <span style={LD_SECTION_TAG}>Badges de urgência</span>
-        <div style={LD_GRID2}>
-          <div>
-            <label style={LD_LABEL}>Badge superior (chama / Flame)</label>
-            <input style={LD_FIELD} value={String(cj.urgency_badge ?? '')} onChange={e => setJson({ urgency_badge: e.target.value })} />
-          </div>
-          <div>
-            <label style={LD_LABEL}>Badge do relógio (ex: 48 horas)</label>
-            <input style={LD_FIELD} value={String(cj.urgency_clock ?? '')} onChange={e => setJson({ urgency_clock: e.target.value })} />
-          </div>
-        </div>
-      </div>
-      <div style={LD_CARD}>
-        <span style={LD_SECTION_TAG}>Bloco de parcelamento inteligente</span>
-        <div style={{ marginBottom: 14 }}>
-          <label style={LD_LABEL}>Título do bloco</label>
-          <input style={LD_FIELD} value={String(cj.installment_title ?? '')} onChange={e => setJson({ installment_title: e.target.value })} />
-        </div>
-        <ListEditor field="installment_items" label="Itens do parcelamento" color="#1D4ED8" />
-      </div>
-      <div style={LD_CARD}>
-        <span style={LD_SECTION_TAG}>Aviso vitalício (opcional)</span>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 600, marginBottom: 12 }}>
-          <input type="checkbox" checked={Boolean(cj.lifetime_active ?? false)} onChange={e => setJson({ lifetime_active: e.target.checked })} />
-          Exibir aviso de acesso vitalício na landing
-        </label>
-        <label style={LD_LABEL}>Texto do aviso</label>
-        <input style={{ ...LD_FIELD, opacity: cj.lifetime_active ? 1 : 0.45 }} value={String(cj.lifetime_text ?? '')} disabled={!cj.lifetime_active} onChange={e => setJson({ lifetime_text: e.target.value })} />
-      </div>
-      <div style={LD_CARD}>
-        <span style={LD_SECTION_TAG}>Selos de confiança (rodapé da seção de preços)</span>
-        <ListEditor field="trust_items" label="Selos" color="#16A34A" />
-      </div>
-    </>
-  );
-};
-
-const LDFaqEditor: React.FC<LDEditorProps> = ({ sectionKey: _, draft, setJson }) => {
-  const items: { q: string; a: string }[] = draft.content_json.items ?? [];
-  const upd = (i: number, field: 'q' | 'a', val: string) => setJson({ items: items.map((it, idx) => idx === i ? { ...it, [field]: val } : it) });
-  const add = () => setJson({ items: [...items, { q: 'Nova pergunta?', a: 'Resposta aqui...' }] });
-  const remove = (i: number) => setJson({ items: items.filter((_, idx) => idx !== i) });
-
-  return (
-    <div style={LD_CARD}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <span style={{ ...LD_SECTION_TAG, marginBottom: 0 }}>Perguntas e respostas ({items.length})</span>
-        <button onClick={add} style={LD_ADDBUTTON('#7C3AED')}><PlusCircle size={13} /> Adicionar pergunta</button>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-        {items.map((item, i) => (
-          <div key={i} style={{ border: '1.5px solid #E2E8F0', borderRadius: 14, padding: '18px 20px', background: '#FAFAFA' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <span style={{ fontSize: 11, fontWeight: 800, color: '#7C3AED', background: '#F5F3FF', padding: '3px 12px', borderRadius: 20 }}>#{i + 1}</span>
-              <button onClick={() => remove(i)} style={{ display: 'flex', alignItems: 'center', gap: 5, ...LD_DELBTN, padding: '5px 12px', fontSize: 12, fontWeight: 600 }}>
-                <Trash2 size={12} /> Remover
-              </button>
-            </div>
-            <div style={{ marginBottom: 10 }}>
-              <label style={LD_LABEL}>Pergunta</label>
-              <input style={LD_FIELD} value={item.q} onChange={e => upd(i, 'q', e.target.value)} />
-            </div>
-            <div>
-              <label style={LD_LABEL}>Resposta</label>
-              <textarea rows={3} style={{ ...LD_FIELD, resize: 'vertical' } as React.CSSProperties} value={item.a} onChange={e => upd(i, 'a', e.target.value)} />
-            </div>
-          </div>
-        ))}
-        {items.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '32px 0', color: '#94A3B8', fontSize: 14 }}>
-            Sem perguntas cadastradas. Clique em "Adicionar pergunta" para começar.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ── Main LandingTab ──────────────────────────────────────────────────────────
-
-const LandingTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [drafts, setDrafts]   = useState<LDDrafts>({});
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving]   = useState(false);
-  const [activeSection, setActiveSection] = useState<string>('hero');
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    LandingService.getAll().then(sections => {
-      const merged: LDDrafts = {};
-      // seed with defaults
-      Object.keys(LD_DEFAULTS).forEach(k => {
-        merged[k] = { ...LD_DEFAULTS[k], content_json: { ...LD_DEFAULTS[k].content_json } };
-      });
-      // overlay DB data
-      sections.forEach(s => {
-        const k = s.section_key;
-        merged[k] = {
-          title:        s.title    ?? merged[k]?.title    ?? '',
-          subtitle:     s.subtitle ?? merged[k]?.subtitle ?? '',
-          content_json: { ...(merged[k]?.content_json ?? {}), ...(s.content_json ?? {}) },
-          updated_at:   s.updated_at,
-        };
-      });
-      setDrafts(merged);
-      setLoading(false);
-    });
-  }, []);
-
-  const setDraftField = (key: string, patch: Partial<LDSectionDraft>) =>
-    setDrafts(prev => ({ ...prev, [key]: { ...prev[key], ...patch } }));
-
-  const setJson = (key: string, patch: Record<string, any>) =>
-    setDrafts(prev => ({
-      ...prev,
-      [key]: { ...prev[key], content_json: { ...prev[key].content_json, ...patch } },
-    }));
-
-  const handleSaveAll = async () => {
-    if (!['super_admin', 'operacional'].includes(adminUser.role)) { alert('Permissão negada'); return; }
-    setSaving(true);
-    try {
-      await LandingService.saveAll(
-        (Object.entries(drafts) as [string, LDSectionDraft][]).map(([key, d]) => ({
-          sectionKey: key, title: d.title, subtitle: d.subtitle, contentJson: d.content_json,
-        })),
-        undefined,
-        adminUser.name,
-      );
-      setSaveMsg('Publicado com sucesso!');
-      setTimeout(() => setSaveMsg(null), 3500);
-    } catch (e: any) { alert(e.message); }
-    finally { setSaving(false); }
-  };
-
-  const activeMeta = LD_SECTIONS.find(s => s.key === activeSection)!;
-  const draft      = drafts[activeSection] ?? { title: '', subtitle: '', content_json: {} };
-  const makeSetJson = (k: string) => (patch: Record<string, any>) => setJson(k, patch);
-
-  if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0', gap: 10, color: '#94A3B8' }}>
-      <RefreshCw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Carregando conteúdo...
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
-  );
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
-        <div>
-          <h2 style={{ fontSize: 24, fontWeight: 800, color: '#0F172A', letterSpacing: '-0.03em', marginBottom: 4 }}>Landing / Comercial</h2>
-          <p style={{ fontSize: 14, color: '#64748B' }}>Edite títulos, preços, cupons e conteúdo sem precisar de deploy.</p>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {saveMsg && (
-            <span style={{ fontSize: 13, color: '#16A34A', fontWeight: 600, background: '#F0FDF4', padding: '8px 16px', borderRadius: 10, border: '1px solid #BBF7D0' }}>
-              ✓ {saveMsg}
-            </span>
-          )}
-          <button
-            onClick={handleSaveAll} disabled={saving}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8, background: '#0F172A', color: 'white',
-              padding: '11px 24px', borderRadius: 12, fontSize: 14, fontWeight: 700,
-              border: 'none', cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1,
-              boxShadow: '0 4px 16px rgba(15,23,42,0.18)', transition: 'opacity 0.2s',
-            }}
-          >
-            {saving ? <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Globe size={14} />}
-            Salvar e Publicar
-          </button>
-        </div>
-      </div>
-
-      {/* ── Layout: sidebar + editor ────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 22, alignItems: 'flex-start' }}>
-
-        {/* Sidebar */}
-        <nav style={{ width: 210, flexShrink: 0, background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 18, padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {LD_SECTIONS.map(s => {
-            const isActive = activeSection === s.key;
-            const Icon = s.icon;
-            return (
-              <button key={s.key} onClick={() => setActiveSection(s.key)} style={{
-                display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px',
-                borderRadius: 12, border: 'none', width: '100%', textAlign: 'left', cursor: 'pointer',
-                background: isActive ? s.color : 'transparent',
-                color: isActive ? 'white' : '#64748B',
-                fontSize: 14, fontWeight: isActive ? 700 : 500,
-                transition: 'all 0.15s',
-                boxShadow: isActive ? `0 4px 14px ${s.color}35` : 'none',
-              }}>
-                <Icon size={15} />
-                {s.label}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Editor panel */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Section header card */}
-          <div style={{ background: '#FFFFFF', border: '1px solid #E2E8F0', borderRadius: 18, padding: '18px 24px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{ width: 42, height: 42, background: `${activeMeta.color}15`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <activeMeta.icon size={19} color={activeMeta.color} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: '#0F172A' }}>{activeMeta.label}</div>
-              <div style={{ fontSize: 12, color: '#94A3B8' }}>{activeMeta.desc}</div>
-            </div>
-            {draft.updated_at && (
-              <div style={{ fontSize: 11, color: '#94A3B8', textAlign: 'right', flexShrink: 0 }}>
-                Atualizado em<br />
-                <strong style={{ color: '#64748B' }}>{new Date(draft.updated_at).toLocaleString('pt-BR')}</strong>
-              </div>
-            )}
-          </div>
-
-          {/* Title + Subtitle */}
-          <div style={{ ...LD_CARD, marginBottom: 16 }}>
-            <span style={LD_SECTION_TAG}>Textos principais da seção</span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <label style={LD_LABEL}>Título</label>
-                <input style={LD_FIELD} value={draft.title} onChange={e => setDraftField(activeSection, { title: e.target.value })} />
-              </div>
-              <div>
-                <label style={LD_LABEL}>Subtítulo / descrição</label>
-                <textarea rows={2} style={{ ...LD_FIELD, resize: 'vertical' } as React.CSSProperties}
-                  value={draft.subtitle}
-                  onChange={e => setDraftField(activeSection, { subtitle: e.target.value })} />
-              </div>
-            </div>
-          </div>
-
-          {/* Section-specific editor */}
-          {activeSection === 'hero'      && <LDHeroEditor      sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
-          {activeSection === 'planos'    && <LDPlanosEditor    sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
-          {activeSection === 'descontos' && <LDDescontosEditor sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
-          {activeSection === 'kiwify'    && <LDKiwifyEditor    sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
-          {activeSection === 'creditos'  && <LDCreditosEditor  sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
-          {activeSection === 'avisos'    && <LDAvisosEditor    sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
-          {activeSection === 'faq'       && <LDFaqEditor       sectionKey={activeSection} draft={draft} setJson={makeSetJson(activeSection)} />}
-        </div>
-      </div>
-
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
-  );
-};
-
-// ============================================================================
-// TAB: CONTAS DE TESTE
-// ============================================================================
-
-const TestAccountsTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [accounts, setAccounts] = useState<import('../types').TestAccountDetail[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-
-  // Create form
-  const emptyForm = { name: '', responsibleName: '', email: '', password: '', planCode: 'PRO', credits: 200, expiresAt: '', observation: '' };
-  const [form, setForm] = useState(emptyForm);
-
-  // Inline actions
-  const [actionRow, setActionRow] = useState<string | null>(null); // tenant_id being acted on
-  const [creditAmount, setCreditAmount] = useState(50);
-  const [extendDate, setExtendDate] = useState('');
-
-  const loadAccounts = useCallback(async () => {
-    setLoading(true);
-    const data = await AdminService.getTestAccountDetails();
-    setAccounts(data);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { loadAccounts(); }, [loadAccounts]);
-
-  const defaultExpiry = () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 30);
-    return d.toISOString().slice(0, 10);
-  };
-
-  const handleCreate = async () => {
-    if (!form.name || !form.email || !form.password) {
-      alert('Preencha nome, e-mail e senha.');
-      return;
-    }
-    setSaving(true);
-    try {
-      const result = await AdminService.createTestAccountFromScratch({
-        accountName: form.name,
-        responsibleName: form.responsibleName || form.name,
-        email: form.email,
-        password: form.password,
-        planCode: form.planCode,
-        initialCredits: form.credits,
-        expiresAt: form.expiresAt || defaultExpiry(),
-        observation: form.observation,
-        adminUser,
-      });
-      setForm(emptyForm);
-      await loadAccounts();
-      alert(result.message);
-    } catch (e: any) { alert(e.message); }
-    finally { setSaving(false); }
-  };
-
-  const handleAddCredits = async (tenantId: string) => {
-    try {
-      await AdminService.grantCredits(tenantId, creditAmount, 'Adição manual via painel CEO', adminUser);
-      setActionRow(null);
-      await loadAccounts();
-      alert(`+${creditAmount} créditos adicionados.`);
-    } catch (e: any) { alert(e.message); }
-  };
-
-  const handleExtend = async (tenantId: string) => {
-    if (!extendDate) { alert('Selecione nova data de vencimento.'); return; }
-    try {
-      await AdminService.extendTestAccount(tenantId, extendDate, adminUser);
-      setActionRow(null);
-      await loadAccounts();
-      alert('Vencimento prorrogado.');
-    } catch (e: any) { alert(e.message); }
-  };
-
-  const handleDeactivate = async (tenantId: string) => {
-    if (!confirm('Desativar esta conta de teste?')) return;
-    try {
-      await AdminService.updateTestAccountStatus(tenantId, 'suspended', adminUser);
-      await loadAccounts();
-    } catch (e: any) { alert(e.message); }
-  };
-
-  const inp = 'w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none';
-
-  return (
-    <div>
-      <h2 className="text-2xl font-bold mb-1">Contas de Teste</h2>
-      <p className="text-gray-400 text-sm mb-6">Crie contas internas do zero, sem pagamento real.</p>
-
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 mb-6">
-        {/* ── Formulário ── */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-gray-200 self-start">
-          <h3 className="font-bold text-sm text-gray-700 mb-4 flex items-center gap-2">
-            <TestTube size={16} className="text-green-600" /> Criar Conta de Teste
-          </h3>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Nome da conta *</label>
-                <input className={inp} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ex: Escola Modelo" />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Responsável</label>
-                <input className={inp} value={form.responsibleName} onChange={e => setForm({ ...form, responsibleName: e.target.value })} placeholder="Nome do responsável" />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">E-mail *</label>
-              <input type="email" className={inp} value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="usuario@email.com" />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Senha *</label>
-              <div className="relative">
-                <input type={showPassword ? 'text' : 'password'} className={inp + ' pr-9'} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="Mínimo 6 caracteres" />
-                <button type="button" onClick={() => setShowPassword(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                  {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Plano</label>
-                <select className={inp} value={form.planCode} onChange={e => setForm({ ...form, planCode: e.target.value })}>
-                  <option value="FREE">FREE — Starter</option>
-                  <option value="PRO">PRO — Profissional</option>
-                  <option value="MASTER">PREMIUM — Clínicas/Escolas</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Créditos iniciais</label>
-                <input type="number" min={0} className={inp} value={form.credits} onChange={e => setForm({ ...form, credits: Number(e.target.value) })} />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Vencimento (padrão: +30 dias)</label>
-              <input type="date" className={inp} value={form.expiresAt} onChange={e => setForm({ ...form, expiresAt: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Observação</label>
-              <input className={inp} value={form.observation} onChange={e => setForm({ ...form, observation: e.target.value })} placeholder="Ex: Demo parceiro X, teste QA" />
-            </div>
-            <button
-              onClick={handleCreate}
-              disabled={saving || !form.name || !form.email || !form.password}
-              className="w-full bg-green-600 text-white py-2 rounded-xl text-sm font-bold hover:bg-green-700 disabled:opacity-50 transition flex items-center justify-center gap-2"
-            >
-              {saving ? <RefreshCw size={14} className="animate-spin" /> : <PlusCircle size={14} />} Criar Conta
-            </button>
-          </div>
-          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-            <p className="text-xs text-amber-700 font-medium">⚠️ Cria tenant + usuário + assinatura INTERNAL_TEST do zero. Sem cobrança real.</p>
-          </div>
-        </div>
-
-        {/* ── Listagem ── */}
-        <div className="lg:col-span-3">
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-100 font-bold text-sm text-gray-700 flex items-center justify-between">
-              Contas de Teste
-              <button onClick={loadAccounts} className="p-1 hover:bg-gray-100 rounded text-gray-400"><RefreshCw size={13} /></button>
-            </div>
-            {loading ? (
-              <div className="p-6 text-center text-gray-400 text-sm">Carregando...</div>
-            ) : (
-              <div className="divide-y divide-gray-100">
-                {accounts.length === 0 ? (
-                  <div className="p-6 text-center text-gray-400 text-sm">Nenhuma conta de teste.</div>
-                ) : accounts.map(acc => (
-                  <div key={acc.tenant_id} className="px-5 py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-gray-900 text-sm">{acc.account_name}</span>
-                          <Badge color={PLAN_COLOR[acc.plan_code] ?? 'gray'}>{acc.plan_code}</Badge>
-                          <Badge color={acc.status === 'active' ? 'green' : acc.status === 'suspended' ? 'red' : 'gray'}>
-                            {acc.status === 'active' ? 'Ativa' : acc.status === 'suspended' ? 'Suspensa' : 'Expirada'}
-                          </Badge>
-                        </div>
-                        <p className="text-xs text-gray-500 mt-0.5">{acc.email}</p>
-                        <div className="flex gap-3 mt-1 text-xs text-gray-400 flex-wrap">
-                          <span>Créditos: <strong className="text-gray-700">{acc.credits_remaining}/{acc.initial_credits}</strong></span>
-                          {acc.expires_at && <span>Vence: <strong className="text-gray-700">{new Date(acc.expires_at).toLocaleDateString('pt-BR')}</strong></span>}
-                          {acc.observation && <span className="truncate max-w-[160px]" title={acc.observation}>{acc.observation}</span>}
-                        </div>
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <button
-                          title="Adicionar créditos"
-                          onClick={() => { setActionRow(actionRow === acc.tenant_id + '_credits' ? null : acc.tenant_id + '_credits'); }}
-                          className="p-1.5 rounded-lg hover:bg-green-50 text-green-600 transition"
-                        ><CreditCard size={14} /></button>
-                        <button
-                          title="Prorrogar"
-                          onClick={() => { setActionRow(actionRow === acc.tenant_id + '_extend' ? null : acc.tenant_id + '_extend'); setExtendDate(''); }}
-                          className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition"
-                        ><RefreshCw size={14} /></button>
-                        {acc.status === 'active' && (
-                          <button
-                            title="Desativar"
-                            onClick={() => handleDeactivate(acc.tenant_id)}
-                            className="p-1.5 rounded-lg hover:bg-red-50 text-red-500 transition"
-                          ><XCircle size={14} /></button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Painel: Adicionar créditos */}
-                    {actionRow === acc.tenant_id + '_credits' && (
-                      <div className="mt-3 flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-xl">
-                        <span className="text-xs text-green-700 font-medium shrink-0">+ Créditos:</span>
-                        <input type="number" min={1} className="border rounded-lg px-2 py-1 text-sm w-20" value={creditAmount} onChange={e => setCreditAmount(Number(e.target.value))} />
-                        <button onClick={() => handleAddCredits(acc.tenant_id)} className="bg-green-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-green-700 transition">Adicionar</button>
-                        <button onClick={() => setActionRow(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
-                      </div>
-                    )}
-
-                    {/* Painel: Prorrogar */}
-                    {actionRow === acc.tenant_id + '_extend' && (
-                      <div className="mt-3 flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl">
-                        <span className="text-xs text-blue-700 font-medium shrink-0">Nova data:</span>
-                        <input type="date" className="border rounded-lg px-2 py-1 text-sm" value={extendDate} onChange={e => setExtendDate(e.target.value)} />
-                        <button onClick={() => handleExtend(acc.tenant_id)} className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs font-bold hover:bg-blue-700 transition">Prorrogar</button>
-                        <button onClick={() => setActionRow(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancelar</button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// TAB: ADMINS (RBAC)
-// ============================================================================
-
-const AdminsTab = ({ adminUser, setAdminUser }: { adminUser: AdminUser; setAdminUser: (u: AdminUser) => void }) => {
-  const [admins, setAdmins] = useState<AdminUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', role: 'viewer' as AdminRole });
-  const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setAdmins(await AdminService.getAdmins());
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const handleCreate = async () => {
-    if (!form.name || !form.email) { alert('Preencha nome e e-mail.'); return; }
-    setSaving(true);
-    try {
-      await AdminService.createAdmin({ ...form, active: true }, adminUser);
-      setShowForm(false);
-      setForm({ name: '', email: '', role: 'viewer' });
-      await load();
-    } catch (e: any) { alert(e.message); }
-    finally { setSaving(false); }
-  };
-
-  const handleToggleActive = async (adm: AdminUser) => {
-    try {
-      await AdminService.toggleAdminActive(adm.id, !adm.active, adminUser);
-      await load();
-    } catch (e: any) { alert(e.message); }
-  };
-
-  const ROLE_COLORS: Record<string, string> = {
-    super_admin: 'bg-red-100 text-red-700',
-    financeiro: 'bg-green-100 text-green-700',
-    operacional: 'bg-blue-100 text-blue-700',
-    comercial: 'bg-orange-100 text-orange-700',
-    suporte: 'bg-cyan-100 text-cyan-700',
-    auditoria: 'bg-yellow-100 text-yellow-700',
-    viewer: 'bg-gray-100 text-gray-600',
-  };
-
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-2xl font-bold">Gestão de Administradores</h2>
-          <p className="text-gray-400 text-sm">Controle de acesso ao painel CEO (RBAC).</p>
-        </div>
-        {adminUser.role === 'super_admin' && (
-          <button onClick={() => setShowForm(!showForm)} className="bg-gray-900 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-gray-800 transition">
-            <PlusCircle size={16} /> Novo Admin
-          </button>
-        )}
-      </div>
-
-      {showForm && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6">
-          <h3 className="font-bold text-sm mb-4 text-gray-700">Novo Administrador</h3>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Nome</label>
-              <input className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">E-mail</label>
-              <input type="email" className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Perfil</label>
-              <select className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none" value={form.role} onChange={e => setForm({ ...form, role: e.target.value as AdminRole })}>
-                <option value="super_admin">Super Admin — Acesso total</option>
-                <option value="financeiro">Financeiro — Planos e KPIs</option>
-                <option value="operacional">Operacional — Assinantes e créditos</option>
-                <option value="comercial">Comercial — Visualização e relatórios comerciais</option>
-                <option value="suporte">Suporte — Atendimento a assinantes</option>
-                <option value="auditoria">Auditoria — Acesso a logs e trilha</option>
-                <option value="viewer">Viewer — Somente leitura</option>
-              </select>
-            </div>
-          </div>
-          <div className="flex gap-3 justify-end mt-4">
-            <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg">Cancelar</button>
-            <button onClick={handleCreate} disabled={saving} className="bg-gray-900 text-white px-5 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gray-800 disabled:opacity-50 transition">
-              {saving ? <RefreshCw size={14} className="animate-spin" /> : <PlusCircle size={14} />} Criar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Simulador de role (demo) */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 flex items-center gap-3">
-        <AlertTriangle size={16} className="text-amber-600 shrink-0" />
-        <div className="flex items-center gap-3 flex-1">
-          <p className="text-sm text-amber-700 font-medium">Simular perfil:</p>
-          <select
-            className="border border-amber-300 rounded-lg px-2 py-1 text-xs bg-white"
-            value={adminUser.role}
-            onChange={e => setAdminUser({ ...adminUser, role: e.target.value as AdminRole })}
-          >
-            <option value="super_admin">Super Admin</option>
-            <option value="financeiro">Financeiro</option>
-            <option value="operacional">Operacional</option>
-            <option value="comercial">Comercial</option>
-            <option value="suporte">Suporte</option>
-            <option value="auditoria">Auditoria</option>
-            <option value="viewer">Viewer</option>
-          </select>
-        </div>
-      </div>
-
-      {loading ? <div className="text-gray-400 text-sm">Carregando...</div> : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
-              <tr>
-                <th className="px-5 py-3 text-left">Admin</th>
-                <th className="px-5 py-3 text-left">Perfil</th>
-                <th className="px-5 py-3 text-left">Status</th>
-                <th className="px-5 py-3 text-left">Criado em</th>
-                <th className="px-5 py-3 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {admins.map(adm => (
-                <tr key={adm.id} className="hover:bg-gray-50/50">
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center font-bold text-sm">{adm.name.charAt(0)}</div>
-                      <div>
-                        <p className="font-bold text-gray-900">{adm.name}</p>
-                        <p className="text-xs text-gray-400">{adm.email}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-5 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${ROLE_COLORS[adm.role]}`}>{adm.role.replace('_', ' ')}</span>
-                  </td>
-                  <td className="px-5 py-3">
-                    {adm.active
-                      ? <span className="flex items-center gap-1 text-green-600 text-xs font-bold"><CheckCircle size={12} /> Ativo</span>
-                      : <span className="flex items-center gap-1 text-gray-400 text-xs font-bold"><XCircle size={12} /> Inativo</span>}
-                  </td>
-                  <td className="px-5 py-3 text-xs text-gray-400">{new Date(adm.createdAt).toLocaleDateString('pt-BR')}</td>
-                  <td className="px-5 py-3 text-right">
-                    {adminUser.role === 'super_admin' && adm.id !== adminUser.id && (
-                      <button onClick={() => handleToggleActive(adm)} className={`px-2 py-1 text-xs font-bold rounded-lg transition ${adm.active ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-green-50 text-green-600 hover:bg-green-100'}`}>
-                        {adm.active ? 'Desativar' : 'Reativar'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ============================================================================
-// TAB: USER LOGS (Atividade dos Usuários)
-// ============================================================================
-
-const UserLogsTab = () => {
-  const [logs, setLogs] = useState<UserActivityLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filterAction, setFilterAction] = useState('');
-  const [filterDays, setFilterDays] = useState('30');
-  const [searchUser, setSearchUser] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await AdminService.getUserActivityLogs({
-        days: filterDays === 'all' ? undefined : Number(filterDays)
-      });
-      setLogs(data);
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(false);
-  }, [filterDays]);
-
-  useEffect(() => { load(); }, [load]);
-
-  const ACTION_COLORS: Record<string, string> = {
-    LOGIN: 'bg-blue-100 text-blue-700',
-    AI_REQUEST: 'bg-purple-100 text-purple-700',
-    DOCUMENT_GENERATED: 'bg-green-100 text-green-700',
-    CREDIT_CONSUMED: 'bg-orange-100 text-orange-700',
-    STUDENT_CREATED: 'bg-teal-100 text-teal-700',
-  };
-
-  const allActions = Array.from(new Set(logs.map(l => l.action))).sort();
-
-  const filtered = logs.filter(l => {
-    const matchAction = !filterAction || l.action === filterAction;
-    const matchUser = !searchUser ||
-      (l.user_name || '').toLowerCase().includes(searchUser.toLowerCase()) ||
-      (l.user_email || '').toLowerCase().includes(searchUser.toLowerCase()) ||
-      (l.tenant_id || '').toLowerCase().includes(searchUser.toLowerCase());
-    return matchAction && matchUser;
-  });
-
-  const exportCSV = () => {
-    const rows = [['Data/Hora', 'Usuário', 'E-mail', 'Ação', 'Recurso', 'Detalhes']];
-    filtered.forEach(l => rows.push([
-      new Date(l.created_at).toLocaleString('pt-BR'),
-      l.user_name || '', l.user_email || '', l.action, l.resource_type || '',
-      typeof l.details === 'object' && l.details !== null ? JSON.stringify(l.details) : String(l.details || '')
-    ]));
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const a = document.createElement('a');
-    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('\uFEFF' + csv);
-    a.download = `user_activity_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-  };
-
-  return (
-    <div>
-      <div className="flex flex-wrap gap-3 items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold">Atividade dos Usuários</h2>
-          <p className="text-gray-400 text-sm">Monitoramento de ações realizadas pelos assinantes no sistema.</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-            <input
-              className="pl-9 pr-3 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-300"
-              placeholder="Buscar usuário..."
-              value={searchUser}
-              onChange={e => setSearchUser(e.target.value)}
-            />
-          </div>
-          <select className="border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300" value={filterDays} onChange={e => setFilterDays(e.target.value)}>
-            <option value="7">Últimos 7 dias</option>
-            <option value="30">Últimos 30 dias</option>
-            <option value="90">Últimos 90 dias</option>
-            <option value="all">Todos</option>
-          </select>
-          <select className="border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300" value={filterAction} onChange={e => setFilterAction(e.target.value)}>
-            <option value="">Todas as ações</option>
-            {allActions.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
-          <button onClick={exportCSV} className="px-3 py-2 text-sm border rounded-xl hover:bg-gray-50 flex items-center gap-1.5 text-gray-600">
-            <FileText size={14} /> CSV
-          </button>
-          <button onClick={load} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"><RefreshCw size={15} /></button>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="text-gray-400 text-sm py-8 text-center">Carregando logs...</div>
-      ) : (
-        <>
-          <div className="mb-2 text-xs text-gray-400">{filtered.length} registros exibidos</div>
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
-            <table className="w-full text-sm min-w-[800px]">
-              <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
-                <tr>
-                  <th className="px-5 py-3 text-left">Data/Hora</th>
-                  <th className="px-5 py-3 text-left">Usuário</th>
-                  <th className="px-5 py-3 text-left">Ação</th>
-                  <th className="px-5 py-3 text-left">Recurso</th>
-                  <th className="px-5 py-3 text-left">Detalhes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filtered.map(log => (
-                  <tr key={log.id} className="hover:bg-gray-50/50">
-                    <td className="px-5 py-3 font-mono text-xs text-gray-400 whitespace-nowrap">{new Date(log.created_at).toLocaleString('pt-BR')}</td>
-                    <td className="px-5 py-3">
-                      <p className="font-bold text-gray-800 text-xs">{log.user_name || '—'}</p>
-                      <p className="text-[10px] text-gray-400">{log.user_email || '—'}</p>
-                    </td>
-                    <td className="px-5 py-3">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${ACTION_COLORS[log.action] ?? 'bg-gray-100 text-gray-600'}`}>{log.action}</span>
-                    </td>
-                    <td className="px-5 py-3 text-xs text-gray-500">{log.resource_type || '—'}</td>
-                    <td className="px-5 py-3 text-xs text-gray-500 max-w-xs truncate" title={typeof log.details === 'object' && log.details !== null ? JSON.stringify(log.details) : String(log.details || '—')}>
-                      {typeof log.details === 'object' && log.details !== null ? JSON.stringify(log.details) : String(log.details || '—')}
-                    </td>
-                  </tr>
-                ))}
-                {filtered.length === 0 && (
-                  <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Nenhuma ação registrada no período.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
-
-// ============================================================================
-// TAB: LOGS
-// ============================================================================
-
-const LogsTab = () => {
-  const [logs, setLogs] = useState<AdminAuditEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filterAction, setFilterAction] = useState('');
-  const [filterDays, setFilterDays] = useState('30');
-  const [filterAdmin, setFilterAdmin] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { setLogs(await getAdminAuditLog(500)); } catch { /**/ }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const ACTION_COLORS: Record<string, string> = {
-    checkout_change:    'bg-blue-100 text-blue-700',
-    grant_credits:      'bg-purple-100 text-purple-700',
-    update_plan:        'bg-indigo-100 text-indigo-700',
-    suspend:            'bg-red-100 text-red-700',
-    reactivate:         'bg-green-100 text-green-700',
-    grant_courtesy:     'bg-amber-100 text-amber-700',
-    create_admin:       'bg-gray-100 text-gray-700',
-    create_test_account:'bg-teal-100 text-teal-700',
-    coupon_create:      'bg-pink-100 text-pink-700',
-    coupon_edit:        'bg-orange-100 text-orange-700',
-    activate_plan:      'bg-green-100 text-green-700',
-    deactivate_plan:    'bg-red-100 text-red-700',
-    site_update:        'bg-sky-100 text-sky-700',
-  };
-
-  const allActions = Array.from(new Set(logs.map(l => l.action_type))).sort();
-
-  const cutoff = filterDays === 'all' ? null : new Date(Date.now() - Number(filterDays) * 86400000);
-  const filtered = logs.filter(l => {
-    const matchAction = !filterAction || l.action_type === filterAction;
-    const matchDate = !cutoff || new Date(l.created_at) >= cutoff;
-    const matchAdmin = !filterAdmin || l.admin_name.toLowerCase().includes(filterAdmin.toLowerCase());
-    return matchAction && matchDate && matchAdmin;
-  });
-
-  const exportCSV = () => {
-    const rows = [['Data/Hora', 'Admin', 'Role', 'Ação', 'Tipo Alvo', 'ID Alvo', 'Nome Alvo', 'Descrição']];
-    filtered.forEach(l => rows.push([
-      new Date(l.created_at).toLocaleString('pt-BR'),
-      l.admin_name, l.admin_role ?? '', l.action_type,
-      l.target_type ?? '', l.target_id ?? '', l.target_name ?? '',
-      l.description ?? '',
-    ]));
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const a = document.createElement('a');
-    a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent('\uFEFF' + csv);
-    a.download = `audit_log_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-  };
-
-  return (
-    <div>
-      <div className="flex flex-wrap gap-3 items-center justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold">Auditoria Admin</h2>
-          <p className="text-gray-400 text-sm">Trilha persistente de todas as ações administrativas (banco de dados).</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-            <input
-              className="pl-9 pr-3 py-2 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-gray-300"
-              placeholder="Buscar admin..."
-              value={filterAdmin}
-              onChange={e => setFilterAdmin(e.target.value)}
-            />
-          </div>
-          <select className="border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300" value={filterDays} onChange={e => setFilterDays(e.target.value)}>
-            <option value="7">Últimos 7 dias</option>
-            <option value="30">Últimos 30 dias</option>
-            <option value="90">Últimos 90 dias</option>
-            <option value="all">Todos</option>
-          </select>
-          <select className="border rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-300" value={filterAction} onChange={e => setFilterAction(e.target.value)}>
-            <option value="">Todas as ações</option>
-            {allActions.map(a => <option key={a} value={a}>{a}</option>)}
-          </select>
-          <button onClick={exportCSV} className="px-3 py-2 text-sm border rounded-xl hover:bg-gray-50 flex items-center gap-1.5 text-gray-600">
-            <FileText size={14} /> CSV
-          </button>
-          <button onClick={load} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"><RefreshCw size={15} /></button>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="text-gray-400 text-sm py-8 text-center">Carregando logs...</div>
-      ) : (
-        <>
-          <div className="mb-2 text-xs text-gray-400">{filtered.length} registros exibidos</div>
-          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
-                <tr>
-                  <th className="px-5 py-3 text-left">Data/Hora</th>
-                  <th className="px-5 py-3 text-left">Admin</th>
-                  <th className="px-5 py-3 text-left">Ação</th>
-                  <th className="px-5 py-3 text-left">Alvo</th>
-                  <th className="px-5 py-3 text-left">Descrição</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filtered.map(log => (
-                  <tr key={log.id} className="hover:bg-gray-50/50">
-                    <td className="px-5 py-3 font-mono text-xs text-gray-400 whitespace-nowrap">{new Date(log.created_at).toLocaleString('pt-BR')}</td>
-                    <td className="px-5 py-3 text-xs">
-                      <span className="font-bold text-gray-800">{log.admin_name}</span>
-                      {log.admin_role && <span className="ml-1 text-gray-400">({log.admin_role})</span>}
-                    </td>
-                    <td className="px-5 py-3">
-                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${ACTION_COLORS[log.action_type] ?? 'bg-gray-100 text-gray-600'}`}>{log.action_type}</span>
-                    </td>
-                    <td className="px-5 py-3 text-xs text-gray-500 truncate max-w-[140px]">
-                      {log.target_name ?? log.target_id ?? '—'}
-                    </td>
-                    <td className="px-5 py-3 text-xs text-gray-500 max-w-xs truncate">{log.description ?? '—'}</td>
-                  </tr>
-                ))}
-                {filtered.length === 0 && (
-                  <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Nenhuma ação registrada no período.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </div>
-  );
-};
-
-// ============================================================================
 // ============================================================================
 // TAB: KIWIFY PRODUCTS
 // ============================================================================
@@ -4438,6 +2967,9 @@ const KiwifyProductsTab = ({ adminUser }: { adminUser: AdminUser }) => {
   const [reconciling, setReconciling]   = useState(false);
   const [reconcileResult, setReconcileResult] = useState<ReconcileResult[] | null>(null);
   const [alertExpanded, setAlertExpanded] = useState<string | null>(null);
+  const [reconcileConfirm, setReconcileConfirm] = useState(false);
+  const [reconcileReason, setReconcileReason] = useState('');
+  const [reconcileError, setReconcileError] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -4469,12 +3001,21 @@ const KiwifyProductsTab = ({ adminUser }: { adminUser: AdminUser }) => {
     finally { setSaving(false); }
   };
 
-  const handleReconcile = async () => {
-    if (!confirm('Reprocessar todas as compras aprovadas não ativadas?\n\nIsso ativará automaticamente os planos de usuários que já têm conta no sistema. Não pode ser desfeito.')) return;
+  const handleReconcile = () => {
+    setReconcileConfirm(true);
+    setReconcileReason('');
+    setReconcileError('');
+  };
+
+  const confirmReconcile = async () => {
+    if (!reconcileReason.trim()) { setReconcileError('Motivo administrativo é obrigatório.'); return; }
+    setReconcileConfirm(false);
+    setReconcileReason('');
+    setReconcileError('');
     setReconciling(true);
     setReconcileResult(null);
     try {
-      const result = await reconcilePendingPurchases();
+      const result = await reconcilePendingPurchases(adminUser, reconcileReason, 'kiwify_products');
       setReconcileResult(result);
       await load();
     } catch (e: any) {
@@ -4851,237 +3392,48 @@ const KiwifyProductsTab = ({ adminUser }: { adminUser: AdminUser }) => {
           </table>
         </div>
       )}
-    </div>
-  );
-};
-
-// ============================================================================
-// TAB: CUPONS & CAMPANHAS
-// ============================================================================
-
-const EMPTY_COUPON: Partial<CeoCoupon> = {
-  code: '', description: '', campaign_name: '', plan_code: undefined,
-  billing_cycle: undefined, discount_type: 'percentage', discount_value: 0,
-  checkout_url_override: '', valid_until: undefined, max_uses: undefined,
-  is_active: true,
-};
-
-const CouponsTab = ({ adminUser }: { adminUser: AdminUser }) => {
-  const [coupons, setCoupons] = useState<CeoCoupon[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState<Partial<CeoCoupon> | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { setCoupons(await getCoupons()); } catch { /**/ }
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const handleSave = async () => {
-    if (!editing?.code?.trim()) return alert('Código é obrigatório.');
-    setSaving(true);
-    try {
-      await upsertCoupon(editing as CeoCoupon & { code: string }, adminUser);
-      setEditing(null);
-      await load();
-    } catch (e: any) { alert(e.message); }
-    finally { setSaving(false); }
-  };
-
-  const handleToggle = async (c: CeoCoupon) => {
-    try {
-      await toggleCoupon(c.id, c.code, !c.is_active, adminUser);
-      await load();
-    } catch (e: any) { alert(e.message); }
-  };
-
-  const handleDelete = async (c: CeoCoupon) => {
-    if (!confirm(`Remover o cupom "${c.code}"?`)) return;
-    try {
-      await deleteCoupon(c.id, c.code, adminUser);
-      await load();
-    } catch (e: any) { alert(e.message); }
-  };
-
-  const handleCopyLink = (c: CeoCoupon) => {
-    const { link } = buildCouponShareLink(c);
-    navigator.clipboard.writeText(link);
-    setCopiedId(c.id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
-
-  const inp = 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-gray-300 outline-none';
-
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h2 className="text-2xl font-bold">Cupons &amp; Campanhas</h2>
-          <p className="text-gray-400 text-sm">Crie, ative e distribua cupons com link pronto.</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setEditing({ ...EMPTY_COUPON })} className="bg-gray-900 text-white px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-gray-800">
-            <PlusCircle size={14} /> Novo Cupom
-          </button>
-          <button onClick={load} className="p-2 hover:bg-gray-100 rounded-xl text-gray-500"><RefreshCw size={15} /></button>
-        </div>
-      </div>
-
-      {/* Form de criação/edição */}
-      {editing && (
-        <div className="bg-white rounded-2xl border border-gray-200 p-6 mb-6 shadow-sm">
-          <h3 className="font-bold text-gray-800 mb-4">{editing.id ? `Editar: ${editing.code}` : 'Novo Cupom'}</h3>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Código *</label>
-              <input className={inp + ' uppercase font-mono font-bold tracking-widest'} value={editing.code ?? ''} onChange={e => setEditing({ ...editing, code: e.target.value.toUpperCase() })} placeholder="INCLUIAI59" />
+      {reconcileConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 480, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <AlertTriangle size={20} color="#d97706" />
+              <span style={{ fontWeight: 700, fontSize: 16, color: '#1a1a1a' }}>Reprocessar compras aprovadas?</span>
             </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Campanha</label>
-              <input className={inp} value={editing.campaign_name ?? ''} onChange={e => setEditing({ ...editing, campaign_name: e.target.value })} placeholder="Grupo WhatsApp Abril" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Plano</label>
-              <select className={inp} value={editing.plan_code ?? ''} onChange={e => setEditing({ ...editing, plan_code: e.target.value || undefined })}>
-                <option value="">Qualquer plano</option>
-                <option value="PRO">PRO</option>
-                <option value="MASTER">PREMIUM (MASTER)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Ciclo</label>
-              <select className={inp} value={editing.billing_cycle ?? ''} onChange={e => setEditing({ ...editing, billing_cycle: (e.target.value || undefined) as any })}>
-                <option value="">Qualquer ciclo</option>
-                <option value="monthly">Mensal</option>
-                <option value="annual">Anual</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Tipo de desconto</label>
-              <select className={inp} value={editing.discount_type ?? 'percentage'} onChange={e => setEditing({ ...editing, discount_type: e.target.value as any })}>
-                <option value="percentage">Percentual (%)</option>
-                <option value="fixed">Valor fixo (R$)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">
-                {editing.discount_type === 'fixed' ? 'Valor (R$)' : 'Desconto (%)'}
+            <p style={{ fontSize: 13, color: '#4b5563', marginBottom: 16 }}>
+              Esta ação pode reprocessar compras aprovadas ainda não ativadas e atualizar o estado administrativo de múltiplos tenants. Confirme apenas se você entende o impacto global da operação.
+            </p>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                Motivo administrativo *
               </label>
-              <input type="number" className={inp} value={editing.discount_value ?? 0} onChange={e => setEditing({ ...editing, discount_value: Number(e.target.value) })} />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-500 mb-1">URL de Checkout com cupom (Kiwify)</label>
-              <input className={inp + ' font-mono text-xs'} value={editing.checkout_url_override ?? ''} onChange={e => setEditing({ ...editing, checkout_url_override: e.target.value || undefined })} placeholder="https://pay.kiwify.com.br/...?coupon=INCLUIAI59" />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Válido até</label>
-              <input type="date" className={inp} value={editing.valid_until ? editing.valid_until.slice(0, 10) : ''} onChange={e => setEditing({ ...editing, valid_until: e.target.value || undefined })} />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Limite de usos (vazio = ilimitado)</label>
-              <input type="number" className={inp} value={editing.max_uses ?? ''} onChange={e => setEditing({ ...editing, max_uses: e.target.value ? Number(e.target.value) : undefined })} placeholder="ex: 100" />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-bold text-gray-500 mb-1">Descrição interna</label>
-              <input className={inp} value={editing.description ?? ''} onChange={e => setEditing({ ...editing, description: e.target.value })} placeholder="Cupom para campanha de lançamento" />
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="text-sm font-bold text-gray-600">Ativo</label>
-              <input type="checkbox" checked={editing.is_active ?? true} onChange={e => setEditing({ ...editing, is_active: e.target.checked })} className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="flex gap-2 mt-4">
-            <button onClick={handleSave} disabled={saving} className="bg-gray-900 text-white px-5 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-gray-800 disabled:opacity-50">
-              <Save size={14} /> {saving ? 'Salvando...' : 'Salvar'}
-            </button>
-            <button onClick={() => setEditing(null)} className="border border-gray-200 px-4 py-2 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50">
-              Cancelar
-            </button>
-          </div>
-        </div>
-      )}
-
-      {loading ? <div className="text-gray-400 text-sm">Carregando cupons...</div> : (
-        <div className="bg-white rounded-2xl border border-gray-200 overflow-x-auto">
-          <table className="w-full text-sm min-w-[900px]">
-            <thead className="bg-gray-50 text-xs text-gray-500 font-bold uppercase">
-              <tr>
-                <th className="px-5 py-3 text-left">Código</th>
-                <th className="px-5 py-3 text-left">Plano / Ciclo</th>
-                <th className="px-5 py-3 text-left">Desconto</th>
-                <th className="px-5 py-3 text-left">Campanha</th>
-                <th className="px-5 py-3 text-left">Validade</th>
-                <th className="px-5 py-3 text-center">Usos</th>
-                <th className="px-5 py-3 text-center">Status</th>
-                <th className="px-5 py-3 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {coupons.map(c => {
-                const { waUrl, link } = buildCouponShareLink(c);
-                const expired = c.valid_until ? new Date(c.valid_until) < new Date() : false;
-                return (
-                  <tr key={c.id} className="hover:bg-gray-50/50">
-                    <td className="px-5 py-3">
-                      <span className="font-mono font-extrabold tracking-widest text-gray-900">{c.code}</span>
-                      {c.description && <p className="text-xs text-gray-400 mt-0.5">{c.description}</p>}
-                    </td>
-                    <td className="px-5 py-3">
-                      {c.plan_code ? <Badge color={c.plan_code === 'PRO' ? 'blue' : 'purple'}>{c.plan_code}</Badge> : <span className="text-xs text-gray-400">Qualquer</span>}
-                      {c.billing_cycle && <p className="text-xs text-gray-400 mt-0.5">{c.billing_cycle === 'annual' ? 'Anual' : 'Mensal'}</p>}
-                    </td>
-                    <td className="px-5 py-3">
-                      <span className="font-bold text-green-700">
-                        {c.discount_type === 'percentage' ? `${c.discount_value}%` : `R$ ${c.discount_value}`}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-xs text-gray-500">{c.campaign_name ?? '—'}</td>
-                    <td className="px-5 py-3">
-                      {c.valid_until ? (
-                        <span className={`text-xs font-semibold ${expired ? 'text-red-500' : 'text-gray-600'}`}>
-                          {expired ? '⚠ ' : ''}{new Date(c.valid_until).toLocaleDateString('pt-BR')}
-                        </span>
-                      ) : <span className="text-xs text-gray-400">Sem expiração</span>}
-                    </td>
-                    <td className="px-5 py-3 text-center text-xs font-bold text-gray-600 tabular-nums">
-                      {c.uses_count}{c.max_uses ? `/${c.max_uses}` : ''}
-                    </td>
-                    <td className="px-5 py-3 text-center">
-                      <button onClick={() => handleToggle(c)} className="flex items-center gap-1 mx-auto text-xs font-bold">
-                        {c.is_active
-                          ? <><ToggleRight size={18} className="text-green-500" /><span className="text-green-700">Ativo</span></>
-                          : <><ToggleLeft size={18} className="text-gray-400" /><span className="text-gray-500">Inativo</span></>
-                        }
-                      </button>
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="flex gap-1 justify-end">
-                        <button onClick={() => setEditing({ ...c })} className="px-2 py-1 text-xs font-bold bg-gray-100 text-gray-700 rounded hover:bg-gray-200 flex items-center gap-1">
-                          <Edit3 size={10} /> Editar
-                        </button>
-                        <button onClick={() => handleCopyLink(c)} className={`px-2 py-1 text-xs font-bold rounded flex items-center gap-1 ${copiedId === c.id ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
-                          <Copy size={10} /> {copiedId === c.id ? 'Copiado!' : 'Link'}
-                        </button>
-                        <a href={waUrl} target="_blank" rel="noopener noreferrer" className="px-2 py-1 text-xs font-bold bg-green-50 text-green-700 rounded hover:bg-green-100 flex items-center gap-1">
-                          <Share2 size={10} /> WA
-                        </a>
-                        <button onClick={() => handleDelete(c)} className="px-2 py-1 text-xs font-bold bg-red-50 text-red-600 rounded hover:bg-red-100 flex items-center gap-1">
-                          <Trash2 size={10} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              {coupons.length === 0 && (
-                <tr><td colSpan={8} className="px-5 py-8 text-center text-gray-400 text-sm">Nenhum cupom criado ainda.</td></tr>
+              <input
+                autoFocus
+                style={{ width: '100%', border: `1px solid ${reconcileError ? '#dc2626' : '#d1d5db'}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                placeholder="Ex: Reprocessamento solicitado pelo suporte, compra aprovada não ativada detectada"
+                value={reconcileReason}
+                onChange={e => { setReconcileReason(e.target.value); setReconcileError(''); }}
+              />
+              {reconcileError && (
+                <p style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, marginTop: 4 }}>{reconcileError}</p>
               )}
-            </tbody>
-          </table>
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setReconcileConfirm(false); setReconcileReason(''); setReconcileError(''); }}
+                disabled={reconciling}
+                style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', fontSize: 13, cursor: 'pointer', color: '#374151', opacity: reconciling ? 0.5 : 1 }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmReconcile}
+                disabled={reconciling}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#d97706', color: '#fff', fontSize: 13, fontWeight: 600, cursor: reconciling ? 'not-allowed' : 'pointer', opacity: reconciling ? 0.5 : 1 }}
+              >
+                {reconciling ? 'Reprocessando...' : 'Sim, reprocessar compras'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -5249,7 +3601,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ user, onLogout }
         {activeTab === 'diagnostics'   && <HealthCenterTab onNavigate={setActiveTab} />}
         {activeTab === 'incident_center' && <AlertsIncidentCenterTab onNavigate={setActiveTab} />}
         {activeTab === 'pricing_ai'    && <PricingAiAdminTab />}
-        {activeTab === 'billing_kiwify' && <BillingKiwifyReconciliationTab />}
+        {activeTab === 'billing_kiwify' && <BillingKiwifyReconciliationTab adminUser={adminUser} />}
         {activeTab === 'accounts_admin' && <UsersTenantsAdminTab adminUser={adminUser} />}
         {activeTab === 'plans'         && <PlansTab adminUser={adminUser} />}
         {activeTab === 'subscribers'   && <SubscribersTab adminUser={adminUser} />}

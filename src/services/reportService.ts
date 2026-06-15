@@ -1,15 +1,18 @@
-// reportService.ts — Geração de Relatório Técnico do Aluno
-// Suporta modo 'simples' (1–2 págs, INSS) e 'completo' (3–5 págs, multidisciplinar)
+// reportService.ts — Geração de Relatórios do Aluno
+// Suporta modo 'simples', 'completo' e 'inss' (declaração escolar institucional)
 import { Student, User, DocField, SchoolConfig } from '../types';
 import { AIService } from './aiService';
 import { CanonicalStudentContextService } from './canonicalStudentContext';
 import generateReportFull from '../prompts/generate-report-full.md?raw';
 import generateReportSimple from '../prompts/generate-report-simple.md?raw';
+import generateReportInss from '../prompts/reports/relatorio-inss.prompt.md?raw';
 import { generateDocumentCode } from '../utils/documentCodes';
+import { callAIGateway } from './aiGatewayService';
+import { AI_CREDIT_COSTS } from '../config/aiCosts';
 
 // ─── Tipos exportados ─────────────────────────────────────────────────────────
 
-export type ReportMode = 'simples' | 'completo';
+export type ReportMode = 'simples' | 'completo' | 'inss';
 
 export interface ChecklistItem {
   area: string;
@@ -20,7 +23,7 @@ export interface ChecklistItem {
 
 /** Estrutura retornada pelo modo SIMPLES */
 export interface RelatorioSimples {
-  tipo: 'simples';
+  tipo: 'simples' | 'inss';
   identificacao: string;
   situacaoPedagogicaAtual: string;
   situacaoFuncional: string;
@@ -139,7 +142,9 @@ INSTRUÇÃO: Use estes dados para calibrar a complexidade das análises e estrat
 `;
 }
 
-/** Constrói o bloco de contexto do aluno — nunca usa "não informado" */
+const NEUTRAL_MISSING_DATA = 'não há registro nos dados disponíveis';
+
+/** Constrói o bloco de contexto do aluno com ausência de dados explícita e neutra */
 function buildStudentContext(
   student: Student,
   scores: number[],
@@ -148,25 +153,32 @@ function buildStudentContext(
   school?: SchoolConfig | null,
 ): string {
   const age = calcAge(student.birthDate);
-  const diagnoses = arrToText(student.diagnosis) || 'A confirmar por equipe multidisciplinar';
+  const diagnoses = arrToText(student.diagnosis) || NEUTRAL_MISSING_DATA;
   const cid = arrToText(student.cid as any) || '';
-  const support = student.supportLevel || 'A ser definido em reunião de equipe';
+  const support = student.supportLevel || NEUTRAL_MISSING_DATA;
   const medication = student.medication?.trim()
     ? student.medication
-    : 'Não reportado pela família no momento da avaliação';
+    : NEUTRAL_MISSING_DATA;
+
+  const validScores = scores.filter(score => Number.isFinite(score));
 
   const scoresBlock = scores.length
-    ? CRITERIA_NAMES.map((n, i) => `  • ${n}: ${scores[i] ?? 1}/5`).join('\n')
-    : '  (scores não disponíveis nesta avaliação)';
+    ? CRITERIA_NAMES.map((n, i) => {
+      const score = scores[i];
+      return Number.isFinite(score)
+        ? `  • ${n}: ${score}/5`
+        : `  • ${n}: ${NEUTRAL_MISSING_DATA}`;
+    }).join('\n')
+    : `  (${NEUTRAL_MISSING_DATA})`;
 
-  const avg = scores.length
-    ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
-    : 'N/A';
+  const avg = validScores.length
+    ? `${(validScores.reduce((a, b) => a + b, 0) / validScores.length).toFixed(1)}/5`
+    : NEUTRAL_MISSING_DATA;
 
-  const abilities  = arrToText(student.abilities)      || 'A ser identificado durante acompanhamento';
-  const difficulties = arrToText(student.difficulties) || 'Conforme diagnóstico e observação pedagógica direta';
-  const strategies = arrToText(student.strategies)     || 'Em desenvolvimento com a equipe especializada';
-  const communication = arrToText(student.communication as any) || 'Comunicação verbal e não-verbal em avaliação';
+  const abilities  = arrToText(student.abilities)      || NEUTRAL_MISSING_DATA;
+  const difficulties = arrToText(student.difficulties) || NEUTRAL_MISSING_DATA;
+  const strategies = arrToText(student.strategies)     || NEUTRAL_MISSING_DATA;
+  const communication = arrToText(student.communication as any) || NEUTRAL_MISSING_DATA;
 
   const customBlock = customFields.length
     ? customFields.map(f => `  • ${f.label}: ${f.value ?? ''}`).join('\n')
@@ -179,39 +191,102 @@ function buildStudentContext(
   return `
 === DADOS DO ALUNO ===
 Nome completo: ${student.name}
-Idade: ${age || 'A confirmar'}
-Data de nascimento: ${student.birthDate || 'A confirmar'}
-Gênero: ${student.gender || 'Não especificado'}
+Idade: ${age || NEUTRAL_MISSING_DATA}
+Data de nascimento: ${student.birthDate || NEUTRAL_MISSING_DATA}
+Gênero: ${student.gender || NEUTRAL_MISSING_DATA}
 Escola: ${schoolName}${city ? ` — ${city}` : ''}
-Série/Ano: ${student.grade || 'A confirmar'}
-Turno: ${student.shift || 'A confirmar'}
-Professor regente: ${student.regentTeacher || 'A informar'}
-Professor AEE: ${student.aeeTeacher || 'A informar'}
-Responsável legal: ${student.guardianName || 'A confirmar'}
-Contato: ${student.guardianPhone || 'A informar'}
+Série/Ano: ${student.grade || NEUTRAL_MISSING_DATA}
+Turno: ${student.shift || NEUTRAL_MISSING_DATA}
+Professor regente: ${student.regentTeacher || NEUTRAL_MISSING_DATA}
+Professor AEE: ${student.aeeTeacher || NEUTRAL_MISSING_DATA}
+Responsável legal: ${student.guardianName || NEUTRAL_MISSING_DATA}
+Contato: ${student.guardianPhone || NEUTRAL_MISSING_DATA}
 
 === DIAGNÓSTICO CLÍNICO ===
 Diagnóstico(s): ${diagnoses}
-CID: ${cid || 'A confirmar por especialista'}
+CID: ${cid || NEUTRAL_MISSING_DATA}
 Nível de suporte necessário: ${support}
 Medicação em uso: ${medication}
-Profissionais externos que acompanham: ${arrToText(student.professionals) || 'A ser levantado com a família'}
+Profissionais externos que acompanham: ${arrToText(student.professionals) || NEUTRAL_MISSING_DATA}
 
 === PERFIL PEDAGÓGICO ===
 Habilidades e pontos fortes: ${abilities}
 Dificuldades observadas: ${difficulties}
 Estratégias eficazes identificadas: ${strategies}
 Formas de comunicação utilizadas: ${communication}
-Histórico escolar: ${student.schoolHistory || 'A ser coletado com a família e secretaria escolar'}
-Contexto familiar: ${student.familyContext || 'A ser aprofundado em reunião com a família'}
-Observações gerais: ${student.observations || observation || 'Observação pedagógica em andamento'}
+Histórico escolar: ${student.schoolHistory || NEUTRAL_MISSING_DATA}
+Contexto familiar: ${student.familyContext || NEUTRAL_MISSING_DATA}
+Observações gerais: ${student.observations || observation || NEUTRAL_MISSING_DATA}
 
 === AVALIAÇÃO MULTIDIMENSIONAL (escala 1–5) ===
 ${scoresBlock}
-Média geral: ${avg}/5${avg !== 'N/A' ? ` (${Number(avg) >= 4 ? 'Avançado' : Number(avg) >= 3 ? 'Em desenvolvimento' : Number(avg) >= 2 ? 'Em construção' : 'Necessita suporte intensivo'})` : ''}
+Média geral: ${avg}
 ${customBlock ? `\n=== CRITÉRIOS ADICIONAIS ===\n${customBlock}` : ''}
 ${observation ? `\n=== PARECER DESCRITIVO DO PROFISSIONAL ===\n${observation}` : ''}
-${priorKnowledgeBlock}`.trim();
+${priorKnowledgeBlock}
+
+=== INSTRUÇÃO DE EVIDÊNCIA PARA RELATÓRIOS ===
+Ausência de dado não deve ser inferida. Diagnóstico, CID ou perfil geral não devem ser usados para deduzir dificuldade, autonomia, evolução, frequência, suporte, medicação, terapias, acompanhamento externo ou histórico familiar. Se faltar evidência, use "${NEUTRAL_MISSING_DATA}" ou deixe o campo vazio conforme o schema.`.trim();
+}
+
+function fallbackRegistro(value?: string | null): string {
+  const v = typeof value === 'string' ? value.trim() : '';
+  return v || 'não informado nos registros escolares disponíveis';
+}
+
+function arrToRegisteredText(value: string[] | string | undefined): string {
+  const text = arrToText(value).trim();
+  return text || 'não informado nos registros escolares disponíveis';
+}
+
+function buildInssStudentContext(
+  student: Student,
+  scores: number[],
+  observation: string,
+  customFields: DocField[],
+  school?: SchoolConfig | null,
+): string {
+  const age = calcAge(student.birthDate);
+  const schoolName = school?.schoolName || student.schoolName || student.externalSchoolName || '';
+  const cityState = [school?.city || student.city || student.externalSchoolCity, school?.state || (student as any).state]
+    .filter(Boolean)
+    .join(' - ');
+  const avg = scores.length
+    ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)
+    : '';
+  const customBlock = customFields
+    .filter(f => String(f.value ?? '').trim())
+    .map(f => `- ${f.label}: ${f.value}`)
+    .join('\n');
+
+  return `
+=== REGISTROS ESCOLARES DISPONÍVEIS PARA DECLARAÇÃO INSS ===
+Aluno: ${fallbackRegistro(student.name)}
+Idade: ${age || 'não informado nos registros escolares disponíveis'}
+Data de nascimento: ${fallbackRegistro(student.birthDate)}
+Escola: ${fallbackRegistro(schoolName)}
+Município/UF: ${fallbackRegistro(cityState)}
+Série/Ano: ${fallbackRegistro(student.grade)}
+Turno: ${fallbackRegistro(student.shift)}
+Professor regente: ${fallbackRegistro(student.regentTeacher)}
+Professor AEE: ${fallbackRegistro(student.aeeTeacher)}
+Responsável legal: ${fallbackRegistro(student.guardianName)}
+
+Diagnóstico(s) registrados: ${arrToRegisteredText(student.diagnosis)}
+CID registrado: ${arrToRegisteredText(student.cid as any)}
+Nível de suporte registrado: ${fallbackRegistro(student.supportLevel)}
+Medicação informada à escola: ${fallbackRegistro(student.medication)}
+Profissionais externos informados à escola: ${arrToRegisteredText(student.professionals)}
+
+Habilidades/potencialidades registradas: ${arrToRegisteredText(student.abilities)}
+Dificuldades/barreiras registradas: ${arrToRegisteredText(student.difficulties)}
+Estratégias e apoios escolares registrados: ${arrToRegisteredText(student.strategies)}
+Formas de comunicação registradas: ${arrToRegisteredText(student.communication as any)}
+Histórico escolar registrado: ${fallbackRegistro(student.schoolHistory)}
+Observações escolares registradas: ${fallbackRegistro(student.observations || observation)}
+${avg ? `Média do perfil escolar/cognitivo registrado: ${avg}/5` : 'Média do perfil escolar/cognitivo registrado: não informado nos registros escolares disponíveis'}
+${customBlock ? `\nCampos adicionais registrados:\n${customBlock}` : ''}
+`.trim();
 }
 
 function parseRelatorioJSON(raw: string, mode: ReportMode): RelatorioGerado {
@@ -227,9 +302,9 @@ function parseRelatorioJSON(raw: string, mode: ReportMode): RelatorioGerado {
     return { tipo: mode, ...parsed } as RelatorioGerado;
   } catch {
     // Fallback: monta estrutura mínima com o texto bruto
-    if (mode === 'simples') {
+    if (mode !== 'completo') {
       return {
-        tipo: 'simples',
+        tipo: mode,
         identificacao: '',
         situacaoPedagogicaAtual: raw,
         situacaoFuncional: '',
@@ -309,9 +384,8 @@ function enrichCharts(data: RelatorioGerado, scores: number[]): void {
 /**
  * generateRelatorioAluno
  *
- * Gera um relatório técnico do aluno via IA.
- * - Detecta automaticamente modo simples ou completo
- * - Nunca produz "não informado" — infere do diagnóstico
+ * Gera um relatório do aluno via IA.
+ * - Detecta automaticamente modo simples, completo ou INSS
  * - Retorna JSON estruturado + código do documento
  */
 export async function generateRelatorioAluno(
@@ -319,7 +393,41 @@ export async function generateRelatorioAluno(
 ): Promise<RelatorioResultado> {
   const { student, scores, observation, customFields, mode, user, modelId, school } = params;
 
-  const systemPrompt = mode === 'completo' ? generateReportFull : generateReportSimple;
+  const systemPrompt = mode === 'completo'
+    ? generateReportFull
+    : mode === 'inss'
+      ? generateReportInss
+      : generateReportSimple;
+
+  if (mode === 'inss') {
+    const inssContext = buildInssStudentContext(student, scores, observation, customFields, school);
+    const fullPrompt = `${systemPrompt}
+
+===== REGISTROS ESCOLARES DO ALUNO =====
+${inssContext}
+========================================
+Gere a declaração escolar agora no formato JSON conforme instruído. Retorne APENAS o JSON, sem texto adicional.`;
+
+    const { result } = await callAIGateway({
+      task:            'json',
+      prompt:          fullPrompt,
+      creditsRequired: AI_CREDIT_COSTS.RELATORIO_INSS,
+      requestType:     'report_inss',
+    });
+
+    const data = parseRelatorioJSON(result, mode);
+    const codigoDoc = makeReportCode(student.id);
+    const geradoEm = new Date().toISOString();
+
+    return {
+      data,
+      codigoDoc,
+      geradoEm,
+      geradoPor: user.name || 'Profissional',
+      rawText: result,
+    };
+  }
+
   const studentContext = buildStudentContext(student, scores, observation, customFields, school);
 
   // Contexto canônico — timeline, atendimentos, faltas, laudos, prior knowledge do DB
@@ -400,9 +508,10 @@ export interface StudentReportInput {
  * Entrada: dados do aluno (JSON estruturado via StudentReportInput).
  * Saída: RelatorioResultado com JSON tipado — nunca texto puro.
  * - Idioma: pt-BR (padrão automático)
- * - Modo simples: identificação, situação pedagógica, funcional, dificuldades, conclusão
- * - Modo completo: resumo executivo, análise pedagógica, checklist visual, gráficos, recomendações multidisciplinares
- */
+  * - Modo simples: identificação, situação pedagógica, funcional, dificuldades, conclusão
+  * - Modo completo: resumo executivo, análise pedagógica, checklist visual, gráficos, recomendações multidisciplinares
+  * - Modo INSS: declaração escolar/institucional curta, sem laudo clínico
+  */
 export async function generateStudentReport(
   input: StudentReportInput,
 ): Promise<RelatorioResultado> {

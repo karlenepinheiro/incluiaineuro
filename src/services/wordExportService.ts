@@ -17,10 +17,11 @@ const SUPPORTED_WORD_TYPES = new Set<DocumentType>([
   DocumentType.ESTUDO_CASO,
   DocumentType.PEI,
   DocumentType.PAEE,
+  DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE,
 ]);
 
-export function isWordExportSupported(docType: DocumentType): boolean {
-  return SUPPORTED_WORD_TYPES.has(docType);
+export function isWordExportSupported(docType: DocumentType | string): boolean {
+  return SUPPORTED_WORD_TYPES.has(docType as DocumentType) || isUnifiedPeiPaeeType(docType);
 }
 
 export function downloadWordDocument(blob: Blob, filename: string): void {
@@ -36,12 +37,12 @@ export function downloadWordDocument(blob: Blob, filename: string): void {
 
 export async function exportDocumentToWord(params: WordExportParams): Promise<Blob> {
   if (!isWordExportSupported(params.docType)) {
-    throw new Error('Exportacao Word disponivel apenas para Estudo de Caso, PEI e PAEE.');
+    throw new Error('Exportacao Word disponivel apenas para Estudo de Caso, PEI, PAEE e Plano Unificado PAEE + PEI.');
   }
 
   const zip = new PizZip();
   const generatedAt = params.generatedAt ?? new Date();
-  const title = params.title || getDocumentTitle(params.docType);
+  const title = getEffectiveDocumentTitle(params.docType, params.title);
 
   zip.file('[Content_Types].xml', contentTypesXml());
   zip.folder('_rels')?.file('.rels', rootRelsXml());
@@ -81,7 +82,7 @@ function documentXml(params: WordExportParams, title: string, generatedAt: Date)
   if (auditCode) body.push(paragraph(`Codigo: ${auditCode}`));
   body.push(paragraph(''));
 
-  for (const section of params.data.sections ?? []) {
+  for (const section of normalizeSections(params.data)) {
     body.push(sectionXml(section));
   }
 
@@ -395,7 +396,116 @@ function formatDate(date: Date): string {
 function getDocumentTitle(docType: DocumentType): string {
   if (docType === DocumentType.PEI) return 'Plano Educacional Individualizado (PEI)';
   if (docType === DocumentType.PAEE) return 'Plano de Atendimento Educacional Especializado (PAEE)';
+  if (isUnifiedPeiPaeeType(docType)) return 'Plano Unificado PAEE + PEI';
   return 'Estudo de Caso';
+}
+
+function getEffectiveDocumentTitle(docType: DocumentType | string, title?: string): string {
+  if (isUnifiedPeiPaeeType(docType) && (!title || isUnifiedPeiPaeeType(title))) {
+    return 'Plano Unificado PAEE + PEI';
+  }
+  return title || getDocumentTitle(docType as DocumentType);
+}
+
+function isUnifiedPeiPaeeType(value: unknown): boolean {
+  const normalized = String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  return normalized === 'DOCUMENTO_UNIFICADO_PEI_PAEE'
+    || (normalized.includes('UNIFICADO') && normalized.includes('PEI') && normalized.includes('PAEE'));
+}
+
+function normalizeSections(data: DocumentData | unknown): DocSection[] {
+  const source = data as any;
+  const direct = coerceSections(source?.sections);
+  if (direct.length) return direct;
+
+  const structured = coerceSections(source?.structuredData?.sections);
+  if (structured.length) return structured;
+
+  const content = source?.content;
+  if (typeof content === 'string' && content.trim()) {
+    try {
+      const parsed = JSON.parse(content);
+      const parsedSections = normalizeSections(parsed);
+      if (parsedSections.length) return parsedSections;
+    } catch {
+      return legacyTextSection(content);
+    }
+  }
+
+  const legacyValue = source?.value ?? source?.text ?? source?.body;
+  return legacyValue ? legacyTextSection(joinValue(legacyValue)) : [];
+}
+
+function coerceSections(sections: unknown): DocSection[] {
+  if (!Array.isArray(sections)) return [];
+
+  return sections
+    .map((section, sectionIndex) => {
+      const raw = section as any;
+      const fields = coerceFields(raw?.fields);
+      if (!fields.length && (raw?.value ?? raw?.content ?? raw?.text)) {
+        fields.push({
+          id: `${raw?.id || `sec_${sectionIndex + 1}`}_conteudo`,
+          label: raw?.label || raw?.title || 'Conteudo',
+          type: 'textarea',
+          value: raw.value ?? raw.content ?? raw.text,
+        });
+      }
+
+      return {
+        id: String(raw?.id || `sec_${sectionIndex + 1}`),
+        title: String(raw?.title || raw?.label || `Secao ${sectionIndex + 1}`),
+        fields,
+      };
+    })
+    .filter(section => section.fields.length > 0);
+}
+
+function coerceFields(fields: unknown): DocField[] {
+  if (!Array.isArray(fields)) return [];
+
+  return fields.map((field, fieldIndex) => {
+    const raw = field as any;
+    return {
+      id: String(raw?.id || `field_${fieldIndex + 1}`),
+      label: String(raw?.label || raw?.title || raw?.id || `Campo ${fieldIndex + 1}`),
+      type: raw?.type || 'textarea',
+      value: raw?.value ?? raw?.content ?? raw?.text ?? '',
+      options: raw?.options,
+      placeholder: raw?.placeholder,
+      columns: raw?.columns,
+      isCustom: raw?.isCustom,
+      allowAudio: raw?.allowAudio,
+      audioUrl: raw?.audioUrl,
+      audioDuration: raw?.audioDuration,
+      audioCreatedAt: raw?.audioCreatedAt,
+      required: raw?.required,
+      description: raw?.description,
+      minScale: raw?.minScale,
+      maxScale: raw?.maxScale,
+    } as DocField;
+  });
+}
+
+function legacyTextSection(text: string): DocSection[] {
+  const value = String(text ?? '').trim();
+  if (!value) return [];
+  return [{
+    id: 'legacy_content',
+    title: 'Conteudo',
+    fields: [{
+      id: 'legacy_text',
+      label: 'Conteudo',
+      type: 'textarea',
+      value,
+    }],
+  }];
 }
 
 function prettifyKey(key: string): string {

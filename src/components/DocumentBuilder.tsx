@@ -23,6 +23,12 @@ import {
 import { StorageService } from '../services/storageService';
 import { AIService } from '../services/aiService';
 import { StudentContextService } from '../services/studentContextService';
+import {
+  getFormalAiGuardMessage,
+  hasUsefulFormalDocumentContent,
+  normalizeFormalGuardDocType,
+  type FormalSourceSnapshot,
+} from '../utils/formalDocumentGuards';
 import { AI_CREDIT_COSTS } from '../config/aiCosts';
 import { StoredTemplateSelector } from './StoredTemplateSelector';
 import { SchoolTemplate } from '../services/templateService';
@@ -65,6 +71,395 @@ function resolveStudentSchool(
 }
 
 // Seções esperadas por tipo de documento — contexto para análise via upload
+const normalizeTextKey = (value: unknown): string =>
+  String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+const isEmptyDocumentValue = (value: unknown): boolean => {
+  if (value === null || value === undefined) return true;
+  if (Array.isArray(value)) return value.length === 0 || value.every(isEmptyDocumentValue);
+  if (typeof value === 'object') return Object.values(value as Record<string, unknown>).every(isEmptyDocumentValue);
+  const normalized = normalizeTextKey(value);
+  return !normalized || normalized === '-' || normalized === '—' || normalized === 'nao informado' || normalized === 'nao gerado';
+};
+
+const firstText = (...values: unknown[]): string => {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    if (Array.isArray(value)) {
+      const joined = value.filter(v => !isEmptyDocumentValue(v)).map(v => String(v).trim()).join(', ');
+      if (joined) return joined;
+      continue;
+    }
+    const text = String(value).trim();
+    if (text && !isEmptyDocumentValue(text)) return text;
+  }
+  return '';
+};
+
+const formatDateBR = (value: unknown): string => {
+  const text = firstText(value);
+  if (!text) return '';
+  const date = new Date(text.includes('T') ? text : `${text}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? text : date.toLocaleDateString('pt-BR');
+};
+
+const calculateAgeLabel = (birthDate: unknown): string => {
+  const text = firstText(birthDate);
+  if (!text) return '';
+  const date = new Date(text.includes('T') ? text : `${text}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const age = now.getFullYear() - date.getFullYear() - (
+    now.getMonth() < date.getMonth() ||
+    (now.getMonth() === date.getMonth() && now.getDate() < date.getDate())
+      ? 1
+      : 0
+  );
+  return `${Math.max(0, age)} anos`;
+};
+
+const buildStudentHydrationData = (student: Student | null, configs: SchoolConfig[] | undefined) => {
+  const raw = (student ?? {}) as any;
+  const school = resolveStudentSchool(student, configs);
+  const diagnosis = firstText(raw.diagnosis, raw.primary_diagnosis);
+  const cid = firstText(raw.cid, raw.cid_codes);
+  const guardianName = firstText(raw.guardianName, raw.guardian_name, raw.primaryContactName, raw.primary_contact_name, raw.responsible_name);
+  const guardianPhone = firstText(raw.guardianPhone, raw.guardian_phone, raw.primaryContactPhone, raw.primary_contact_phone);
+  const guardianEmail = firstText(raw.guardianEmail, raw.guardian_email);
+  const grade = firstText(raw.grade, raw.school_year, raw.gradeLevel);
+  const shift = firstText(raw.shift);
+
+  return {
+    studentCode: firstText(raw.unique_code, raw.uniqueCode, raw.student_code),
+    name: firstText(raw.name, raw.full_name),
+    birthDate: formatDateBR(raw.birthDate ?? raw.birth_date),
+    age: calculateAgeLabel(raw.birthDate ?? raw.birth_date),
+    schoolName: firstText(school?.schoolName, raw.schoolName, raw.school_name, raw.externalSchoolName, raw.external_school_name),
+    grade,
+    shift,
+    gradeShift: [grade, shift].filter(Boolean).join(' - '),
+    regentTeacher: firstText(raw.regentTeacher, raw.teacher_name, raw.regent_teacher),
+    aeeTeacher: firstText(raw.aeeTeacher, raw.aee_teacher),
+    coordinator: firstText(raw.coordinator),
+    diagnosisCid: [diagnosis, cid].filter(Boolean).join(' - '),
+    supportLevel: firstText(raw.supportLevel, raw.support_level),
+    guardianName,
+    guardianContact: [guardianPhone, guardianEmail].filter(Boolean).join(' / '),
+  };
+};
+
+const getStudentHydrationValueForField = (
+  field: DocField,
+  data: ReturnType<typeof buildStudentHydrationData>,
+): string => {
+  const id = normalizeTextKey(field.id);
+  const label = normalizeTextKey(field.label);
+
+  if (id === 'student_code' || label.includes('codigo do aluno') || label.includes('codigo unico')) return data.studentCode;
+  if (['name', 'nome_estudante'].includes(id) || label.includes('nome do aluno') || label.includes('nome completo') || label.includes('nome do estudante')) return data.name;
+  if (['age', 'data_nascimento'].includes(id) || label.includes('data de nascimento')) return data.birthDate;
+  if (id === 'idade' || label === 'idade') return data.age;
+  if (['school', 'di_escola', 'unidade_escolar'].includes(id) || label.includes('unidade escolar') || label === 'escola') return data.schoolName;
+  if (['grade', 'ano_serie'].includes(id) || label.includes('ano/serie') || label.includes('ano serie')) return data.gradeShift || data.grade;
+  if (id === 'turno' || label === 'turno') return data.shift;
+  if (['regent', 'resp1', 'professor_regente', 'assinatura_regente'].includes(id) || label.includes('professor regente') || label.includes('sala comum')) return data.regentTeacher;
+  if (['aee', 'resp2', 'professor_aee', 'assinatura_aee'].includes(id) || label.includes('professor aee') || label.includes('prof. aee') || label.includes('professor(a) do aee')) return data.aeeTeacher;
+  if (['coord', 'resp3', 'assinatura_coordenacao'].includes(id) || label.includes('coordenacao')) return data.coordinator;
+  if (['diag', 'd1', 'sau1', 'diagnostico_cid'].includes(id) || label.includes('diagnostico') || label.includes('cid')) return data.diagnosisCid;
+  if (label.includes('nivel de suporte')) return data.supportLevel;
+  if (label.includes('telefone') || label.includes('contato')) return data.guardianContact;
+  if (['ass4', 'assinatura_familia'].includes(id) || label.includes('responsavel') || label.includes('familia')) return data.guardianName;
+
+  return '';
+};
+
+const isFormalDocumentWithProtectedStudentCode = (docType: DocumentType): boolean =>
+  docType === DocumentType.ESTUDO_CASO ||
+  docType === DocumentType.PAEE ||
+  docType === DocumentType.PEI ||
+  docType === DocumentType.PDI ||
+  docType === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE;
+
+const isStudentCodeDocumentField = (field: Pick<DocField, 'id' | 'label'>): boolean => {
+  const id = normalizeTextKey(field.id);
+  const label = normalizeTextKey(field.label);
+  return [
+    'student_code',
+    'unique_code',
+    'uniquecode',
+    'studentcode',
+    'codigo_aluno',
+    'codigo_unico',
+  ].includes(id)
+    || label.includes('codigo do aluno')
+    || label.includes('codigo unico');
+};
+
+const removeEditableStudentCodeFields = (sections: DocSection[], docType: DocumentType): DocSection[] => {
+  if (!isFormalDocumentWithProtectedStudentCode(docType)) return sections;
+  return sections.map(section => ({
+    ...section,
+    fields: section.fields.filter(field => !isStudentCodeDocumentField(field)),
+  }));
+};
+
+const hydrateSectionsWithStudentData = (
+  sections: DocSection[],
+  student: Student | null,
+  configs: SchoolConfig[] | undefined,
+): DocSection[] => {
+  const data = buildStudentHydrationData(student, configs);
+  const hydrated = sections.map(section => ({
+    ...section,
+    fields: section.fields.map(field => {
+      if (!isEmptyDocumentValue(field.value)) return field;
+      const value = getStudentHydrationValueForField(field, data);
+      return value ? { ...field, value } : field;
+    }),
+  }));
+
+  const identityIndex = hydrated.findIndex(section => {
+    const key = normalizeTextKey(`${section.id} ${section.title}`);
+    return key.includes('identificacao') || key.includes('dados_inst') || key.includes('header');
+  });
+  if (identityIndex < 0) return hydrated;
+
+  const section = hydrated[identityIndex];
+  const hasField = (id: string, labelNeedle: string) =>
+    section.fields.some(field => normalizeTextKey(field.id) === id || normalizeTextKey(field.label).includes(labelNeedle));
+  const extraFields: DocField[] = [];
+
+  if (data.supportLevel && !hasField('support_level', 'nivel de suporte')) {
+    extraFields.push({ id: 'support_level', label: 'Nível de suporte', type: 'text', value: data.supportLevel, allowAudio: 'none' });
+  }
+  if (data.guardianName && !hasField('guardian_name', 'responsavel')) {
+    extraFields.push({ id: 'guardian_name', label: 'Responsável', type: 'text', value: data.guardianName, allowAudio: 'none' });
+  }
+  if (data.guardianContact && !hasField('guardian_contact', 'contato')) {
+    extraFields.push({ id: 'guardian_contact', label: 'Contato do responsável', type: 'text', value: data.guardianContact, allowAudio: 'none' });
+  }
+
+  if (!extraFields.length) return hydrated;
+  return hydrated.map((item, index) =>
+    index === identityIndex ? { ...item, fields: [...item.fields, ...extraFields] } : item
+  );
+};
+
+const htmlToPlainDocumentText = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) return value.map(htmlToPlainDocumentText).filter(Boolean).join('\n');
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, entry]) => {
+        const text = htmlToPlainDocumentText(entry);
+        return text ? `${key}: ${text}` : '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  let text = String(value);
+  if (!/<[a-z][\s\S]*>/i.test(text) && !/&(?:nbsp|amp|lt|gt|quot|#39);/i.test(text)) return text;
+
+  text = text
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/\s*(p|div|li|h1|h2|h3|section|article)\s*>/gi, '\n')
+    .replace(/<\s*li[^>]*>/gi, '- ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return text;
+};
+
+const buildUnifiedIdentityFields = (
+  student: Student | null,
+  configs: SchoolConfig[] | undefined,
+): DocField[] => {
+  const data = buildStudentHydrationData(student, configs);
+  return [
+    { id: 'nome_estudante', label: 'Nome completo', type: 'text', value: data.name, allowAudio: 'none' },
+    { id: 'ano_serie', label: 'Série/Ano', type: 'text', value: data.grade, allowAudio: 'none' },
+    { id: 'turno', label: 'Turno', type: 'text', value: data.shift, allowAudio: 'none' },
+    { id: 'unidade_escolar', label: 'Unidade escolar', type: 'text', value: data.schoolName, allowAudio: 'none' },
+    { id: 'guardian_name', label: 'Responsável legal', type: 'text', value: data.guardianName, allowAudio: 'none' },
+    { id: 'guardian_contact', label: 'Telefone/contato do responsável', type: 'text', value: data.guardianContact, allowAudio: 'none' },
+    { id: 'diagnostico_cid', label: 'Diagnóstico/CID, se houver', type: 'text', value: data.diagnosisCid, allowAudio: 'none' },
+    { id: 'support_level', label: 'Nível de suporte', type: 'text', value: data.supportLevel, allowAudio: 'none' },
+    { id: 'professor_regente', label: 'Professor(a) regente', type: 'text', value: data.regentTeacher, allowAudio: 'none' },
+    { id: 'professor_aee', label: 'Professor(a) do AEE', type: 'text', value: data.aeeTeacher, allowAudio: 'none' },
+    { id: 'vigencia_plano', label: 'Período de vigência', type: 'text', value: `Ano letivo ${new Date().getFullYear()}`, allowAudio: 'none' },
+  ];
+};
+
+const isMergedUnifiedIdentityField = (field: DocField): boolean => {
+  const key = normalizeTextKey(`${field.id} ${field.label}`);
+  return key.includes('identificacao escolar') || key.includes('identificacao do estudante escolar');
+};
+
+const isUnifiedIdentityField = (field: DocField): boolean => {
+  const key = normalizeTextKey(`${field.id} ${field.label}`);
+  return [
+    'nome_estudante',
+    'student_code',
+    'data_nascimento',
+    'idade',
+    'ano_serie',
+    'turno',
+    'unidade_escolar',
+    'guardian_name',
+    'guardian_contact',
+    'diagnostico_cid',
+    'support_level',
+    'professor_regente',
+    'professor_aee',
+    'vigencia_plano',
+  ].some(id => normalizeTextKey(field.id) === id)
+    || key.includes('codigo do aluno')
+    || key.includes('data de nascimento')
+    || key === 'idade'
+    || key.includes('serie')
+    || key.includes('turno')
+    || key.includes('unidade escolar')
+    || key.includes('responsavel')
+    || key.includes('contato')
+    || key.includes('diagnostico')
+    || key.includes('nivel de suporte')
+    || key.includes('professor');
+};
+
+const isUnifiedSynthesisSection = (section: DocSection): boolean => {
+  const key = normalizeTextKey(`${section.id} ${section.title}`);
+  return key.includes('sintese') && (key.includes('estudo') || key.includes('caso'));
+};
+
+const buildUnifiedSynthesisSection = (student: Student | null, fields: DocField[] = []): DocSection => {
+  const cleanedFields = fields
+    .filter(field => !isUnifiedIdentityField(field) && !isMergedUnifiedIdentityField(field))
+    .map(field => ({
+      ...field,
+      type: field.type === 'text' ? 'textarea' : field.type,
+      value: htmlToPlainDocumentText(field.value),
+      allowAudio: field.allowAudio === 'none' ? 'optional' : field.allowAudio,
+    }));
+
+  if (cleanedFields.length) {
+    return {
+      id: 'sintese_estudo_caso',
+      title: 'Síntese do Estudo de Caso',
+      fields: cleanedFields,
+    };
+  }
+
+  return {
+    id: 'sintese_estudo_caso',
+    title: 'Síntese do Estudo de Caso',
+    fields: [
+      {
+        id: 'sintese_estudo_caso_texto',
+        label: 'Síntese do Estudo de Caso',
+        type: 'textarea',
+        value: firstText((student as any)?.schoolHistory, (student as any)?.observations),
+        allowAudio: 'optional',
+      },
+    ],
+  };
+};
+
+const placeUnifiedSynthesisAfterIdentity = (sections: DocSection[], student: Student | null): DocSection[] => {
+  const synthesisIndex = sections.findIndex(isUnifiedSynthesisSection);
+  const base = [...sections];
+  const synthesis = synthesisIndex >= 0
+    ? base.splice(synthesisIndex, 1)[0]
+    : buildUnifiedSynthesisSection(student);
+  base.splice(1, 0, synthesis);
+  return base;
+};
+
+const normalizeUnifiedSectionsForEditor = (
+  sections: DocSection[],
+  student: Student | null,
+  configs: SchoolConfig[] | undefined,
+): DocSection[] => {
+  const identityFields = buildUnifiedIdentityFields(student, configs);
+  const identityIndex = sections.findIndex(section => {
+    const key = normalizeTextKey(`${section.id} ${section.title}`);
+    return key.includes('identificacao');
+  });
+
+  const mergeIdentityFields = (existingFields: DocField[] = []) =>
+    identityFields.map(field => {
+      const fieldKey = normalizeTextKey(field.id);
+      const labelKey = normalizeTextKey(field.label);
+      const existing = existingFields.find(item =>
+        normalizeTextKey(item.id) === fieldKey ||
+        normalizeTextKey(item.label) === labelKey
+      );
+      if (field.id === 'student_code') return field;
+      if (!existing || isEmptyDocumentValue(existing.value)) return field;
+      return { ...field, value: htmlToPlainDocumentText(existing.value) };
+    });
+
+  const cleaned = sections.map(section => ({
+    ...section,
+    fields: section.fields
+      .filter(field => !isMergedUnifiedIdentityField(field))
+      .map(field => ({
+        ...field,
+        value: htmlToPlainDocumentText(field.value),
+      })),
+  }));
+
+  if (identityIndex < 0) {
+    return placeUnifiedSynthesisAfterIdentity([
+      { id: 'identificacao_estudante', title: 'Identificação do Estudante', fields: identityFields },
+      ...cleaned,
+    ], student);
+  }
+
+  const preservedIdentityFields = cleaned[identityIndex]?.fields.filter(field => !isUnifiedIdentityField(field)) ?? [];
+  const normalized = cleaned.map((section, index) =>
+    index === identityIndex
+      ? { ...section, id: 'identificacao_estudante', title: 'Identificação do Estudante', fields: mergeIdentityFields(section.fields) }
+      : section
+  );
+  const ordered = [
+    normalized[identityIndex],
+    ...normalized.filter((_, index) => index !== identityIndex),
+  ].filter(Boolean);
+  const withPreservedFields = preservedIdentityFields.length && !normalized.some(isUnifiedSynthesisSection)
+    ? [
+        ordered[0],
+        buildUnifiedSynthesisSection(student, preservedIdentityFields),
+        ...ordered.slice(1),
+      ]
+    : ordered;
+  return placeUnifiedSynthesisAfterIdentity(withPreservedFields, student);
+};
+
+const prepareFormalSectionsForEditor = (
+  sections: DocSection[],
+  docType: DocumentType,
+  student: Student | null,
+  configs: SchoolConfig[] | undefined,
+): DocSection[] => {
+  const normalized = docType === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE
+    ? normalizeUnifiedSectionsForEditor(sections, student, configs)
+    : sections;
+  return removeEditableStudentCodeFields(normalized, docType);
+};
+
 const STANDARD_DOC_FIELDS: Record<string, string> = {
   PEI:            'Identificação do Aluno, Diagnóstico e CID, Habilidades e Potencialidades, Dificuldades e Desafios, Objetivos Pedagógicos Individualizados, Estratégias e Adaptações, Recursos e Materiais, Avaliação e Monitoramento, Assinaturas',
   PAEE:           'Identificação do Aluno, Demanda e Encaminhamento, Avaliação Pedagógica Especializada, Plano de AEE (Objetivos, Atividades, Recursos), Articulação com Sala Regular, Periodicidade, Avaliação dos Resultados',
@@ -97,6 +492,7 @@ const DOC_CREDIT_COSTS: Record<string, number> = {
   'PEI':               AI_CREDIT_COSTS.PEI,
   'PAEE':              AI_CREDIT_COSTS.PAEE,
   'PDI':               AI_CREDIT_COSTS.PDI,
+  [DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE]: AI_CREDIT_COSTS.DOCUMENTO_UNIFICADO_PEI_PAEE,
   'Plano de Ação AEE': AI_CREDIT_COSTS.PLANO_ACAO_AEE,
 };
 
@@ -358,6 +754,21 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
   // ── Verificação de plano Premium ─────────────────────────────────────────────
   const isPremiumUser = ['MASTER', 'PREMIUM', 'INSTITUTIONAL'].includes(user.plan as string);
   const canExportWord = isWordExportSupported(type);
+  const documentTitle = type === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE
+    ? 'Plano Unificado PAEE + PEI'
+    : String(type);
+  const getFormalSourceSnapshot = (): FormalSourceSnapshot => {
+    const snapshot: FormalSourceSnapshot = { estudoCaso: false, paee: false, pei: false };
+    if (!selectedStudent) return snapshot;
+    for (const protocol of protocols) {
+      if (protocol.studentId !== selectedStudent.id || !hasUsefulFormalDocumentContent(protocol.structuredData)) continue;
+      const docType = normalizeFormalGuardDocType(protocol.type);
+      if (docType === 'ESTUDO_CASO') snapshot.estudoCaso = true;
+      if (docType === 'PAEE') snapshot.paee = true;
+      if (docType === 'PEI') snapshot.pei = true;
+    }
+    return snapshot;
+  };
 
   // Dirty state tracking (unsaved changes)
   const [isDirty, setIsDirty] = useState(false);
@@ -476,7 +887,9 @@ const planLimits = getPlanLimits(user.plan);
       const isExistingDoc = initialData && (initialData.sections?.length ?? 0) > 0;
 
       if (isExistingDoc) {
-          setSections(initialData!.sections);
+          const targetStudent = initialStudent ?? selectedStudent;
+          const hydrated = hydrateSectionsWithStudentData(initialData!.sections, targetStudent, user.schoolConfigs);
+          setSections(prepareFormalSectionsForEditor(hydrated, type, targetStudent, user.schoolConfigs));
           setStep('editor');
           setIsEditing(initialProtocol ? initialProtocol.status !== 'FINAL' : true);
           setCurrentAuditCode((initialData as any).auditCode || initialProtocol?.auditCode || '');
@@ -1136,6 +1549,126 @@ const planLimits = getPlanLimits(user.plan);
         ]},
       ];
 
+    } else if (docType === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE) {
+      const birthDate = selectedStudent.birthDate
+        ? new Date(selectedStudent.birthDate + 'T00:00:00')
+        : null;
+      const age = birthDate
+        ? `${Math.max(0, new Date().getFullYear() - birthDate.getFullYear() - (
+          new Date().getMonth() < birthDate.getMonth() ||
+          (new Date().getMonth() === birthDate.getMonth() && new Date().getDate() < birthDate.getDate())
+            ? 1
+            : 0
+        ))} anos`
+        : '';
+
+      return [
+        {
+          id: 'identificacao_estudante',
+          title: 'Identificação do Estudante',
+          fields: [
+            { id: 'nome_estudante', label: 'Nome do estudante', type: 'text', value: selectedStudent.name, allowAudio: 'none' },
+            { id: 'data_nascimento', label: 'Data de nascimento', type: 'text', value: birthDate ? birthDate.toLocaleDateString('pt-BR') : '—', allowAudio: 'none' },
+            { id: 'idade', label: 'Idade', type: 'text', value: age, allowAudio: 'none' },
+            { id: 'ano_serie', label: 'Ano/Série', type: 'text', value: selectedStudent.grade || '', allowAudio: 'none' },
+            { id: 'turno', label: 'Turno', type: 'text', value: selectedStudent.shift || '', allowAudio: 'none' },
+            { id: 'unidade_escolar', label: 'Unidade escolar', type: 'text', value: school?.schoolName || selectedStudent.schoolName || selectedStudent.externalSchoolName || '', allowAudio: 'none' },
+            { id: 'professor_regente', label: 'Professor(a) regente', type: 'text', value: selectedStudent.regentTeacher || '', allowAudio: 'none' },
+            { id: 'professor_aee', label: 'Professor(a) do AEE', type: 'text', value: selectedStudent.aeeTeacher || '', allowAudio: 'none' },
+            { id: 'diagnostico_cid', label: 'Diagnóstico/CID, se houver', type: 'text', value: [(selectedStudent.diagnosis || []).join(', '), Array.isArray(selectedStudent.cid) ? selectedStudent.cid.join(', ') : selectedStudent.cid].filter(Boolean).join(' - '), allowAudio: 'none' },
+            { id: 'necessidade_educacional', label: 'Necessidade educacional específica', type: 'textarea', value: (selectedStudent.difficulties || []).join('\n'), allowAudio: 'optional' },
+            { id: 'vigencia_plano', label: 'Período de vigência do plano', type: 'text', value: `Ano letivo ${new Date().getFullYear()}`, allowAudio: 'none' },
+          ],
+        },
+        {
+          id: 'sintese_estudo_caso',
+          title: 'Síntese do Estudo de Caso',
+          fields: [
+            { id: 'principais_caracteristicas', label: 'Principais características do estudante', type: 'textarea', value: selectedStudent.observations || '', allowAudio: 'optional' },
+            { id: 'potencialidades', label: 'Potencialidades', type: 'textarea', value: (selectedStudent.abilities || []).join('\n'), allowAudio: 'optional' },
+            { id: 'barreiras_observadas', label: 'Barreiras observadas', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'necessidades_prioritarias', label: 'Necessidades prioritárias', type: 'textarea', value: (selectedStudent.difficulties || []).join('\n'), allowAudio: 'optional' },
+            { id: 'historico_pedagogico', label: 'Histórico pedagógico relevante', type: 'textarea', value: selectedStudent.schoolHistory || '', allowAudio: 'optional' },
+          ],
+        },
+        {
+          id: 'perfil_funcional_pedagogico',
+          title: 'Perfil Funcional e Pedagógico',
+          fields: [
+            { id: 'comunicacao', label: 'Comunicação', type: 'textarea', value: (selectedStudent.communication || []).join('\n'), allowAudio: 'optional' },
+            { id: 'interacao_social', label: 'Interação social', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'autonomia', label: 'Autonomia', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'atencao_concentracao', label: 'Atenção e concentração', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'coordenacao_motora', label: 'Coordenação motora', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'cognicao', label: 'Cognição', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'leitura_escrita', label: 'Leitura e escrita', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'matematica', label: 'Matemática', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'comportamento_adaptativo', label: 'Comportamento adaptativo', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'aspectos_sensoriais', label: 'Aspectos sensoriais', type: 'textarea', value: '', allowAudio: 'optional' },
+          ],
+        },
+        {
+          id: 'objetivos_pei',
+          title: 'Objetivos do PEI',
+          fields: [
+            { id: 'objetivo_geral', label: 'Objetivo geral', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'objetivos_especificos', label: 'Objetivos específicos', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'habilidades_prioritarias', label: 'Habilidades prioritárias', type: 'textarea', value: (selectedStudent.abilities || []).join('\n'), allowAudio: 'optional' },
+            { id: 'estrategias_sala_comum', label: 'Estratégias na sala comum', type: 'textarea', value: (selectedStudent.strategies || []).join('\n'), allowAudio: 'optional' },
+            { id: 'adaptacoes_curriculares', label: 'Adaptações curriculares', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'recursos_pedagogicos', label: 'Recursos pedagógicos', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'criterios_avaliacao', label: 'Critérios de avaliação', type: 'textarea', value: '', allowAudio: 'optional' },
+          ],
+        },
+        {
+          id: 'plano_paee',
+          title: 'Plano do PAEE',
+          fields: [
+            { id: 'objetivos_aee', label: 'Objetivos do AEE', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'atendimentos_previstos', label: 'Atendimentos previstos', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'frequencia_atendimento', label: 'Frequência do atendimento', type: 'text', value: '', allowAudio: 'none' },
+            { id: 'recursos_acessibilidade', label: 'Recursos de acessibilidade', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'tecnologia_assistiva', label: 'Tecnologia assistiva', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'estrategias_aee', label: 'Estratégias no AEE', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'articulacao_regente', label: 'Articulação com o professor regente', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'orientacoes_familia', label: 'Orientações à família', type: 'textarea', value: selectedStudent.familyContext || '', allowAudio: 'optional' },
+          ],
+        },
+        {
+          id: 'plano_intervencao_unificado',
+          title: 'Plano de Intervenção Unificado',
+          fields: [
+            { id: 'acoes_sala_regular', label: 'Ações da sala regular', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'acoes_aee', label: 'Ações do AEE', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'responsaveis', label: 'Responsáveis', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'prazos', label: 'Prazos', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'indicadores_acompanhamento', label: 'Indicadores de acompanhamento', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'evidencias_esperadas', label: 'Evidências esperadas', type: 'textarea', value: '', allowAudio: 'optional' },
+          ],
+        },
+        {
+          id: 'acompanhamento_reavaliacao',
+          title: 'Acompanhamento e Reavaliação',
+          fields: [
+            { id: 'forma_monitoramento', label: 'Forma de monitoramento', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'periodicidade_revisao', label: 'Periodicidade da revisão', type: 'text', value: 'Bimestral', allowAudio: 'none' },
+            { id: 'registros_evolucao', label: 'Registros de evolução', type: 'textarea', value: '', allowAudio: 'optional' },
+            { id: 'encaminhamentos_necessarios', label: 'Encaminhamentos necessários', type: 'textarea', value: '', allowAudio: 'optional' },
+          ],
+        },
+        {
+          id: 'ciencia_assinaturas',
+          title: 'Ciência e Assinaturas',
+          fields: [
+            { id: 'assinatura_regente', label: 'Professor(a) regente', type: 'text', value: selectedStudent.regentTeacher || '', allowAudio: 'none' },
+            { id: 'assinatura_aee', label: 'Professor(a) do AEE', type: 'text', value: selectedStudent.aeeTeacher || '', allowAudio: 'none' },
+            { id: 'assinatura_coordenacao', label: 'Coordenação pedagógica', type: 'text', value: selectedStudent.coordinator || '', allowAudio: 'none' },
+            { id: 'assinatura_gestao', label: 'Gestão escolar', type: 'text', value: '', allowAudio: 'none' },
+            { id: 'assinatura_familia', label: 'Responsável/família, quando aplicável', type: 'text', value: selectedStudent.guardianName || '', allowAudio: 'none' },
+          ],
+        },
+      ];
+
     } else {
       const commonHeader: DocSection = {
         id: 'header', title: 'Identificação',
@@ -1151,7 +1684,8 @@ const planLimits = getPlanLimits(user.plan);
 
   const loadTemplate = (docType: DocumentType) => {
     if (!selectedStudent) return;
-    const built = buildStandardSections(docType);
+    const hydrated = hydrateSectionsWithStudentData(buildStandardSections(docType), selectedStudent, user.schoolConfigs);
+    const built = prepareFormalSectionsForEditor(hydrated, docType, selectedStudent, user.schoolConfigs);
     setSections(built);
     setStep('editor');
     setIsEditing(true);
@@ -1198,6 +1732,11 @@ const planLimits = getPlanLimits(user.plan);
           minScale: newField.type === 'scale' ? 1 : undefined,
           maxScale: newField.type === 'scale' ? 5 : undefined
       };
+
+      if (isFormalDocumentWithProtectedStudentCode(type) && isStudentCodeDocumentField(fieldToAdd)) {
+          alert('O código do aluno é um dado institucional e aparece apenas como metadado travado.');
+          return;
+      }
 
       newSecs[targetSectionIndex].fields.push(fieldToAdd);
       setSections(newSecs);
@@ -1330,7 +1869,9 @@ const planLimits = getPlanLimits(user.plan);
          setCurrentAuditCode(finalAuditCode);
      }
 
-     const dataToSave = { sections, auditCode: finalAuditCode };
+     const protectedSections = removeEditableStudentCodeFields(sections, type);
+     if (protectedSections !== sections) setSections(protectedSections);
+     const dataToSave = { sections: protectedSections, auditCode: finalAuditCode };
      await onSave(dataToSave, selectedStudent, log, status);
      setIsDirty(false);
      setShowSaveToast(true);
@@ -1468,10 +2009,11 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
               }
 
               if (parsed?.sections && Array.isArray(parsed.sections) && parsed.sections.length > 0) {
-                  setSections(parsed.sections);
+                  const parsedSections = prepareFormalSectionsForEditor(parsed.sections, type, selectedStudent, user.schoolConfigs);
+                  setSections(parsedSections);
                   setStep('editor');
                   setIsEditing(true);
-                  const dataToSave = { sections: parsed.sections, externalUrl: url || '' };
+                  const dataToSave = { sections: parsedSections, externalUrl: url || '' };
                   onSave(dataToSave, selectedStudent, `Importado via Upload: ${file.name}`, 'DRAFT');
                   alert('Documento importado e salvo como rascunho! Revise e edite antes de finalizar.');
               } else {
@@ -1532,7 +2074,9 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
       setVal('coord',  selectedStudent.coordinator || '');
     }
 
-    setSections(docData.sections);
+    const preparedSections = prepareFormalSectionsForEditor(docData.sections, type, selectedStudent, user.schoolConfigs);
+    const preparedDocData = { ...docData, sections: preparedSections };
+    setSections(preparedSections);
     setStep('editor');
     setIsEditing(true);
 
@@ -1540,7 +2084,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
     UserTemplateService.incrementUsage(template.id).catch(() => {});
 
     // Auto-salva como rascunho
-    onSave(docData, selectedStudent, `Modelo: ${template.name}`, 'DRAFT');
+    onSave(preparedDocData, selectedStudent, `Modelo: ${template.name}`, 'DRAFT');
   };
 
   // Aplica o modelo conforme o modo escolhido pelo usuário
@@ -1548,19 +2092,20 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
     if (!pendingTemplate || !selectedStudent) return;
     setShowTemplateModeModal(false);
 
-    const school = user.schoolConfigs?.find(s => s.id === selectedStudent.schoolId);
+    const school = resolveStudentSchool(selectedStudent, user.schoolConfigs);
+    const hydratedStudent = buildStudentHydrationData(selectedStudent, user.schoolConfigs);
 
     const tagValues: Record<string, string> = {
-      '{{nome_estudante}}':           selectedStudent.name,
-      '{{data_nascimento}}':          new Date(selectedStudent.birthDate).toLocaleDateString(),
-      '{{idade}}':                    String(new Date().getFullYear() - new Date(selectedStudent.birthDate).getFullYear()),
-      '{{escola}}':                   school?.schoolName || '',
-      '{{turma}}':                    selectedStudent.grade || '',
-      '{{turno}}':                    selectedStudent.shift || '',
-      '{{professor_regente}}':        selectedStudent.regentTeacher || '',
-      '{{professor_aee}}':            selectedStudent.aeeTeacher || '',
-      '{{coordenador}}':              selectedStudent.coordinator || '',
-      '{{diagnostico}}':              (selectedStudent.diagnosis || []).join(', '),
+      '{{nome_estudante}}':           hydratedStudent.name,
+      '{{data_nascimento}}':          hydratedStudent.birthDate,
+      '{{idade}}':                    hydratedStudent.age,
+      '{{escola}}':                   hydratedStudent.schoolName || school?.schoolName || '',
+      '{{turma}}':                    hydratedStudent.grade,
+      '{{turno}}':                    hydratedStudent.shift,
+      '{{professor_regente}}':        hydratedStudent.regentTeacher,
+      '{{professor_aee}}':            hydratedStudent.aeeTeacher,
+      '{{coordenador}}':              hydratedStudent.coordinator,
+      '{{diagnostico}}':              hydratedStudent.diagnosisCid,
       '{{habilidades}}':              (selectedStudent.abilities || []).join('\n'),
       '{{dificuldades}}':             (selectedStudent.difficulties || []).join('\n'),
       '{{historico_escolar}}':        selectedStudent.schoolHistory || '',
@@ -1574,14 +2119,18 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
       id: 'header',
       title: 'Identificação',
       fields: [
-        { id: 'name',   label: 'Nome do Aluno',      type: 'text', value: selectedStudent.name,                                      allowAudio: 'none' },
-        { id: 'age',    label: 'Data de Nascimento',  type: 'text', value: new Date(selectedStudent.birthDate).toLocaleDateString(), allowAudio: 'none' },
-        { id: 'school', label: 'Unidade Escolar',    type: 'text', value: school?.schoolName || '',                                  allowAudio: 'none' },
-        { id: 'grade',  label: 'Ano/Série',           type: 'text', value: `${selectedStudent.grade} - ${selectedStudent.shift}`,    allowAudio: 'none' },
-        { id: 'regent', label: 'Professor Regente',   type: 'text', value: selectedStudent.regentTeacher || '',                      allowAudio: 'none' },
-        { id: 'aee',    label: 'Prof. AEE',            type: 'text', value: selectedStudent.aeeTeacher || '',                        allowAudio: 'none' },
+        { id: 'name',   label: 'Nome do Aluno',      type: 'text', value: hydratedStudent.name,           allowAudio: 'none' },
+        { id: 'age',    label: 'Data de Nascimento',  type: 'text', value: hydratedStudent.birthDate,      allowAudio: 'none' },
+        { id: 'school', label: 'Unidade Escolar',    type: 'text', value: hydratedStudent.schoolName,     allowAudio: 'none' },
+        { id: 'grade',  label: 'Ano/Série',           type: 'text', value: hydratedStudent.gradeShift,     allowAudio: 'none' },
+        { id: 'regent', label: 'Professor Regente',   type: 'text', value: hydratedStudent.regentTeacher, allowAudio: 'none' },
+        { id: 'aee',    label: 'Prof. AEE',            type: 'text', value: hydratedStudent.aeeTeacher,    allowAudio: 'none' },
       ],
     };
+    headerSection.fields = removeEditableStudentCodeFields(
+      hydrateSectionsWithStudentData([headerSection], selectedStudent, user.schoolConfigs),
+      type,
+    )[0].fields;
 
     const identTagSet = new Set([
       '{{nome_estudante}}', '{{data_nascimento}}', '{{idade}}',
@@ -1656,7 +2205,10 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
     } else {
       // Mesclar: estrutura expandida padrão + campos do modelo ao final
-      const stdSections = buildStandardSections(type);
+      const stdSections = removeEditableStudentCodeFields(
+        hydrateSectionsWithStudentData(buildStandardSections(type), selectedStudent, user.schoolConfigs),
+        type,
+      );
       const templateSection: DocSection = {
         id: 'template_fields',
         title: `Campos do Modelo — ${pendingTemplate.name}`,
@@ -1669,11 +2221,13 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
       built = [...stdSections, templateSection];
     }
 
-    setSections(built);
+    const preparedBuilt = prepareFormalSectionsForEditor(built, type, selectedStudent, user.schoolConfigs);
+
+    setSections(preparedBuilt);
     setStep('editor');
     setIsEditing(true);
     onSave(
-      { sections: built, templateId: pendingTemplate.id } as any,
+      { sections: preparedBuilt, templateId: pendingTemplate.id } as any,
       selectedStudent,
       `Modelo (${mode === 'replace' ? 'substituir' : 'mesclar'}): ${pendingTemplate.name}`,
       'DRAFT',
@@ -1687,7 +2241,11 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
     isEstudoCasoDocument ||
     type === DocumentType.PEI ||
     type === DocumentType.PAEE ||
-    type === DocumentType.PDI;
+    type === DocumentType.PDI ||
+    type === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE;
+  const unifiedIdentityMeta = isFormalDocumentWithProtectedStudentCode(type)
+    ? buildStudentHydrationData(selectedStudent, user.schoolConfigs)
+    : null;
 
   useEffect(() => {
     if (!usesPdfPreview || isEditing || !selectedStudent || sections.length === 0) return;
@@ -1779,7 +2337,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
   const handleExportWord = async () => {
     if (!canExportWord) {
-      alert('Exportacao Word disponivel apenas para Estudo de Caso, PEI e PAEE.');
+      alert('Exportacao Word disponivel apenas para Estudo de Caso, PEI, PAEE e Plano Unificado PAEE + PEI.');
       return;
     }
     if (!selectedStudent || sections.length === 0) {
@@ -1901,7 +2459,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
       const filtered = allStudents.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
       return (
         <div className="max-w-4xl mx-auto py-12 px-4">
-             <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Selecione o Aluno para {type}</h2>
+             <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Selecione o Aluno para {documentTitle}</h2>
              <div className="relative mb-6">
                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20}/>
                  <input className="w-full pl-12 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-brand-500 outline-none" placeholder="Buscar aluno..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
@@ -1923,6 +2481,11 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
   const handleGenerateWithAI = () => {
       if (!selectedStudent) return;
+      const formalGuardMessage = getFormalAiGuardMessage(type, getFormalSourceSnapshot());
+      if (formalGuardMessage) {
+        alert(formalGuardMessage);
+        return;
+      }
       // Pass case study content if available
       const extraData = caseStudy ? { caseStudyContent: caseStudy.structuredData } : undefined;
       // We need to update onGenerateAI signature or handle it here.
@@ -1973,7 +2536,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
            // Let's go with updating AIService to fetch the data, so the standard "Gerar com IA" button works better automatically.
            // AND add a specific button "Copiar do Estudo de Caso" for manual fill.
            
-           onGenerateAI(selectedStudent); // This will now use the enhanced AIService
+           handleGenerateWithAI(); // This will now use the enhanced AIService
       }
   };
 
@@ -1992,7 +2555,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
     return (
         <div className="max-w-4xl mx-auto py-12 px-4 text-center">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">Novo {type}</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Novo {documentTitle}</h2>
 
             {/* Seletor de aluno com autocomplete */}
             <div className="flex justify-center mb-4">
@@ -2062,7 +2625,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 <div className="mb-8 bg-green-50 border border-green-200 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4 text-left">
                     <div>
                         <h4 className="font-bold text-green-800 flex items-center gap-2"><CheckCircle size={18}/> Estudo de Caso Encontrado!</h4>
-                        <p className="text-sm text-green-700">Existe um Estudo de Caso concluído em {new Date(caseStudy.lastEditedAt).toLocaleDateString()}. Usá-lo aumentará a precisão do {type}.</p>
+                        <p className="text-sm text-green-700">Existe um Estudo de Caso concluído em {new Date(caseStudy.lastEditedAt).toLocaleDateString()}. Usá-lo aumentará a precisão do {documentTitle}.</p>
                     </div>
                     <button onClick={handleUseCaseStudy} className="px-4 py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 shadow-sm whitespace-nowrap">
                         Usar como Base (IA)
@@ -2081,7 +2644,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
                   {/* ── Gerar com IA ── */}
                   <button
-                    onClick={() => onGenerateAI(selectedStudent!)}
+                    onClick={handleGenerateWithAI}
                     disabled={isGenerating}
                     className="p-4 bg-white border border-gray-200 rounded-xl hover:border-brand-400 hover:shadow-sm transition flex items-center gap-4 text-left group"
                   >
@@ -2245,7 +2808,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
         <DocumentToolbar
           left={
             <div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">{type}</p>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">{documentTitle}</p>
               <StudentSwitcher compact />
             </div>
           }
@@ -2513,7 +3076,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
             <div ref={documentRef}>
               <FormalPdfPreview
                 docType={type}
-                title={String(type)}
+                title={documentTitle}
                 student={selectedStudent}
                 user={user}
                 school={resolveStudentSchool(selectedStudent, user.schoolConfigs)}
@@ -2533,7 +3096,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
           <div ref={documentRef} className="w-full max-w-[210mm] mt-8 shadow-xl print:shadow-none print:w-full print:m-0" id="document-content">
             <DocumentPrintPreview
               docType={toDocType(type)}
-              title={String(type)}
+              title={documentTitle}
               student={selectedStudent}
               user={user}
               school={(user as any).schoolConfig ?? null}
@@ -2556,8 +3119,15 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
         {isEditing && (
         <div id="document-content-edit" className="w-full max-w-[210mm] bg-white shadow-xl mt-8 p-[20mm] print:shadow-none print:w-full print:m-0 print:p-0">
             <div className="border-b-2 border-black pb-4 mb-6">
-                <h1 className="text-2xl font-bold uppercase text-gray-900">{type}</h1>
+                <h1 className="text-2xl font-bold uppercase text-gray-900">{documentTitle}</h1>
                 <p className="text-gray-600">Aluno: {selectedStudent?.name}</p>
+                {unifiedIdentityMeta && (
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                    <span><strong className="text-gray-600">Código do aluno:</strong> {unifiedIdentityMeta.studentCode || 'Não gerado'}</span>
+                    {unifiedIdentityMeta.birthDate && <span><strong className="text-gray-600">Nascimento:</strong> {unifiedIdentityMeta.birthDate}</span>}
+                    {unifiedIdentityMeta.age && <span><strong className="text-gray-600">Idade:</strong> {unifiedIdentityMeta.age}</span>}
+                  </div>
+                )}
                 {type === DocumentType.PEI && selectedStudent && !protocols.some(
                   p => p.studentId === selectedStudent.id && p.type === DocumentType.ESTUDO_CASO && p.status === 'FINAL'
                 ) && (
@@ -2621,6 +3191,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                     </div>
 
                     {sec.fields.map((f, j) => (
+                        isFormalDocumentWithProtectedStudentCode(type) && isStudentCodeDocumentField(f) ? null : (
                         <div key={f.id} className={`mb-4 relative group/field transition-all ${isReordering ? 'pl-8 border-l-2 border-dashed border-gray-300' : ''}`}>
                             
                             {/* Reorder Controls */}
@@ -2651,7 +3222,12 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                                 {/* Text Input (if not audio-only) */}
                                 {f.allowAudio !== 'only' && (
                                     isEditing ? (
-                                        f.type === 'textarea' ? (
+                                        (f as any).readOnly ? (
+                                            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                                                <Lock size={13} className="shrink-0 text-slate-400" />
+                                                <span className="whitespace-pre-wrap">{htmlToPlainDocumentText(f.value) || 'Não gerado'}</span>
+                                            </div>
+                                        ) : f.type === 'textarea' ? (
                                             <RichTextEditor
                                               fieldId={f.id}
                                               value={String(f.value ?? '')}
@@ -2784,6 +3360,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                                 )}
                             </div>
                         </div>
+                        )
                     ))}
                 </div>
             ))}

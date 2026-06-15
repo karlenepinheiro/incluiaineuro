@@ -18,12 +18,11 @@ import { DocumentHistory, DocVersion } from '../components/DocumentHistory';
 import { PDFGenerator, getDocTitle } from '../services/PDFGenerator';
 import { ObservationFormService, TimelineService } from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
-import { AIService } from '../services/aiService';
 import { DocumentService, PedagocicalDocument } from '../services/documentService';
 import { ExportService } from '../services/exportService';
 import { ActionPlanService } from '../services/actionPlanService';
 import { RelatorioPreview } from '../components/RelatorioPreview';
-import type { RelatorioResultado } from '../services/reportService';
+import { generateStudentReport, type RelatorioResultado, type ReportMode } from '../services/reportService';
 import type { ActionPlanRecord } from '../types';
 import { generateDocumentCode } from '../utils/documentCodes';
 import { ChecklistRegenteForm, buildChecklistPrintHtml } from '../components/ChecklistRegenteForm';
@@ -317,6 +316,7 @@ type HistorySource = 'report' | 'ficha' | 'action_plan';
 type HistoryKind =
   | 'report_simple'
   | 'report_full'
+  | 'report_inss'
   | 'ficha_generic'
   | 'obs_regente'
   | 'analise_aee'
@@ -341,10 +341,13 @@ interface HistoryCardData {
   icon: React.ReactNode;
   record?: any;
   formType?: string;
-  reportMode?: 'simple' | 'full';
+  reportMode?: 'simple' | 'full' | 'inss';
 }
 
-const REPORT_TYPES = ['RELATORIO_SIMPLES', 'RELATORIO_COMPLETO', 'RELATORIO_TECNICO'];
+type ReportCardMode = 'simple' | 'full' | 'inss';
+type ReportDocType = 'RELATORIO_SIMPLES' | 'RELATORIO_COMPLETO' | 'RELATORIO_INSS';
+
+const REPORT_TYPES = ['RELATORIO_SIMPLES', 'RELATORIO_COMPLETO', 'RELATORIO_INSS', 'RELATORIO_TECNICO'];
 
 function formatDateTimeBR(value?: string | null): string {
   if (!value) return 'Sem registro';
@@ -401,11 +404,11 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [expandedHistoryCard, setExpandedHistoryCard] = useState<HistoryKind | null>(null);
-  const [generatingReport, setGeneratingReport] = useState<'simple' | 'full' | null>(null);
+  const [generatingReport, setGeneratingReport] = useState<ReportCardMode | null>(null);
   const [selectedReport, setSelectedReport] = useState<{
     docId?: string;
     resultado: RelatorioResultado;
-    mode: 'simple' | 'full';
+    mode: ReportCardMode;
   } | null>(null);
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -703,7 +706,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
   const latestFichaRecord = (formType?: string) =>
     allFichaRecords.find((r: any) => !formType || r.form_type === formType);
 
-  const latestReportRecord = (docType: 'RELATORIO_SIMPLES' | 'RELATORIO_COMPLETO') =>
+  const latestReportRecord = (docType: ReportDocType) =>
     historyReports.find((r: any) => r.doc_type === docType);
 
   const historyCards = useMemo<HistoryCardData[]>(() => {
@@ -742,8 +745,8 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
     const reportCard = (
       id: HistoryKind,
       title: string,
-      docType: 'RELATORIO_SIMPLES' | 'RELATORIO_COMPLETO',
-      mode: 'simple' | 'full',
+      docType: ReportDocType,
+      mode: ReportCardMode,
       accent: string,
       bg: string,
       icon: React.ReactNode,
@@ -755,7 +758,9 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
         title,
         description: mode === 'full'
           ? 'Relatório técnico completo com análise pedagógica e recomendações.'
-          : 'Relatório objetivo para registro pedagógico e encaminhamentos.',
+          : mode === 'inss'
+            ? 'Declaração escolar institucional curta para uso externo/INSS.'
+            : 'Relatório objetivo para registro pedagógico e encaminhamentos.',
         typeLabel: 'Relatório',
         source: 'report',
         studentName: selectedStudent.name,
@@ -773,6 +778,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
 
     const latestPlan = historyActionPlans[0];
     const cards: HistoryCardData[] = [
+      reportCard('report_inss', 'Relatório INSS', 'RELATORIO_INSS', 'inss', '#C69214', '#FFFBEB', <ShieldCheck size={18} />),
       reportCard('report_simple', 'Relatório Simples', 'RELATORIO_SIMPLES', 'simple', '#16A34A', '#F0FDF4', <FileText size={18} />),
       reportCard('report_full', 'Relatório Completo', 'RELATORIO_COMPLETO', 'full', '#2563EB', '#EFF6FF', <BarChart2 size={18} />),
       fichaCard('ficha_generic', 'Ficha Complementar', 'Ficha complementar', 'Registro complementar vinculado ao aluno.', undefined, '#C69214', '#FFFBEB', <ClipboardCheck size={18} />),
@@ -806,19 +812,32 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStudent, allFichaRecords, historyReports, historyActionPlans, user.id, user.name]);
 
-  const handleGenerateHistoryReport = async (mode: 'simple' | 'full') => {
+  const handleGenerateHistoryReport = async (mode: ReportCardMode) => {
     if (!selectedStudent) { alert('Selecione um aluno antes de gerar o relatório.'); return; }
     setGeneratingReport(mode);
     setHistoryError('');
 
     try {
       const school = user.schoolConfigs?.[0] ?? null;
-      const resultado = await AIService.generateStudentReport(selectedStudent, user as any, mode, {
+      const reportMode: ReportMode = mode === 'full' ? 'completo' : mode === 'inss' ? 'inss' : 'simples';
+      const resultado = await generateStudentReport({
+        student: selectedStudent,
+        user: user as any,
+        mode: reportMode,
         scores: reportScores,
         school,
       });
 
-      const docType = mode === 'full' ? 'RELATORIO_COMPLETO' : 'RELATORIO_SIMPLES';
+      const docType: ReportDocType = mode === 'full'
+        ? 'RELATORIO_COMPLETO'
+        : mode === 'inss'
+          ? 'RELATORIO_INSS'
+          : 'RELATORIO_SIMPLES';
+      const titleLabel = mode === 'full'
+        ? 'Relatório Completo'
+        : mode === 'inss'
+          ? 'Relatório INSS'
+          : 'Relatório Simples';
       let savedDoc: PedagocicalDocument | null = null;
       const tenantId = user.tenant_id ?? (user as any).tenantId ?? '';
 
@@ -828,7 +847,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
           tenant_id: tenantId,
           created_by: user.id,
           doc_type: docType,
-          title: `${mode === 'full' ? 'Relatório Completo' : 'Relatório Simples'} — ${selectedStudent.name}`,
+          title: `${titleLabel} - ${selectedStudent.name}`,
           structured_data: resultado,
           status: 'APPROVED',
           audit_code: resultado.codigoDoc,
@@ -841,7 +860,7 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
         created_by: user.name,
         type: docType,
         doc_type: docType,
-        title: `${mode === 'full' ? 'Relatório Completo' : 'Relatório Simples'} — ${selectedStudent.name}`,
+        title: `${titleLabel} - ${selectedStudent.name}`,
         status: 'APPROVED',
         structured_data: resultado,
         audit_code: resultado.codigoDoc,

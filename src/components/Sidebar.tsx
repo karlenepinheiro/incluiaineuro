@@ -37,6 +37,7 @@ interface SidebarProps {
   currentView: string;
   setView: (view: any) => void;
   isOpen: boolean;
+  onCloseMobile?: () => void;
   onLogout: () => void;
   studentCount: number;
   protocolCount: number;
@@ -52,6 +53,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   setView,
   isOpen,
+  onCloseMobile,
   onLogout,
   studentCount,
   planMaxStudents,
@@ -88,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     label: string;
   }) => (
     <button
-      onClick={() => setView('subscription')}
+      onClick={() => { setView('subscription'); onCloseMobile?.(); }}
       title="Disponível apenas no plano PREMIUM — clique para fazer upgrade"
       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 opacity-50 cursor-pointer hover:opacity-75"
     >
@@ -109,7 +111,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     label: string;
   }) => (
     <button
-      onClick={() => setView('subscription')}
+      onClick={() => { setView('subscription'); onCloseMobile?.(); }}
       title="Disponível a partir do plano PRO — clique para fazer upgrade"
       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 opacity-50 cursor-pointer hover:opacity-75"
     >
@@ -137,7 +139,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     iconColor?: string;
   }) => (
     <button
-      onClick={() => setView(viewId)}
+      onClick={() => { setView(viewId); onCloseMobile?.(); }}
       title={title}
       className={cn(
         'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
@@ -168,7 +170,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside
       className={cn(
-        'bg-surface border-r border-border fixed lg:static inset-y-0 left-0 z-40 transition-all duration-300 flex flex-col print:hidden',
+        'bg-surface border-r border-border fixed lg:sticky lg:top-0 lg:h-screen inset-y-0 left-0 z-40 transition-all duration-300 flex flex-col print:hidden',
         isOpen
           ? 'translate-x-0 w-64'
           : '-translate-x-full lg:translate-x-0 w-64 lg:w-0 lg:overflow-hidden lg:border-none'
@@ -230,20 +232,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ) : (
           <nav className="space-y-1">
             {/* Geral */}
-            <div className="px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-              Geral
+            <div className="px-3 mb-2 flex items-center gap-2">
+              <span className="text-[9px] font-extrabold uppercase tracking-[0.12em] whitespace-nowrap" style={{ color: '#0097A7' }}>Geral</span>
+              <div className="flex-1 h-px" style={{ background: '#0097A7', opacity: 0.2 }} />
             </div>
-            <NavItem viewId="dashboard"    icon={Home}     label="Dashboard" iconColor="#1F4E5F" />
-            <NavItem viewId="students"     icon={Users}    label="Alunos (anamnese)" iconColor="#2563EB" />
+            <NavItem viewId="dashboard"    icon={Home}     label="Dashboard" iconColor="#164F5F" />
+            <NavItem viewId="students"     icon={Users}    label="Cadastrar aluno" iconColor="#2563EB" />
             <NavItem viewId="appointments" icon={Calendar} label="Agenda" iconColor="#0D9488" />
 
             {/* Documentação pedagógica */}
-            <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-              Documentação
+            <div className="pt-4 px-3 mb-2 flex items-center gap-2">
+              <span className="text-[9px] font-extrabold uppercase tracking-[0.12em] whitespace-nowrap" style={{ color: '#0097A7' }}>Documentação</span>
+              <div className="flex-1 h-px" style={{ background: '#0097A7', opacity: 0.2 }} />
             </div>
             <NavItem viewId="estudo_caso"    icon={FileSearch}    label="Estudo de Caso" iconColor="#7C3AED" />
             <NavItem viewId="paee"           icon={ClipboardList} label="PAEE (uso exclusivo do AEE)"  title="Documento exclusivo para professores do Atendimento Educacional Especializado (AEE)" iconColor="#D97706" />
             <NavItem viewId="protocols"      icon={FileText}      label="PEI" iconColor="#16A34A" />
+            <NavItem viewId="documento_unificado" icon={FileText} label="Plano Unificado PAEE + PEI" title="Documento formal integrado para articular PAEE, PEI, apoios e acessibilidade curricular" iconColor="#0F766E" />
             <NavItem viewId="pdi"            icon={GraduationCap} label="PDI (opcional)"               title="Documento opcional para planejamento individual complementar" iconColor="#DB2777" />
             {isPaid
               ? <NavItem viewId="school_templates" icon={LayoutTemplate} label="Meus Modelos" iconColor="#C69214" />
@@ -252,8 +257,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <NavItem viewId="printable_templates" icon={Printer} label="Modelos Imprimíveis" iconColor="#0D9488" />
 
             {/* Ferramentas IA */}
-            <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-              Ferramentas IA
+            <div className="pt-4 px-3 mb-2 flex items-center gap-2">
+              <span className="text-[9px] font-extrabold uppercase tracking-[0.12em] whitespace-nowrap" style={{ color: '#0097A7' }}>Ferramentas IA</span>
+              <div className="flex-1 h-px" style={{ background: '#0097A7', opacity: 0.2 }} />
             </div>
             {isPaid
               ? <NavItem viewId="incluilab" icon={FlaskConical} label="Laboratório de Adaptações" iconColor="#EA580C" />
@@ -265,8 +271,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }
 
             {/* Avaliação & Histórico */}
-            <div className="pt-4 px-3 mb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
-              Avaliação & Histórico
+            <div className="pt-4 px-3 mb-2 flex items-center gap-2">
+              <span className="text-[9px] font-extrabold uppercase tracking-[0.12em] whitespace-nowrap" style={{ color: '#0097A7' }}>Avaliação e histórico</span>
+              <div className="flex-1 h-px" style={{ background: '#0097A7', opacity: 0.2 }} />
             </div>
             {isPaid
               ? <NavItem viewId="reports" icon={Brain} label="Perfil Cognitivo" iconColor="#8B5CF6" />

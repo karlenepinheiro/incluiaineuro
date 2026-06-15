@@ -10,7 +10,7 @@ import {
   Printer, CheckCircle, FilePlus, AlertCircle, Save, Sparkles, FileSearch,
   ClipboardCheck, Trash2, X, Download, Paperclip, BookOpen, BarChart2,
   TrendingUp, Users, Tag, Send, LogOut, Zap, Image, Copy, RefreshCw, ClipboardList,
-  ListChecks, Plus,
+  ListChecks, Plus, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { DocButton, DocIconButton } from './ui/DocButton';
 import { SmartTextarea } from './SmartTextarea';
@@ -28,10 +28,19 @@ import { formatDateBR, calculateAge } from '../utils/dateUtils';
 import { QuickDocModal, QuickDocType } from './QuickDocModal';
 import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
 import { DocumentService } from '../services/documentService';
+import { AI_CREDIT_COSTS } from '../config/aiCosts';
 import { IntelligentProfileTab } from './IntelligentProfileTab';
 import { ActionPlanTab } from './ActionPlanTab';
 import { AEEActionPlanTab } from './AEEActionPlanTab';
 import { CareRoutineTab } from './CareRoutineTab';
+import {
+  getFormalBatchGuardMessage,
+  hasUsefulFormalDocumentContent,
+  normalizeFormalGuardDocType,
+  orderFormalDocTypes,
+  type FormalGuardDocKey,
+  type FormalSourceSnapshot,
+} from '../utils/formalDocumentGuards';
 import { ChecklistRegenteForm } from './ChecklistRegenteForm';
 import { ChecklistCuidadoraForm } from './ChecklistCuidadoraForm';
 import { ChecklistUploadModal } from './ChecklistUploadModal';
@@ -340,6 +349,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [quickDocType, setQuickDocType] = useState<QuickDocType | null>(null);
   const [showFichaConfig, setShowFichaConfig] = useState(false);
   const [showChecklistUpload, setShowChecklistUpload] = useState<'checklist_regente' | 'checklist_cuidadora' | null>(null);
+  const [showFichaCompleta, setShowFichaCompleta] = useState(false);
 
   // ── Documentos: carregados do banco (student_documents), não do student.documents legado ──
   const [dbDocs, setDbDocs] = useState<any[]>([]);
@@ -456,6 +466,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [isSavingHistory, setIsSavingHistory] = useState(false);
 
   const studentProtocols = protocols.filter(p => p.studentId === student.id);
+  const getProtocolDisplayLabel = (protocol: Protocol): string =>
+    protocol.type === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE
+      ? 'Plano Unificado PAEE + PEI'
+      : String(protocol.type);
 
 
   // Abre o modal de configuração antes de gerar o PDF
@@ -490,16 +504,39 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   };
 
   // ── Geração em Lote ────────────────────────────────────────────────────────
-  const BATCH_TYPES: { id: DocumentType; label: string; order: number }[] = [
-    { id: 'ESTUDO_DE_CASO' as any, label: 'Estudo de Caso', order: 1 },
-    { id: 'PAEE'           as any, label: 'PAEE',           order: 2 },
-    { id: 'PEI'            as any, label: 'PEI',            order: 3 },
+  const BATCH_TYPES: { id: FormalGuardDocKey; label: string; order: number }[] = [
+    { id: 'ESTUDO_CASO', label: 'Estudo de Caso', order: 1 },
+    { id: 'PAEE', label: 'PAEE', order: 2 },
+    { id: 'PEI', label: 'PEI', order: 3 },
+    { id: 'DOCUMENTO_UNIFICADO_PEI_PAEE', label: 'Plano Unificado PAEE + PEI', order: 4 },
   ];
+  const getBatchDocCost = (type: string): number => {
+    if (type === 'ESTUDO_CASO' || type === 'ESTUDO_DE_CASO' || type === DocumentType.ESTUDO_CASO) return AI_CREDIT_COSTS.ESTUDO_DE_CASO;
+    if (type === 'PAEE') return AI_CREDIT_COSTS.PAEE;
+    if (type === 'PEI') return AI_CREDIT_COSTS.PEI;
+    if (type === 'DOCUMENTO_UNIFICADO_PEI_PAEE') return AI_CREDIT_COSTS.DOCUMENTO_UNIFICADO_PEI_PAEE;
+    if (type === 'PDI') return AI_CREDIT_COSTS.PDI;
+    return 0;
+  };
+  const getBatchTotalCost = (ids: string[]): number =>
+    ids.reduce((sum, id) => sum + getBatchDocCost(id), 0);
   const [showBatchModal, setShowBatchModal] = useState(false);
-  const [batchSelected, setBatchSelected] = useState<string[]>(['ESTUDO_DE_CASO', 'PAEE', 'PEI']);
+  const [batchSelected, setBatchSelected] = useState<string[]>(['ESTUDO_CASO', 'PAEE', 'PEI']);
   const [batchProgress, setBatchProgress] = useState<{ type: string; status: 'pending' | 'generating' | 'done' | 'error'; msg?: string }[]>([]);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchToast, setBatchToast] = useState('');
+
+  const getBatchSourceSnapshot = (): FormalSourceSnapshot => {
+    const snapshot: FormalSourceSnapshot = { estudoCaso: false, paee: false, pei: false };
+    for (const protocol of protocols) {
+      if (protocol.studentId !== student.id || !hasUsefulFormalDocumentContent(protocol.structuredData)) continue;
+      const docType = normalizeFormalGuardDocType(protocol.type);
+      if (docType === 'ESTUDO_CASO') snapshot.estudoCaso = true;
+      if (docType === 'PAEE') snapshot.paee = true;
+      if (docType === 'PEI') snapshot.pei = true;
+    }
+    return snapshot;
+  };
 
   const handleDeleteProtocol = async (id: string) => {
     if (!window.confirm('Excluir este documento? Esta ação não pode ser desfeita.')) return;
@@ -514,7 +551,48 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
   const handleBatchGenerate = async () => {
     if (!user || !batchSelected.length) return;
-    const ordered = BATCH_TYPES.filter(t => batchSelected.includes(t.id as string)).sort((a, b) => a.order - b.order);
+    const batchGuardMessage = getFormalBatchGuardMessage(batchSelected, getBatchSourceSnapshot());
+    if (batchGuardMessage) {
+      alert(batchGuardMessage);
+      return;
+    }
+    const orderedIds = orderFormalDocTypes(batchSelected);
+    const ordered = BATCH_TYPES.filter(t => orderedIds.includes(t.id)).sort((a, b) => a.order - b.order);
+    const selectedIds = ordered.map(t => t.id as string);
+    const totalCost = selectedIds.reduce((sum, id) => sum + getBatchDocCost(id), 0);
+    const costByDoc = Object.fromEntries(selectedIds.map(id => [id, getBatchDocCost(id)]));
+    const initialBalance = await AIService.getRemainingCredits(user as any);
+
+    console.info('[BatchDocuments] precheck', {
+      studentId: student.id,
+      initialBalance,
+      selectedDocuments: selectedIds,
+      costByDoc,
+      totalCost,
+    });
+
+    if (initialBalance < 0) {
+      console.warn('[BatchDocuments] saldo real indisponível; lote bloqueado', {
+        studentId: student.id,
+        selectedDocuments: selectedIds,
+        totalCost,
+      });
+      alert('Não foi possível confirmar o saldo real de créditos. Atualize a página e tente novamente.');
+      return;
+    }
+
+    if (initialBalance < totalCost) {
+      console.warn('[BatchDocuments] créditos insuficientes antes de iniciar lote', {
+        studentId: student.id,
+        initialBalance,
+        selectedDocuments: selectedIds,
+        costByDoc,
+        totalCost,
+      });
+      alert(`Créditos insuficientes para gerar o lote. Saldo atual: ${initialBalance}. Necessário: ${totalCost}.`);
+      return;
+    }
+
     setBatchProgress(ordered.map(t => ({ type: t.id as string, status: 'pending' })));
     setBatchRunning(true);
 
@@ -522,9 +600,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
     for (let i = 0; i < ordered.length; i++) {
       const t = ordered[i];
+      const docCost = getBatchDocCost(t.id as string);
+      console.info('[BatchDocuments] gerando documento', {
+        studentId: student.id,
+        documentType: t.id,
+        documentLabel: t.label,
+        docCost,
+        index: i + 1,
+        total: ordered.length,
+      });
       setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'generating' } : p));
       try {
-        const aiResult = await AIService.generateProtocolJSON(t.id, student, user as any);
+        const aiDocType = t.id === 'ESTUDO_CASO' ? DocumentType.ESTUDO_CASO : t.id;
+        const aiResult = await AIService.generateProtocolJSON(aiDocType, student, user as any);
         const parsed   = JSON.parse(aiResult.json);
         const sections = parsed?.sections ?? [];
 
@@ -542,7 +630,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           tenant_id:      (user as any).tenant_id,
           studentId:      student.id,
           userId:         (user as any).id,
-          doc_type:       t.id,
+          doc_type:       t.id === 'ESTUDO_CASO' ? 'ESTUDO_CASO' : t.id,
           title:          `${t.label} — ${student.name}`,
           content:        aiResult.json,
           structuredData: { sections },
@@ -569,11 +657,20 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             ? { ...p, status: isFallback ? 'done' : 'done', msg: aiResult.warning }
             : p
         ));
+        window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: (user as any).id } }));
       } catch (err: any) {
+        console.warn('[BatchDocuments] erro ao gerar documento', {
+          studentId: student.id,
+          documentType: t.id,
+          documentLabel: t.label,
+          docCost,
+          error: err?.message || String(err),
+        });
         setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'error', msg: err?.message || 'Erro' } : p));
       }
     }
     setBatchRunning(false);
+    window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: (user as any).id } }));
     // Recarrega documentos para refletir na aba Documentos
     await loadDbDocs();
     await onRefreshProtocols?.();
@@ -811,6 +908,49 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     { id: 'timeline',           label: 'Linha do Tempo',                    icon: <Activity size={13}/> },
   ];
 
+  // Grupos de navegação premium — 4 grupos com subtítulos por item
+  const NAV_GROUPS: {
+    id: string; label: string; icon: React.ReactNode;
+    color: string; bg: string; border: string;
+    tabs: { id: Tab; sub: string }[];
+  }[] = [
+    {
+      id: 'dados', label: 'Dados e Perfil', icon: <User size={15}/>,
+      color: '#1F4E5F', bg: '#EBF5F9', border: '#C7E8F5',
+      tabs: [
+        { id: 'ficha',              sub: 'Dados pessoais e escolares' },
+        { id: 'perfil_inteligente', sub: 'Análise IA personalizada' },
+        { id: 'observacao_regente', sub: 'Registro de observações' },
+      ],
+    },
+    {
+      id: 'planos', label: 'Planos e Rotina', icon: <ClipboardList size={15}/>,
+      color: '#7c3aed', bg: '#FAF5FF', border: '#E9D5FF',
+      tabs: [
+        { id: 'plano_acao',     sub: 'Estratégias do regente' },
+        { id: 'plano_acao_aee', sub: 'Atendimento especializado' },
+        { id: 'rotina',         sub: 'Rotina e cuidados' },
+      ],
+    },
+    {
+      id: 'documentos_grupo', label: 'Documentos', icon: <FileText size={15}/>,
+      color: '#0369a1', bg: '#EFF6FF', border: '#BFDBFE',
+      tabs: [
+        { id: 'documentos', sub: 'PEI, PAEE, PDI e mais' },
+        { id: 'atividades',  sub: 'Atividades com IA' },
+      ],
+    },
+    {
+      id: 'acompanhamento', label: 'Acompanhamento', icon: <TrendingUp size={15}/>,
+      color: '#15803d', bg: '#F0FDF4', border: '#BBF7D0',
+      tabs: [
+        { id: 'evolucao', sub: 'Perfil cognitivo e evolução' },
+        { id: 'agenda',   sub: 'Agendamentos e atendimentos' },
+        { id: 'timeline', sub: 'Histórico de eventos' },
+      ],
+    },
+  ];
+
   return (
     <div className="max-w-6xl mx-auto pb-20 space-y-5">
       {/* ── Modal de configuração da ficha PDF ── */}
@@ -838,7 +978,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             <Edit size={15}/> Editar Dados
           </button>
           <button
-            onClick={() => { setBatchSelected(['ESTUDO_DE_CASO', 'PAEE', 'PEI']); setBatchProgress([]); setBatchRunning(false); setShowBatchModal(true); }}
+            onClick={() => { setBatchSelected(['ESTUDO_CASO', 'PAEE', 'PEI']); setBatchProgress([]); setBatchRunning(false); setShowBatchModal(true); }}
             className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 transition shadow-sm"
           >
             <Sparkles size={15}/> Gerar em Lote
@@ -863,17 +1003,17 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         const cardBorder = isImportedIncomplete ? '#B91C1C60' : isIncomplete ? '#DC262660' : '#E5E7EB';
 
         return (
-      <div className="bg-white rounded-2xl shadow-sm overflow-hidden" style={{ border: `1.5px solid ${cardBorder}` }}>
-        {/* Faixa colorida (vermelha se incompleto) */}
-        <div className="h-2" style={{ background: accentBar }}/>
+      <div className="bg-white rounded-2xl overflow-hidden" style={{ border: `1.5px solid ${cardBorder}`, boxShadow: '0 4px 24px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04)' }}>
+        {/* Faixa de acento superior */}
+        <div className="h-1.5" style={{ background: accentBar }}/>
 
         <div className="p-6 flex flex-col md:flex-row gap-6 items-start">
-          {/* Avatar */}
-          <div className="w-20 h-20 rounded-2xl border-2 border-gray-100 overflow-hidden shrink-0 shadow-sm bg-gray-50">
+          {/* Avatar circular premium */}
+          <div className="w-24 h-24 rounded-full overflow-hidden shrink-0 bg-gray-50" style={{ border: '3px solid #FFFFFF', boxShadow: '0 0 0 2px #E7E2D8, 0 4px 16px rgba(0,0,0,0.12)', minWidth: '6rem' }}>
             {student.photoUrl ? (
               <img src={student.photoUrl} alt={student.name} className="w-full h-full object-cover"/>
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-3xl font-bold" style={{ background: '#EFF9FF', color: '#1F4E5F' }}>
+              <div className="w-full h-full flex items-center justify-center text-3xl font-bold" style={{ background: 'linear-gradient(135deg, #EBF5F9, #D6EEF8)', color: '#1F4E5F' }}>
                 {student.name.charAt(0)}
               </div>
             )}
@@ -911,15 +1051,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
 
           {/* KPIs */}
-          <div className="flex gap-3 shrink-0">
+          <div className="flex gap-2.5 shrink-0">
             {[
-              { label: 'Atendimentos', value: totalServices, color: '#1F4E5F' },
-              { label: 'Presença', value: `${presenceRate}%`, color: '#16a34a' },
-              { label: 'Documentos', value: studentProtocols.length, color: '#7c3aed' },
+              { label: 'Atendimentos', value: totalServices, color: '#1F4E5F', bg: '#EBF5F9', border: '#C7E8F5' },
+              { label: 'Presença',     value: `${presenceRate}%`, color: '#15803d', bg: '#F0FDF4', border: '#BBF7D0' },
+              { label: 'Documentos',   value: studentProtocols.length, color: '#7c3aed', bg: '#FAF5FF', border: '#E9D5FF' },
             ].map(k => (
-              <div key={k.label} className="bg-gray-50 rounded-xl px-4 py-3 text-center border border-gray-100">
+              <div
+                key={k.label}
+                className="rounded-2xl px-4 py-3 text-center"
+                style={{ background: k.bg, border: `1px solid ${k.border}`, minWidth: '76px' }}
+              >
                 <div className="text-xl font-bold" style={{ color: k.color }}>{k.value}</div>
-                <div className="text-[10px] text-gray-500 font-semibold mt-0.5">{k.label}</div>
+                <div className="text-[10px] font-semibold mt-0.5" style={{ color: k.color, opacity: 0.75 }}>{k.label}</div>
               </div>
             ))}
           </div>
@@ -981,52 +1125,222 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="flex gap-0 border-t border-gray-100 print:hidden overflow-x-auto">
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(t.id)}
-              className={`flex items-center gap-1.5 px-5 py-3 text-xs font-bold whitespace-nowrap border-b-2 transition-colors ${
-                activeTab === t.id
-                  ? t.highlight
-                    ? 'border-amber-500 text-amber-700 bg-amber-50'
-                    : 'border-brand-600 text-brand-700 bg-brand-50'
-                  : t.highlight
-                    ? 'border-transparent text-amber-600 hover:text-amber-700 hover:bg-amber-50'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              {t.icon}{t.label}
-              {t.highlight && (
-                <span className="ml-1 text-[9px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">NOVO</span>
-              )}
-              {t.id === 'plano_acao_aee' && studentProtocols.filter(p => p.type === DocumentType.PLANO_ACAO_AEE).length > 0 && (
-                <span className="ml-1 text-[9px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded-full font-bold">
-                  {studentProtocols.filter(p => p.type === DocumentType.PLANO_ACAO_AEE).length}
-                </span>
-              )}
-              {t.id === 'documentos' && (() => {
-                const nonAeeDocs = studentProtocols.filter(p => p.type !== DocumentType.PLANO_ACAO_AEE);
-                const total = dbDocs.length + nonAeeDocs.length + (dbObsForms.length || fichas.length);
-                return total > 0 ? (
-                  <span className="ml-1 text-[9px] bg-brand-100 text-brand-700 px-1.5 py-0.5 rounded-full font-bold">
-                    {total}
-                  </span>
-                ) : null;
-              })()}
-            </button>
-          ))}
-        </div>
       </div>
         ); // fecha o return do IIFE
       })()}
 
+      {/* ── Navegação Premium em Grupos ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 print:hidden">
+        {NAV_GROUPS.map(group => {
+          const isGroupActive = group.tabs.some(t => t.id === activeTab);
+          return (
+            <div
+              key={group.id}
+              className="bg-white rounded-2xl overflow-hidden"
+              style={{
+                border: `1.5px solid ${isGroupActive ? group.border : '#E7E2D8'}`,
+                boxShadow: isGroupActive
+                  ? `0 4px 16px ${group.color}18, 0 1px 4px rgba(0,0,0,0.05)`
+                  : '0 1px 4px rgba(0,0,0,0.04)',
+                transition: 'box-shadow 0.18s, border-color 0.18s',
+              }}
+            >
+              {/* Cabeçalho do grupo */}
+              <div
+                className="px-4 py-3 flex items-center gap-2.5"
+                style={{
+                  background: isGroupActive ? group.bg : '#FAFAF9',
+                  borderBottom: `1.5px solid ${isGroupActive ? group.border : '#F0EDE8'}`,
+                }}
+              >
+                <div
+                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                  style={{ background: isGroupActive ? group.color : `${group.color}20` }}
+                >
+                  <span style={{ color: isGroupActive ? 'white' : group.color }}>{group.icon}</span>
+                </div>
+                <span
+                  className="text-[11px] font-extrabold uppercase tracking-wider leading-tight"
+                  style={{ color: group.color }}
+                >
+                  {group.label}
+                </span>
+              </div>
+
+              {/* Itens do grupo — cards premium com ícone + título + subtítulo */}
+              <div className="py-1.5 px-1.5 space-y-1">
+                {group.tabs.map(item => {
+                  const tab = TABS.find(t => t.id === item.id);
+                  if (!tab) return null;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left"
+                      style={{
+                        background: isActive ? `${group.bg}E6` : 'transparent',
+                        borderLeft: `3px solid ${isActive ? group.color : 'transparent'}`,
+                        transition: 'all 0.12s',
+                      }}
+                    >
+                      {/* Ícone */}
+                      <div
+                        className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ background: isActive ? group.color : `${group.color}15` }}
+                      >
+                        <span style={{ color: isActive ? 'white' : group.color }}>
+                          {tab.icon}
+                        </span>
+                      </div>
+                      {/* Texto */}
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className="text-xs font-bold leading-tight truncate"
+                          style={{ color: isActive ? group.color : '#374151' }}
+                        >
+                          {tab.label}
+                        </p>
+                        <p
+                          className="text-[10px] leading-tight mt-0.5 truncate"
+                          style={{ color: isActive ? group.color : '#9CA3AF' }}
+                        >
+                          {item.sub}
+                        </p>
+                      </div>
+                      {/* Badges */}
+                      <div className="flex flex-col items-end gap-0.5 shrink-0">
+                        {tab.highlight && (
+                          <span className="text-[8px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold">
+                            NOVO
+                          </span>
+                        )}
+                        {item.id === 'plano_acao_aee' && studentProtocols.filter(p => p.type === DocumentType.PLANO_ACAO_AEE).length > 0 && (
+                          <span className="text-[8px] bg-cyan-100 text-cyan-700 px-1.5 py-0.5 rounded-full font-bold">
+                            {studentProtocols.filter(p => p.type === DocumentType.PLANO_ACAO_AEE).length}
+                          </span>
+                        )}
+                        {item.id === 'documentos' && (() => {
+                          const nonAeeDocs = studentProtocols.filter(p => p.type !== DocumentType.PLANO_ACAO_AEE);
+                          const total = dbDocs.length + nonAeeDocs.length + (dbObsForms.length || fichas.length);
+                          return total > 0 ? (
+                            <span className="text-[8px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-bold">
+                              {total}
+                            </span>
+                          ) : null;
+                        })()}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* ══════════════════════════════════════════════════════════════════════
           TAB 1 — FICHA DO ALUNO
-          Seção 1: Identificação · Seção 2: Classificação · Seção 3: Perfil Pedagógico
+          Visão executiva compacta + expansível para ficha completa
          ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'ficha' && (
+        <div className="space-y-4">
+
+          {/* ── Quick Info Cards ── */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {([
+              { label: 'Escola', value: student.schoolName || (student as any).school_name },
+              { label: 'Série / Turno', value: [student.grade, student.shift].filter(Boolean).join(' · ') || undefined },
+              { label: 'Nascimento / Idade', value: student.birthDate ? `${formatDateBR(student.birthDate)} · ${calculateAge(student.birthDate)} anos` : undefined },
+              { label: 'Responsável', value: student.guardianName },
+            ] as { label: string; value?: string }[]).filter(c => c.value).map(card => (
+              <div
+                key={card.label}
+                className="bg-white rounded-2xl p-4 border border-gray-100"
+                style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}
+              >
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide mb-1">{card.label}</p>
+                <p className="text-sm font-bold text-gray-800 leading-tight">{card.value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* ── Diagnóstico + Suporte ── */}
+          {(student.diagnosis?.length > 0 || student.supportLevel) && (
+            <div
+              className="bg-white rounded-2xl p-4 border border-gray-100 flex flex-wrap items-center gap-2"
+              style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}
+            >
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Diagnóstico</span>
+              {student.diagnosis.map((d, i) => <Tag_ key={i} label={d} color="purple"/>)}
+              {student.supportLevel && (
+                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-brand-100 text-brand-700">{student.supportLevel}</span>
+              )}
+              {(Array.isArray(student.cid) ? student.cid : [student.cid]).filter(Boolean).length > 0 && (
+                <span className="text-[10px] text-gray-400 ml-1">
+                  CID: {(Array.isArray(student.cid) ? student.cid : [student.cid]).filter(Boolean).join(', ')}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* ── Potencialidades vs Barreiras ── */}
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="bg-green-50 rounded-2xl p-4 border border-green-100">
+              <p className="text-xs font-bold text-green-700 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                <CheckCircle size={12}/> Potencialidades
+              </p>
+              {student.abilities?.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {student.abilities.slice(0, 6).map((ab, i) => <Tag_ key={i} label={ab} color="green"/>)}
+                  {student.abilities.length > 6 && <span className="text-xs text-green-600 font-semibold">+{student.abilities.length - 6}</span>}
+                </div>
+              ) : <p className="text-xs text-gray-400 italic">Nenhuma registrada.</p>}
+            </div>
+            <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100">
+              <p className="text-xs font-bold text-orange-700 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                <AlertCircle size={12}/> Barreiras
+              </p>
+              {student.difficulties?.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {student.difficulties.slice(0, 6).map((d, i) => <Tag_ key={i} label={d} color="orange"/>)}
+                  {student.difficulties.length > 6 && <span className="text-xs text-orange-600 font-semibold">+{student.difficulties.length - 6}</span>}
+                </div>
+              ) : <p className="text-xs text-gray-400 italic">Nenhuma registrada.</p>}
+            </div>
+          </div>
+
+          {/* ── Contato rápido ── */}
+          {(student.guardianPhone || student.guardianEmail) && (
+            <div
+              className="bg-white rounded-2xl px-5 py-3 border border-gray-100 flex flex-wrap gap-4 items-center"
+              style={{ boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}
+            >
+              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Contato</span>
+              {student.guardianPhone && <span className="text-xs font-semibold text-gray-700">{student.guardianPhone}</span>}
+              {student.guardianEmail && <span className="text-xs text-gray-500">{student.guardianEmail}</span>}
+            </div>
+          )}
+
+          {/* ── Toggle ficha completa ── */}
+          <button
+            onClick={() => setShowFichaCompleta(v => !v)}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-sm font-bold border transition-all"
+            style={{
+              background: showFichaCompleta ? '#EBF5F9' : 'white',
+              color: '#1F4E5F',
+              borderColor: showFichaCompleta ? '#C7E8F5' : '#E7E2D8',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+            }}
+          >
+            {showFichaCompleta ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+            {showFichaCompleta ? 'Recolher ficha completa' : 'Ver ficha completa'}
+          </button>
+        </div>
+      )}
+
+      {/* Ficha completa expansível */}
+      {activeTab === 'ficha' && showFichaCompleta && (
         <div className="space-y-5">
           <div className="grid md:grid-cols-2 gap-5">
 
@@ -2078,7 +2392,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                 <tbody className="divide-y divide-gray-50">
                   {studentProtocols.map(p => (
                     <tr key={p.id} className="hover:bg-gray-50 transition">
-                      <td className="px-5 py-3 font-bold text-gray-800">{p.type}</td>
+                      <td className="px-5 py-3 font-bold text-gray-800">{getProtocolDisplayLabel(p)}</td>
                       <td className="px-5 py-3 text-gray-500 text-xs">{new Date(p.createdAt).toLocaleDateString('pt-BR')}</td>
                       <td className="px-5 py-3">{getStatusBadge(p.status)}</td>
                       <td className="px-5 py-3">
@@ -2507,7 +2821,7 @@ ${['Comunica-se verbalmente','Usa gestos para comunicar','Usa recursos de CAA','
 
             {batchProgress.length === 0 ? (
               <>
-                <p className="text-sm text-gray-500 mb-4">Selecione os documentos a gerar para <strong>{student.name}</strong>. A ordem de geração é fixa: Estudo de Caso → PAEE → PEI.</p>
+                <p className="text-sm text-gray-500 mb-4">Selecione os documentos a gerar para <strong>{student.name}</strong>. A ordem de geração é fixa: Estudo de Caso → PAEE → PEI → Plano Unificado PAEE + PEI.</p>
                 <div className="space-y-2 mb-5">
                   {BATCH_TYPES.map(t => (
                     <label key={t.id as string} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 cursor-pointer">
@@ -2519,13 +2833,13 @@ ${['Comunica-se verbalmente','Usa gestos para comunicar','Usa recursos de CAA','
                       />
                       <div>
                         <p className="text-sm font-bold text-gray-800">{t.label}</p>
-                        <p className="text-xs text-gray-400">3 créditos</p>
+                        <p className="text-xs text-gray-400">{getBatchDocCost(t.id as string)} créditos</p>
                       </div>
                     </label>
                   ))}
                 </div>
                 <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 mb-4 text-xs text-amber-700">
-                  Consumirá <strong>{batchSelected.length * 3} créditos</strong> no total. Os documentos serão salvos como rascunho.
+                  Consumirá <strong>{getBatchTotalCost(batchSelected)} créditos</strong> no total. Os documentos serão salvos como rascunho.
                 </div>
                 <div className="flex gap-3">
                   <button onClick={() => setShowBatchModal(false)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50">Cancelar</button>

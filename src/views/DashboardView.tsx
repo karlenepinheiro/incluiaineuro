@@ -11,8 +11,7 @@ import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
 import { PaymentService } from '../services/paymentService';
 import { PlanTier } from '../types';
 import { NumberTicker } from '@/src/components/magicui/number-ticker';
-import { supabase } from '../services/supabase';
-import { CreditBalanceBadge } from '../components/CreditBalanceBadge';
+import { supabase, DEMO_MODE } from '../services/supabase';
 
 // ─── Diagnosis normalizer ────────────────────────────────────────────────────
 function normalizeDiagnosis(value: unknown): string {
@@ -40,16 +39,17 @@ function normalizeDiagnosis(value: unknown): string {
 // ─── Design tokens ──────────────────────────────────────────────────────────
 
 const C = {
-  bg:        '#F6F4EF',
+  bg:        '#F7F5EF',
   surface:   '#FFFFFF',
-  text:      '#1F2937',
-  textSec:   '#667085',
-  petrol:    '#1F4E5F',
-  dark:      '#2E3A59',
+  text:      '#0F2A3D',
+  textSec:   '#64748B',
+  petrol:    '#164F5F',
+  dark:      '#0F2A3D',
   gold:      '#C69214',
   goldLight: '#FDF6E3',
-  border:    '#E7E2D8',
+  border:    '#E6E1D8',
   borderMid: '#C9C3B5',
+  teal:      '#0097A7',
   emerald:   '#059669',
   violet:    '#7C3AED',
   amber:     '#D97706',
@@ -587,7 +587,7 @@ export function DashboardView({
   const [accessNotifs, setAccessNotifs] = useState<AccessNotification[]>([]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || DEMO_MODE) return;
     supabase
       .from('notifications')
       .select('id, title, body, data, created_at')
@@ -761,40 +761,69 @@ export function DashboardView({
     planBadge === 'FREE'   ? C.textSec :
     planBadge === 'PRO'    ? C.blue    : C.gold;
 
-  // ── Smart suggestions ────────────────────────────────────────────────────────
-  const suggestions: { icon: React.ElementType; title: string; body: string; color: string; action?: string; nav?: string }[] = [];
-
-  if (creditsLevel === 'danger') {
-    suggestions.push({ icon: AlertTriangle, color: C.rose, title: 'Créditos quase no limite',
-      body: `Você já usou ${Math.round(creditsPct)}% dos seus créditos. Considere comprar um pacote avulso.`,
-      action: 'Ver pacotes', nav: 'subscription' });
-  } else if (creditsLevel === 'warning') {
-    suggestions.push({ icon: Zap, color: C.amber, title: 'Créditos em atenção',
-      body: `${available} créditos disponíveis. Próxima renovação dos créditos: ${resetBR ?? 'breve'}.` });
-  }
-  if (isFree || isPro) {
-    suggestions.push({ icon: Star, color: C.gold,
-      title: isFree ? 'Desbloqueie recursos PRO' : 'Acesse tudo com o PREMIUM',
-      body: isFree
-        ? `Tenha ${SUBSCRIPTION_PLANS.PRO.credits} créditos/mês, Triagem, IncluiLab e muito mais.`
-        : `Com o PREMIUM: ${SUBSCRIPTION_PLANS.MASTER.credits} créditos/mês, fichas e controle de atendimento.`,
-      action: 'Ver planos', nav: 'subscription' });
-  }
-  if (students.length === 0) {
-    suggestions.push({ icon: Users, color: C.blue, title: 'Cadastre seu primeiro aluno',
-      body: 'Comece adicionando um aluno para acessar documentos e relatórios personalizados.',
-      action: 'Adicionar aluno', nav: 'students' });
-  }
-  if (kpis.drafts > 0) {
-    suggestions.push({ icon: Clock, color: C.violet,
-      title: `${kpis.drafts} rascunho${kpis.drafts > 1 ? 's' : ''} pendente${kpis.drafts > 1 ? 's' : ''}`,
-      body: 'Você tem documentos em rascunho aguardando finalização.',
-      action: 'Ver documentos', nav: 'protocols' });
-  }
-  if (suggestions.length === 0) {
-    suggestions.push({ icon: CheckCircle2, color: C.emerald, title: 'Tudo em ordem!',
-      body: 'Sua plataforma está organizada. Continue gerando documentos de qualidade para seus alunos.' });
-  }
+  // ── Sugestão do dia — card único fixo por sessão ─────────────────────────────
+  const dailySuggestion = useMemo(() => {
+    // P1: rascunhos pendentes
+    if (kpis.drafts > 0) return {
+      icon: Clock, color: C.violet,
+      title: 'Revise os rascunhos antes de começar algo novo',
+      body: `Você tem ${kpis.drafts} documento${kpis.drafts > 1 ? 's' : ''} em rascunho aguardando finalização. Conclua o que já foi iniciado antes de abrir novos documentos.`,
+      action: 'Ver rascunhos', nav: 'protocols',
+    };
+    // P2: alunos em triagem
+    if (studentStatusKpis.triagem > 0) return {
+      icon: Users, color: '#0097A7',
+      title: 'Hoje é um bom dia para a triagem',
+      body: `Você tem ${studentStatusKpis.triagem} aluno${studentStatusKpis.triagem > 1 ? 's' : ''} em triagem. Acompanhe o processo e verifique quais próximos passos precisam de atenção.`,
+      action: 'Ver triagem', nav: 'triagem',
+    };
+    // P3: alunos com laudo e sem PEI finalizado
+    const semPEI = students.filter(s => {
+      const hasLaudo = !!(s as any).laudo || !!(s as any).report
+        || (s as any).tipo_aluno === 'com_laudo'
+        || (s.documents ?? []).some((d: any) => d.type === 'Laudo');
+      if (!hasLaudo) return false;
+      return !protocols.some(p =>
+        p.studentId === s.id && p.type?.toUpperCase().includes('PEI') && p.status === 'FINAL'
+      );
+    });
+    if (semPEI.length > 0) return {
+      icon: Star, color: C.amber,
+      title: 'Priorize alunos com laudo e sem PEI',
+      body: `${semPEI.length} aluno${semPEI.length > 1 ? 's têm' : ' tem'} laudo registrado mas ainda não ${semPEI.length > 1 ? 'possuem' : 'possui'} PEI finalizado. Documentar é parte do cuidado.`,
+      action: 'Ver alunos', nav: 'students',
+    };
+    // P4: sem atendimentos hoje
+    const today = new Date().toISOString().slice(0, 10);
+    const temHoje = (appointments ?? []).some(a => a.date.slice(0, 10) === today);
+    if (!temHoje && students.length > 0) return {
+      icon: CheckCircle2, color: C.emerald,
+      title: 'Nenhum atendimento agendado para hoje',
+      body: 'Aproveite para organizar sua sala de AEE, revisar metas dos seus alunos ou planejar os próximos atendimentos.',
+      action: 'Ir para agenda', nav: 'appointments',
+    };
+    // P5: sugestão pedagógica geral (varia por dia da semana)
+    const generalSuggestions = [
+      { icon: Brain, color: '#0097A7',
+        title: 'Organize sua sala de AEE',
+        body: 'Separe materiais por área: comunicação, leitura e escrita, atenção, coordenação motora e autonomia. Uma sala organizada apoia todos os alunos.' },
+      { icon: Star, color: C.gold,
+        title: 'Revisão de metas é parte do processo',
+        body: 'Reserve um momento para conferir as metas do PEI de cada aluno e verificar o progresso das últimas semanas.' },
+      { icon: Sparkles, color: C.petrol,
+        title: 'Inclusão começa com clareza',
+        body: 'Documentar com objetividade e precisão facilita o trabalho em equipe e fortalece os encaminhamentos pedagógicos.' },
+      { icon: CheckCircle2, color: C.emerald,
+        title: 'Menos burocracia, mais presença',
+        body: 'Documentos bem feitos economizam tempo futuro. Use os templates e a IA para organizar sem perder o foco no aluno.' },
+      { icon: TrendingUp, color: C.blue,
+        title: 'Acompanhe a evolução dos seus alunos',
+        body: 'Revise os históricos de atendimento e verifique quais estudantes precisam de atenção especial nesta semana.' },
+    ];
+    const dayIdx = new Date().getDay();
+    return generalSuggestions[dayIdx % generalSuggestions.length];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kpis.drafts, studentStatusKpis.triagem, students.length, protocols.length, appointments?.length]);
 
   return (
     <div className="min-h-screen p-5 md:p-7 space-y-5" style={{ background: C.bg }}>
@@ -956,16 +985,6 @@ export function DashboardView({
           color={C.violet} onClick={() => onNavigate?.('protocols')}
         />
       </div>
-
-      {/* ── ROTINA DO DIA ────────────────────────────────────────────────── */}
-      <CreditBalanceBadge
-        balance={available}
-        planCreditsMonthly={monthlyCredits}
-        consumedThisCycle={creditsUsed}
-        purchasedCreditsHistory={creditsPurchased}
-        resetAt={creditsResetAt}
-        onClick={() => onNavigate?.('subscription')}
-      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
@@ -1259,15 +1278,36 @@ export function DashboardView({
         </div>
       )}
 
-      {/* ── Sugestões inteligentes ───────────────────────────────────────── */}
-      {suggestions.length > 0 && (
+      {/* ── Sugestão do dia ─────────────────────────────────────────────── */}
+      {dailySuggestion && (
         <div>
-          <h2 className="text-sm font-bold mb-3" style={{ color: C.dark }}>Sugestões inteligentes</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {suggestions.map((s, i) => (
-              <AlertCard key={i} icon={s.icon} title={s.title} body={s.body} color={s.color}
-                action={s.action} onAction={s.nav ? () => onNavigate?.(s.nav!) : undefined} />
-            ))}
+          <h2 className="text-sm font-bold mb-3" style={{ color: C.dark }}>Sugestão do dia</h2>
+          <div
+            className="rounded-2xl p-5 flex items-start gap-4"
+            style={{
+              background: `linear-gradient(135deg, ${dailySuggestion.color}12 0%, ${dailySuggestion.color}06 100%)`,
+              border: `1.5px solid ${dailySuggestion.color}30`,
+            }}
+          >
+            <div
+              className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+              style={{ background: dailySuggestion.color + '20' }}
+            >
+              <dailySuggestion.icon size={20} style={{ color: dailySuggestion.color }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold mb-1" style={{ color: C.dark }}>{dailySuggestion.title}</div>
+              <div className="text-xs leading-relaxed" style={{ color: C.textSec }}>{dailySuggestion.body}</div>
+              {dailySuggestion.action && dailySuggestion.nav && (
+                <button
+                  onClick={() => onNavigate?.(dailySuggestion.nav!)}
+                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold transition hover:opacity-75"
+                  style={{ color: dailySuggestion.color }}
+                >
+                  {dailySuggestion.action} <ArrowRight size={12} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

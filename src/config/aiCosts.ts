@@ -18,10 +18,11 @@ export const AI_CREDIT_COSTS = {
   RELATORIO_INSS: 4,        // Relatório INSS / perícia
 
   // Protocolos Pedagógicos
-  ESTUDO_DE_CASO: 5,
-  PEI: 5,
-  PAEE: 5,
-  PDI: 5,
+  ESTUDO_DE_CASO: 3,
+  PEI: 3,
+  PAEE: 3,
+  PDI: 3,
+  DOCUMENTO_UNIFICADO_PEI_PAEE: 5,
 
   // Fichas e Checklists
   CHECKLIST_OBSERVACAO: 2,  // Checklist observação (regente)

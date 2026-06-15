@@ -172,24 +172,25 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
   };
 
   const features = [
-    { icon: Brain,      text: 'Geração de PEI, PAEE e PDI com IA especializada em educação inclusiva' },
-    { icon: Users,      text: 'Gestão completa de alunos neurodivergentes e em triagem' },
-    { icon: Zap,        text: 'IncluiLab: ilustrações pedagógicas geradas por IA em segundos' },
-    { icon: ShieldCheck,text: 'Documentos com código de auditoria SHA-256 e conformidade LGPD' },
+    { icon: Brain,       text: 'Geração de PEI, PAEE e PDI com IA.' },
+    { icon: Users,       text: 'Gestão completa de alunos neurodivergentes.' },
+    { icon: Zap,         text: 'IncluiLab: atividades e materiais pedagógicos.' },
+    { icon: ShieldCheck, text: 'Documentos com validação e conformidade.' },
   ];
 
   return (
     <div className="min-h-screen flex" style={{ background: '#F6F4EF' }}>
 
-      {/* ── Painel esquerdo ── */}
+      {/* ── Painel esquerdo — design claro premium ── */}
       <div
         className="hidden md:flex flex-col justify-between w-[46%] p-12 relative overflow-hidden"
-        style={{ background: 'linear-gradient(160deg, #1F4E5F 0%, #2E3A59 100%)' }}
+        style={{ background: 'linear-gradient(160deg, #EBF5F9 0%, #EEF2EE 100%)' }}
       >
+        {/* Padrão de pontos suaves em petrol */}
         <div
-          className="absolute inset-0 opacity-10"
+          className="absolute inset-0"
           style={{
-            backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+            backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(31,78,95,0.06) 1px, transparent 0)',
             backgroundSize: '28px 28px',
           }}
         />
@@ -199,9 +200,12 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
             initial={{ opacity: 0, y: -16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="mb-14"
+            className="mb-12"
           >
-            <BrandLogo fontSize={22} iconSize={22} theme="dark" />
+            <BrandLogo fontSize={22} iconSize={22} theme="light" />
+            <p className="mt-2 text-sm font-semibold tracking-wide italic" style={{ color: '#C69214' }}>
+              Pense. Crie. Inclua.
+            </p>
           </motion.div>
 
           <motion.div
@@ -209,11 +213,11 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
           >
-            <h2 className="text-3xl font-bold text-white leading-tight mb-4">
+            <h2 className="text-3xl font-bold leading-tight mb-4" style={{ color: '#1F4E5F' }}>
               Tecnologia que inclui.<br />
-              <span style={{ color: '#C69214' }}>Documentação que transforma.</span>
+              <span style={{ color: '#2E3A59' }}>Documentação que transforma.</span>
             </h2>
-            <p className="text-white/70 text-base mb-10 leading-relaxed">
+            <p className="text-base mb-10 leading-relaxed" style={{ color: '#4A6477' }}>
               A plataforma de IA para educadores e clínicos que atuam com estudantes neurodivergentes.
             </p>
           </motion.div>
@@ -227,18 +231,26 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
                 transition={{ duration: 0.4, delay: 0.2 + i * 0.08 }}
                 className="flex items-start gap-4"
               >
-                <div className="rounded-lg p-2 shrink-0" style={{ background: 'rgba(198,146,20,0.18)' }}>
-                  <Icon size={18} style={{ color: '#C69214' }} />
+                <div
+                  className="rounded-lg p-2 shrink-0"
+                  style={{ background: 'rgba(31,78,95,0.10)', border: '1px solid rgba(31,78,95,0.12)' }}
+                >
+                  <Icon size={18} style={{ color: '#1F4E5F' }} />
                 </div>
-                <p className="text-white/80 text-sm leading-relaxed">{text}</p>
+                <p className="text-sm leading-relaxed" style={{ color: '#334E5C' }}>{text}</p>
               </motion.div>
             ))}
           </div>
         </div>
 
-        <p className="relative z-10 text-white/35 text-xs">
-          &copy; {new Date().getFullYear()} IncluiAI — Todos os direitos reservados
-        </p>
+        <div className="relative z-10">
+          <p className="text-xs" style={{ color: '#6B8898' }}>
+            &copy; {new Date().getFullYear()} IncluiAI — Todos os direitos reservados
+          </p>
+          <p className="text-xs font-semibold mt-0.5" style={{ color: '#1F4E5F' }}>
+            www.incluiai.app.br
+          </p>
+        </div>
       </div>
 
       {/* ── Painel direito ── */}

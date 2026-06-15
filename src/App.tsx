@@ -17,7 +17,6 @@ const AppointmentsView      = React.lazy(() => import('./views/AppointmentsView'
 const SchoolTemplatesView   = React.lazy(() => import('./views/SchoolTemplatesView').then(m => ({ default: m.SchoolTemplatesView })));
 const PrintableTemplatesView = React.lazy(() => import('./views/PrintableTemplatesView').then(m => ({ default: m.PrintableTemplatesView })));
 const FichasComplementaresView = React.lazy(() => import('./views/FichasComplementaresView').then(m => ({ default: m.FichasComplementaresView })));
-const FichasHistoricosView  = React.lazy(() => import('./views/FichasHistoricosView').then(m => ({ default: m.FichasHistoricosView })));
 const TriagemView           = React.lazy(() => import('./views/TriagemView').then(m => ({ default: m.TriagemView })));
 const ServiceControlView    = React.lazy(() => import('./views/ServiceControlView').then(m => ({ default: m.ServiceControlView })));
 const SubscriptionView      = React.lazy(() => import('./views/SubscriptionView').then(m => ({ default: m.SubscriptionView })));
@@ -82,11 +81,52 @@ const PageLoader = () => (
 const generateAuditCode = (docType: DocumentType, existing?: string) =>
   ensureDocumentCode(getDocumentCodeKind(docType), existing);
 
+const getUnifiedPersistenceFields = (docType: DocumentType) =>
+  docType === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE
+    ? {
+        doc_type: 'DOCUMENTO_UNIFICADO_PEI_PAEE',
+        title: 'Plano Unificado PAEE + PEI',
+      }
+    : {};
+
+const getFormalGeneratedPersistenceFields = (docType: DocumentType) => {
+  switch (docType) {
+    case DocumentType.ESTUDO_CASO:
+      return { doc_type: 'ESTUDO_CASO', title: 'Estudo de Caso' };
+    case DocumentType.PAEE:
+      return { doc_type: 'PAEE', title: 'PAEE' };
+    case DocumentType.PEI:
+      return { doc_type: 'PEI', title: 'PEI' };
+    case DocumentType.PDI:
+      return { doc_type: 'PDI', title: 'PDI' };
+    case DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE:
+      return { doc_type: 'DOCUMENTO_UNIFICADO_PEI_PAEE', title: 'Plano Unificado PAEE + PEI' };
+    default:
+      return null;
+  }
+};
+
 const hasDocumentContent = (data?: DocumentData | null) => {
   const sections = data?.sections ?? [];
   return sections.some(section =>
     (section.title ?? '').trim() ||
     (section.fields ?? []).some(field => String(field.value ?? '').trim())
+  );
+};
+
+const hasGeneratedDocumentContent = (data?: DocumentData | null): boolean => {
+  const hasUsefulValue = (value: unknown): boolean => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'string') return value.trim().length > 0;
+    if (typeof value === 'number' || typeof value === 'boolean') return true;
+    if (Array.isArray(value)) return value.some(hasUsefulValue);
+    if (typeof value === 'object') return Object.values(value as Record<string, unknown>).some(hasUsefulValue);
+    return false;
+  };
+
+  return (data?.sections ?? []).some(section =>
+    hasUsefulValue(section.title) ||
+    (section.fields ?? []).some(field => hasUsefulValue(field.value))
   );
 };
 
@@ -325,6 +365,7 @@ const DocumentsHistoryView: React.FC<{
     [DocumentType.ESTUDO_CASO]:   'Estudo de Caso',
     [DocumentType.PAEE]:          'PAEE',
     [DocumentType.PEI]:           'PEI',
+    [DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE]: 'Plano Unificado PAEE + PEI',
     [DocumentType.PDI]:           'PDI',
     [DocumentType.PLANO_ACAO_AEE]:'Plano de Ação AEE',
   };
@@ -392,9 +433,20 @@ const DocumentsHistoryView: React.FC<{
   );
 };
 
+// ── Frases motivacionais da marca ─────────────────────────────────────────────
+const BRAND_PHRASES = [
+  'Pense. Crie. Inclua.',
+  'A tecnologia organiza. O professor transforma.',
+  'Documentar também é cuidar.',
+  'Menos burocracia. Mais tempo para ensinar.',
+  'Inclusão começa com clareza.',
+];
+
 // --- App ---
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [phraseIdx, setPhraseIdx] = useState(() => Math.floor(Date.now() / 10000) % BRAND_PHRASES.length);
+  const [phraseVisible, setPhraseVisible] = useState(true);
 
   // Detecta rota inicial via pathname para /login e /cadastro
   const detectInitialView = () => {
@@ -415,7 +467,9 @@ const App: React.FC = () => {
   };
 
   const [view, setView] = useState(detectInitialView);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+  );
   const [loginInitialTab, setLoginInitialTab] = useState<'login' | 'register'>(detectInitialTab);
   const [unreadMessages, setUnreadMessages] = useState(0);
 
@@ -473,8 +527,8 @@ const App: React.FC = () => {
   const planDisplayName = useMemo(() => {
     // 1ª fonte: tenantSummary (vem do banco com billing_cycle real)
     if (tenantSummary?.planDisplayName) return tenantSummary.planDisplayName;
-    // Fallback: sem ciclo (billing_cycle ainda não carregou)
-    return formatPlanDisplayName(planCode, tenantSummary?.billingCycle ?? 'monthly');
+    // Fallback: billing_cycle ainda não carregou — não assume ciclo
+    return formatPlanDisplayName(planCode, tenantSummary?.billingCycle);
   }, [tenantSummary?.planDisplayName, tenantSummary?.billingCycle, planCode]);
 
   const planEff = useMemo(() => {
@@ -525,6 +579,18 @@ const App: React.FC = () => {
   const creditsResetAt = useMemo(() => {
     return (tenantSummary?.renewalDateCredits ?? null) as string | null;
   }, [tenantSummary?.renewalDateCredits]);
+
+  // --- Rotação de frases motivacionais na topbar ---
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPhraseVisible(false);
+      setTimeout(() => {
+        setPhraseIdx(i => (i + 1) % BRAND_PHRASES.length);
+        setPhraseVisible(true);
+      }, 350);
+    }, 7000);
+    return () => clearInterval(interval);
+  }, []);
 
   // --- Captura ?ref=, ?activate=1 da URL e gerencia histórico /login /cadastro ---
   useEffect(() => {
@@ -984,6 +1050,9 @@ const App: React.FC = () => {
       }
 
       const savedRow = await databaseService.saveStudent(studentToSave);
+      if (!savedRow) throw new Error('Aluno não foi salvo. Retorno inesperado do banco.');
+      console.debug('[saveStudent:test] valor retornado do banco existe:', Boolean(savedRow));
+      console.debug('[saveStudent:test] id aluno:', (savedRow as any)?.id ?? null);
       if (import.meta.env.DEV) {
         console.info('[App.saveStudent] retorno databaseService.saveStudent', savedRow);
       }
@@ -1108,6 +1177,7 @@ const App: React.FC = () => {
 
     if (targetType === DocumentType.PEI) setView('protocols');
     else if (targetType === DocumentType.PAEE) setView('paee');
+    else if (targetType === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE) setView('documento_unificado');
     else if (targetType === DocumentType.PDI) setView('pdi');
     else setView('protocols');
   };
@@ -1151,6 +1221,7 @@ const App: React.FC = () => {
       try {
         await databaseService.saveDocument({
           ...updatedProtocol,
+          ...getUnifiedPersistenceFields(protocolType),
           tenant_id: user.tenant_id,
           structured_data: dataToPersist,
         });
@@ -1200,6 +1271,7 @@ const App: React.FC = () => {
       try {
         const savedDoc = await databaseService.saveDocument({
           ...newProtocol,
+          ...getUnifiedPersistenceFields(protocolType),
           tenant_id: user.tenant_id,
           structured_data: dataToPersist,
         });
@@ -1246,10 +1318,12 @@ const App: React.FC = () => {
       const { generateProtocolAI } = await import('./services/geminiService');
       const aiResult = await generateProtocolAI(activeDocumentType, student, user, docContent, studentContext);
       let structuredData: DocumentData;
+      let parsedSuccessfully = true;
       try {
         const cleanJson = aiResult.json.replace(/```json/g, '').replace(/```/g, '');
         structuredData = JSON.parse(cleanJson);
       } catch {
+        parsedSuccessfully = false;
         structuredData = { sections: [] };
         alert('Erro ao estruturar dados da IA. Usando template vazio.');
       }
@@ -1257,23 +1331,91 @@ const App: React.FC = () => {
       setAiGenerationStatus(aiResult.status);
       setAiGenerationWarning(aiResult.warning ?? null);
 
-      setCurrentProtocol({
-        id: 'temp',
+      const school = user.schoolConfigs[0];
+      const timestamp = new Date().toISOString();
+      const existingGeneratedProtocol =
+        currentProtocol &&
+        currentProtocol.id !== 'temp' &&
+        currentProtocol.studentId === student.id &&
+        currentProtocol.type === activeDocumentType
+          ? currentProtocol
+          : null;
+      const documentCode = generateAuditCode(activeDocumentType, currentProtocol?.auditCode);
+      const dataToPersist = { ...(structuredData as any), auditCode: documentCode } as DocumentData;
+      const aiVersion: DocumentVersion = {
+        versionId: crypto.randomUUID(),
+        versionNumber: existingGeneratedProtocol ? existingGeneratedProtocol.versions.length + 1 : 1,
+        createdAt: timestamp,
+        editedBy: user.name,
+        content: dataToPersist,
+        changeLog: existingGeneratedProtocol ? 'Atualização por IA' : 'Geração inicial por IA',
+      };
+      const generatedProtocol: Protocol = {
+        ...(existingGeneratedProtocol ?? {}),
+        id: existingGeneratedProtocol ? existingGeneratedProtocol.id : crypto.randomUUID(),
         studentId: student.id,
         studentName: student.name,
         type: activeDocumentType,
-        status: 'FINAL',
+        status: 'DRAFT',
         content: '',
         isStructured: true,
-        structuredData,
-        versions: [],
-        createdAt: '',
-        lastEditedAt: '',
-        lastEditedBy: '',
-        generatedBy: '',
-        auditCode: '',
-        signatures: { regent: '', coordinator: '', aee: '', manager: '' },
-      });
+        structuredData: dataToPersist,
+        versions: existingGeneratedProtocol ? [...existingGeneratedProtocol.versions, aiVersion] : [aiVersion],
+        createdAt: existingGeneratedProtocol ? existingGeneratedProtocol.createdAt : timestamp,
+        lastEditedAt: timestamp,
+        lastEditedBy: user.name,
+        generatedBy: user.name,
+        auditCode: documentCode,
+        signatures: existingGeneratedProtocol
+          ? existingGeneratedProtocol.signatures
+          : {
+              regent: user.name,
+              coordinator: school?.coordinatorName || '',
+              aee: school?.aeeRepresentative || '',
+              aeeRep: school?.aeeRepName || '',
+              manager: school?.managerName || '',
+            },
+      };
+
+      const persistenceFields = getFormalGeneratedPersistenceFields(activeDocumentType);
+      if (parsedSuccessfully && persistenceFields && hasGeneratedDocumentContent(dataToPersist)) {
+        try {
+          const savedDoc = await databaseService.saveDocument({
+            ...generatedProtocol,
+            ...persistenceFields,
+            tenant_id: user.tenant_id,
+            structured_data: dataToPersist,
+          });
+          const savedProtocol = savedDoc?.id && savedDoc.id !== generatedProtocol.id
+            ? { ...generatedProtocol, id: savedDoc.id }
+            : generatedProtocol;
+
+          setProtocols(prev => {
+            const withoutDuplicate = prev.filter(p => p.id !== generatedProtocol.id && p.id !== savedProtocol.id);
+            return [savedProtocol, ...withoutDuplicate];
+          });
+          setCurrentProtocol(savedProtocol);
+          alert('Documento gerado e salvo como rascunho no histórico do aluno.');
+        } catch (saveError: any) {
+          console.error('[handleGenerateAI] erro ao salvar rascunho gerado por IA:', saveError);
+          setCurrentProtocol(generatedProtocol);
+          alert('Documento gerado, mas não foi possível salvar automaticamente no histórico. Clique em Salvar antes de sair.');
+        }
+      } else {
+        setCurrentProtocol({
+          ...generatedProtocol,
+          id: 'temp',
+          status: 'FINAL',
+          structuredData,
+          versions: [],
+          createdAt: '',
+          lastEditedAt: '',
+          lastEditedBy: '',
+          generatedBy: '',
+          auditCode: '',
+          signatures: { regent: '', coordinator: '', aee: '', manager: '' },
+        });
+      }
     } catch (e: any) {
       alert(e?.message || 'Erro ao gerar protocolo.');
     } finally {
@@ -1291,10 +1433,11 @@ const App: React.FC = () => {
   // --- Navegação com inicialização de documento ---
   const handleSetView = (v: string) => {
     const docMap: Record<string, DocumentType> = {
-      protocols:   DocumentType.PEI,
-      pdi:         DocumentType.PDI,
-      paee:        DocumentType.PAEE,
-      estudo_caso: DocumentType.ESTUDO_CASO,
+      protocols:           DocumentType.PEI,
+      pdi:                 DocumentType.PDI,
+      paee:                DocumentType.PAEE,
+      estudo_caso:         DocumentType.ESTUDO_CASO,
+      documento_unificado: DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE,
     };
     if (docMap[v]) {
       initDocumentGeneration(docMap[v]);
@@ -1519,7 +1662,7 @@ const App: React.FC = () => {
   }
   // ──────────────────────────────────────────────────────────────────────────
 
-  const isDocView = ['protocols', 'pdi', 'paee', 'estudo_caso'].includes(view);
+  const isDocView = ['protocols', 'pdi', 'paee', 'estudo_caso', 'documento_unificado'].includes(view);
 
   return (
     <ErrorBoundary>
@@ -1541,6 +1684,7 @@ const App: React.FC = () => {
           )}
           setView={handleSetView}
           isOpen={isSidebarOpen}
+          onCloseMobile={() => setIsSidebarOpen(false)}
           onLogout={handleLogout}
           studentCount={students.length}
           protocolCount={protocols.length}
@@ -1570,7 +1714,7 @@ const App: React.FC = () => {
 
           <header
             className="border-b border-gray-200 h-16 flex items-center px-4 justify-between shrink-0 print:hidden"
-            style={{ background: '#1F4E5F' }}
+            style={{ background: '#164F5F' }}
           >
             <div className="flex items-center gap-3">
               <button
@@ -1579,8 +1723,26 @@ const App: React.FC = () => {
               >
                 <Menu size={24} color="white" />
               </button>
-              <BrandLogo fontSize={16} iconSize={14} className="lg:hidden" />
+              <BrandLogo fontSize={16} iconSize={14} className="lg:hidden" theme="white" />
             </div>
+
+            {/* Frase motivacional — desktop apenas */}
+            <div className="hidden lg:flex flex-1 items-center justify-center pointer-events-none px-4">
+              <span
+                style={{
+                  color: 'rgba(255,255,255,0.60)',
+                  opacity: phraseVisible ? 1 : 0,
+                  transition: 'opacity 0.35s ease',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: '0.07em',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {BRAND_PHRASES[phraseIdx]}
+              </span>
+            </div>
+
             {isAuthenticated && (
               <NotificationsPanel
                 onNavigate={handleSetView}
@@ -1611,8 +1773,15 @@ const App: React.FC = () => {
               <ContactDataModal
                 userId={user.id}
                 onSave={async (phone, cpf) => {
-                  await supabase.from('users').update({ phone, cpf }).eq('id', user.id);
-                  setUser(prev => ({ ...prev, phone, cpf }));
+                  const { data: saved, error: saveErr } = await supabase
+                    .from('users')
+                    .update({ phone, cpf })
+                    .eq('id', user.id)
+                    .select('id, phone, cpf')
+                    .single();
+                  if (saveErr) throw saveErr;
+                  if (!saved) throw new Error('Usuário não encontrado. Dados de contato não foram salvos.');
+                  setUser(prev => ({ ...prev, phone: saved.phone ?? phone, cpf: saved.cpf ?? cpf }));
                   setShowContactModal(false);
                   setShowContactBanner(false);
                 }}
@@ -1636,7 +1805,13 @@ const App: React.FC = () => {
                 creditsConsumedCycle={creditsConsumedCycle}
                 creditsResetAt={creditsResetAt}
                 planName={planDisplayName}
-                subscriptionExpiry={activeSubscription?.currentPeriodEnd ?? tenantSummary?.renewalDatePlan ?? null}
+                subscriptionExpiry={
+                  (activeSubscription?.currentPeriodEnd && new Date(activeSubscription.currentPeriodEnd) > new Date()
+                    ? activeSubscription.currentPeriodEnd
+                    : null) ??
+                  tenantSummary?.renewalDatePlan ??
+                  null
+                }
                 userId={user.id}
                 onNavigate={handleSetView}
                 schoolName={user.schoolConfigs?.[0]?.schoolName}
@@ -1656,10 +1831,11 @@ const App: React.FC = () => {
                   setCurrentProtocol(p);
                   setActiveDocumentType(p.type);
                   const docViewMap: Record<string, string> = {
-                    [DocumentType.PEI]:         'protocols',
-                    [DocumentType.PAEE]:        'paee',
-                    [DocumentType.PDI]:         'pdi',
-                    [DocumentType.ESTUDO_CASO]: 'estudo_caso',
+                    [DocumentType.PEI]:                            'protocols',
+                    [DocumentType.PAEE]:                           'paee',
+                    [DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE]:   'documento_unificado',
+                    [DocumentType.PDI]:                            'pdi',
+                    [DocumentType.ESTUDO_CASO]:                    'estudo_caso',
                   };
                   setView(docViewMap[p.type] ?? 'protocols');
                 }}
@@ -1667,10 +1843,11 @@ const App: React.FC = () => {
                   setCurrentProtocol(null);
                   setActiveDocumentType(type);
                   const docViewMap: Record<string, string> = {
-                    [DocumentType.PEI]:         'protocols',
-                    [DocumentType.PAEE]:        'paee',
-                    [DocumentType.PDI]:         'pdi',
-                    [DocumentType.ESTUDO_CASO]: 'estudo_caso',
+                    [DocumentType.PEI]:                            'protocols',
+                    [DocumentType.PAEE]:                           'paee',
+                    [DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE]:   'documento_unificado',
+                    [DocumentType.PDI]:                            'pdi',
+                    [DocumentType.ESTUDO_CASO]:                    'estudo_caso',
                   };
                   setView(docViewMap[type] ?? 'protocols');
                 }}
@@ -1828,10 +2005,11 @@ const App: React.FC = () => {
                   setCurrentProtocol(p);
                   setActiveDocumentType(p.type);
                   const docViewMap: Record<string, string> = {
-                    [DocumentType.PEI]:          'protocols',
-                    [DocumentType.PAEE]:         'paee',
-                    [DocumentType.PDI]:          'pdi',
-                    [DocumentType.ESTUDO_CASO]:  'estudo_caso',
+                    [DocumentType.PEI]:                            'protocols',
+                    [DocumentType.PAEE]:                           'paee',
+                    [DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE]:   'documento_unificado',
+                    [DocumentType.PDI]:                            'pdi',
+                    [DocumentType.ESTUDO_CASO]:                    'estudo_caso',
                   };
                   setView(docViewMap[p.type] ?? 'protocols');
                 }}
@@ -1866,7 +2044,10 @@ const App: React.FC = () => {
             )}
 
             {view === 'fichas_historicos' && (
-              <FichasHistoricosView user={user} />
+              <FichasComplementaresView
+                students={students}
+                user={user}
+              />
             )}
 
             {view === 'service_control' && (

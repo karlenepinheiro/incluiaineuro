@@ -22,6 +22,10 @@ if (typeof document !== 'undefined') {
       '.rich-editor ul{list-style:disc;padding-left:1.4rem}',
       '.rich-editor ol{list-style:decimal;padding-left:1.4rem}',
       '.rich-editor li{margin:.1rem 0}',
+      '[data-align="left"]{text-align:left}',
+      '[data-align="center"]{text-align:center}',
+      '[data-align="right"]{text-align:right}',
+      '[data-align="justify"]{text-align:justify}',
     ].join('');
     document.head.appendChild(s);
   }
@@ -187,8 +191,32 @@ function getChips(fieldId: string, customChips?: string[]): string[] {
 // ── HTML sanitizer ────────────────────────────────────────────────────────────
 const ALLOWED_TAGS = new Set([
   'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li',
-  'p', 'div', 'span', 'br', 'h1', 'h2',
+  'p', 'br', 'h1', 'h2',
 ]);
+const BLOCK_TAGS = new Set(['div', 'section', 'article']);
+const SKIP_TAGS = new Set(['script', 'style', 'iframe', 'object', 'embed']);
+const ALIGNABLE_TAGS = new Set(['p', 'h1', 'h2', 'li']);
+const SAFE_ALIGNMENTS = new Set(['left', 'center', 'right', 'justify']);
+
+type SafeAlignment = 'left' | 'center' | 'right' | 'justify';
+
+function getSafeAlignment(el: Element): SafeAlignment | '' {
+  const dataAlign = (el.getAttribute('data-align') ?? '').trim().toLowerCase();
+  if (SAFE_ALIGNMENTS.has(dataAlign)) return dataAlign as SafeAlignment;
+
+  const alignAttr = (el.getAttribute('align') ?? '').trim().toLowerCase();
+  if (SAFE_ALIGNMENTS.has(alignAttr)) return alignAttr as SafeAlignment;
+
+  const classAlign = Array.from(el.classList)
+    .map(cls => cls.match(/^align-(left|center|right|justify)$/)?.[1])
+    .find(Boolean);
+  if (classAlign && SAFE_ALIGNMENTS.has(classAlign)) return classAlign as SafeAlignment;
+
+  const styleAlign = (el as HTMLElement).style?.textAlign?.trim().toLowerCase();
+  if (styleAlign && SAFE_ALIGNMENTS.has(styleAlign)) return styleAlign as SafeAlignment;
+
+  return '';
+}
 
 function sanitize(html: string): string {
   if (!html) return '';
@@ -197,17 +225,25 @@ function sanitize(html: string): string {
   function walk(src: Node, dst: Element): void {
     for (const child of Array.from(src.childNodes)) {
       if (child.nodeType === Node.TEXT_NODE) {
-        dst.appendChild(document.createTextNode(child.textContent ?? ''));
+        dst.appendChild(document.createTextNode((child.textContent ?? '').replace(/\u00a0/g, ' ')));
       } else if (child.nodeType === Node.ELEMENT_NODE) {
         const el = child as Element;
         const tag = el.tagName.toLowerCase();
+        if (SKIP_TAGS.has(tag)) continue;
+        if (BLOCK_TAGS.has(tag)) {
+          const block = document.createElement('p');
+          const alignment = getSafeAlignment(el);
+          if (alignment) block.setAttribute('data-align', alignment);
+          walk(el, block);
+          if (block.textContent?.trim() || block.children.length) dst.appendChild(block);
+          continue;
+        }
         if (ALLOWED_TAGS.has(tag)) {
           const ne = document.createElement(tag);
-          const style = el.getAttribute('style') ?? '';
-          const m = style.match(/text-align\s*:\s*(left|center|right|justify)/i);
-          if (m) ne.setAttribute('style', `text-align:${m[1]}`);
+          const alignment = getSafeAlignment(el);
+          if (alignment && ALIGNABLE_TAGS.has(tag)) ne.setAttribute('data-align', alignment);
           walk(el, ne);
-          dst.appendChild(ne);
+          if (tag === 'br' || ne.textContent?.trim() || ne.children.length) dst.appendChild(ne);
         } else {
           walk(el, dst);
         }
@@ -217,7 +253,10 @@ function sanitize(html: string): string {
 
   const out = document.createElement('div');
   walk(doc.body, out);
-  return out.innerHTML;
+  return out.innerHTML
+    .replace(/<p>\s*<\/p>/gi, '')
+    .replace(/(?:<br\s*\/?>\s*){3,}/gi, '<br><br>')
+    .trim();
 }
 
 function escText(t: string): string {
@@ -320,6 +359,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const editorRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
   const lastEmittedRef = useRef(value);
+  const selectionRef = useRef<Range | null>(null);
 
   const hasRecognition = !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
   const chips = useMemo(() => getChips(fieldId, suggestionChips), [fieldId, suggestionChips]);
@@ -344,19 +384,98 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     onChange(html);
   }, [onChange]);
 
+  const saveSelection = useCallback(() => {
+    const el = editorRef.current;
+    const selection = window.getSelection();
+    if (!el || !selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) return;
+    selectionRef.current = range.cloneRange();
+  }, []);
+
+  const restoreSelection = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    const selection = window.getSelection();
+    if (!selection) return;
+    selection.removeAllRanges();
+    if (selectionRef.current && el.contains(selectionRef.current.commonAncestorContainer)) {
+      selection.addRange(selectionRef.current);
+      return;
+    }
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    selection.addRange(range);
+    selectionRef.current = range.cloneRange();
+  }, []);
+
+  const syncSanitizedDom = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return '';
+    const clean = sanitize(el.innerHTML);
+    if (el.innerHTML !== clean) el.innerHTML = clean;
+    emit(clean);
+    saveSelection();
+    return clean;
+  }, [emit, saveSelection]);
+
   const handleInput = useCallback(() => {
     const el = editorRef.current;
     if (!el) return;
+    saveSelection();
     emit(sanitize(el.innerHTML));
-  }, [emit]);
+  }, [emit, saveSelection]);
 
   // execCommand wrapper: preventDefault keeps focus in contenteditable
   const cmd = useCallback((c: string, a?: string) => (e: React.MouseEvent) => {
     e.preventDefault();
-    document.execCommand(c, false, a);
-    const el = editorRef.current;
-    if (el) emit(sanitize(el.innerHTML));
-  }, [emit]);
+    restoreSelection();
+    try {
+      document.execCommand('styleWithCSS', false, 'false');
+      const commandArg = c === 'formatBlock' && a ? `<${a}>` : a;
+      document.execCommand(c, false, commandArg);
+      if (c === 'removeFormat') {
+        document.execCommand('formatBlock', false, '<p>');
+        editorRef.current?.querySelectorAll('[data-align], [align]').forEach(el => {
+          el.removeAttribute('data-align');
+          el.removeAttribute('align');
+        });
+      }
+    } finally {
+      syncSanitizedDom();
+    }
+  }, [restoreSelection, syncSanitizedDom]);
+
+  const align = useCallback((alignment: SafeAlignment) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    restoreSelection();
+    try {
+      document.execCommand('styleWithCSS', false, 'false');
+      const commandByAlignment: Record<SafeAlignment, string> = {
+        left: 'justifyLeft',
+        center: 'justifyCenter',
+        right: 'justifyRight',
+        justify: 'justifyFull',
+      };
+      document.execCommand(commandByAlignment[alignment], false);
+    } finally {
+      syncSanitizedDom();
+    }
+  }, [restoreSelection, syncSanitizedDom]);
+
+  const handlePaste = useCallback((event: React.ClipboardEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    restoreSelection();
+    const plain = event.clipboardData.getData('text/plain');
+    document.execCommand('insertHTML', false, sanitize(plain));
+    syncSanitizedDom();
+  }, [restoreSelection, syncSanitizedDom]);
+
+  const handleBlur = useCallback(() => {
+    syncSanitizedDom();
+  }, [syncSanitizedDom]);
 
   // Append plain text at end of editor (for chips and audio)
   const appendToEditor = useCallback((text: string) => {
@@ -450,10 +569,10 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         <ToolBtn title="Lista com marcadores" onMouseDown={cmd('insertUnorderedList')}><List size={13} /></ToolBtn>
         <ToolBtn title="Lista numerada" onMouseDown={cmd('insertOrderedList')}><ListOrdered size={13} /></ToolBtn>
         <Sep />
-        <ToolBtn title="Alinhar à esquerda" onMouseDown={cmd('justifyLeft')}><AlignLeft size={13} /></ToolBtn>
-        <ToolBtn title="Centralizar" onMouseDown={cmd('justifyCenter')}><AlignCenter size={13} /></ToolBtn>
-        <ToolBtn title="Alinhar à direita" onMouseDown={cmd('justifyRight')}><AlignRight size={13} /></ToolBtn>
-        <ToolBtn title="Justificar" onMouseDown={cmd('justifyFull')}><AlignJustify size={13} /></ToolBtn>
+        <ToolBtn title="Alinhar à esquerda" onMouseDown={align('left')}><AlignLeft size={13} /></ToolBtn>
+        <ToolBtn title="Centralizar" onMouseDown={align('center')}><AlignCenter size={13} /></ToolBtn>
+        <ToolBtn title="Alinhar à direita" onMouseDown={align('right')}><AlignRight size={13} /></ToolBtn>
+        <ToolBtn title="Justificar" onMouseDown={align('justify')}><AlignJustify size={13} /></ToolBtn>
         <Sep />
         <ToolBtn title="Título grande" onMouseDown={cmd('formatBlock', 'h1')} label="H1" />
         <ToolBtn title="Título médio" onMouseDown={cmd('formatBlock', 'h2')} label="H2" />
@@ -488,6 +607,10 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         contentEditable
         suppressContentEditableWarning
         onInput={handleInput}
+        onMouseUp={saveSelection}
+        onKeyUp={saveSelection}
+        onBlur={handleBlur}
+        onPaste={handlePaste}
         className={`w-full border border-t-0 rounded-b-xl px-3 py-2.5 text-sm focus:outline-none overflow-auto bg-white rich-editor ${
           isRecording
             ? 'border-red-300 ring-2 ring-red-100 ring-offset-0'

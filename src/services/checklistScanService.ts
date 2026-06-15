@@ -49,15 +49,13 @@ function filterValidCodes(codes: unknown, type: ChecklistType): string[] {
 export async function scanChecklistSheet(
   imageBase64: string,
   checklistType: ChecklistType,
-  studentId?: string,
 ): Promise<ChecklistScanResult> {
   const { result } = await callAIGateway({
-    task:            'document',
+    task:            'json',
     prompt:          buildScanPrompt(checklistType),
     imageBase64,
     creditsRequired: AI_CREDIT_COSTS.ANALISE_DOCUMENTO,
     requestType:     'checklist_scan_enem',
-    studentId,
   });
 
   let raw: ScanRawResult;

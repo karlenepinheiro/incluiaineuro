@@ -20,6 +20,21 @@ import {
   addDocumentHeader as sharedAddDocumentHeader,
   addDocumentFooter as sharedAddDocumentFooter,
 } from './pdfSharedLayout';
+import {
+  FORMAL_LEGAL_BASIS_ITEMS,
+  FORMAL_PDF_LAYOUT,
+  applyFormalPdfTypography,
+  createFormalPdfContext,
+  currentPageNumber,
+  formalPdfPageHeight,
+  formalPdfPageWidth,
+  normalizeFormalPdfText,
+  renderFormalFooter,
+  renderSignatureBlock,
+  renderValidationBlock,
+  setFormalPdfColor,
+  type FormalPdfContext,
+} from './pdf/formalPdfDesignSystem';
 
 // ─── jsPDF CDN ────────────────────────────────────────────────────────────────
 async function loadJsPDF(): Promise<any> {
@@ -249,6 +264,23 @@ function isEstudoCasoDocType(docType: string): boolean {
     .trim()
     .toUpperCase();
   return normalized === 'ESTUDO DE CASO' || normalized === 'ESTUDO CASO';
+}
+
+function normalizeDocumentTypeKey(docType: unknown): string {
+  return String(docType ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_+\-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function isPlanoUnificadoPeiPaeeDocType(docType: string): boolean {
+  const normalized = normalizeDocumentTypeKey(docType);
+  return normalized.includes('UNIFICADO')
+    && normalized.includes('PEI')
+    && normalized.includes('PAEE');
 }
 
 function addRunningHeader(
@@ -2594,7 +2626,7 @@ type PdfSection = {
   fields: Array<{ label: string; value: any; type?: string; maxScale?: number }>;
 };
 
-function renderEstudoCasoPremiumV2(
+async function renderEstudoCasoPremiumV2(
   doc: any,
   sections: PdfSection[],
   student: Student,
@@ -2603,7 +2635,8 @@ function renderEstudoCasoPremiumV2(
   auditCode: string,
   sigOpts: SignatureAreaOpts,
   qrUrl?: string,
-): void {
+  studentPhotoUrl?: string,
+): Promise<void> {
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const x = ML;
@@ -2613,6 +2646,7 @@ function renderEstudoCasoPremiumV2(
   const accent: [number, number, number] = [227, 132, 43];
   const softBlue: [number, number, number] = [234, 244, 247];
   const softOrange: [number, number, number] = [255, 247, 235];
+  const circularPhoto = await createCircularImageDataUrl(studentPhotoUrl);
 
   const norm = (value: string): string =>
     value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -2692,65 +2726,72 @@ function renderEstudoCasoPremiumV2(
   const generatedBy = _currentUserName || cleanUserName(user.name) || 'Sistema';
 
   const drawTopHeader = (): number => {
-    sf(doc, [246, 250, 251] as [number, number, number]);
-    doc.rect(0, 0, W, 31, 'F');
-    sf(doc, PETROL);
-    doc.rect(0, 0, W, 3.2, 'F');
+    sf(doc, WHITE);
+    doc.rect(0, 0, W, 36, 'F');
 
     let textX = x;
     if (school?.logoUrl) {
       try {
         const fmt = school.logoUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
-        doc.addImage(school.logoUrl, fmt, x, 9, 14, 14);
-        textX = x + 18;
+        doc.addImage(school.logoUrl, fmt, x, 8.5, 20, 20);
+        textX = x + 25;
       } catch {}
     } else {
-      sf(doc, PETROL);
-      doc.roundedRect(x, 9, 14, 14, 2, 2, 'F');
+      sf(doc, [244, 248, 249] as [number, number, number]);
+      sd(doc, BORDER);
+      doc.roundedRect(x, 8.5, 20, 20, 2.5, 2.5, 'FD');
       doc.setFont(_docFont, 'bold');
-      doc.setFontSize(7.5);
-      sc(doc, WHITE);
-      doc.text(getInitials(schoolName), x + 7, 18, { align: 'center' });
-      textX = x + 18;
+      doc.setFontSize(8.5);
+      sc(doc, PETROL);
+      doc.text(getInitials(schoolName), x + 10, 20.2, { align: 'center' });
+      textX = x + 25;
     }
 
     doc.setFont(_docFont, 'bold');
-    doc.setFontSize(10.8);
+    doc.setFontSize(9.8);
     sc(doc, DARK);
-    doc.text(schoolName, textX, 13);
+    doc.text(doc.splitTextToSize(schoolName, W - MR - textX - 58).slice(0, 1), textX, 13.2);
     doc.setFont(_docFont, 'normal');
-    doc.setFontSize(7.8);
+    doc.setFontSize(7.5);
     sc(doc, GRAY);
-    doc.text(cityLine || 'Documento institucional escolar', textX, 17.4);
-    doc.text(`Gerado por: ${generatedBy}`, textX, 21.4);
+    doc.text(cityLine || 'Documento institucional escolar', textX, 17.6);
+    doc.text(`Gerado por: ${generatedBy}`, textX, 21.6);
 
-    sf(doc, seal === 'DOCUMENTO VALIDADO' ? PETROL : accent);
-    doc.roundedRect(W - MR - 47, 8.5, 47, 8.5, 2, 2, 'F');
     doc.setFont(_docFont, 'bold');
-    doc.setFontSize(7.2);
-    sc(doc, WHITE);
-    doc.text(seal, W - MR - 23.5, 14.2, { align: 'center' });
+    doc.setFontSize(10.8);
+    sc(doc, PETROL);
+    doc.text('IncluiAI', W - MR, 11.8, { align: 'right' });
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(7);
+    sc(doc, GRAY);
+    doc.text(INCLUIAI_SITE, W - MR, 16.2, { align: 'right' });
+
+    sf(doc, seal === 'DOCUMENTO VALIDADO' ? softBlue : softOrange);
+    sd(doc, seal === 'DOCUMENTO VALIDADO' ? PETROL : accent);
+    doc.roundedRect(W - MR - 46, 20, 46, 7.6, 2, 2, 'FD');
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(6.8);
+    sc(doc, seal === 'DOCUMENTO VALIDADO' ? PETROL : accent);
+    doc.text(seal, W - MR - 23, 25.1, { align: 'center' });
 
     doc.setFont('courier', 'normal');
-    doc.setFontSize(7.3);
+    doc.setFontSize(6.6);
     sc(doc, DARK);
-    doc.text(auditCode, W - MR, 21, { align: 'right' });
+    doc.text(auditCode, W - MR, 31, { align: 'right' });
     doc.setFont(_docFont, 'normal');
-    doc.setFontSize(7.1);
+    doc.setFontSize(6.7);
     sc(doc, GRAY);
-    doc.text(generatedAt, W - MR, 25, { align: 'right' });
+    doc.text(generatedAt, textX, 25.8);
 
     sd(doc, BORDER);
     doc.setLineWidth(0.25);
-    doc.line(x, 30.6, W - MR, 30.6);
-    return 43;
+    doc.line(x, 35, W - MR, 35);
+    return 47;
   };
 
   const drawInternalHeader = (): number => {
-    sf(doc, [248, 251, 252] as [number, number, number]);
-    doc.rect(0, 0, W, 22, 'F');
-    sf(doc, PETROL);
-    doc.rect(0, 0, W, 2.5, 'F');
+    sf(doc, WHITE);
+    doc.rect(0, 0, W, 24, 'F');
 
     doc.setFont(_docFont, 'bold');
     doc.setFontSize(8.8);
@@ -2770,6 +2811,10 @@ function renderEstudoCasoPremiumV2(
     doc.setFontSize(6.7);
     sc(doc, PETROL);
     doc.text(seal, W - MR, 15, { align: 'right' });
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(6.4);
+    sc(doc, GRAY);
+    doc.text(INCLUIAI_SITE, W - MR, 19, { align: 'right' });
 
     sd(doc, BORDER);
     doc.setLineWidth(0.25);
@@ -2835,30 +2880,37 @@ function renderEstudoCasoPremiumV2(
 
     const photoX = x + 8;
     const photoY = y + 18;
-    if (student.photoUrl) {
+    const photoSize = 32;
+    if (circularPhoto) {
       try {
-        const fmt = student.photoUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
-        doc.addImage(student.photoUrl, fmt, photoX, photoY, 26, 34);
+        sf(doc, [238, 242, 244] as [number, number, number]);
+        sd(doc, BORDER);
+        doc.circle(photoX + photoSize / 2, photoY + photoSize / 2, photoSize / 2, 'FD');
+        doc.addImage(circularPhoto, 'PNG', photoX, photoY, photoSize, photoSize, undefined, 'FAST');
+        sd(doc, PETROL);
+        doc.setLineWidth(0.35);
+        doc.circle(photoX + photoSize / 2, photoY + photoSize / 2, photoSize / 2, 'S');
       } catch {
         sf(doc, [238, 242, 244] as [number, number, number]);
-        doc.roundedRect(photoX, photoY, 26, 34, 2, 2, 'F');
+        sd(doc, BORDER);
+        doc.circle(photoX + photoSize / 2, photoY + photoSize / 2, photoSize / 2, 'FD');
       }
     } else {
       sf(doc, [238, 242, 244] as [number, number, number]);
       sd(doc, BORDER);
-      doc.roundedRect(photoX, photoY, 26, 34, 2, 2, 'FD');
+      doc.circle(photoX + photoSize / 2, photoY + photoSize / 2, photoSize / 2, 'FD');
       doc.setFont(_docFont, 'bold');
       doc.setFontSize(14);
       sc(doc, PETROL);
-      doc.text(getInitials(student.name), photoX + 13, photoY + 19, { align: 'center' });
+      doc.text(getInitials(student.name), photoX + photoSize / 2, photoY + photoSize / 2 + 4, { align: 'center' });
       doc.setFont(_docFont, 'normal');
       doc.setFontSize(5.8);
       sc(doc, GRAY);
-      doc.text('Foto 3x4', photoX + 13, photoY + 27, { align: 'center' });
+      doc.text('Foto', photoX + photoSize / 2, photoY + photoSize - 6, { align: 'center' });
     }
 
-    const c1 = x + 42;
-    const c2 = x + 106;
+    const c1 = x + 48;
+    const c2 = x + 111;
     let y1 = y + 19;
     let y2 = y + 19;
     y1 = drawLabelValue('Nome completo', student.name, c1, y1, 58);
@@ -2870,7 +2922,7 @@ function renderEstudoCasoPremiumV2(
     y1 = drawLabelValue('Sexo', student.gender || '', c1, y1 + 1, 58);
     y2 = drawLabelValue('Contato do responsável', student.guardianPhone || '', c2, y2 + 1, 63);
 
-    let detailY = Math.max(y1, y2, photoY + 39) + 2;
+    let detailY = Math.max(y1, y2, photoY + photoSize + 5) + 2;
     if (diagnosisLines.length) {
       sf(doc, [248, 251, 252] as [number, number, number]);
       sd(doc, BORDER);
@@ -3182,7 +3234,42 @@ function renderEstudoCasoPremiumV2(
   };
 
   const drawLegal = (): void => {
-    drawInstitutionalBlock('Base legal e observações institucionais', getDocLegal('ESTUDO_CASO'), 'warm');
+    const colGap = 8;
+    const colW = (maxW - colGap) / 2;
+    const splitAt = Math.ceil(FORMAL_LEGAL_BASIS_ITEMS.length / 2);
+    const columns = [
+      FORMAL_LEGAL_BASIS_ITEMS.slice(0, splitAt),
+      FORMAL_LEGAL_BASIS_ITEMS.slice(splitAt),
+    ].map((items, columnIndex) =>
+      items.flatMap((item, index) =>
+        doc.splitTextToSize(`${columnIndex === 0 ? index + 1 : splitAt + index + 1}. ${normalizeFormalPdfText(item, '')}`, colW),
+      ),
+    );
+    const lineH = 3.5;
+    const blockH = 14 + Math.max(columns[0].length, columns[1].length) * lineH;
+    ensure(blockH + 8);
+
+    sd(doc, BORDER);
+    doc.setLineWidth(0.25);
+    doc.line(x, y, x + maxW, y);
+    doc.setFont(_docFont, 'bold');
+    doc.setFontSize(8.4);
+    sc(doc, PETROL);
+    doc.text('Base legal', x, y + 5.8);
+
+    doc.setFont(_docFont, 'normal');
+    doc.setFontSize(7.1);
+    sc(doc, GRAY);
+    const startY = y + 11.2;
+    columns.forEach((lines, columnIndex) => {
+      const colX = x + columnIndex * (colW + colGap);
+      lines.forEach((line, lineIndex) => {
+        doc.text(line, colX, startY + lineIndex * lineH);
+      });
+    });
+    y += blockH + 5;
+    sd(doc, BORDER);
+    doc.line(x, y - 2, x + maxW, y - 2);
   };
 
   const drawSignatures = (): void => {
@@ -3757,6 +3844,1385 @@ function renderEstudoCasoPremium(
 // Regras: página branca, cabeçalho textual, seções com barra petrol fina lateral,
 // sem capa colorida, sem faixa petrol sólida, sem cards de dashboard.
 // Usa sharedAddDocumentHeader (pdfSharedLayout) + helpers locais existentes.
+type UnifiedPdfSection = {
+  title: string;
+  fields: Array<{ label: string; value: any; type?: string; maxScale?: number }>;
+};
+
+const UNIFIED_PDF_TITLE = 'Plano Unificado PAEE + PEI';
+const UNIFIED_EMPTY_VALUE = 'Não informado';
+
+function normalizeUnifiedKey(value: unknown): string {
+  return normalizeFormalPdfText(value, '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function hasUnifiedValue(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === 'string') {
+    const clean = stripHtmlToText(value).trim();
+    return clean !== '' && clean.toLowerCase() !== 'nao informado' && clean !== '-';
+  }
+  if (typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).some(hasUnifiedValue);
+  }
+  return true;
+}
+
+function formatUnifiedAnyValue(value: unknown): string {
+  if (!hasUnifiedValue(value)) return UNIFIED_EMPTY_VALUE;
+  if (Array.isArray(value)) {
+    if (!value.length) return UNIFIED_EMPTY_VALUE;
+    return value.map(formatUnifiedAnyValue).join(' | ') || UNIFIED_EMPTY_VALUE;
+  }
+  if (typeof value === 'object' && value !== null) {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => hasUnifiedValue(entryValue))
+      .map(([entryLabel, entryValue]) => `${entryLabel.replace(/_/g, ' ')}: ${formatUnifiedAnyValue(entryValue)}`)
+      .filter(Boolean)
+      .join(' | ');
+    return entries || UNIFIED_EMPTY_VALUE;
+  }
+  return stripHtmlToText(normalizeFormalPdfText(value, UNIFIED_EMPTY_VALUE)).trim() || UNIFIED_EMPTY_VALUE;
+}
+
+function formatUnifiedFieldValue(field: UnifiedPdfSection['fields'][number]): string {
+  const value = field.value;
+  if (field.type === 'scale') {
+    const rating = typeof value === 'object' && value !== null ? (value as any).rating : value;
+    const observation = typeof value === 'object' && value !== null ? (value as any).observation : '';
+    const maxScale = field.maxScale || 5;
+    const base = rating ? `Escala: ${rating}/${maxScale}` : '';
+    const obs = stripHtmlToText(normalizeFormalPdfText(observation, '')).trim();
+    return [base, obs].filter(Boolean).join('\n') || UNIFIED_EMPTY_VALUE;
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) return UNIFIED_EMPTY_VALUE;
+    if (field.type === 'grid' && typeof value[0] === 'object') {
+      return value
+        .map((row: Record<string, unknown>) => Object.values(row).map(formatUnifiedAnyValue).join(' | ') || UNIFIED_EMPTY_VALUE)
+        .join('\n') || UNIFIED_EMPTY_VALUE;
+    }
+    return value.map(item => `- ${formatUnifiedAnyValue(item)}`).join('\n') || UNIFIED_EMPTY_VALUE;
+  }
+  if (typeof value === 'object' && value !== null) {
+    return formatUnifiedAnyValue(value);
+  }
+  return stripHtmlToText(normalizeFormalPdfText(value, UNIFIED_EMPTY_VALUE)).trim() || UNIFIED_EMPTY_VALUE;
+}
+
+function isUnifiedDuplicateSection(section: UnifiedPdfSection): boolean {
+  const title = normalizeUnifiedKey(section.title);
+  return title.startsWith('identificacao')
+    || title.includes('assinatura')
+    || title.includes('ciencia');
+}
+
+function loadPdfImageSize(dataUrl: string): Promise<{ width: number; height: number }> {
+  return new Promise(resolve => {
+    if (!dataUrl || typeof Image === 'undefined') {
+      resolve({ width: 1, height: 1 });
+      return;
+    }
+    const img = new Image();
+    img.onload = () => resolve({ width: img.naturalWidth || img.width || 1, height: img.naturalHeight || img.height || 1 });
+    img.onerror = () => resolve({ width: 1, height: 1 });
+    img.src = dataUrl;
+  });
+}
+
+async function addContainedImage(doc: any, dataUrl: string | undefined, x: number, y: number, width: number, height: number): Promise<boolean> {
+  if (!dataUrl || !doc.addImage) return false;
+  const size = await loadPdfImageSize(dataUrl);
+  const scale = Math.min(width / size.width, height / size.height);
+  const drawWidth = Math.max(1, size.width * scale);
+  const drawHeight = Math.max(1, size.height * scale);
+  const drawX = x + (width - drawWidth) / 2;
+  const drawY = y + (height - drawHeight) / 2;
+  try {
+    const format = dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+    doc.addImage(dataUrl, format, drawX, drawY, drawWidth, drawHeight, undefined, 'FAST');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getUnifiedStudentInitials(student: Student): string {
+  const words = normalizeFormalPdfText(student.name, 'Aluno').split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map(word => word.charAt(0).toUpperCase()).join('') || 'A';
+}
+
+async function createCircularImageDataUrl(dataUrl: string | undefined, sizePx = 220): Promise<string | undefined> {
+  if (!dataUrl || typeof Image === 'undefined' || typeof document === 'undefined') return undefined;
+  const imageSize = await loadPdfImageSize(dataUrl);
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = sizePx;
+        canvas.height = sizePx;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(undefined);
+          return;
+        }
+        const sourceW = imageSize.width || img.naturalWidth || img.width || 1;
+        const sourceH = imageSize.height || img.naturalHeight || img.height || 1;
+        const scale = Math.max(sizePx / sourceW, sizePx / sourceH);
+        const drawW = sourceW * scale;
+        const drawH = sourceH * scale;
+        ctx.clearRect(0, 0, sizePx, sizePx);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(sizePx / 2, sizePx / 2, sizePx / 2, 0, Math.PI * 2);
+        ctx.clip();
+        ctx.drawImage(img, (sizePx - drawW) / 2, (sizePx - drawH) / 2, drawW, drawH);
+        ctx.restore();
+        resolve(canvas.toDataURL('image/png'));
+      } catch {
+        resolve(undefined);
+      }
+    };
+    img.onerror = () => resolve(undefined);
+    img.src = dataUrl;
+  });
+}
+
+function unifiedFirstText(...values: unknown[]): string {
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      const joined = value.map(item => normalizeFormalPdfText(item, '')).filter(Boolean).join(', ');
+      if (joined) return joined;
+      continue;
+    }
+    const text = stripHtmlToText(normalizeFormalPdfText(value, '')).trim();
+    if (text && normalizeUnifiedKey(text) !== 'nao informado' && text !== '-') return text;
+  }
+  return '';
+}
+
+function renderUnifiedHeader(
+  ctx: FormalPdfContext,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+  compact = false,
+): number {
+  const { doc, layout, colors } = ctx;
+  const left = layout.marginLeft;
+  const right = formalPdfPageWidth(doc) - layout.marginRight;
+  const top = compact ? 9 : 10;
+  const logoSize = compact ? 15 : 24;
+  const metaX = right - (compact ? 54 : 63);
+
+  if (school?.logoUrl && doc.addImage) {
+    try {
+      const format = school.logoUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+      doc.addImage(school.logoUrl, format, left, top, logoSize, logoSize, undefined, 'FAST');
+    } catch {
+      setFormalPdfColor(doc, 'draw', colors.divider);
+      doc.setLineWidth(layout.ruleWidth);
+      doc.rect(left, top, logoSize, logoSize);
+    }
+  } else {
+    setFormalPdfColor(doc, 'draw', colors.divider);
+    doc.setLineWidth(layout.ruleWidth);
+    doc.rect(left, top, logoSize, logoSize);
+  }
+
+  const titleX = left + logoSize + 7;
+  const titleW = metaX - titleX - 9;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(compact ? 7.4 : 8.5);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  doc.text(doc.splitTextToSize(normalizeFormalPdfText(school?.schoolName, 'Unidade Escolar'), titleW).slice(0, 1), titleX, top + (compact ? 4 : 5));
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(compact ? 10.4 : 13.2);
+  setFormalPdfColor(doc, 'text', colors.text);
+  doc.text(doc.splitTextToSize(UNIFIED_PDF_TITLE, titleW).slice(0, 1), titleX, top + (compact ? 11.5 : 14));
+
+  if (!compact) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.8);
+    setFormalPdfColor(doc, 'text', colors.subtleText);
+    doc.text('Plano formal integrado de apoio pedagogico e acessibilidade', titleX, top + 20);
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(compact ? 9.2 : 11);
+  setFormalPdfColor(doc, 'text', colors.primary);
+  doc.text('IncluiAI', right, top + (compact ? 4 : 5), { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(compact ? 6.6 : 7.2);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  doc.text(INCLUIAI_SITE, right, top + (compact ? 8.2 : 10), { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(compact ? 6.2 : 7);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  doc.text('Documento validado', right, top + (compact ? 13.5 : 17), { align: 'right' });
+  setFormalPdfColor(doc, 'text', colors.subtleText);
+  doc.text(formatGeneratedAt(_currentGeneratedAt), right, top + (compact ? 17.5 : 22), { align: 'right' });
+
+  if (auditCode) {
+    setFormalPdfColor(doc, 'text', colors.primary);
+    doc.text(doc.splitTextToSize(auditCode, 52).slice(0, 1), right, top + (compact ? 21.5 : 27), { align: 'right' });
+  }
+
+  if (qrUrl && doc.addImage && !compact) {
+    try {
+      doc.addImage(qrUrl, 'PNG', right - 14, top + 31, 14, 14, undefined, 'FAST');
+    } catch {
+      // QR tambem aparece no bloco de validacao; falha aqui nao impede o documento.
+    }
+  }
+
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  const lineY = compact ? 36 : 58;
+  doc.line(left, lineY, right, lineY);
+  ctx.y = compact ? 43 : 66;
+  return ctx.y;
+}
+
+function addUnifiedPage(ctx: FormalPdfContext, school: SchoolConfig | null | undefined, auditCode: string, qrUrl?: string): void {
+  ctx.doc.addPage();
+  ctx.pageNumber = currentPageNumber(ctx.doc);
+  ctx.y = renderUnifiedHeader(ctx, school, auditCode, qrUrl, true);
+}
+
+function ensureUnifiedSpace(
+  ctx: FormalPdfContext,
+  requiredHeight: number,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  if (ctx.y + requiredHeight <= ctx.layout.contentBottom) return;
+  addUnifiedPage(ctx, school, auditCode, qrUrl);
+}
+
+async function drawUnifiedStudentIdentification(
+  ctx: FormalPdfContext,
+  student: Student,
+  school: SchoolConfig | null | undefined,
+  studentPhotoUrl?: string,
+): Promise<void> {
+  const { doc, layout, colors } = ctx;
+  const x = layout.marginLeft;
+  const width = layout.contentWidth;
+  const startY = ctx.y;
+  const photoSize = 34;
+  const photoX = x + 5;
+  const photoY = startY + 8;
+  const textX = photoX + photoSize + 8;
+  const textW = width - (textX - x) - 6;
+  const colGap = 8;
+  const colW = (textW - colGap) / 2;
+  const guardianContact = [
+    (student as any).guardianPhone || (student as any).guardian_phone || (student as any).primaryContactPhone || (student as any).primary_contact_phone,
+    (student as any).guardianEmail || (student as any).guardian_email,
+  ].filter(Boolean).join(' / ');
+  const diagnosis = unifiedFirstText((student as any).diagnosis, (student as any).primary_diagnosis, (student as any).diagnosticHypothesis);
+  const cid = unifiedFirstText((student as any).cid, (student as any).cid_codes);
+  const pairs = [
+    ['Estudante', student.name],
+    ['Serie / turma', [student.grade, (student as any).className || (student as any).class, student.shift].filter(Boolean).join(' | ')],
+    ['Escola', school?.schoolName || (student as any).schoolName || ''],
+    ['Responsavel legal', (student as any).guardianName || (student as any).guardian_name || ''],
+    ['Contato do responsavel', guardianContact],
+    ['Diagnostico / CID', [diagnosis, cid].filter(Boolean).join(' - ')],
+    ['Nivel de suporte', (student as any).supportLevel || (student as any).support_level || ''],
+    ['Profissionais', [
+      (student as any).teacher || (student as any).mainTeacher || (student as any).regentTeacher,
+      student.aeeTeacher,
+    ].filter(Boolean).join(' / ')],
+  ];
+
+  const rowHeights: number[] = [];
+  for (let i = 0; i < pairs.length; i += 2) {
+    const leftLines = doc.splitTextToSize(normalizeFormalPdfText(pairs[i][1], UNIFIED_EMPTY_VALUE), colW);
+    const rightLines = doc.splitTextToSize(normalizeFormalPdfText(pairs[i + 1]?.[1], UNIFIED_EMPTY_VALUE), colW);
+    rowHeights.push(5 + Math.max(leftLines.length, rightLines.length, 1) * 4.1);
+  }
+  const textBlockHeight = rowHeights.reduce((sum, height) => sum + height, 0);
+  const blockH = Math.max(photoSize + 16, textBlockHeight + 14);
+
+  setFormalPdfColor(doc, 'fill', colors.sectionFill);
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  if (doc.roundedRect) doc.roundedRect(x, startY, width, blockH, 2.5, 2.5, 'FD');
+  else doc.rect(x, startY, width, blockH, 'FD');
+
+  setFormalPdfColor(doc, 'fill', colors.primarySoft);
+  setFormalPdfColor(doc, 'draw', colors.border);
+  if (doc.circle) doc.circle(photoX + photoSize / 2, photoY + photoSize / 2, photoSize / 2, 'FD');
+  const circularPhoto = await createCircularImageDataUrl(studentPhotoUrl);
+  let photoDrawn = false;
+  if (circularPhoto && doc.addImage) {
+    try {
+      doc.addImage(circularPhoto, 'PNG', photoX, photoY, photoSize, photoSize, undefined, 'FAST');
+      photoDrawn = true;
+    } catch {
+      // Avatar desenhado abaixo se a imagem circular falhar.
+    }
+  }
+  if (!photoDrawn) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    setFormalPdfColor(doc, 'text', colors.primary);
+    doc.text(getUnifiedStudentInitials(student), photoX + photoSize / 2, photoY + photoSize / 2 + 4, { align: 'center' });
+  }
+  setFormalPdfColor(doc, 'draw', colors.primary);
+  doc.setLineWidth(0.35);
+  if (doc.circle) doc.circle(photoX + photoSize / 2, photoY + photoSize / 2, photoSize / 2, 'S');
+
+  let rowY = startY + 8;
+  pairs.forEach(([label, value], index) => {
+    const col = index % 2;
+    if (index > 0 && col === 0) rowY += rowHeights[Math.floor((index - 1) / 2)];
+    const px = textX + col * (colW + colGap);
+    const valueLines = doc.splitTextToSize(normalizeFormalPdfText(value, UNIFIED_EMPTY_VALUE), colW);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    setFormalPdfColor(doc, 'text', colors.primary);
+    doc.text(String(label), px, rowY);
+    doc.setFont('helvetica', index === 0 ? 'bold' : 'normal');
+    doc.setFontSize(index === 0 ? 8.8 : 7.5);
+    setFormalPdfColor(doc, 'text', colors.text);
+    doc.text(valueLines, px, rowY + 4.1);
+  });
+
+  ctx.y = startY + blockH + 8;
+}
+
+function renderUnifiedSectionTitle(
+  ctx: FormalPdfContext,
+  title: string,
+  number: number,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors } = ctx;
+  const titleLines = doc.splitTextToSize(normalizeFormalPdfText(title, 'Seção do documento'), layout.contentWidth - 28);
+  const pillHeight = Math.max(10, 5.5 + titleLines.length * 4.2);
+  ensureUnifiedSpace(ctx, pillHeight + 6, school, auditCode, qrUrl);
+  const prefix = `${String(number).padStart(2, '0')}.`;
+  const startY = ctx.y;
+
+  setFormalPdfColor(doc, 'fill', colors.primarySoft);
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  if (doc.roundedRect) doc.roundedRect(layout.marginLeft, startY, layout.contentWidth, pillHeight, 2.2, 2.2, 'FD');
+  else doc.rect(layout.marginLeft, startY, layout.contentWidth, pillHeight, 'FD');
+
+  setFormalPdfColor(doc, 'fill', colors.white);
+  setFormalPdfColor(doc, 'draw', colors.border);
+  if (doc.roundedRect) doc.roundedRect(layout.marginLeft + 3, startY + 2.1, 13, 5.8, 2.4, 2.4, 'FD');
+  else doc.rect(layout.marginLeft + 3, startY + 2.1, 13, 5.8, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.2);
+  setFormalPdfColor(doc, 'text', colors.primary);
+  doc.text(prefix, layout.marginLeft + 9.5, startY + 6.2, { align: 'center' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  setFormalPdfColor(doc, 'text', colors.text);
+  doc.text(titleLines, layout.marginLeft + 20, startY + 6.4);
+
+  ctx.y = startY + pillHeight + 5;
+}
+
+function renderUnifiedField(
+  ctx: FormalPdfContext,
+  label: string,
+  value: string,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors, typography } = ctx;
+  const cleanValue = stripHtmlToText(normalizeFormalPdfText(value, UNIFIED_EMPTY_VALUE)).trim() || UNIFIED_EMPTY_VALUE;
+
+  const labelLines = doc.splitTextToSize(normalizeFormalPdfText(label, 'Campo'), layout.contentWidth);
+  const valueX = layout.marginLeft + 1.5;
+  const allLines = doc.splitTextToSize(cleanValue, layout.contentWidth - 1.5);
+  const firstLineNeed = labelLines.length * 4 + typography.bodyLineHeight + 6;
+  ensureUnifiedSpace(ctx, firstLineNeed, school, auditCode, qrUrl);
+
+  applyFormalPdfTypography(doc, 'fieldLabel', 'bold');
+  setFormalPdfColor(doc, 'text', colors.primary);
+  for (const labelLine of labelLines) {
+    ensureUnifiedSpace(ctx, 4.5, school, auditCode, qrUrl);
+    doc.text(labelLine, layout.marginLeft, ctx.y);
+    ctx.y += 4.2;
+  }
+
+  applyFormalPdfTypography(doc, 'body', 'normal');
+  setFormalPdfColor(doc, 'text', cleanValue === UNIFIED_EMPTY_VALUE ? colors.mutedText : colors.text);
+  for (const line of allLines) {
+    ensureUnifiedSpace(ctx, typography.bodyLineHeight + 2, school, auditCode, qrUrl);
+    applyFormalPdfTypography(doc, 'body', 'normal');
+    setFormalPdfColor(doc, 'text', cleanValue === UNIFIED_EMPTY_VALUE ? colors.mutedText : colors.text);
+    doc.text(line, valueX, ctx.y);
+    ctx.y += typography.bodyLineHeight;
+  }
+
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  doc.line(layout.marginLeft, ctx.y + 1.2, layout.marginLeft + layout.contentWidth, ctx.y + 1.2);
+  ctx.y += 4;
+}
+
+function renderUnifiedLegalBasisBlock(
+  ctx: FormalPdfContext,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors, typography } = ctx;
+  const x = layout.marginLeft;
+  const width = layout.contentWidth;
+  const colGap = 8;
+  const colWidth = (width - colGap) / 2;
+  const splitAt = Math.ceil(FORMAL_LEGAL_BASIS_ITEMS.length / 2);
+  const columns = [
+    FORMAL_LEGAL_BASIS_ITEMS.slice(0, splitAt),
+    FORMAL_LEGAL_BASIS_ITEMS.slice(splitAt),
+  ].map((items, columnIndex) =>
+    items.flatMap((item, index) =>
+      doc.splitTextToSize(`${columnIndex === 0 ? index + 1 : splitAt + index + 1}. ${normalizeFormalPdfText(item, '')}`, colWidth)
+    )
+  );
+  const lineHeight = Math.max(3.5, typography.footerLineHeight);
+  const blockHeight = 14 + Math.max(columns[0].length, columns[1].length) * lineHeight;
+
+  ensureUnifiedSpace(ctx, blockHeight + 6, school, auditCode, qrUrl);
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  doc.line(x, ctx.y, x + width, ctx.y);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  setFormalPdfColor(doc, 'text', colors.primary);
+  doc.text('Base legal', x, ctx.y + 5.5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.1);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  const startY = ctx.y + 11;
+  columns.forEach((lines, columnIndex) => {
+    const colX = x + columnIndex * (colWidth + colGap);
+    lines.forEach((line, lineIndex) => {
+      doc.text(line, colX, startY + lineIndex * lineHeight);
+    });
+  });
+
+  ctx.y += blockHeight + 5;
+  doc.line(x, ctx.y - 2, x + width, ctx.y - 2);
+}
+
+async function renderPlanoUnificadoPremium(
+  doc: any,
+  student: Student,
+  user: User,
+  school: SchoolConfig | null | undefined,
+  sections: UnifiedPdfSection[],
+  auditCode: string,
+  sigOpts: SignatureAreaOpts,
+  qrUrl?: string,
+  studentPhotoUrl?: string,
+): Promise<void> {
+  const ctx = createFormalPdfContext(doc, {
+    layout: {
+      ...FORMAL_PDF_LAYOUT,
+      contentBottom: formalPdfPageHeight(doc) - 24,
+    },
+  });
+  ctx.y = renderUnifiedHeader(ctx, school, auditCode, qrUrl);
+  await drawUnifiedStudentIdentification(ctx, student, school, studentPhotoUrl);
+
+  let sectionNumber = 1;
+  const unifiedSections = sections.map(section => ({
+    ...section,
+    fields: Array.isArray(section.fields) ? section.fields : [],
+  }));
+
+  for (const section of unifiedSections) {
+    renderUnifiedSectionTitle(ctx, section.title, sectionNumber++, school, auditCode, qrUrl);
+
+    const fieldsToRender = section.fields.length
+      ? section.fields
+      : [{ label: 'Informações da seção', value: UNIFIED_EMPTY_VALUE }];
+
+    for (const field of fieldsToRender) {
+      renderUnifiedField(ctx, field.label, formatUnifiedFieldValue(field), school, auditCode, qrUrl);
+    }
+  }
+
+  const validationHeight = qrUrl ? 34 : 24;
+  ensureUnifiedSpace(ctx, validationHeight + 6, school, auditCode, qrUrl);
+  renderValidationBlock(ctx, {
+    code: auditCode,
+    label: 'Validacao institucional',
+    validationUrl: validationUrl(auditCode),
+    qrDataUrl: qrUrl,
+  });
+  renderUnifiedLegalBasisBlock(ctx, school, auditCode, qrUrl);
+  ensureUnifiedSpace(ctx, 60, school, auditCode, qrUrl);
+  renderSignatureBlock(ctx, {
+    title: 'Registro e assinaturas',
+    location: [school?.city, school?.state].filter(Boolean).join(' - '),
+    date: new Date(_currentGeneratedAt).toLocaleDateString('pt-BR'),
+    signatures: [
+      {
+        name: cleanUserName(user.name) || [(student as any).teacher, student.aeeTeacher].filter(Boolean).join(' / '),
+        role: 'Profissional responsavel / equipe escolar',
+      },
+      { name: sigOpts.parentSignerName || '', role: 'Responsavel legal / ciencia' },
+    ],
+  });
+
+  const total = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i);
+    renderFormalFooter(ctx, {
+      pageNumber: i,
+      totalPages: total,
+      documentCode: auditCode,
+      generatedBy: cleanUserName(user.name),
+      generatedAt: formatGeneratedAt(_currentGeneratedAt),
+      systemName: `IncluiAI | ${INCLUIAI_SITE}`,
+      validationUrl: validationUrl(auditCode),
+    });
+  }
+}
+
+const PEI_PDF_TITLE = 'Plano Educacional Individualizado (PEI)';
+
+function renderPeiHeader(
+  ctx: FormalPdfContext,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+  compact = false,
+): number {
+  const { doc, layout, colors } = ctx;
+  const left = layout.marginLeft;
+  const right = formalPdfPageWidth(doc) - layout.marginRight;
+  const top = compact ? 9 : 10;
+  const logoSize = compact ? 15 : 24;
+  const metaX = right - (compact ? 54 : 63);
+
+  if (school?.logoUrl && doc.addImage) {
+    try {
+      doc.addImage(school.logoUrl, imageFormat(school.logoUrl), left, top, logoSize, logoSize, undefined, 'FAST');
+    } catch {
+      setFormalPdfColor(doc, 'draw', colors.divider);
+      doc.setLineWidth(layout.ruleWidth);
+      doc.rect(left, top, logoSize, logoSize);
+    }
+  } else {
+    setFormalPdfColor(doc, 'draw', colors.divider);
+    doc.setLineWidth(layout.ruleWidth);
+    doc.rect(left, top, logoSize, logoSize);
+  }
+
+  const titleX = left + logoSize + 7;
+  const titleW = metaX - titleX - 9;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(compact ? 7.4 : 8.5);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  doc.text(doc.splitTextToSize(normalizeFormalPdfText(school?.schoolName, 'Unidade Escolar'), titleW).slice(0, 1), titleX, top + (compact ? 4 : 5));
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(compact ? 10.4 : 13.2);
+  setFormalPdfColor(doc, 'text', colors.text);
+  doc.text(doc.splitTextToSize(PEI_PDF_TITLE, titleW).slice(0, 1), titleX, top + (compact ? 11.5 : 14));
+
+  if (!compact) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.8);
+    setFormalPdfColor(doc, 'text', colors.subtleText);
+    doc.text('Planejamento educacional individualizado e acessibilidade curricular', titleX, top + 20);
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(compact ? 9.2 : 11);
+  setFormalPdfColor(doc, 'text', colors.primary);
+  doc.text('IncluiAI', right, top + (compact ? 4 : 5), { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(compact ? 6.6 : 7.2);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  doc.text(INCLUIAI_SITE, right, top + (compact ? 8.2 : 10), { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(compact ? 6.2 : 7);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  doc.text('Documento validado', right, top + (compact ? 13.5 : 17), { align: 'right' });
+  setFormalPdfColor(doc, 'text', colors.subtleText);
+  doc.text(formatGeneratedAt(_currentGeneratedAt), right, top + (compact ? 17.5 : 22), { align: 'right' });
+
+  if (auditCode) {
+    setFormalPdfColor(doc, 'text', colors.primary);
+    doc.text(doc.splitTextToSize(auditCode, 52).slice(0, 1), right, top + (compact ? 21.5 : 27), { align: 'right' });
+  }
+
+  if (qrUrl && doc.addImage && !compact) {
+    try {
+      doc.addImage(qrUrl, 'PNG', right - 14, top + 31, 14, 14, undefined, 'FAST');
+    } catch {
+      // O bloco de validacao tambem renderiza o QR; falha no topo nao bloqueia o PDF.
+    }
+  }
+
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  const lineY = compact ? 36 : 58;
+  doc.line(left, lineY, right, lineY);
+  ctx.y = compact ? 43 : 66;
+  return ctx.y;
+}
+
+function addPeiPage(ctx: FormalPdfContext, school: SchoolConfig | null | undefined, auditCode: string, qrUrl?: string): void {
+  ctx.doc.addPage();
+  ctx.pageNumber = currentPageNumber(ctx.doc);
+  ctx.y = renderPeiHeader(ctx, school, auditCode, qrUrl, true);
+}
+
+function ensurePeiSpace(
+  ctx: FormalPdfContext,
+  requiredHeight: number,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  if (ctx.y + requiredHeight <= ctx.layout.contentBottom) return;
+  addPeiPage(ctx, school, auditCode, qrUrl);
+}
+
+function isPeiLegalSectionTitle(title: string): boolean {
+  const key = normalizeUnifiedKey(title);
+  return key.includes('lgpd')
+    || key.includes('legisla')
+    || key.includes('fundamentacao legal')
+    || key.includes('base legal')
+    || (key.includes('base') && key.includes('legal'));
+}
+
+function isPeiDuplicateIdentificationSection(section: UnifiedPdfSection): boolean {
+  const title = normalizeUnifiedKey(section.title);
+  if (!title.startsWith('identifica')) return false;
+  return !section.fields.some(field => {
+    const label = normalizeUnifiedKey(field.label);
+    const value = stripHtmlToText(normalizeFormalPdfText(field.value, ''));
+    return value.length > 140 || /justific|demanda|motivo|objet|barreira|necess|apoio|observ|sintese|histor|encaminh|estrateg|plano|avali/.test(label);
+  });
+}
+
+function formatPeiFieldValue(field: UnifiedPdfSection['fields'][number]): string {
+  const value = field.value;
+  if (Array.isArray(value)) {
+    if (!value.length) return '';
+    if (field.type === 'grid' && typeof value[0] === 'object') {
+      return value
+        .map((row: Record<string, unknown>) => Object.values(row).map(formatUnifiedAnyValue).join(' | '))
+        .filter(Boolean)
+        .join('\n');
+    }
+    return value.map(item => `- ${formatUnifiedAnyValue(item)}`).join('\n');
+  }
+  if (typeof value === 'object' && value !== null) {
+    return formatUnifiedAnyValue(value);
+  }
+  return normalizeFormalPdfText(value, '');
+}
+
+function renderPeiSectionTitle(
+  ctx: FormalPdfContext,
+  title: string,
+  number: number,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors } = ctx;
+  const titleLines = doc.splitTextToSize(normalizeFormalPdfText(title, 'Secao do documento'), layout.contentWidth - 28);
+  const pillHeight = Math.max(10, 5.5 + titleLines.length * 4.2);
+  ensurePeiSpace(ctx, pillHeight + 6, school, auditCode, qrUrl);
+  const prefix = `${String(number).padStart(2, '0')}.`;
+  const startY = ctx.y;
+
+  setFormalPdfColor(doc, 'fill', colors.primarySoft);
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  if (doc.roundedRect) doc.roundedRect(layout.marginLeft, startY, layout.contentWidth, pillHeight, 2.2, 2.2, 'FD');
+  else doc.rect(layout.marginLeft, startY, layout.contentWidth, pillHeight, 'FD');
+
+  setFormalPdfColor(doc, 'fill', colors.white);
+  setFormalPdfColor(doc, 'draw', colors.border);
+  if (doc.roundedRect) doc.roundedRect(layout.marginLeft + 3, startY + 2.1, 13, 5.8, 2.4, 2.4, 'FD');
+  else doc.rect(layout.marginLeft + 3, startY + 2.1, 13, 5.8, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.2);
+  setFormalPdfColor(doc, 'text', colors.primary);
+  doc.text(prefix, layout.marginLeft + 9.5, startY + 6.2, { align: 'center' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  setFormalPdfColor(doc, 'text', colors.text);
+  doc.text(titleLines, layout.marginLeft + 20, startY + 6.4);
+
+  ctx.y = startY + pillHeight + 5;
+}
+
+function renderPeiField(
+  ctx: FormalPdfContext,
+  field: UnifiedPdfSection['fields'][number],
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors, typography } = ctx;
+  const fieldValue = field.value;
+
+  if (field.type === 'scale') {
+    const rating = typeof fieldValue === 'object' && fieldValue !== null ? (fieldValue as any).rating : fieldValue;
+    const observation = typeof fieldValue === 'object' && fieldValue !== null ? (fieldValue as any).observation : '';
+    const n = parseInt(String(rating)) || 0;
+    const maxScale = field.maxScale || 5;
+    ensurePeiSpace(ctx, 24, school, auditCode, qrUrl);
+
+    applyFormalPdfTypography(doc, 'fieldLabel', 'bold');
+    setFormalPdfColor(doc, 'text', colors.primary);
+    doc.text(normalizeFormalPdfText(field.label, 'Campo'), layout.marginLeft, ctx.y);
+    ctx.y += 5;
+
+    const barW = layout.contentWidth * 0.45;
+    const barH = 4;
+    setFormalPdfColor(doc, 'fill', colors.primarySoft);
+    setFormalPdfColor(doc, 'draw', colors.border);
+    doc.setLineWidth(layout.ruleWidth);
+    if (doc.roundedRect) doc.roundedRect(layout.marginLeft, ctx.y, barW, barH, 1, 1, 'FD');
+    else doc.rect(layout.marginLeft, ctx.y, barW, barH, 'FD');
+    if (n > 0) {
+      setFormalPdfColor(doc, 'fill', colors.primary);
+      if (doc.roundedRect) doc.roundedRect(layout.marginLeft, ctx.y, barW * (n / maxScale), barH, 1, 1, 'F');
+      else doc.rect(layout.marginLeft, ctx.y, barW * (n / maxScale), barH, 'F');
+    }
+    applyFormalPdfTypography(doc, 'smallBody', 'normal');
+    setFormalPdfColor(doc, 'text', colors.mutedText);
+    doc.text(`${n}/${maxScale}`, layout.marginLeft + barW + 4, ctx.y + 3.4);
+    ctx.y += barH + 5;
+
+    const obsText = stripHtmlToText(normalizeFormalPdfText(observation, '')).trim();
+    if (obsText) {
+      renderPeiRichValue(ctx, 'Observacao', obsText, school, auditCode, qrUrl);
+    }
+    return;
+  }
+
+  renderPeiRichValue(ctx, field.label, formatPeiFieldValue(field), school, auditCode, qrUrl);
+}
+
+function renderPeiRichValue(
+  ctx: FormalPdfContext,
+  label: string,
+  rawValue: string,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors, typography } = ctx;
+  const cleanText = stripHtmlToText(normalizeFormalPdfText(rawValue, '')).trim();
+  if (!cleanText) return;
+
+  const labelLines = doc.splitTextToSize(normalizeFormalPdfText(label, 'Campo'), layout.contentWidth);
+  const previewLines = doc.splitTextToSize(cleanText, layout.contentWidth - 1.5);
+  ensurePeiSpace(ctx, labelLines.length * 4 + Math.min(previewLines.length, 4) * typography.bodyLineHeight + 8, school, auditCode, qrUrl);
+
+  applyFormalPdfTypography(doc, 'fieldLabel', 'bold');
+  setFormalPdfColor(doc, 'text', colors.primary);
+  for (const labelLine of labelLines) {
+    ensurePeiSpace(ctx, 4.5, school, auditCode, qrUrl);
+    doc.text(labelLine, layout.marginLeft, ctx.y);
+    ctx.y += 4.2;
+  }
+
+  const newPage = (): number => {
+    addPeiPage(ctx, school, auditCode, qrUrl);
+    return ctx.y;
+  };
+  ctx.y = renderRichTextPdf(
+    doc,
+    rawValue,
+    layout.marginLeft + 1.5,
+    ctx.y,
+    layout.contentWidth - 1.5,
+    10.8,
+    newPage,
+    ctx.layout.contentBottom,
+    5.7,
+    'helvetica',
+  );
+
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  doc.line(layout.marginLeft, ctx.y + 1.2, layout.marginLeft + layout.contentWidth, ctx.y + 1.2);
+  ctx.y += 4;
+}
+
+function renderPeiLegalBasisBlock(
+  ctx: FormalPdfContext,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors, typography } = ctx;
+  const x = layout.marginLeft;
+  const width = layout.contentWidth;
+  const colGap = 8;
+  const colWidth = (width - colGap) / 2;
+  const splitAt = Math.ceil(FORMAL_LEGAL_BASIS_ITEMS.length / 2);
+  const columns = [
+    FORMAL_LEGAL_BASIS_ITEMS.slice(0, splitAt),
+    FORMAL_LEGAL_BASIS_ITEMS.slice(splitAt),
+  ].map((items, columnIndex) =>
+    items.flatMap((item, index) =>
+      doc.splitTextToSize(`${columnIndex === 0 ? index + 1 : splitAt + index + 1}. ${normalizeFormalPdfText(item, '')}`, colWidth)
+    )
+  );
+  const lineHeight = Math.max(3.5, typography.footerLineHeight);
+  const blockHeight = 14 + Math.max(columns[0].length, columns[1].length) * lineHeight;
+
+  ensurePeiSpace(ctx, blockHeight + 6, school, auditCode, qrUrl);
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  doc.line(x, ctx.y, x + width, ctx.y);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  setFormalPdfColor(doc, 'text', colors.primary);
+  doc.text('Base legal', x, ctx.y + 5.5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.1);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  const startY = ctx.y + 11;
+  columns.forEach((lines, columnIndex) => {
+    const colX = x + columnIndex * (colWidth + colGap);
+    lines.forEach((line, lineIndex) => {
+      doc.text(line, colX, startY + lineIndex * lineHeight);
+    });
+  });
+
+  ctx.y += blockHeight + 5;
+  doc.line(x, ctx.y - 2, x + width, ctx.y - 2);
+}
+
+async function renderPeiPremium(
+  doc: any,
+  student: Student,
+  user: User,
+  school: SchoolConfig | null | undefined,
+  sections: UnifiedPdfSection[],
+  auditCode: string,
+  sigOpts: SignatureAreaOpts,
+  qrUrl?: string,
+  studentPhotoUrl?: string,
+): Promise<void> {
+  const ctx = createFormalPdfContext(doc, {
+    layout: {
+      ...FORMAL_PDF_LAYOUT,
+      contentBottom: formalPdfPageHeight(doc) - 24,
+    },
+  });
+  ctx.y = renderPeiHeader(ctx, school, auditCode, qrUrl);
+  await drawUnifiedStudentIdentification(ctx, student, school, studentPhotoUrl);
+
+  let sectionNumber = 1;
+  const peiSections = sections.map(section => ({
+    ...section,
+    fields: Array.isArray(section.fields) ? section.fields : [],
+  }));
+
+  for (const section of peiSections) {
+    if (isPeiDuplicateIdentificationSection(section) || isPeiLegalSectionTitle(section.title)) continue;
+    const fieldsToRender = section.fields.filter(field => hasUnifiedValue(field.value));
+    if (!fieldsToRender.length) continue;
+
+    renderPeiSectionTitle(ctx, section.title, sectionNumber++, school, auditCode, qrUrl);
+    for (const field of fieldsToRender) {
+      renderPeiField(ctx, field, school, auditCode, qrUrl);
+    }
+  }
+
+  const validationHeight = qrUrl ? 34 : 24;
+  ensurePeiSpace(ctx, validationHeight + 6, school, auditCode, qrUrl);
+  renderValidationBlock(ctx, {
+    code: auditCode,
+    label: 'Validacao institucional',
+    validationUrl: validationUrl(auditCode),
+    qrDataUrl: qrUrl,
+  });
+  renderPeiLegalBasisBlock(ctx, school, auditCode, qrUrl);
+  ensurePeiSpace(ctx, 60, school, auditCode, qrUrl);
+  renderSignatureBlock(ctx, {
+    title: 'Registro e assinaturas',
+    location: [school?.city, school?.state].filter(Boolean).join(' - '),
+    date: new Date(_currentGeneratedAt).toLocaleDateString('pt-BR'),
+    signatures: [
+      {
+        name: cleanUserName(user.name) || [(student as any).teacher, student.aeeTeacher].filter(Boolean).join(' / '),
+        role: 'Profissional responsavel / equipe escolar',
+      },
+      { name: '', role: 'Professor(a) regente' },
+      { name: student.aeeTeacher || '', role: 'Professor(a) do AEE' },
+      { name: sigOpts.parentSignerName || '', role: 'Responsavel legal / ciencia' },
+    ],
+  });
+
+  const total = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i);
+    renderFormalFooter(ctx, {
+      pageNumber: i,
+      totalPages: total,
+      documentCode: auditCode,
+      generatedBy: cleanUserName(user.name),
+      generatedAt: formatGeneratedAt(_currentGeneratedAt),
+      systemName: `IncluiAI | ${INCLUIAI_SITE}`,
+      validationUrl: validationUrl(auditCode),
+    });
+  }
+}
+
+const PAEE_PDF_TITLE = 'Plano de Atendimento Educacional Especializado (PAEE)';
+
+function renderPaeeHeader(
+  ctx: FormalPdfContext,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+  compact = false,
+): number {
+  const { doc, layout, colors } = ctx;
+  const left = layout.marginLeft;
+  const right = formalPdfPageWidth(doc) - layout.marginRight;
+  const top = compact ? 9 : 10;
+  const logoSize = compact ? 15 : 24;
+  const metaX = right - (compact ? 54 : 63);
+
+  if (school?.logoUrl && doc.addImage) {
+    try {
+      doc.addImage(school.logoUrl, imageFormat(school.logoUrl), left, top, logoSize, logoSize, undefined, 'FAST');
+    } catch {
+      setFormalPdfColor(doc, 'draw', colors.divider);
+      doc.setLineWidth(layout.ruleWidth);
+      doc.rect(left, top, logoSize, logoSize);
+    }
+  } else {
+    setFormalPdfColor(doc, 'draw', colors.divider);
+    doc.setLineWidth(layout.ruleWidth);
+    doc.rect(left, top, logoSize, logoSize);
+  }
+
+  const titleX = left + logoSize + 7;
+  const titleW = metaX - titleX - 9;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(compact ? 7.4 : 8.5);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  doc.text(doc.splitTextToSize(normalizeFormalPdfText(school?.schoolName, 'Unidade Escolar'), titleW).slice(0, 1), titleX, top + (compact ? 4 : 5));
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(compact ? 10.4 : 13.2);
+  setFormalPdfColor(doc, 'text', colors.text);
+  doc.text(doc.splitTextToSize(PAEE_PDF_TITLE, titleW).slice(0, 1), titleX, top + (compact ? 11.5 : 14));
+
+  if (!compact) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.8);
+    setFormalPdfColor(doc, 'text', colors.subtleText);
+    doc.text('Atendimento educacional especializado, acessibilidade e recursos', titleX, top + 20);
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(compact ? 9.2 : 11);
+  setFormalPdfColor(doc, 'text', colors.primary);
+  doc.text('IncluiAI', right, top + (compact ? 4 : 5), { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(compact ? 6.6 : 7.2);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  doc.text(INCLUIAI_SITE, right, top + (compact ? 8.2 : 10), { align: 'right' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(compact ? 6.2 : 7);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  doc.text('Documento validado', right, top + (compact ? 13.5 : 17), { align: 'right' });
+  setFormalPdfColor(doc, 'text', colors.subtleText);
+  doc.text(formatGeneratedAt(_currentGeneratedAt), right, top + (compact ? 17.5 : 22), { align: 'right' });
+
+  if (auditCode) {
+    setFormalPdfColor(doc, 'text', colors.primary);
+    doc.text(doc.splitTextToSize(auditCode, 52).slice(0, 1), right, top + (compact ? 21.5 : 27), { align: 'right' });
+  }
+
+  if (qrUrl && doc.addImage && !compact) {
+    try {
+      doc.addImage(qrUrl, 'PNG', right - 14, top + 31, 14, 14, undefined, 'FAST');
+    } catch {
+      // O bloco de validacao tambem renderiza o QR; falha no topo nao bloqueia o PDF.
+    }
+  }
+
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  const lineY = compact ? 36 : 58;
+  doc.line(left, lineY, right, lineY);
+  ctx.y = compact ? 43 : 66;
+  return ctx.y;
+}
+
+function addPaeePage(ctx: FormalPdfContext, school: SchoolConfig | null | undefined, auditCode: string, qrUrl?: string): void {
+  ctx.doc.addPage();
+  ctx.pageNumber = currentPageNumber(ctx.doc);
+  ctx.y = renderPaeeHeader(ctx, school, auditCode, qrUrl, true);
+}
+
+function ensurePaeeSpace(
+  ctx: FormalPdfContext,
+  requiredHeight: number,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  if (ctx.y + requiredHeight <= ctx.layout.contentBottom) return;
+  addPaeePage(ctx, school, auditCode, qrUrl);
+}
+
+function isPaeeLegalSectionTitle(title: string): boolean {
+  const key = normalizeUnifiedKey(title);
+  return key.includes('lgpd')
+    || key.includes('legisla')
+    || key.includes('fundamentacao legal')
+    || key.includes('base legal')
+    || (key.includes('base') && key.includes('legal'));
+}
+
+function isPaeeDuplicateIdentificationSection(section: UnifiedPdfSection): boolean {
+  const title = normalizeUnifiedKey(section.title);
+  if (!title.startsWith('identifica')) return false;
+  return !section.fields.some(field => {
+    const label = normalizeUnifiedKey(field.label);
+    const value = stripHtmlToText(normalizeFormalPdfText(field.value, ''));
+    return value.length > 140 || /justific|demanda|motivo|objet|barreira|necess|apoio|observ|sintese|histor|encaminh|estrateg|plano|avali|acessibilidade|recurso|tecnologia/.test(label);
+  });
+}
+
+function isPaeeDuplicateIdentificationField(field: UnifiedPdfSection['fields'][number]): boolean {
+  const label = normalizeUnifiedKey(field.label);
+  if (/justific|barreira|demanda|motivo|objet|necess|apoio|observ|estrateg|plano|avali|acessibilidade|recurso|tecnologia/.test(label)) {
+    return false;
+  }
+  return /nome|aluno|diagnost|cid|nivel.*suporte|data.*nasc|nascimento|idade|serie|ano|turma|escola|unidade|prof.*regente|prof.*aee|coord|responsavel|contato/.test(label);
+}
+
+function formatPaeeFieldValue(field: UnifiedPdfSection['fields'][number]): string {
+  const value = field.value;
+  if (Array.isArray(value)) {
+    if (!value.length) return '';
+    if (field.type === 'grid' && typeof value[0] === 'object') {
+      return value
+        .map((row: Record<string, unknown>) => Object.values(row).map(formatUnifiedAnyValue).join(' | '))
+        .filter(Boolean)
+        .join('\n');
+    }
+    return value.map(item => `- ${formatUnifiedAnyValue(item)}`).join('\n');
+  }
+  if (typeof value === 'object' && value !== null) {
+    return formatUnifiedAnyValue(value);
+  }
+  return normalizeFormalPdfText(value, '');
+}
+
+function renderPaeeSectionTitle(
+  ctx: FormalPdfContext,
+  title: string,
+  number: number,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors } = ctx;
+  const titleLines = doc.splitTextToSize(normalizeFormalPdfText(title, 'Secao do documento'), layout.contentWidth - 28);
+  const pillHeight = Math.max(10, 5.5 + titleLines.length * 4.2);
+  ensurePaeeSpace(ctx, pillHeight + 6, school, auditCode, qrUrl);
+  const prefix = `${String(number).padStart(2, '0')}.`;
+  const startY = ctx.y;
+
+  setFormalPdfColor(doc, 'fill', colors.primarySoft);
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  if (doc.roundedRect) doc.roundedRect(layout.marginLeft, startY, layout.contentWidth, pillHeight, 2.2, 2.2, 'FD');
+  else doc.rect(layout.marginLeft, startY, layout.contentWidth, pillHeight, 'FD');
+
+  setFormalPdfColor(doc, 'fill', colors.white);
+  setFormalPdfColor(doc, 'draw', colors.border);
+  if (doc.roundedRect) doc.roundedRect(layout.marginLeft + 3, startY + 2.1, 13, 5.8, 2.4, 2.4, 'FD');
+  else doc.rect(layout.marginLeft + 3, startY + 2.1, 13, 5.8, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.2);
+  setFormalPdfColor(doc, 'text', colors.primary);
+  doc.text(prefix, layout.marginLeft + 9.5, startY + 6.2, { align: 'center' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  setFormalPdfColor(doc, 'text', colors.text);
+  doc.text(titleLines, layout.marginLeft + 20, startY + 6.4);
+
+  ctx.y = startY + pillHeight + 5;
+}
+
+function renderPaeeField(
+  ctx: FormalPdfContext,
+  field: UnifiedPdfSection['fields'][number],
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors } = ctx;
+  const fieldValue = field.value;
+
+  if (field.type === 'scale') {
+    const rating = typeof fieldValue === 'object' && fieldValue !== null ? (fieldValue as any).rating : fieldValue;
+    const observation = typeof fieldValue === 'object' && fieldValue !== null ? (fieldValue as any).observation : '';
+    const n = parseInt(String(rating)) || 0;
+    const maxScale = field.maxScale || 5;
+    ensurePaeeSpace(ctx, 24, school, auditCode, qrUrl);
+
+    applyFormalPdfTypography(doc, 'fieldLabel', 'bold');
+    setFormalPdfColor(doc, 'text', colors.primary);
+    doc.text(normalizeFormalPdfText(field.label, 'Campo'), layout.marginLeft, ctx.y);
+    ctx.y += 5;
+
+    const barW = layout.contentWidth * 0.45;
+    const barH = 4;
+    setFormalPdfColor(doc, 'fill', colors.primarySoft);
+    setFormalPdfColor(doc, 'draw', colors.border);
+    doc.setLineWidth(layout.ruleWidth);
+    if (doc.roundedRect) doc.roundedRect(layout.marginLeft, ctx.y, barW, barH, 1, 1, 'FD');
+    else doc.rect(layout.marginLeft, ctx.y, barW, barH, 'FD');
+    if (n > 0) {
+      setFormalPdfColor(doc, 'fill', colors.primary);
+      if (doc.roundedRect) doc.roundedRect(layout.marginLeft, ctx.y, barW * (n / maxScale), barH, 1, 1, 'F');
+      else doc.rect(layout.marginLeft, ctx.y, barW * (n / maxScale), barH, 'F');
+    }
+    applyFormalPdfTypography(doc, 'smallBody', 'normal');
+    setFormalPdfColor(doc, 'text', colors.mutedText);
+    doc.text(`${n}/${maxScale}`, layout.marginLeft + barW + 4, ctx.y + 3.4);
+    ctx.y += barH + 5;
+
+    const obsText = stripHtmlToText(normalizeFormalPdfText(observation, '')).trim();
+    if (obsText) {
+      renderPaeeRichValue(ctx, 'Observacao', obsText, school, auditCode, qrUrl);
+    }
+    return;
+  }
+
+  renderPaeeRichValue(ctx, field.label, formatPaeeFieldValue(field), school, auditCode, qrUrl);
+}
+
+function renderPaeeRichValue(
+  ctx: FormalPdfContext,
+  label: string,
+  rawValue: string,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors, typography } = ctx;
+  const cleanText = stripHtmlToText(normalizeFormalPdfText(rawValue, '')).trim();
+  if (!cleanText) return;
+
+  const labelLines = doc.splitTextToSize(normalizeFormalPdfText(label, 'Campo'), layout.contentWidth);
+  const previewLines = doc.splitTextToSize(cleanText, layout.contentWidth - 1.5);
+  ensurePaeeSpace(ctx, labelLines.length * 4 + Math.min(previewLines.length, 4) * typography.bodyLineHeight + 8, school, auditCode, qrUrl);
+
+  applyFormalPdfTypography(doc, 'fieldLabel', 'bold');
+  setFormalPdfColor(doc, 'text', colors.primary);
+  for (const labelLine of labelLines) {
+    ensurePaeeSpace(ctx, 4.5, school, auditCode, qrUrl);
+    doc.text(labelLine, layout.marginLeft, ctx.y);
+    ctx.y += 4.2;
+  }
+
+  const newPage = (): number => {
+    addPaeePage(ctx, school, auditCode, qrUrl);
+    return ctx.y;
+  };
+  ctx.y = renderRichTextPdf(
+    doc,
+    rawValue,
+    layout.marginLeft + 1.5,
+    ctx.y,
+    layout.contentWidth - 1.5,
+    10.8,
+    newPage,
+    ctx.layout.contentBottom,
+    5.7,
+    'helvetica',
+  );
+
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  doc.line(layout.marginLeft, ctx.y + 1.2, layout.marginLeft + layout.contentWidth, ctx.y + 1.2);
+  ctx.y += 4;
+}
+
+function renderPaeeLegalBasisBlock(
+  ctx: FormalPdfContext,
+  school: SchoolConfig | null | undefined,
+  auditCode: string,
+  qrUrl?: string,
+): void {
+  const { doc, layout, colors, typography } = ctx;
+  const x = layout.marginLeft;
+  const width = layout.contentWidth;
+  const colGap = 8;
+  const colWidth = (width - colGap) / 2;
+  const splitAt = Math.ceil(FORMAL_LEGAL_BASIS_ITEMS.length / 2);
+  const columns = [
+    FORMAL_LEGAL_BASIS_ITEMS.slice(0, splitAt),
+    FORMAL_LEGAL_BASIS_ITEMS.slice(splitAt),
+  ].map((items, columnIndex) =>
+    items.flatMap((item, index) =>
+      doc.splitTextToSize(`${columnIndex === 0 ? index + 1 : splitAt + index + 1}. ${normalizeFormalPdfText(item, '')}`, colWidth)
+    )
+  );
+  const lineHeight = Math.max(3.5, typography.footerLineHeight);
+  const blockHeight = 14 + Math.max(columns[0].length, columns[1].length) * lineHeight;
+
+  ensurePaeeSpace(ctx, blockHeight + 6, school, auditCode, qrUrl);
+  setFormalPdfColor(doc, 'draw', colors.divider);
+  doc.setLineWidth(layout.ruleWidth);
+  doc.line(x, ctx.y, x + width, ctx.y);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  setFormalPdfColor(doc, 'text', colors.primary);
+  doc.text('Base legal', x, ctx.y + 5.5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.1);
+  setFormalPdfColor(doc, 'text', colors.mutedText);
+  const startY = ctx.y + 11;
+  columns.forEach((lines, columnIndex) => {
+    const colX = x + columnIndex * (colWidth + colGap);
+    lines.forEach((line, lineIndex) => {
+      doc.text(line, colX, startY + lineIndex * lineHeight);
+    });
+  });
+
+  ctx.y += blockHeight + 5;
+  doc.line(x, ctx.y - 2, x + width, ctx.y - 2);
+}
+
+async function renderPaeePremium(
+  doc: any,
+  student: Student,
+  user: User,
+  school: SchoolConfig | null | undefined,
+  sections: UnifiedPdfSection[],
+  auditCode: string,
+  sigOpts: SignatureAreaOpts,
+  qrUrl?: string,
+  studentPhotoUrl?: string,
+): Promise<void> {
+  const ctx = createFormalPdfContext(doc, {
+    layout: {
+      ...FORMAL_PDF_LAYOUT,
+      contentBottom: formalPdfPageHeight(doc) - 24,
+    },
+  });
+  ctx.y = renderPaeeHeader(ctx, school, auditCode, qrUrl);
+  await drawUnifiedStudentIdentification(ctx, student, school, studentPhotoUrl);
+
+  let sectionNumber = 1;
+  const paeeSections = sections.map(section => ({
+    ...section,
+    fields: Array.isArray(section.fields) ? section.fields : [],
+  }));
+
+  for (const section of paeeSections) {
+    if (isPaeeDuplicateIdentificationSection(section) || isPaeeLegalSectionTitle(section.title)) continue;
+    const secTitleKey = normalizeUnifiedKey(section.title);
+    const fieldsToRender = section.fields
+      .filter(field => hasUnifiedValue(field.value))
+      .filter(field => !(secTitleKey.startsWith('identifica') && secTitleKey.includes('justific') && isPaeeDuplicateIdentificationField(field)));
+    if (!fieldsToRender.length) continue;
+
+    renderPaeeSectionTitle(ctx, section.title, sectionNumber++, school, auditCode, qrUrl);
+    for (const field of fieldsToRender) {
+      renderPaeeField(ctx, field, school, auditCode, qrUrl);
+    }
+  }
+
+  const validationHeight = qrUrl ? 34 : 24;
+  ensurePaeeSpace(ctx, validationHeight + 6, school, auditCode, qrUrl);
+  renderValidationBlock(ctx, {
+    code: auditCode,
+    label: 'Validacao institucional',
+    validationUrl: validationUrl(auditCode),
+    qrDataUrl: qrUrl,
+  });
+  renderPaeeLegalBasisBlock(ctx, school, auditCode, qrUrl);
+  ensurePaeeSpace(ctx, 60, school, auditCode, qrUrl);
+  renderSignatureBlock(ctx, {
+    title: 'Registro e assinaturas',
+    location: [school?.city, school?.state].filter(Boolean).join(' - '),
+    date: new Date(_currentGeneratedAt).toLocaleDateString('pt-BR'),
+    signatures: [
+      {
+        name: cleanUserName(user.name) || student.aeeTeacher || '',
+        role: 'Profissional responsavel pelo AEE',
+      },
+      { name: '', role: 'Professor(a) regente' },
+      { name: student.aeeTeacher || '', role: 'Professor(a) do AEE' },
+      { name: sigOpts.parentSignerName || '', role: 'Responsavel legal / ciencia' },
+    ],
+  });
+
+  const total = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i);
+    renderFormalFooter(ctx, {
+      pageNumber: i,
+      totalPages: total,
+      documentCode: auditCode,
+      generatedBy: cleanUserName(user.name),
+      generatedAt: formatGeneratedAt(_currentGeneratedAt),
+      systemName: `IncluiAI | ${INCLUIAI_SITE}`,
+      validationUrl: validationUrl(auditCode),
+    });
+  }
+}
+
 function renderFormalDocument(
   doc: any,
   docType: string,
@@ -4510,7 +5976,7 @@ export const PDFGenerator = {
           auditCode,
           generatedAt: _currentGeneratedAt,
           generatedBy: _currentUserName || user.name,
-          systemName: 'IncluiAI',
+          systemName: `IncluiAI | ${INCLUIAI_SITE}`,
           fontFamily: _docFont,
         });
       }
@@ -4522,13 +5988,28 @@ export const PDFGenerator = {
     };
 
     if (isEstudoCasoDocType(docType)) {
-      renderEstudoCasoPremiumV2(doc, sections, student, user, school, auditCode, sigOpts, qrUrl);
+      await renderEstudoCasoPremiumV2(doc, sections, student, user, school, auditCode, sigOpts, qrUrl, circularPhoto);
       applySharedFooterEC(doc);
       return doc.output('blob') as Blob;
     }
 
     // PEI / PAEE / PDI → padrão único formal (sem capa colorida, sem faixa petrol sólida)
-    if (docType === 'PEI' || docType === 'PAEE' || docType === 'PDI') {
+    if (isPlanoUnificadoPeiPaeeDocType(docType)) {
+      await renderPlanoUnificadoPremium(doc, student, user, school, sections, auditCode, sigOpts, qrUrl, circularPhoto);
+      return doc.output('blob') as Blob;
+    }
+
+    if (docType === 'PEI') {
+      await renderPeiPremium(doc, student, user, school, sections, auditCode, sigOpts, qrUrl, circularPhoto);
+      return doc.output('blob') as Blob;
+    }
+
+    if (docType === 'PAEE') {
+      await renderPaeePremium(doc, student, user, school, sections, auditCode, sigOpts, qrUrl, circularPhoto);
+      return doc.output('blob') as Blob;
+    }
+
+    if (docType === 'PDI') {
       renderFormalDocument(doc, docType, student, user, school, sections, auditCode, sigOpts, qrUrl, circularPhoto);
       return doc.output('blob') as Blob;
     }

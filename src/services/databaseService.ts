@@ -12,6 +12,7 @@ import {
   type TenantSummary,
   type User,
 } from '../types';
+import { generateStudentUniqueCode, normalizeStudentUniqueCode } from '../utils/studentCodes';
 
 type UUID = string;
 
@@ -102,6 +103,16 @@ function mapDocTypeToUi(type: string): DocumentType {
       return DocumentType.PAEE;
     case 'PDI':
       return DocumentType.PDI;
+    case 'DOCUMENTO_UNIFICADO_PEI_PAEE':
+    case 'DOCUMENTO UNIFICADO PEI + PAEE':
+    case 'DOCUMENTO UNIFICADO PAEE + PEI':
+    case 'DOCUMENTO UNIFICADO PEI PAEE':
+    case 'DOCUMENTO UNIFICADO PAEE PEI':
+    case 'PLANO UNIFICADO PAEE + PEI':
+    case 'PLANO UNIFICADO PEI + PAEE':
+    case 'PLANO UNIFICADO PAEE PEI':
+    case 'PLANO UNIFICADO PEI PAEE':
+      return DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE;
     case 'PLANO_ACAO_AEE':
     case 'PLANO DE AÇÃO AEE':
     case 'PLANO DE ACAO AEE':
@@ -305,13 +316,53 @@ async function tryGetCreditsWalletBalance(tenantId: string) {
   }
 }
 
-function addOneMonthIso(value?: string | null): string | undefined {
+/**
+ * Infere o ciclo de cobrança da assinatura sem assumir 'monthly' como padrão.
+ * Prioridade: 1) campo billing_cycle explícito; 2) duração do período; 3) undefined.
+ * annual  se diferença >= 300 dias
+ * monthly se diferença está entre 25 e 45 dias
+ * undefined caso contrário (não mascarar com fallback)
+ */
+function inferBillingCycle(
+  raw?: string | null,
+  periodStart?: string | null,
+  periodEnd?: string | null,
+): 'monthly' | 'annual' | undefined {
+  if (raw === 'annual')  return 'annual';
+  if (raw === 'monthly') return 'monthly';
+  if (periodStart && periodEnd) {
+    const s = new Date(periodStart);
+    const e = new Date(periodEnd);
+    if (Number.isFinite(s.getTime()) && Number.isFinite(e.getTime())) {
+      const diffDays = (e.getTime() - s.getTime()) / 86_400_000;
+      if (diffDays >= 300) return 'annual';
+      if (diffDays >= 25 && diffDays <= 45) return 'monthly';
+    }
+  }
+  return undefined;
+}
+
+// Calcula a próxima renovação mensal de créditos no futuro.
+// Mantém o mesmo dia do mês de last_reset_at e avança até encontrar data futura.
+function getNextMonthlyRenewal(value?: string | null): string | undefined {
   if (!value) return undefined;
   const base = new Date(value);
   if (!Number.isFinite(base.getTime())) return undefined;
-  const next = new Date(base);
-  next.setMonth(next.getMonth() + 1);
-  return next.toISOString();
+  const today = new Date();
+  const candidate = new Date(base);
+  // Avança pelo menos 1 mês e continua até a data ser futura
+  candidate.setMonth(candidate.getMonth() + 1);
+  while (candidate <= today) {
+    candidate.setMonth(candidate.getMonth() + 1);
+  }
+  return candidate.toISOString();
+}
+
+/** Retorna true apenas se value é uma data válida e estritamente no futuro. */
+function isFutureDate(value?: string | null): boolean {
+  if (!value) return false;
+  const d = new Date(value);
+  return Number.isFinite(d.getTime()) && d.getTime() > Date.now();
 }
 
 async function getLandingSingleton() {
@@ -547,32 +598,32 @@ export const databaseService = {
 
     // 2. dbPayload: mapeamento camelCase/legado → nomes reais das colunas
     debugStudentPersistence('payload recebido pelo databaseService.saveStudent', summarizeStudentPayload(student));
-    const rawDiagnosis = student?.primary_diagnosis ?? student?.diagnosis ?? null;
+    // Prioridade: camelCase (valor editado pelo usuário no form) > snake_case (fallback para
+    // dados inseridos diretamente no DB sem passar pelo form). O spread ...initialData no
+    // StudentForm copia as chaves snake_case do normalize para o formData, mas handleChange
+    // só atualiza as chaves camelCase — logo o snake_case fica obsoleto após qualquer edição.
+    const rawDiagnosis = student?.diagnosis ?? student?.primary_diagnosis ?? null;
     const dbPayload: Record<string, any> = {
       tenant_id:           tenantId,
-      // full_name: aceita student.name (legado) ou student.full_name (real)
-      full_name:           emptyToNull(student?.full_name          ?? student?.name),
-      birth_date:          emptyToNull(student?.birth_date          ?? student?.birthDate),
+      full_name:           emptyToNull(student?.name              ?? student?.full_name),
+      birth_date:          emptyToNull(student?.birthDate          ?? student?.birth_date),
       gender:              emptyToNull(student?.gender),
       cpf:                 emptyToNull(student?.cpf),
-      // school_name: text — form resolve via schoolId→schoolName antes de chamar onSave
-      school_name:         emptyToNull(student?.school_name         ?? student?.schoolName),
-      // school_id: FK → schools.id (sprint 3 — salvo após ensureSchoolExists em App.tsx)
-      school_id:           emptyToNull(student?.schoolId            ?? student?.school_id) || null,
-      // school_year: aceita grade (legado) mapeado para ano escolar
-      school_year:         emptyToNull(student?.school_year         ?? student?.grade          ?? student?.gradeLevel),
-      class_name:          emptyToNull(student?.class_name          ?? student?.className),
-      // teacher_name: aceita regent_teacher (legado) mapeado para professor regente
-      teacher_name:        emptyToNull(student?.teacher_name        ?? student?.regent_teacher ?? student?.regentTeacher),
-      // primary_diagnosis: aceita diagnosis (legado) — se for array, usa primeiro elemento
+      school_name:         emptyToNull(student?.schoolName         ?? student?.school_name),
+      school_id:           emptyToNull(student?.schoolId           ?? student?.school_id) || null,
+      school_year:         emptyToNull(student?.grade              ?? student?.gradeLevel    ?? student?.school_year),
+      class_name:          emptyToNull(student?.className          ?? student?.class_name),
+      teacher_name:        emptyToNull(student?.regentTeacher      ?? student?.regent_teacher ?? student?.teacher_name),
       primary_diagnosis:   Array.isArray(rawDiagnosis)
                              ? (rawDiagnosis[0] ?? null)
                              : (rawDiagnosis ?? null),
-      secondary_diagnoses: Array.isArray(student?.secondary_diagnoses)
-                             ? student.secondary_diagnoses
-                             : Array.isArray(rawDiagnosis) && rawDiagnosis.length > 1
-                               ? rawDiagnosis.slice(1)
-                               : [],
+      secondary_diagnoses: Array.isArray(student?.diagnosis)
+                             ? student.diagnosis.slice(1)
+                             : Array.isArray(student?.secondary_diagnoses)
+                               ? student.secondary_diagnoses
+                               : Array.isArray(rawDiagnosis) && rawDiagnosis.length > 1
+                                 ? rawDiagnosis.slice(1)
+                                 : [],
       // cid_codes: aceita cid (legado, pode ser string ou array)
       cid_codes:           Array.isArray(student?.cid_codes)
                              ? student.cid_codes
@@ -581,20 +632,19 @@ export const databaseService = {
                                : student?.cid
                                  ? [student.cid]
                                  : [],
-      // learning_needs: aceita dificuldades/estratégias (legado) concatenados
-      learning_needs:      textFromMaybeArray(student?.learning_needs ?? student?.difficulties),
-      behavioral_notes:    textFromMaybeArray(student?.behavioral_notes ?? student?.observations),
-      medical_notes:       textFromMaybeArray(student?.medical_notes ?? student?.medication),
-      guardian_name:       emptyToNull(student?.guardian_name       ?? student?.guardianName),
-      guardian_phone:      emptyToNull(student?.guardian_phone      ?? student?.guardianPhone),
-      guardian_email:      emptyToNull(student?.guardian_email      ?? student?.guardianEmail),
+      learning_needs:      textFromMaybeArray(student?.difficulties   ?? student?.learning_needs),
+      behavioral_notes:    textFromMaybeArray(student?.observations   ?? student?.behavioral_notes),
+      medical_notes:       textFromMaybeArray(student?.medication     ?? student?.medical_notes),
+      guardian_name:       emptyToNull(student?.guardianName       ?? student?.guardian_name),
+      guardian_phone:      emptyToNull(student?.guardianPhone      ?? student?.guardian_phone),
+      guardian_email:      emptyToNull(student?.guardianEmail      ?? student?.guardian_email),
       guardian_relationship: emptyToNull(student?.guardian_relationship),
       is_active:           student?.is_active ?? true,
     };
 
     // ── Campos das colunas adicionadas pela migration schema_v_triagem.sql ──
     // student_type: 'com_laudo' | 'em_triagem'
-    const studentType = student?.student_type ?? student?.tipo_aluno ?? 'com_laudo';
+    const studentType = student?.tipo_aluno ?? student?.student_type ?? 'com_laudo';
     dbPayload.student_type = studentType;
 
     // skills, difficulties, strategies como jsonb arrays
@@ -631,7 +681,15 @@ export const databaseService = {
     dbPayload.communication    = Array.isArray(student?.communication) ? student.communication : [];
 
     // Código único do aluno + campos de endereço
-    if (student?.unique_code)  dbPayload.unique_code   = student.unique_code;
+    let uniqueCodeWasGenerated = false;
+    const rawUniqueCode = student?.unique_code ?? student?.student_code ?? null;
+    const normalizedUniqueCode = normalizeStudentUniqueCode(rawUniqueCode);
+    if (normalizedUniqueCode) {
+      dbPayload.unique_code = normalizedUniqueCode;
+    } else if (!rawUniqueCode || !student?.id) {
+      dbPayload.unique_code = generateStudentUniqueCode();
+      uniqueCodeWasGenerated = true;
+    }
     if (student?.zipcode)      dbPayload.zipcode        = student.zipcode       ?? null;
     if (student?.street)       dbPayload.street         = student.street        ?? null;
     if (student?.streetNumber) dbPayload.street_number  = student.streetNumber  ?? null;
@@ -674,11 +732,6 @@ export const databaseService = {
       student?.tenant_id &&
       student.tenant_id !== tenantId
     );
-
-    const generateStudentCode = () => {
-      const code = generateStudentCode();
-      return code;
-    };
 
     let existingImportedStudent: any = null;
     const originCode = student?.unique_code ?? student?.student_code ?? null;
@@ -729,12 +782,8 @@ export const databaseService = {
       if (originSchool) dbPayload.imported_from_school_name = originSchool;
       // SEMPRE gera novo unique_code — NUNCA reutiliza o código da escola de origem.
       // unique_code tem constraint UNIQUE global; reaproveitá-lo geraria erro 23505.
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-      let code = 'INC-';
-      for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * 36)];
-      code += '-';
-      for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * 36)];
-      dbPayload.unique_code = existingImportedStudent?.unique_code || code;
+      dbPayload.unique_code = existingImportedStudent?.unique_code || generateStudentUniqueCode();
+      uniqueCodeWasGenerated = !existingImportedStudent?.unique_code;
     } else if (student?.id) {
       dbPayload.id = student.id;
     }
@@ -744,10 +793,31 @@ export const databaseService = {
 
     // Tentativa 1: upsert com payload completo (inclui colunas da migration)
     debugStudentPersistence('payload final enviado ao Supabase.students', dbPayload);
-    const { data, error } = await supabase.from('students').upsert(dbPayload).select().single();
+    let { data, error } = await supabase.from('students').upsert(dbPayload).select().single();
+
+    if (error && uniqueCodeWasGenerated && (error as any)?.code === '23505' && String(error.message).includes('unique_code')) {
+      for (let retry = 0; retry < 5; retry++) {
+        dbPayload.unique_code = generateStudentUniqueCode();
+        const retryResult = await supabase.from('students').upsert(dbPayload).select().single();
+        data = retryResult.data;
+        error = retryResult.error;
+        if (!error) break;
+        if (!((error as any)?.code === '23505' && String(error.message).includes('unique_code'))) break;
+      }
+    }
 
     if (!error) {
+      if (!data) throw new Error('Aluno não foi salvo. Nenhuma linha retornada pelo banco.');
       debugStudentPersistence('retorno Supabase.students', data);
+      // ── Logs de validação (DEV only) — sem dados sensíveis ──────────────────
+      const KEY_FIELDS = ['full_name','birth_date','school_name','school_year','class_name',
+        'teacher_name','primary_diagnosis','secondary_diagnoses','learning_needs',
+        'behavioral_notes','medical_notes','guardian_name','guardian_phone',
+        'guardian_email','student_type'] as const;
+      console.debug('[saveStudent:test] campos no payload:', KEY_FIELDS.map(f => `${f}:${!!dbPayload[f]}`).join(' '));
+      console.debug('[saveStudent:test] valor retornado do banco existe:', Boolean(data));
+      console.debug('[saveStudent:test] id aluno:', data?.id ?? null);
+      console.debug('[saveStudent:test] campos no retorno banco:', KEY_FIELDS.map(f => `${f}:${!!(data as any)[f]}`).join(' '));
       await syncStudentDocumentsForSavedStudent({
         student,
         savedStudent: data,
@@ -811,6 +881,7 @@ export const databaseService = {
         }
         throw error2;
       }
+      if (!data2) throw new Error('Aluno não foi salvo (schema base). Nenhuma linha retornada pelo banco.');
       debugStudentPersistence('retorno Supabase.students fallback schema base', data2);
       await syncStudentDocumentsForSavedStudent({
         student,
@@ -934,8 +1005,14 @@ export const databaseService = {
     if (patch.professionalSignature !== undefined) safe.professional_signature = patch.professionalSignature;
     if (patch.docPhone             !== undefined) safe.doc_phone              = patch.docPhone;
     if (Object.keys(safe).length === 0) return;
-    const { error } = await supabase.from('users').update(safe).eq('id', userId);
+    const { data, error } = await supabase
+      .from('users')
+      .update(safe)
+      .eq('id', userId)
+      .select('id')
+      .single();
     if (error) throw error;
+    if (!data) throw new Error('Perfil não encontrado. Nenhuma alteração foi salva.');
   },
 
   /**
@@ -1195,7 +1272,75 @@ export const databaseService = {
       updatedAt:              r.updated_at               ?? undefined,
     });
 
-    return studentRows.map(normalize) as any;
+    const normalized = studentRows.map(normalize);
+    console.debug('[saveStudent:test] getStudents retornou', normalized.length, 'alunos; teacher_name no 1º:', !!(normalized[0] as any)?.teacher_name);
+    return normalized as any;
+  },
+
+  async backfillMissingStudentCodes(): Promise<{
+    checked: number;
+    missing: number;
+    updated: number;
+    skipped: number;
+    failed: number;
+    errors: Array<{ studentId: string; error: string }>;
+  }> {
+    const uid = await requireAuthUserId();
+    const tenantId = await getTenantIdForUser(uid);
+    const { data: rows, error } = await supabase
+      .from('students')
+      .select('id, unique_code')
+      .eq('tenant_id', tenantId)
+      .is('deleted_at', null);
+
+    if (error) throw error;
+
+    const allRows = rows ?? [];
+    const missingRows = allRows.filter((row: any) => !normalizeStudentUniqueCode(row.unique_code));
+    let updated = 0;
+    let skipped = 0;
+    const errors: Array<{ studentId: string; error: string }> = [];
+    const usedCodes = new Set(
+      allRows
+        .map((row: any) => normalizeStudentUniqueCode(row.unique_code))
+        .filter((code): code is string => !!code)
+    );
+
+    for (const row of missingRows) {
+      let saved = false;
+      for (let retry = 0; retry < 5; retry++) {
+        const uniqueCode = generateStudentUniqueCode(usedCodes);
+        usedCodes.add(uniqueCode);
+        const { error: updateError } = await supabase
+          .from('students')
+          .update({ unique_code: uniqueCode })
+          .eq('id', row.id)
+          .eq('tenant_id', tenantId)
+          .or('unique_code.is.null,unique_code.eq.');
+
+        if (!updateError) {
+          updated++;
+          saved = true;
+          break;
+        }
+
+        if (!((updateError as any)?.code === '23505' && String(updateError.message ?? '').includes('unique_code'))) {
+          errors.push({ studentId: row.id, error: updateError.message ?? String(updateError) });
+          saved = true;
+          break;
+        }
+      }
+      if (!saved) skipped++;
+    }
+
+    return {
+      checked: allRows.length,
+      missing: missingRows.length,
+      updated,
+      skipped,
+      failed: errors.length,
+      errors,
+    };
   },
 
   async deleteStudent(studentId: string) {
@@ -1223,6 +1368,15 @@ export const databaseService = {
       'PEI': 'PEI',
       'PAEE': 'PAEE',
       'PDI': 'PDI',
+      'DOCUMENTO_UNIFICADO_PEI_PAEE': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
+      'DOCUMENTO UNIFICADO PEI + PAEE': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
+      'DOCUMENTO UNIFICADO PEI PAEE': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
+      'DOCUMENTO UNIFICADO PAEE + PEI': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
+      'DOCUMENTO UNIFICADO PAEE PEI': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
+      'PLANO UNIFICADO PAEE + PEI': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
+      'PLANO UNIFICADO PEI + PAEE': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
+      'PLANO UNIFICADO PAEE PEI': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
+      'PLANO UNIFICADO PEI PAEE': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
       'PLANO DE AÇÃO AEE': 'PLANO_ACAO_AEE',
       'PLANO_ACAO_AEE':    'PLANO_ACAO_AEE',
       'PLANO DE ACAO AEE': 'PLANO_ACAO_AEE',
@@ -1245,7 +1399,7 @@ export const databaseService = {
       student_id:     doc.studentId ?? doc.student_id ?? null,
       created_by:     createdBy,
       doc_type:       docType,
-      title:          doc.title ?? '',
+      title:          doc.title ?? (docType === 'DOCUMENTO_UNIFICADO_PEI_PAEE' ? 'Plano Unificado PAEE + PEI' : ''),
       status:         docStatus,
       source_id:      doc.source_id ?? doc.sourceId ?? null,
       structured_data: doc.structuredData ?? doc.structured_data ?? (doc.content ? { content: doc.content } : { sections: [] }),
@@ -1459,8 +1613,11 @@ export const databaseService = {
       // ledger opcional — não bloqueia
     }
 
-    const billingCycle: 'monthly' | 'annual' =
-      (sub as any)?.billing_cycle === 'annual' ? 'annual' : 'monthly';
+    const billingCycle = inferBillingCycle(
+      (sub as any)?.billing_cycle,
+      (sub as any)?.current_period_start,
+      (sub as any)?.current_period_end,
+    );
 
     return {
       tenantId,
@@ -1474,10 +1631,10 @@ export const databaseService = {
       studentLimitBase: (planEff as any)?.max_students ?? hardcodedLimits.students,
       studentLimitExtra: 0 as any,
       studentsActive: studentsCount ?? 0,
-      renewalDatePlan: (sub as any)?.current_period_end ?? undefined,
-      renewalDateCredits: addOneMonthIso(walletLastResetAt) ?? (sub as any)?.current_period_end ?? undefined,
+      renewalDatePlan: isFutureDate((sub as any)?.current_period_end) ? (sub as any)?.current_period_end : undefined,
+      renewalDateCredits: getNextMonthlyRenewal(walletLastResetAt) ?? getNextMonthlyRenewal((sub as any)?.current_period_start) ?? undefined,
       lastCreditGrantAt: walletLastResetAt,
-      nextCreditGrantAt: addOneMonthIso(walletLastResetAt) ?? undefined,
+      nextCreditGrantAt: getNextMonthlyRenewal(walletLastResetAt) ?? getNextMonthlyRenewal((sub as any)?.current_period_start) ?? undefined,
       billingCycle,
       planDisplayName: formatPlanDisplayName(planName, billingCycle),
     };

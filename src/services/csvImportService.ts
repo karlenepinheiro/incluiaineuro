@@ -11,6 +11,7 @@
  */
 
 import { supabase } from './supabase';
+import { ensureStudentUniqueCode, generateStudentUniqueCode, normalizeStudentUniqueCode } from '../utils/studentCodes';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TIPOS PÚBLICOS
@@ -37,6 +38,7 @@ export interface ImportStudentRow {
   schoolName?: string;
   supportLevel?: string;
   observations?: string;
+  uniqueCode?: string;
   // Metadados de validação
   registrationStatus: RegistrationStatus;
   missingRequiredFields: string[];  // nomes legíveis (ex: ["Responsável","Telefone"])
@@ -74,6 +76,7 @@ export interface ImportBatchResult {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const TEMPLATE_HEADERS = [
+  'codigo_aluno',
   'nome',
   'data_nascimento',
   'genero',
@@ -95,6 +98,7 @@ export const TEMPLATE_HEADERS = [
 // Valores aceitos na coluna gênero: M, F, Masculino, Feminino, male, female, Outro, Other
 export const TEMPLATE_EXAMPLE_ROWS = [
   [
+    '',
     'Maria Clara dos Santos',
     '15/03/2018',
     'Feminino',
@@ -113,6 +117,7 @@ export const TEMPLATE_EXAMPLE_ROWS = [
     'Boa receptividade a atividades visuais e rotinas estruturadas',
   ],
   [
+    '',
     'Lucas Ferreira',
     '22/07/2016',
     'Masculino',
@@ -131,6 +136,7 @@ export const TEMPLATE_EXAMPLE_ROWS = [
     'Necessita pausas frequentes e espaço de trabalho individualizado',
   ],
   [
+    '',
     'Sofia Ramos',
     '',
     'F',
@@ -162,6 +168,16 @@ type RecognizedField = keyof Omit<
 >;
 
 const HEADER_ALIASES: Record<string, RecognizedField> = {
+  // código único do aluno
+  'codigo_aluno': 'uniqueCode',
+  'codigo aluno': 'uniqueCode',
+  'codigo do aluno': 'uniqueCode',
+  'código do aluno': 'uniqueCode',
+  'codigo unico': 'uniqueCode',
+  'código único': 'uniqueCode',
+  'unique_code': 'uniqueCode',
+  'student_code': 'uniqueCode',
+  'id aluno': 'uniqueCode',
   // nome
   'nome': 'name',
   'nome do aluno': 'name',
@@ -500,6 +516,11 @@ export function parseCSV(rawContent: string): ParsedCSVResult {
         case 'shift':     (partial as any)[field] = normalizeShift(raw); break;
         case 'birthDate': (partial as any)[field] = normalizeDate(raw); break;
         case 'cid':       (partial as any)[field] = normalizeCID(raw); break;
+        case 'uniqueCode': {
+          const normalizedCode = normalizeStudentUniqueCode(raw);
+          if (normalizedCode) (partial as any)[field] = normalizedCode;
+          break;
+        }
         default:          (partial as any)[field] = raw;
       }
     });
@@ -604,6 +625,7 @@ export async function importStudentsBatch(
   const batchId: string = batchData.id;
   const importedStudents: any[] = [];
   const errors: { rowIndex: number; name?: string; error: string }[] = [];
+  const codesInBatch = new Set<string>();
   let completeRows = 0;
   let incompleteRows = 0;
   let preRegRows = 0;
@@ -614,9 +636,16 @@ export async function importStudentsBatch(
     onProgress?.(Math.round(((i + 1) / rows.length) * 90));
 
     try {
+      const requestedCode = normalizeStudentUniqueCode(row.uniqueCode);
+      const uniqueCode = requestedCode && !codesInBatch.has(requestedCode)
+        ? requestedCode
+        : generateStudentUniqueCode(codesInBatch);
+      codesInBatch.add(uniqueCode);
+
       const payload: Record<string, any> = {
         tenant_id:               tenantId,
         created_by:              userId,
+        unique_code:             uniqueCode,
         full_name:               row.name ?? '',
         birth_date:              row.birthDate || null,
         gender:                  row.gender || null,
@@ -643,11 +672,27 @@ export async function importStudentsBatch(
         is_pre_registered:       row.registrationStatus !== 'complete',
       };
 
-      const { data: studentData, error: studentErr } = await supabase
+      let { data: studentData, error: studentErr } = await supabase
         .from('students')
         .insert(payload)
-        .select('id, full_name, registration_status')
+        .select('id, full_name, registration_status, unique_code')
         .single();
+
+      if (studentErr && (studentErr as any)?.code === '23505' && String(studentErr.message ?? '').includes('unique_code')) {
+        for (let retry = 0; retry < 5; retry++) {
+          payload.unique_code = ensureStudentUniqueCode(null, codesInBatch);
+          codesInBatch.add(payload.unique_code);
+          const retryResult = await supabase
+            .from('students')
+            .insert(payload)
+            .select('id, full_name, registration_status, unique_code')
+            .single();
+          studentData = retryResult.data;
+          studentErr = retryResult.error;
+          if (!studentErr) break;
+          if (!((studentErr as any)?.code === '23505' && String(studentErr.message ?? '').includes('unique_code'))) break;
+        }
+      }
 
       if (studentErr) {
         // Fallback: tenta sem colunas de importação se migration ainda não rodou
@@ -656,7 +701,7 @@ export async function importStudentsBatch(
           const { data: fallbackData, error: fallbackErr } = await supabase
             .from('students')
             .insert(basePayload)
-            .select('id, full_name')
+            .select('id, full_name, unique_code')
             .single();
           if (fallbackErr) throw fallbackErr;
           importedStudents.push(fallbackData);

@@ -600,8 +600,10 @@ export async function getCeoHealthDiagnostics(): Promise<CeoHealthDiagnostics> {
     detail: 'Sem view/RPC de auditoria de policies disponivel para leitura nesta sprint.',
   });
 
+  // CEO-10C.2: exclui tenants internos de pendingActivation (nao sao incidentes comerciais)
+  const internalIds = new Set((internalTenants ?? []).map(t => t.id));
   const orphanPurchases = purchases?.filter(p => p.status === 'APPROVED' && !p.tenant_id && !p.activated_at).length ?? null;
-  const pendingActivation = purchases?.filter(p => p.status === 'APPROVED' && Boolean(p.tenant_id) && !p.activated_at).length ?? null;
+  const pendingActivation = purchases?.filter(p => p.status === 'APPROVED' && Boolean(p.tenant_id) && !p.activated_at && !internalIds.has(p.tenant_id as string)).length ?? null;
   const unknownProducts = purchases?.filter(p => p.status === 'APPROVED' && p.product_key === 'UNKNOWN').length ?? null;
   const pendingPurchases = orphanPurchases === null || pendingActivation === null || unknownProducts === null
     ? null
@@ -611,6 +613,7 @@ export async function getCeoHealthDiagnostics(): Promise<CeoHealthDiagnostics> {
   const internalCount = internalTenants?.length ?? null;
   const planMismatch = kpis?.plan_mismatch_count ?? null;
   const creditDivergences = creditDashboard?.wallet_ledger_divergences ?? null;
+  // Agrupamento: financial_inconsistency + subscription_mismatch + no_owner (nao apenas financeiro)
   const financialDivergences = kpis
     ? kpis.financial_inconsistency_count + kpis.subscription_mismatch_count + kpis.no_owner_count
     : null;
@@ -641,10 +644,10 @@ export async function getCeoHealthDiagnostics(): Promise<CeoHealthDiagnostics> {
   });
   summary.push({
     key: 'financial',
-    title: 'Divergencias financeiras',
+    title: 'Inconsistencias adm. e financeiras',
     value: financialDivergences,
     status: financialDivergences === null ? 'unmonitored' : financialDivergences > 0 ? 'critical' : 'ok',
-    subtext: financialDivergences === null ? 'fonte nao disponivel' : 'financeiro, subscription e owner',
+    subtext: financialDivergences === null ? 'fonte nao disponivel' : 'agrupamento: financeiro, subscription e owner',
     source: 'ceo_get_kpis',
   });
   summary.push({
@@ -660,7 +663,7 @@ export async function getCeoHealthDiagnostics(): Promise<CeoHealthDiagnostics> {
     title: 'Planos inconsistentes',
     value: planMismatch,
     status: planMismatch === null ? 'unmonitored' : planMismatch > 0 ? 'critical' : 'ok',
-    subtext: planMismatch === null ? 'fonte nao disponivel' : 'tenant diferente do produto comprado',
+    subtext: planMismatch === null ? 'fonte nao disponivel' : 'plan_mismatch via KPI; paid_but_free visivel em Billing',
     source: 'ceo_get_kpis',
   });
   summary.push({
@@ -736,7 +739,7 @@ export async function getCeoHealthDiagnostics(): Promise<CeoHealthDiagnostics> {
     severity: 'critical',
     category: 'billing',
     title: 'Tenants com plano inconsistente',
-    description: `${planMismatch ?? 0} tenant(s) com plano diferente do produto comprado.`,
+    description: `${planMismatch ?? 0} tenant(s) com plan_mismatch nos KPIs. Casos paid_but_free podem aparecer separadamente em Billing/Kiwify.`,
     recommendedAction: 'Filtrar alertas em Assinantes e validar cada caso manualmente.',
     ctaTab: 'subscribers',
   }, Boolean((planMismatch ?? 0) > 0));
@@ -780,8 +783,8 @@ export async function getCeoHealthDiagnostics(): Promise<CeoHealthDiagnostics> {
     severity: 'low',
     category: 'users',
     title: 'Contas internas excluidas das metricas',
-    description: `${internalCount ?? 0} tenant(s) marcados como internos.`,
-    recommendedAction: 'Conferir se a lista de contas internas continua intencional.',
+    description: `${internalCount ?? 0} tenant(s) marcados como internos e excluidos das metricas comerciais (comportamento esperado).`,
+    recommendedAction: 'Conferir periodicamente se a lista de contas internas continua intencional.',
     ctaTab: 'subscribers',
   }, Boolean((internalCount ?? 0) > 0));
 
@@ -1164,9 +1167,9 @@ export async function getCeoCreditCommandCenter(): Promise<CeoCreditCommandCente
       key: 'divergences',
       title: 'Divergencias detectadas',
       value: dashboard?.wallet_ledger_divergences ?? (integrityRows ? integrityRows.filter(r => r.integrity_status !== 'ok').length : null),
-      status: integrityRows === null && !dashboard ? 'unmonitored' : (dashboard?.wallet_ledger_divergences ?? 0) > 0 ? 'critical' : 'ok',
-      subtext: 'wallet vs ledger',
-      source: 'v_credit_integrity',
+      status: integrityRows === null && !dashboard ? 'unmonitored' : (dashboard?.wallet_ledger_divergences ?? integrityRows?.filter(r => r.integrity_status !== 'ok').length ?? 0) > 0 ? 'critical' : 'ok',
+      subtext: dashboard ? 'wallet vs ledger (v_ceo_credit_dashboard)' : 'wallet vs ledger (fallback: v_credit_integrity)',
+      source: dashboard ? 'v_ceo_credit_dashboard' : 'v_credit_integrity',
     },
     {
       key: 'refunds',
@@ -1779,7 +1782,7 @@ export async function getCeoBillingKiwifyReconciliation(): Promise<CeoBillingKiw
     const flags: string[] = [];
 
     if (!row.email) flags.push('purchase_sem_email');
-    if (isApproved && !tenantId) flags.push('aprovada_sem_tenant');
+    if (isApproved && !tenantId && !row.activated_at) flags.push('aprovada_sem_tenant');
     if (isApproved && tenantId && isSubscriptionPurchase && (!tenantPlan || tenantPlan === 'FREE')) flags.push('paga_plano_free');
     if (isApproved && productKey === 'UNKNOWN') flags.push('produto_unknown');
     if (mappedProduct?.product_type === 'subscription' && !mappedProduct.plan_code) flags.push('produto_sem_plan_code');
@@ -1845,7 +1848,8 @@ export async function getCeoBillingKiwifyReconciliation(): Promise<CeoBillingKiw
   addBillingAlert(alerts, 'approved_no_credits', 'medium', 'Pagamento aprovado sem creditos visiveis', 'Wallet lida com saldo zerado/negativo para compra aprovada de assinatura.', 'Conferir wallet e ledger antes de qualquer ajuste manual.', purchases.filter(row => row.flags.includes('pagamento_sem_creditos_visiveis')).length);
   addBillingAlert(alerts, 'duplicates', 'medium', 'Compra duplicada suspeita', 'Mais de uma purchase compartilha order/email/produto/data.', 'Conferir idempotencia e provider_order_id antes de reconciliar.', purchases.filter(row => row.flags.includes('duplicidade_suspeita')).length);
   addBillingAlert(alerts, 'missing_email', 'critical', 'Purchase sem email', 'Registro de compra nao possui e-mail do comprador.', 'Investigar payload original da Kiwify.', purchases.filter(row => row.flags.includes('purchase_sem_email')).length);
-  addBillingAlert(alerts, 'internal_paid', 'high', 'Tenant interno em metrica paga', 'Compra aprovada esta vinculada a tenant marcado como interno.', 'Conferir se a conta deve seguir fora das metricas.', purchases.filter(row => row.flags.includes('tenant_interno_pago')).length);
+  // CEO-10C.2: internal_paid e visibilidade administrativa — nao e incidente financeiro, severidade low
+  addBillingAlert(alerts, 'internal_paid', 'low', 'Tenant interno com compra vinculada (visibilidade)', 'Compra aprovada vinculada a tenant interno. Nao e problema financeiro — registro administrativo esperado.', 'Verificar periodicamente se o tenant deve permanecer como interno ou retornar para metricas comerciais.', purchases.filter(row => row.flags.includes('tenant_interno_pago')).length);
 
   const cards: CeoBillingKiwifyCard[] = [
     { key: 'total_purchases', title: 'Compras totais', value: totalPurchases, status: totalPurchases === null ? 'unmonitored' : 'ok', subtext: 'kiwify_purchases', source: 'kiwify_purchases' },
@@ -1853,7 +1857,7 @@ export async function getCeoBillingKiwifyReconciliation(): Promise<CeoBillingKiw
     { key: 'pending_purchases', title: 'Compras pendentes', value: pendingPurchases, status: pendingPurchases === null ? 'unmonitored' : pendingPurchases > 0 ? 'attention' : 'ok', subtext: 'status PENDING', source: 'kiwify_purchases' },
     { key: 'no_tenant', title: 'Compras sem tenant', value: kpis?.orphan_purchase_count ?? noTenant, status: noTenant === null && !kpis ? 'unmonitored' : (kpis?.orphan_purchase_count ?? noTenant ?? 0) > 0 ? 'critical' : 'ok', subtext: 'aprovadas sem conta vinculada', source: 'kiwify_purchases + ceo_get_kpis' },
     { key: 'paid_free', title: 'Pagas mas plano FREE', value: paidFree, status: paidFree === null ? 'unmonitored' : paidFree > 0 ? 'critical' : 'ok', subtext: 'tenant vinculado sem plano pago', source: 'v_ceo_subscribers' },
-    { key: 'unmapped_product', title: 'Produto sem mapeamento', value: kpis?.unknown_product_count ?? unmappedProduct, status: unmappedProduct === null && !kpis ? 'unmonitored' : (kpis?.unknown_product_count ?? unmappedProduct ?? 0) > 0 ? 'critical' : 'ok', subtext: 'UNKNOWN ou sem plan_code', source: 'kiwify_products' },
+    { key: 'unmapped_product', title: 'Produto sem mapeamento', value: unmappedProduct ?? kpis?.unknown_product_count, status: unmappedProduct === null && !kpis ? 'unmonitored' : (unmappedProduct ?? kpis?.unknown_product_count ?? 0) > 0 ? 'critical' : 'ok', subtext: 'UNKNOWN + sem plan_code', source: 'kiwify_products + v_ceo_subscribers' },
     { key: 'activated', title: 'Ativacoes realizadas', value: activated, status: activated === null ? 'unmonitored' : 'ok', subtext: 'activated_at preenchido', source: 'kiwify_purchases' },
     { key: 'critical_divergences', title: 'Divergencias criticas', value: criticalDivergences, status: criticalDivergences === null ? 'unmonitored' : criticalDivergences > 0 ? 'critical' : 'ok', subtext: 'alertas operacionais', source: 'agregador CEO' },
   ];
@@ -2127,8 +2131,10 @@ export async function getCeoUsersTenantsAdmin(): Promise<CeoUsersTenantsAdmin> {
     ? kpis.active_subscribers
     : accounts.filter(row => row.plan_code && row.plan_code !== 'FREE' && row.status !== 'INACTIVE').length;
   const freeTenants = kpis ? kpis.free_count : accounts.filter(row => !row.plan_code || row.plan_code === 'FREE').length;
+  // CEO-10C.1: com KPIs usa plan_mismatch_count (RPC); no fallback local soma plan_mismatch + paid_but_free.
+  // Assimetria intencional ate existir paid_but_free_count separado na RPC.
   const planDivergences = kpis?.plan_mismatch_count ?? accounts.filter(row => row.divergence_code === 'plan_mismatch' || row.divergence_code === 'paid_but_free').length;
-  const purchaseWithoutActivation = kpis?.pending_activation_count ?? (purchaseRows ? purchaseRows.filter(p => p.status === 'APPROVED' && !p.activated_at).length : null);
+  const purchaseWithoutActivation = kpis?.pending_activation_count ?? (purchaseRows ? purchaseRows.filter(p => p.status === 'APPROVED' && !p.activated_at && !(p.tenant_id && internalIds.has(p.tenant_id))).length : null);
 
   const cards: CeoUsersTenantsCard[] = [
     accountCard('total_tenants', 'Total de tenants', totalTenants, totalTenants === null ? 'unmonitored' : 'ok', 'tenants cadastrados', 'tenants / ceo_get_kpis'),
@@ -2222,6 +2228,9 @@ export async function getCeoAlertsIncidentCenter(): Promise<CeoAlertsIncidentCen
   let creditIntegrityRows: any[] | null = null;
   let auditRows: AdminAuditEntry[] | null = null;
   let kpis: CeoKpis | null = null;
+  let creditDashboard: CeoCreditDashboard | null = null;
+  // CEO-10C.2: tenants internos carregados para evitar incidentes financeiros falsos
+  let internalIncidentTenants: InactiveTenantRow[] | null = null;
 
   try {
     const { data, error } = await supabase
@@ -2311,6 +2320,20 @@ export async function getCeoAlertsIncidentCenter(): Promise<CeoAlertsIncidentCen
     sources.push(sourceUnavailable('ceo_get_kpis', 'ceo_get_kpis', error));
   }
 
+  try {
+    creditDashboard = await getCeoCreditDashboard();
+    sources.push(sourceAvailable('v_ceo_credit_dashboard', 'v_ceo_credit_dashboard'));
+  } catch (error) {
+    sources.push(sourceUnavailable('v_ceo_credit_dashboard', 'v_ceo_credit_dashboard', error));
+  }
+
+  try {
+    internalIncidentTenants = await getCeoInternalTenants();
+    // nao expoe como source visivel — e dado auxiliar interno, nao monitorado como fonte de incidentes
+  } catch (_) {
+    internalIncidentTenants = null;
+  }
+
   sources.push({
     key: 'documents_operational_incidents',
     label: 'Documentos',
@@ -2367,9 +2390,12 @@ export async function getCeoAlertsIncidentCenter(): Promise<CeoAlertsIncidentCen
     });
   }
 
+  // CEO-10C.2: set de ids internos para rebaixar incidentes de tenants administrativos
+  const internalIncidentIds = new Set((internalIncidentTenants ?? []).map(t => t.id));
+
   for (const row of purchaseRows ?? []) {
     const approved = row.status === 'APPROVED';
-    if (approved && !row.tenant_id) {
+    if (approved && !row.tenant_id && !row.activated_at) {
       addIncident(incidents, {
         id: `kiwify-no-tenant-${row.id}`,
         severity: 'critical',
@@ -2386,18 +2412,23 @@ export async function getCeoAlertsIncidentCenter(): Promise<CeoAlertsIncidentCen
         details: row,
       });
     } else if (approved && row.tenant_id && !row.activated_at) {
+      const isInternal = internalIncidentIds.has(row.tenant_id);
       addIncident(incidents, {
         id: `kiwify-not-activated-${row.id}`,
-        severity: 'high',
+        severity: isInternal ? 'low' : 'high',
         category: 'billing',
-        title: 'Compra aprovada sem ativacao visivel',
-        description: `Tenant ${row.tenant_id} tem compra aprovada, mas activated_at esta vazio.`,
+        title: isInternal ? 'Compra sem ativacao (tenant interno)' : 'Compra aprovada sem ativacao visivel',
+        description: isInternal
+          ? `Tenant interno ${row.tenant_id} tem compra aprovada sem activated_at — visibilidade administrativa, nao incidente comercial.`
+          : `Tenant ${row.tenant_id} tem compra aprovada, mas activated_at esta vazio.`,
         source: 'kiwify_purchases',
         tenant_id: row.tenant_id,
         email: row.email ?? null,
         occurred_at: row.paid_at ?? row.created_at ?? null,
-        recommended_action: 'Conferir assinatura/tenant em Billing & Kiwify antes de acao manual.',
-        status: 'open',
+        recommended_action: isInternal
+          ? 'Verificar se o tenant interno precisa de ativacao manual ou se pode permanecer sem activated_at.'
+          : 'Conferir assinatura/tenant em Billing & Kiwify antes de acao manual.',
+        status: isInternal ? 'monitored' : 'open',
         related_tab: 'billing_kiwify',
         details: row,
       });
@@ -2480,10 +2511,10 @@ export async function getCeoAlertsIncidentCenter(): Promise<CeoAlertsIncidentCen
 
   if (kpis) {
     const kpiIncidents: Array<[string, number, CeoIncidentSeverity, string, string, string]> = [
-      ['plan_mismatch', kpis.plan_mismatch_count, 'critical', 'Divergencias de plano', 'Tenants com plan_mismatch detectado nos KPIs.', 'accounts_admin'],
+      ['plan_mismatch', kpis.plan_mismatch_count, 'critical', 'Divergencias de plano', 'Tenants com plan_mismatch detectado nos KPIs. Casos paid_but_free podem aparecer separadamente em Billing/Kiwify conforme fonte disponivel.', 'accounts_admin'],
       ['orphan_purchase', kpis.orphan_purchase_count, 'critical', 'Compras pagas sem conta', 'Compras aprovadas sem tenant vinculado.', 'billing_kiwify'],
       ['financial_inconsistency', kpis.financial_inconsistency_count, 'high', 'Inconsistencias financeiras', 'KPIs indicam divergencia financeira operacional.', 'diagnostics'],
-      ['wallet_divergence', kpis.wallet_divergence_count, 'high', 'Divergencias de wallet', 'KPIs indicam wallet divergente.', 'credits'],
+      ['wallet_divergence', creditDashboard?.wallet_ledger_divergences ?? kpis.wallet_divergence_count, 'high', 'Divergencias de wallet', creditDashboard ? 'Tenants com wallet divergente do ledger (v_ceo_credit_dashboard).' : 'KPIs indicam wallet divergente (fallback: ceo_get_kpis).', 'credits'],
     ];
     for (const [key, count, severity, title, description, tab] of kpiIncidents) {
       if (count <= 0) continue;
@@ -2529,9 +2560,9 @@ export async function getCeoAlertsIncidentCenter(): Promise<CeoAlertsIncidentCen
   for (const source of sources.filter(source => source.status === 'unavailable')) {
     addIncident(incidents, {
       id: `source-${source.key}`,
-      severity: source.key === 'rls_policies' ? 'medium' : 'low',
+      severity: 'low', // fontes nao monitoradas sao informativas — sem dados reais para gerar incidente
       category: source.key === 'rls_policies' ? 'security' : source.key.includes('documents') ? 'documents' : 'system',
-      title: 'Fonte de incidente nao disponivel',
+      title: 'Fonte nao monitorada',
       description: `${source.label}: ${source.detail ?? 'Fonte nao disponivel'}`,
       source: source.key,
       tenant_id: null,
@@ -3095,7 +3126,7 @@ export async function getKiwifyPurchases(): Promise<KiwifyPurchaseRow[]> {
     .from('kiwify_purchases')
     .select('id,email,product_key,plan_code,credits_amount,provider_order_id,status,activation_status,paid_at,activated_at,tenant_id,created_at')
     .order('created_at', { ascending: false })
-    .limit(500);
+    .limit(800);
   if (error) throw error;
   return (data ?? []) as KiwifyPurchaseRow[];
 }
@@ -3145,10 +3176,31 @@ export interface ReconcileResult {
   result_action: string;
 }
 
-export async function reconcilePendingPurchases(): Promise<ReconcileResult[]> {
+export async function reconcilePendingPurchases(
+  adminUser?: AdminUser | null,
+  reason?: string,
+  source?: string,
+): Promise<ReconcileResult[]> {
   const { data, error } = await supabase.rpc('reconcile_pending_activations');
   if (error) throw error;
-  return (data ?? []) as ReconcileResult[];
+  const results = (data ?? []) as ReconcileResult[];
+
+  // CEO-11A: log administrativo — acao sensivia que antes nao tinha rastro algum.
+  const byAction: Record<string, number> = {};
+  for (const r of results) byAction[r.result_action] = (byAction[r.result_action] ?? 0) + 1;
+  const effectiveAdmin: AdminUser = adminUser ?? { id: 'system', name: 'sistema', email: '', role: 'operacional', active: true, createdAt: new Date().toISOString() };
+  await logAction(
+    effectiveAdmin,
+    'reconcile_pending_activations',
+    'purchase',
+    undefined,
+    undefined,
+    undefined,
+    { total: results.length, source: source ?? 'manual', reason: reason ?? null, by_action: byAction },
+    `Reconciliacao de ativacoes pendentes — ${results.length} registro(s)${reason ? ` — motivo: ${reason}` : ''}`,
+  );
+
+  return results;
 }
 
 // Admin Audit Log

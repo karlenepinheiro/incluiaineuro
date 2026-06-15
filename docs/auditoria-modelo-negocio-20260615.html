@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auditoria — Modelo de Negócio IncluiAI</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --petrol:   #1F4E5F;
+      --dark:     #2E3A59;
+      --gold:     #C69214;
+      --bg:       #F6F4EF;
+      --surface:  #FFFFFF;
+      --border:   #E7E2D8;
+      --red:      #DC2626;
+      --orange:   #EA580C;
+      --yellow:   #CA8A04;
+      --green:    #16A34A;
+      --gray:     #6B7280;
+      --light:    #F9FAFB;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: #1a1a2e;
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    /* ── HEADER ── */
+    .page-header {
+      background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%);
+      color: #fff;
+      padding: 40px 48px 32px;
+    }
+    .page-header .badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.15);
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .page-header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    .page-header p {
+      font-size: 14px;
+      opacity: 0.75;
+    }
+    .meta-row {
+      display: flex;
+      gap: 32px;
+      margin-top: 24px;
+      flex-wrap: wrap;
+    }
+    .meta-item { font-size: 12px; opacity: 0.7; }
+    .meta-item strong { display: block; font-size: 13px; opacity: 1; color: #fff; margin-bottom: 2px; }
+
+    /* ── LAYOUT ── */
+    .container {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    /* ── SECTION ── */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      margin-bottom: 28px;
+      overflow: hidden;
+    }
+    .section-header {
+      background: var(--light);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .section-number {
+      width: 28px; height: 28px;
+      background: var(--petrol);
+      color: #fff;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .section-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--petrol);
+    }
+    .section-body { padding: 20px 24px; }
+
+    /* ── ALERT BOXES ── */
+    .alert {
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 12px;
+      border-left: 4px solid;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .alert-red    { background: #FEF2F2; border-color: var(--red);    color: #7F1D1D; }
+    .alert-orange { background: #FFF7ED; border-color: var(--orange);  color: #7C2D12; }
+    .alert-yellow { background: #FEFCE8; border-color: var(--yellow);  color: #713F12; }
+    .alert-green  { background: #F0FDF4; border-color: var(--green);   color: #14532D; }
+    .alert-gray   { background: #F9FAFB; border-color: var(--gray);    color: #374151; }
+    .alert-title  { font-weight: 700; margin-bottom: 4px; font-size: 13px; }
+
+    /* ── TABLES ── */
+    .tbl-wrap { overflow-x: auto; margin-bottom: 16px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead th {
+      background: var(--petrol);
+      color: #fff;
+      padding: 9px 14px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    tbody tr:nth-child(even) { background: #FAFAF8; }
+    tbody tr:hover { background: #F0EDE6; }
+    tbody td {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .td-mono { font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; }
+
+    /* ── BADGES ── */
+    .badge-pill {
+      display: inline-block;
+      border-radius: 12px;
+      padding: 2px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .pill-red    { background: #FEE2E2; color: var(--red); }
+    .pill-orange { background: #FFEDD5; color: var(--orange); }
+    .pill-yellow { background: #FEF9C3; color: var(--yellow); }
+    .pill-green  { background: #DCFCE7; color: var(--green); }
+    .pill-gray   { background: #F3F4F6; color: var(--gray); }
+    .pill-petrol { background: #E0EEF3; color: var(--petrol); }
+
+    /* ── RISK MATRIX ── */
+    .risk-grid {
+      display: grid;
+      gap: 10px;
+    }
+    .risk-card {
+      border-radius: 8px;
+      padding: 12px 16px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      border: 1px solid transparent;
+    }
+    .risk-card.critico  { background: #FEF2F2; border-color: #FECACA; }
+    .risk-card.alto     { background: #FFF7ED; border-color: #FED7AA; }
+    .risk-card.medio    { background: #FEFCE8; border-color: #FEF08A; }
+    .risk-icon {
+      font-size: 18px;
+      line-height: 1;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .risk-label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .risk-card.critico  .risk-label { color: var(--red); }
+    .risk-card.alto     .risk-label { color: var(--orange); }
+    .risk-card.medio    .risk-label { color: var(--yellow); }
+    .risk-desc { font-size: 13px; color: #374151; line-height: 1.5; }
+
+    /* ── FIX LIST ── */
+    .fix-list { list-style: none; }
+    .fix-list li {
+      display: flex;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      align-items: flex-start;
+    }
+    .fix-list li:last-child { border-bottom: none; }
+    .fix-prio {
+      min-width: 60px;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 6px;
+      padding: 3px 8px;
+      text-align: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .fix-p1 { background: #FEE2E2; color: var(--red); }
+    .fix-p2 { background: #FFEDD5; color: var(--orange); }
+    .fix-p3 { background: #FEF9C3; color: var(--yellow); }
+    .fix-text { font-size: 13px; line-height: 1.55; }
+    .fix-text strong { display: block; color: #111; margin-bottom: 2px; }
+    .fix-text span { color: var(--gray); font-size: 12px; }
+
+    /* ── CODE ── */
+    code {
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12px;
+      background: #F3F4F6;
+      border: 1px solid #E5E7EB;
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: #374151;
+    }
+
+    /* ── DIVIDER TEXT ── */
+    .sub-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--gray);
+      margin: 18px 0 10px;
+    }
+
+    /* ── FLOW DIAGRAM ── */
+    .flow {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      flex-wrap: wrap;
+      margin: 12px 0;
+    }
+    .flow-step {
+      background: var(--light);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      text-align: center;
+      min-width: 120px;
+      flex: 1;
+    }
+    .flow-step .step-label { font-weight: 700; color: var(--petrol); font-size: 11px; }
+    .flow-arrow {
+      display: flex;
+      align-items: center;
+      padding: 0 6px;
+      color: var(--gray);
+      font-size: 18px;
+    }
+
+    /* ── SUMMARY BOX ── */
+    .summary-box {
+      background: linear-gradient(135deg, #E0EEF3 0%, #EEF3FA 100%);
+      border: 1px solid #B8D3DF;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 28px;
+    }
+    .summary-box h3 { color: var(--petrol); font-size: 15px; margin-bottom: 8px; }
+    .summary-box p  { font-size: 13px; color: #374151; line-height: 1.6; }
+
+    /* ── FILES BOX ── */
+    .file-card {
+      background: var(--light);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 10px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+    }
+    .file-icon { font-size: 22px; flex-shrink: 0; }
+    .file-name { font-family: monospace; font-size: 12px; color: var(--petrol); font-weight: 700; margin-bottom: 4px; }
+    .file-desc { font-size: 12px; color: var(--gray); }
+
+    /* ── CONFIRMATION ── */
+    .confirm-box {
+      background: #F0FDF4;
+      border: 1px solid #BBF7D0;
+      border-radius: 10px;
+      padding: 18px 24px;
+      display: flex;
+      gap: 14px;
+      align-items: center;
+    }
+    .confirm-icon { font-size: 28px; }
+    .confirm-text h3 { color: #14532D; font-size: 14px; margin-bottom: 4px; }
+    .confirm-text p  { color: #15803D; font-size: 13px; }
+
+    /* ── FOOTER ── */
+    footer {
+      text-align: center;
+      padding: 24px;
+      font-size: 12px;
+      color: var(--gray);
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── PRINT ── */
+    @media print {
+      body { background: #fff; font-size: 12px; }
+      .section { break-inside: avoid; }
+      .page-header { background: var(--petrol) !important; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- HEADER                                                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="page-header">
+  <div class="badge">Auditoria Interna — Confidencial</div>
+  <h1>Auditoria do Modelo de Negócio</h1>
+  <p>Planos, assinaturas, ciclos de cobrança e créditos mensais — IncluiAI</p>
+  <div class="meta-row">
+    <div class="meta-item"><strong>Data</strong>15 de junho de 2026</div>
+    <div class="meta-item"><strong>Escopo</strong>Supabase + Código-fonte</div>
+    <div class="meta-item"><strong>Tipo</strong>Somente leitura — sem alterações</div>
+    <div class="meta-item"><strong>Status</strong>Aguardando confirmação para correções</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- CONTAINER                                                               -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div class="container">
+
+  <!-- RESUMO EXECUTIVO -->
+  <div class="summary-box">
+    <h3>⚡ Resumo Executivo</h3>
+    <p>
+      A auditoria identificou <strong>3 riscos críticos</strong>, <strong>3 riscos altos</strong> e <strong>4 riscos médios</strong>.
+      O risco mais grave é que <strong>assinaturas anuais têm <code>current_period_end = now() + 30 dias</code></strong> — idêntico ao mensal —
+      sem nenhum mecanismo interno que renove créditos mensalmente durante os 12 meses.
+      Todo o modelo anual depende exclusivamente de eventos da Kiwify,
+      sem fallback, sem cron e sem validação de período no acesso.
+      Nenhum dado foi alterado durante esta auditoria.
+    </p>
+  </div>
+
+  <!-- ─── 1. PLANOS NO SUPABASE ─────────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">1</div>
+      <h2>Planos existentes no Supabase</h2>
+    </div>
+    <div class="section-body">
+      <p style="margin-bottom:14px;">O seed inicial (<code>schema_v5_billing.sql</code>) registrou 4 planos. Os valores corretos só existem após a execução de <code>schema_v16_fix_plan_credits.sql</code>.</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>plans.name (DB)</th>
+              <th>Label UI</th>
+              <th>Créditos/mês (seed)</th>
+              <th>Créditos/mês (após fix)</th>
+              <th>Max Alunos (após fix)</th>
+              <th>price_brl (seed)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>FREE</code></td>
+              <td>Starter (Grátis)</td>
+              <td><span class="badge-pill pill-red">0 ⚠</span></td>
+              <td><span class="badge-pill pill-green">60</span></td>
+              <td>5</td>
+              <td>R$ 0</td>
+            </tr>
+            <tr>
+              <td><code>PRO</code></td>
+              <td>Profissional</td>
+              <td><span class="badge-pill pill-red">50 ⚠</span></td>
+              <td><span class="badge-pill pill-green">500</span></td>
+              <td>30</td>
+              <td>R$ 99</td>
+            </tr>
+            <tr>
+              <td><code>MASTER</code></td>
+              <td>Premium</td>
+              <td><span class="badge-pill pill-red">70 ⚠</span></td>
+              <td><span class="badge-pill pill-green">700</span></td>
+              <td>9999</td>
+              <td>R$ 147</td>
+            </tr>
+            <tr>
+              <td><code>INSTITUTIONAL</code></td>
+              <td>Institucional</td>
+              <td>9999</td>
+              <td>9999</td>
+              <td>9999</td>
+              <td>R$ 297</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="alert alert-orange">
+        <div class="alert-title">⚠ Risco de migração</div>
+        Se <code>schema_v16_fix_plan_credits.sql</code> não foi executado no banco de produção, os créditos ativos são PRO=50 e MASTER=70 — muito abaixo do prometido.
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 2. COMO PRO ESTÁ REGISTRADO ──────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">2</div>
+      <h2>Como PRO está registrado</h2>
+    </div>
+    <div class="section-body">
+      <p><code>plans.name = 'PRO'</code>. As colunas <strong>reais</strong> da tabela <code>plans</code> (confirmadas por <code>billingService.ts</code>) são:</p>
+      <div class="tbl-wrap" style="margin-top:12px;">
+        <table>
+          <thead><tr><th>Coluna real</th><th>Tipo</th><th>Observação</th></tr></thead>
+          <tbody>
+            <tr><td class="td-mono">id</td><td>UUID</td><td>PK</td></tr>
+            <tr><td class="td-mono">name</td><td>TEXT</td><td>Código canônico: FREE / PRO / MASTER</td></tr>
+            <tr><td class="td-mono">ai_credits_per_month</td><td>INTEGER</td><td>Créditos mensais do plano</td></tr>
+            <tr><td class="td-mono">max_students</td><td>INTEGER</td><td>Limite de alunos</td></tr>
+            <tr><td class="td-mono">price_brl</td><td>NUMERIC</td><td>Preço mensal (único preço no banco)</td></tr>
+            <tr><td class="td-mono">is_active</td><td>BOOLEAN</td><td></td></tr>
+            <tr><td class="td-mono">created_at</td><td>TIMESTAMPTZ</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="alert alert-yellow">
+        <div class="alert-title">Inconsistência de nomes de colunas</div>
+        <code>schema_v5_billing.sql</code> tentou criar <code>credits_monthly</code>, <code>price_monthly</code> e <code>price_yearly</code> — que <strong>não existem</strong> na tabela real de produção. O código usa <code>ai_credits_per_month</code> e <code>price_brl</code>.
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 3 e 4. PREMIUM / MASTER ─────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">3–4</div>
+      <h2>PREMIUM registrado no banco — é MASTER?</h2>
+    </div>
+    <div class="section-body">
+      <div class="alert alert-gray">
+        <div class="alert-title">✅ Confirmado: PREMIUM é apenas label de interface. No banco o nome é MASTER.</div>
+        Nenhuma linha em <code>plans</code> tem <code>name = 'PREMIUM'</code>. O mapeamento é feito em todos os pontos de entrada:
+      </div>
+      <div class="tbl-wrap" style="margin-top:14px;">
+        <table>
+          <thead><tr><th>Arquivo</th><th>Mapeamento</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>types.ts</code></td>
+              <td><code>PREMIUM = 'MASTER'</code> no enum PlanTier; alias <code>PLAN_TIER_ALIASES['MASTER'] = PlanTier.PREMIUM</code></td>
+            </tr>
+            <tr>
+              <td><code>kiwify-webhook/index.ts</code></td>
+              <td><code>planCode === 'PREMIUM' ? 'MASTER' : planCode</code></td>
+            </tr>
+            <tr>
+              <td><code>subscriptionService.ts</code></td>
+              <td><code>code === 'PREMIUM' ? 'MASTER' : code</code></td>
+            </tr>
+            <tr>
+              <td><code>activate_purchase_for_user()</code></td>
+              <td><code>CASE WHEN 'PREMIUM' THEN 'MASTER'</code></td>
+            </tr>
+            <tr>
+              <td><code>aiCosts.ts</code></td>
+              <td><code>MASTER: { name: 'Premium', ... }</code> — comentário documenta o alias</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 5. PREÇOS ────────────────────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">5</div>
+      <h2>Preços mensais e anuais no banco</h2>
+    </div>
+    <div class="section-body">
+      <div class="alert alert-red">
+        <div class="alert-title">🔴 Preços anuais NÃO estão no banco</div>
+        A tabela <code>plans</code> tem apenas <code>price_brl</code> — um único preço por plano. Não existe coluna <code>price_annual</code> nem <code>price_yearly</code> na tabela real.
+      </div>
+      <div class="tbl-wrap" style="margin-top:12px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Plano</th>
+              <th>Preço mensal (plans.price_brl)</th>
+              <th>Preço anual exibido na UI</th>
+              <th>Origem do preço anual</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>PRO Mensal</td>
+              <td>R$ 99,00</td>
+              <td>—</td>
+              <td>DB</td>
+            </tr>
+            <tr>
+              <td>PRO Anual</td>
+              <td>—</td>
+              <td>R$ 59/mês (R$ 708/ano)</td>
+              <td><span class="badge-pill pill-orange">Hardcoded no React</span></td>
+            </tr>
+            <tr>
+              <td>MASTER Mensal</td>
+              <td>R$ 147,00</td>
+              <td>—</td>
+              <td>DB</td>
+            </tr>
+            <tr>
+              <td>MASTER Anual</td>
+              <td>—</td>
+              <td>R$ 99/mês (R$ 1.188/ano)</td>
+              <td><span class="badge-pill pill-orange">Hardcoded no React</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:12px;font-size:13px;color:var(--gray);">
+        Os preços anuais estão fixos em <code>SubscriptionView.tsx</code> e <code>kiwifyService.ts</code>. O CEO não pode alterá-los pela interface sem deploy de código.
+      </p>
+    </div>
+  </div>
+
+  <!-- ─── 6 e 7. CRÉDITOS E ALUNOS ────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">6–7</div>
+      <h2>Créditos mensais e limites de alunos por plano</h2>
+    </div>
+    <div class="section-body">
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Plano</th>
+              <th>Créditos (aiCosts.ts)</th>
+              <th>Créditos (DB — antes fix)</th>
+              <th>Créditos (DB — após fix)</th>
+              <th>Alunos (antes fix)</th>
+              <th>Alunos (após fix)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>FREE</code></td>
+              <td>60</td>
+              <td><span class="badge-pill pill-red">0 ⚠</span></td>
+              <td><span class="badge-pill pill-green">60 ✓</span></td>
+              <td>5</td>
+              <td>5</td>
+            </tr>
+            <tr>
+              <td><code>PRO</code></td>
+              <td>500</td>
+              <td><span class="badge-pill pill-red">50 ⚠</span></td>
+              <td><span class="badge-pill pill-green">500 ✓</span></td>
+              <td>30</td>
+              <td>30</td>
+            </tr>
+            <tr>
+              <td><code>MASTER</code></td>
+              <td>700</td>
+              <td><span class="badge-pill pill-red">70 ⚠</span></td>
+              <td><span class="badge-pill pill-green">700 ✓</span></td>
+              <td><span class="badge-pill pill-red">999 ⚠</span></td>
+              <td><span class="badge-pill pill-green">9999 ✓</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 8 e 9. BILLING CYCLE ─────────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">8–9</div>
+      <h2>Como o banco diferencia mensal / anual — billing_cycle</h2>
+    </div>
+    <div class="section-body">
+      <p style="margin-bottom:14px;">A coluna <code>subscriptions.billing_cycle</code> armazena <code>'monthly' | 'annual' | null</code>. É preenchida por:</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Origem</th><th>Lógica de detecção</th><th>Fallback</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>kiwify-webhook</td>
+              <td>Regex no <code>product_name</code>: <code>/anual|annual/i</code></td>
+              <td><code>'monthly'</code></td>
+            </tr>
+            <tr>
+              <td>activate_purchase_for_user()</td>
+              <td><code>product_key LIKE '%ANNUAL%'</code></td>
+              <td><code>'monthly'</code></td>
+            </tr>
+            <tr>
+              <td>reconcile_pending_activations()</td>
+              <td><code>product_key LIKE '%ANNUAL%'</code></td>
+              <td><code>'monthly'</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="alert alert-orange" style="margin-top:14px;">
+        <div class="alert-title">⚠ Assinaturas sem billing_cycle</div>
+        Contas criadas antes da coluna <code>billing_cycle</code> existir têm <code>NULL</code>. O código aplica fallback para <code>null</code> (não assume mensal nem anual), e a UI exibe o plano sem indicar o ciclo. Não há como saber retroativamente se eram mensais ou anuais.
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 10. ASSINATURAS VENCIDAS ATIVAS ──────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">10</div>
+      <h2>Assinaturas vencidas ainda ativas</h2>
+    </div>
+    <div class="section-body">
+      <div class="alert alert-red">
+        <div class="alert-title">🔴 Risco confirmado — acesso indevido</div>
+        A função <code>checkSubscriptionAccess()</code> verifica <strong>apenas o campo <code>status</code></strong>, nunca <code>current_period_end</code>. Se a Kiwify falhar em enviar <code>subscription_overdue</code>, a assinatura fica com <code>status = 'ACTIVE'</code> mesmo após o período expirar. Não existe nenhum job, cron ou pg_cron que faça downgrade automático.
+      </div>
+      <div class="flow" style="margin-top:14px;">
+        <div class="flow-step"><span class="step-label">Kiwify cobra</span>Pagamento falha</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="step-label">Webhook</span>Envia <code>subscription_overdue</code></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="step-label">Sistema</span>Muda status = OVERDUE</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="step-label">Acesso</span>Bloqueado</div>
+      </div>
+      <p style="margin-top:12px;font-size:13px;color:var(--red);font-weight:600;">
+        Se o webhook falhar em qualquer etapa → status permanece ACTIVE → acesso continua indefinidamente.
+      </p>
+    </div>
+  </div>
+
+  <!-- ─── 11. WALLETS SEM last_reset_at ────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">11</div>
+      <h2>Wallets com last_reset_at null</h2>
+    </div>
+    <div class="section-body">
+      <div class="alert alert-orange">
+        <div class="alert-title">⚠ Provavelmente a maioria das wallets</div>
+        A coluna <code>credits_wallet.last_reset_at</code> existe e é lida pelo frontend para exibir "Próxima renovação dos créditos". Porém <strong>nenhuma operação ativa a atualiza</strong>: nem <code>atomic_grant_credits</code>, nem <code>setCredits()</code> do webhook, nem <code>activate_purchase_for_user()</code>. A migration <code>20260519</code> adicionou <code>last_credit_grant_at</code> e <code>next_credit_grant_at</code> — mas também sem nenhum código que as atualize.
+      </div>
+      <div class="tbl-wrap" style="margin-top:12px;">
+        <table>
+          <thead><tr><th>Coluna</th><th>Atualizada por</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td class="td-mono">last_reset_at</td><td>Nenhum fluxo ativo</td><td><span class="badge-pill pill-red">Sempre NULL</span></td></tr>
+            <tr><td class="td-mono">last_credit_grant_at</td><td>Nenhum fluxo ativo</td><td><span class="badge-pill pill-red">Sempre NULL</span></td></tr>
+            <tr><td class="td-mono">next_credit_grant_at</td><td>Nenhum fluxo ativo</td><td><span class="badge-pill pill-red">Sempre NULL</span></td></tr>
+            <tr><td class="td-mono">balance</td><td>atomic_grant/debit, setCredits(), activate_purchase</td><td><span class="badge-pill pill-green">Atualizada corretamente</span></td></tr>
+            <tr><td class="td-mono">updated_at</td><td>Trigger automático</td><td><span class="badge-pill pill-green">Atualizada corretamente</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 12. CONCESSÃO DE CRÉDITOS ────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">12</div>
+      <h2>Como créditos mensais são concedidos</h2>
+    </div>
+    <div class="section-body">
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Caminho</th>
+              <th>Disparado por</th>
+              <th>Operação na wallet</th>
+              <th>Tipo no ledger</th>
+              <th>Idempotente?</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Kiwify webhook <code>order_approved</code></td>
+              <td>Kiwify → Edge Function</td>
+              <td><strong>RESET</strong> balance = créditos do plano</td>
+              <td><code>monthly_grant</code></td>
+              <td><span class="badge-pill pill-yellow">Parcial (kiwify_webhook_logs)</span></td>
+            </tr>
+            <tr>
+              <td>Kiwify webhook <code>subscription_renewed</code></td>
+              <td>Kiwify → Edge Function</td>
+              <td><strong>RESET</strong> balance = créditos do plano</td>
+              <td><code>monthly_grant</code></td>
+              <td><span class="badge-pill pill-yellow">Parcial</span></td>
+            </tr>
+            <tr>
+              <td><code>activate_purchase_for_user()</code></td>
+              <td>Frontend no login</td>
+              <td><strong>RESET</strong> para assinatura / <strong>INCREMENT</strong> para avulso</td>
+              <td><code>monthly_grant</code> / <code>purchase_extra</code></td>
+              <td><span class="badge-pill pill-green">Sim (FOR UPDATE SKIP LOCKED)</span></td>
+            </tr>
+            <tr>
+              <td>CEO grant manual</td>
+              <td>Painel CEO</td>
+              <td><strong>INCREMENT</strong> balance</td>
+              <td><code>manual_grant</code></td>
+              <td><span class="badge-pill pill-green">Sim (operation_id)</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="alert alert-orange" style="margin-top:14px;">
+        <div class="alert-title">⚠ Webhook bypassa atomic RPCs</div>
+        Os caminhos 1 e 2 usam <code>setCredits()</code> — operação <strong>direta na <code>credits_wallet</code></strong>, fora do sistema atômico (<code>atomic_grant_credits</code>). Isso bypassa a tabela <code>credit_operations</code> e sua idempotência garantida, criando risco de duplicação em eventos repetidos.
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 13. MENSAL VS ANUAL — CRÉDITOS ───────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">13</div>
+      <h2>Mensal e anual renovam crédito da mesma forma?</h2>
+    </div>
+    <div class="section-body">
+      <div class="alert alert-red">
+        <div class="alert-title">🔴 Risco crítico — renovação mensal anual não garantida</div>
+        No código, ambos usam a mesma chamada <code>setCredits()</code>. A diferença está <strong>em quem dispara e quando</strong>:
+        <ul style="margin-top:8px;padding-left:20px;font-size:13px;line-height:1.8;">
+          <li><strong>Mensal:</strong> Kiwify envia <code>subscription_renewed</code> a cada 30 dias → créditos renovam automaticamente.</li>
+          <li><strong>Anual:</strong> Depende de a Kiwify enviar <code>subscription_renewed</code> mensalmente para planos anuais. <strong>Não há documentação no código</strong> confirmando isso. Se não enviar, os créditos param após o primeiro mês.</li>
+        </ul>
+      </div>
+      <p style="margin-top:12px;font-size:13px;color:var(--gray);">
+        Não existe nenhum pg_cron, Edge Function agendada ou lógica interna que renove créditos mensalmente de forma independente da Kiwify.
+      </p>
+    </div>
+  </div>
+
+  <!-- ─── 14. CANCELE QUANDO QUISER ───────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">14</div>
+      <h2>Onde está implementada a regra "cancele quando quiser" (mensal)</h2>
+    </div>
+    <div class="section-body">
+      <div class="alert alert-gray">
+        Não há implementação explícita no sistema. O cancelamento é <strong>delegado inteiramente à Kiwify</strong>:
+      </div>
+      <div class="flow" style="margin-top:14px;">
+        <div class="flow-step"><span class="step-label">Usuário</span>Cancela no painel Kiwify</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="step-label">Kiwify</span>Envia <code>subscription_canceled</code></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="step-label">Webhook</span><code>status = 'CANCELED'</code></div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="step-label">checkSubscriptionAccess</span>Bloqueia acesso premium</div>
+      </div>
+      <p style="margin-top:12px;font-size:13px;color:var(--gray);">
+        Não existe botão de cancelamento no app. O app não tem lógica de "cancelar ao fim do período" — apenas reage ao evento externo.
+      </p>
+    </div>
+  </div>
+
+  <!-- ─── 15. FIDELIDADE 12 MESES ─────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">15</div>
+      <h2>Onde está implementada a regra "fidelidade 12 meses" (anual)</h2>
+    </div>
+    <div class="section-body">
+      <div class="alert alert-red">
+        <div class="alert-title">🔴 Não implementada — risco crítico</div>
+        Nenhuma lógica no sistema:
+        <ul style="margin-top:8px;padding-left:20px;font-size:13px;line-height:1.8;">
+          <li>Define <code>current_period_end = now() + 365 dias</code> para anuais.</li>
+          <li>Impede cancelamento nos primeiros 12 meses.</li>
+          <li>Diferencia o período vigente entre mensal e anual.</li>
+        </ul>
+      </div>
+      <p style="margin-top:10px;font-size:13px;color:#374151;">
+        Tanto o <strong>kiwify-webhook</strong> quanto a <strong><code>activate_purchase_for_user()</code></strong> sempre gravam:
+      </p>
+      <pre style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:12px 16px;font-size:12px;margin-top:8px;overflow-x:auto;color:#7F1D1D;">
+current_period_end = now() + INTERVAL '30 days'   -- independente do billing_cycle!</pre>
+      <p style="margin-top:10px;font-size:13px;color:#374151;">
+        O campo <code>billing_cycle = 'annual'</code> é gravado corretamente, mas <strong>nunca é usado para calcular o período</strong>.
+      </p>
+    </div>
+  </div>
+
+  <!-- ─── 16. DIVERGÊNCIAS BANCO / CÓDIGO ─────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">16</div>
+      <h2>Divergências entre banco e código</h2>
+    </div>
+    <div class="section-body">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Divergência</th><th>Impacto</th><th>Arquivo(s)</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>D1</td>
+              <td>Coluna real <code>ai_credits_per_month</code> ≠ <code>credits_monthly</code> tentado no schema_v5</td>
+              <td><span class="badge-pill pill-orange">Médio</span></td>
+              <td><code>billingService.ts:36</code>, <code>schema_v5_billing.sql:28</code></td>
+            </tr>
+            <tr>
+              <td>D2</td>
+              <td>Coluna real <code>price_brl</code> ≠ <code>price_monthly</code>/<code>price_yearly</code> tentados no schema_v5</td>
+              <td><span class="badge-pill pill-orange">Médio</span></td>
+              <td><code>billingService.ts:36</code>, <code>schema_v5_billing.sql:28</code></td>
+            </tr>
+            <tr>
+              <td>D3</td>
+              <td>Preços anuais hardcoded no React — CEO não pode alterar sem deploy</td>
+              <td><span class="badge-pill pill-orange">Médio</span></td>
+              <td><code>SubscriptionView.tsx:41</code>, <code>kiwifyService.ts:200</code></td>
+            </tr>
+            <tr>
+              <td>D4</td>
+              <td><code>current_period_end</code> anual = 30 dias, não 365 dias</td>
+              <td><span class="badge-pill pill-red">Crítico</span></td>
+              <td><code>kiwify-webhook/index.ts:516</code>, <code>activate_purchase_for_user:219</code></td>
+            </tr>
+            <tr>
+              <td>D5</td>
+              <td><code>last_reset_at</code> nunca é atualizado — sempre NULL</td>
+              <td><span class="badge-pill pill-orange">Alto</span></td>
+              <td><code>creditService.ts:217</code></td>
+            </tr>
+            <tr>
+              <td>D6</td>
+              <td><code>credits_avail</code> existe na wallet mas <code>atomic_debit</code> só atualiza <code>balance</code></td>
+              <td><span class="badge-pill pill-yellow">Baixo</span></td>
+              <td><code>schema_v5_billing.sql:97</code>, <code>atomic_debit_credits</code></td>
+            </tr>
+            <tr>
+              <td>D7</td>
+              <td>kiwify-webhook usa <code>setCredits()</code> direto, não <code>atomic_grant_credits</code></td>
+              <td><span class="badge-pill pill-orange">Alto</span></td>
+              <td><code>kiwify-webhook/index.ts:689</code></td>
+            </tr>
+            <tr>
+              <td>D8</td>
+              <td>FREE seed gravou 0 créditos — requer script schema_v16 separado</td>
+              <td><span class="badge-pill pill-orange">Médio</span></td>
+              <td><code>schema_v5_billing.sql:27</code>, <code>schema_v16_fix_plan_credits.sql</code></td>
+            </tr>
+            <tr>
+              <td>D9</td>
+              <td><code>billing_cycle = NULL</code> em contas antigas — UI não sabe se mensal ou anual</td>
+              <td><span class="badge-pill pill-yellow">Baixo</span></td>
+              <td><code>subscriptionService.ts:96</code></td>
+            </tr>
+            <tr>
+              <td>D10</td>
+              <td><code>process_payment_approved()</code> (Asaas) duplica lógica Kiwify — código morto</td>
+              <td><span class="badge-pill pill-yellow">Baixo</span></td>
+              <td><code>schema_v5_billing.sql:390</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 17. RISCOS ───────────────────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">17</div>
+      <h2>Riscos identificados</h2>
+    </div>
+    <div class="section-body">
+      <div class="risk-grid">
+
+        <div class="risk-card critico">
+          <div class="risk-icon">🔴</div>
+          <div>
+            <div class="risk-label">Crítico</div>
+            <div class="risk-desc"><strong>Assinatura anual expira em 30 dias no banco.</strong> <code>current_period_end = now() + 30 days</code> independente do ciclo. Assinante anual aparece como "expirado" após 30 dias.</div>
+          </div>
+        </div>
+
+        <div class="risk-card critico">
+          <div class="risk-icon">🔴</div>
+          <div>
+            <div class="risk-label">Crítico</div>
+            <div class="risk-desc"><strong>Nenhum mecanismo interno renova créditos mensalmente para anuais.</strong> Sem pg_cron, sem Edge Function agendada. Se a Kiwify não enviar <code>subscription_renewed</code> todo mês, créditos param após o primeiro grant.</div>
+          </div>
+        </div>
+
+        <div class="risk-card critico">
+          <div class="risk-icon">🔴</div>
+          <div>
+            <div class="risk-label">Crítico</div>
+            <div class="risk-desc"><strong><code>checkSubscriptionAccess()</code> ignora <code>current_period_end</code>.</strong> Assinante com <code>status = ACTIVE</code> e período vencido mantém acesso irrestrito se webhook falhar.</div>
+          </div>
+        </div>
+
+        <div class="risk-card alto">
+          <div class="risk-icon">🟠</div>
+          <div>
+            <div class="risk-label">Alto</div>
+            <div class="risk-desc"><strong><code>last_reset_at</code> e <code>next_credit_grant_at</code> nunca atualizados.</strong> Dashboard exibe "Próxima renovação: —" para todos os usuários, corroendo confiança na plataforma.</div>
+          </div>
+        </div>
+
+        <div class="risk-card alto">
+          <div class="risk-icon">🟠</div>
+          <div>
+            <div class="risk-label">Alto</div>
+            <div class="risk-desc"><strong>kiwify-webhook bypassa atomic RPCs.</strong> Eventos duplicados podem conceder créditos duas vezes sem a proteção de <code>credit_operations</code>.</div>
+          </div>
+        </div>
+
+        <div class="risk-card alto">
+          <div class="risk-icon">🟠</div>
+          <div>
+            <div class="risk-label">Alto</div>
+            <div class="risk-desc"><strong>schema_v16 pode não ter sido executado em produção.</strong> Se não foi, PRO tem 50 créditos (não 500) e MASTER tem 70 créditos (não 700) — 10× menos do prometido.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 18. CORREÇÕES RECOMENDADAS ──────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">18</div>
+      <h2>Correções recomendadas por prioridade</h2>
+    </div>
+    <div class="section-body">
+      <ul class="fix-list">
+
+        <li>
+          <span class="fix-prio fix-p1">P1</span>
+          <div class="fix-text">
+            <strong>Corrigir <code>current_period_end</code> para assinaturas anuais</strong>
+            <span>No kiwify-webhook e em <code>activate_purchase_for_user()</code>, quando <code>billing_cycle = 'annual'</code>, setar <code>current_period_end = now() + INTERVAL '365 days'</code>. Migração simples de 2 linhas.</span>
+          </div>
+        </li>
+
+        <li>
+          <span class="fix-prio fix-p1">P1</span>
+          <div class="fix-text">
+            <strong>Criar mecanismo de renovação mensal de créditos para anuais</strong>
+            <span>Edge Function com pg_cron (mensal) que consulta assinaturas com <code>billing_cycle = 'annual'</code> e <code>status = 'ACTIVE'</code> e chama <code>atomic_grant_credits</code> para cada uma — independente de eventos da Kiwify.</span>
+          </div>
+        </li>
+
+        <li>
+          <span class="fix-prio fix-p1">P1</span>
+          <div class="fix-text">
+            <strong>Validar <code>current_period_end</code> em <code>checkSubscriptionAccess()</code></strong>
+            <span>Se <code>status = 'ACTIVE'</code> mas <code>current_period_end &lt; now()</code>, retornar <code>OVERDUE</code> automaticamente. Impede acesso indevido quando webhook falhar.</span>
+          </div>
+        </li>
+
+        <li>
+          <span class="fix-prio fix-p2">P2</span>
+          <div class="fix-text">
+            <strong>Migrar <code>setCredits()</code> do webhook para <code>atomic_grant_credits</code></strong>
+            <span>Garantir idempotência real no fluxo de ativação via webhook usando o sistema atômico já existente com <code>credit_operations</code>.</span>
+          </div>
+        </li>
+
+        <li>
+          <span class="fix-prio fix-p2">P2</span>
+          <div class="fix-text">
+            <strong>Atualizar <code>last_reset_at</code> e <code>next_credit_grant_at</code> ao conceder créditos</strong>
+            <span>Incluir essas colunas no UPDATE da <code>credits_wallet</code> em cada grant mensal. Permite que o dashboard mostre datas corretas de renovação.</span>
+          </div>
+        </li>
+
+        <li>
+          <span class="fix-prio fix-p2">P2</span>
+          <div class="fix-text">
+            <strong>Confirmar execução de <code>schema_v16_fix_plan_credits.sql</code> em produção</strong>
+            <span>Verificar via SQL Editor: <code>SELECT name, ai_credits_per_month, max_students FROM plans;</code>. Se PRO = 50 ou MASTER = 70, executar o script imediatamente.</span>
+          </div>
+        </li>
+
+        <li>
+          <span class="fix-prio fix-p3">P3</span>
+          <div class="fix-text">
+            <strong>Mover preços anuais para o banco</strong>
+            <span>Adicionar coluna <code>price_brl_annual</code> em <code>plans</code> ou usar <code>kiwify_products.price_brl</code> por produto como fonte única. Permite que CEO altere preços sem deploy.</span>
+          </div>
+        </li>
+
+        <li>
+          <span class="fix-prio fix-p3">P3</span>
+          <div class="fix-text">
+            <strong>Backfill de <code>billing_cycle</code> em assinaturas antigas</strong>
+            <span>Cruzar <code>kiwify_purchases.product_key</code> com <code>subscriptions.tenant_id</code> para inferir o ciclo de contas sem <code>billing_cycle</code>.</span>
+          </div>
+        </li>
+
+        <li>
+          <span class="fix-prio fix-p3">P3</span>
+          <div class="fix-text">
+            <strong>Eliminar ou sincronizar <code>credits_avail</code> com <code>balance</code></strong>
+            <span>Dois campos para o mesmo saldo criam confusão. Remover <code>credits_avail</code> ou garantir que todos os RPCs atualizem ambos consistentemente.</span>
+          </div>
+        </li>
+
+      </ul>
+    </div>
+  </div>
+
+  <!-- ─── 19. ARQUIVOS SQL CRIADOS ─────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">19</div>
+      <h2>Arquivos SQL de diagnóstico criados</h2>
+    </div>
+    <div class="section-body">
+      <div class="file-card">
+        <div class="file-icon">📋</div>
+        <div>
+          <div class="file-name">supabase/diagnostics/20260612_audit_business_plans_schema.sql</div>
+          <div class="file-desc">Audita o schema real: colunas de plans, subscriptions, credits_wallet, credits_ledger, tenants, kiwify_products e kiwify_purchases. Verifica constraints CHECK, foreign keys, índices, políticas RLS e funções/RPCs relacionadas a billing. Apenas SELECTs via information_schema e pg_catalog.</div>
+        </div>
+      </div>
+      <div class="file-card">
+        <div class="file-icon">📊</div>
+        <div>
+          <div class="file-name">supabase/diagnostics/20260612_audit_business_plans_data.sql</div>
+          <div class="file-desc">Audita os dados reais: todos os planos, assinaturas agrupadas por status/ciclo/plano, assinaturas ativas com período vencido, wallets com last_reset_at null, distribuição de saldos, ledger por tipo, exemplos de contas PRO e MASTER, compras Kiwify não ativadas, e divergência wallet×ledger. 20 queries diagnósticas — apenas SELECTs.</div>
+        </div>
+      </div>
+      <p style="margin-top:10px;font-size:12px;color:var(--gray);">
+        Para executar: Supabase Dashboard → SQL Editor → abrir cada arquivo → Run. Recomenda-se conectar com <code>service_role</code> ou <code>postgres</code> para acesso completo às tabelas com RLS.
+      </p>
+    </div>
+  </div>
+
+  <!-- ─── 20. CONFIRMAÇÃO ───────────────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-number">20</div>
+      <h2>Confirmação de integridade</h2>
+    </div>
+    <div class="section-body">
+      <div class="confirm-box">
+        <div class="confirm-icon">✅</div>
+        <div class="confirm-text">
+          <h3>Nenhum dado foi alterado</h3>
+          <p>Esta auditoria é inteiramente somente-leitura. Nenhum <code>UPDATE</code>, <code>INSERT</code>, <code>DELETE</code>, <code>ALTER</code>, <code>DROP</code> ou <code>TRUNCATE</code> foi executado. Nenhuma migration foi criada. Os únicos arquivos criados foram os dois SQLs de diagnóstico em <code>supabase/diagnostics/</code>. Aguardando confirmação para prosseguir com as correções.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<footer>
+  IncluiAI — Auditoria Interna — 15 de junho de 2026 — Confidencial — Somente leitura
+</footer>
+
+</body>
+</html>

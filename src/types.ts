@@ -102,6 +102,7 @@ export enum DocumentType {
   PEI = 'PEI',
   PAEE = 'PAEE',
   PDI = 'PDI',
+  DOCUMENTO_UNIFICADO_PEI_PAEE = 'Documento Unificado PEI + PAEE',
   PLANO_ACAO_AEE = 'Plano de Ação AEE',
   FICHA = 'Ficha de Acompanhamento',
   ATIVIDADE = 'Atividade Adaptada',
@@ -957,18 +958,29 @@ export interface TenantSummary {
 
 /**
  * Converte planCode + billingCycle no nome exibível na UI.
- * "MASTER" + "annual" → "PREMIUM ANUAL"
+ * "MASTER" + "annual"  → "PREMIUM ANUAL"
+ * "MASTER" + "monthly" → "PREMIUM MENSAL"
+ * "MASTER" + null/undefined → "PREMIUM"  (não assume ciclo desconhecido)
+ * "PRO"    + "annual"  → "PRO ANUAL"
  * "PRO"    + "monthly" → "PRO MENSAL"
+ * "PRO"    + null/undefined → "PRO"
  * "FREE"   + qualquer  → "FREE"
  */
 export function formatPlanDisplayName(
   planCode: string,
   billingCycle?: 'monthly' | 'annual' | null
 ): string {
-  const code  = String(planCode ?? '').toUpperCase();
-  const cycle = billingCycle === 'annual' ? 'ANUAL' : 'MENSAL';
-  if (code === 'MASTER' || code === 'PREMIUM') return `PREMIUM ${cycle}`;
-  if (code === 'PRO') return `PRO ${cycle}`;
+  const code = String(planCode ?? '').toUpperCase();
+  if (code === 'MASTER' || code === 'PREMIUM') {
+    if (billingCycle === 'annual')  return 'PREMIUM ANUAL';
+    if (billingCycle === 'monthly') return 'PREMIUM MENSAL';
+    return 'PREMIUM'; // ciclo desconhecido — não assume
+  }
+  if (code === 'PRO') {
+    if (billingCycle === 'annual')  return 'PRO ANUAL';
+    if (billingCycle === 'monthly') return 'PRO MENSAL';
+    return 'PRO';
+  }
   return 'FREE';
 }
 

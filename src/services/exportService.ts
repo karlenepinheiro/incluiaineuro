@@ -179,7 +179,7 @@ function pf_val(v: any, fallback = 'Não informado'): string {
 
 /** Cabeçalho corrente — páginas 2+ da Ficha Premium. */
 function pf_header(
-  doc: any, studentName: string, code: string, school?: SchoolConfig | null,
+  doc: any, studentName: string, _code: string, school?: SchoolConfig | null,
 ): number {
   const W  = doc.internal.pageSize.getWidth();
   const sn = school?.schoolName?.trim() || 'Escola não informada';
@@ -188,8 +188,8 @@ function pf_header(
   const shortName = studentName.length > 28 ? studentName.split(' ').slice(0, 2).join(' ') : studentName;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL500);
   doc.text(`FICHA DO ALUNO — ${shortName}`, W / 2, 7.5, { align: 'center' });
-  doc.setFont('courier', 'normal');   doc.setFontSize(7);   sc(doc, PF_SL400);
-  doc.text(`Doc.: ${code}`, W - FR, 7.5, { align: 'right' });
+  doc.setFont('helvetica', 'bold');   doc.setFontSize(8.5); sc(doc, BRAND as [number,number,number]);
+  doc.text('IncluiAI', W - FR, 7.5, { align: 'right' });
   sdd(doc, PF_SL200); doc.setLineWidth(0.25);
   doc.line(FL, 10.5, W - FR, 10.5);
   return 13;
@@ -208,15 +208,21 @@ function pf_footer(doc: any, code: string, emittedBy: string): void {
   });
   sdd(doc, PF_SL200); doc.setLineWidth(0.25);
   doc.line(FL, fY, W - FR, fY);
+  // Esquerda: nota de uso interno
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7);   sc(doc, PF_SL400);
+  doc.text('Documento pedagógico — uso interno', FL, fY + 4.5);
+  // Centro: marca IncluiAI + site
+  doc.setFont('helvetica', 'bold');   doc.setFontSize(8);   sc(doc, BRAND as [number,number,number]);
+  doc.text('IncluiAI', W / 2, fY + 3.5, { align: 'center' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); sc(doc, PF_SL400);
+  doc.text('www.incluiai.app.br', W / 2, fY + 8, { align: 'center' });
+  // Direita: número de página
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7);   sc(doc, PF_SL500);
-  doc.text('Documento pedagógico para uso interno IncluiAI', FL, fY + 4.5);
-  doc.setFont('helvetica', 'bold');                         sc(doc, BRAND);
-  doc.text('INCLUIAI', W / 2, fY + 4.5, { align: 'center' });
-  doc.setFont('helvetica', 'normal');                       sc(doc, PF_SL500);
   doc.text(`Página ${pN} de ${pT}`, W - FR, fY + 4.5, { align: 'right' });
+  // Segunda linha
   doc.setFontSize(6.5); sc(doc, PF_SL400);
   if (cleanBy) doc.text(`Emitido por: ${cleanBy}  ·  ${emitDate}`, FL, fY + 8.5);
-  doc.setFont('courier', 'normal'); sc(doc, BRAND);
+  doc.setFont('courier', 'normal'); sc(doc, BRAND as [number,number,number]);
   doc.text(`Cód.: ${code}`, W - FR, fY + 8.5, { align: 'right' });
 }
 
@@ -1257,10 +1263,11 @@ export const ExportService = {
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); sc(doc, PF_SL500);
       doc.text(cityLine, FL, 11.5);
     }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); sc(doc, BRAND);
-    doc.text('FICHA DO ALUNO', W - FR, 7.5, { align: 'right' });
-    doc.setFont('courier', 'normal'); doc.setFontSize(7); sc(doc, PF_SL400);
-    doc.text(`Doc.: ${internalCode}`, W - FR, 11.5, { align: 'right' });
+    // Direita: marca IncluiAI + site
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); sc(doc, BRAND as [number,number,number]);
+    doc.text('IncluiAI', W - FR, 7.5, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7); sc(doc, PF_SL400);
+    doc.text('www.incluiai.app.br', W - FR, 11.5, { align: 'right' });
     sdd(doc, PF_SL200); doc.setLineWidth(0.25); doc.line(FL, 13, W - FR, 13);
 
     // Hero Card

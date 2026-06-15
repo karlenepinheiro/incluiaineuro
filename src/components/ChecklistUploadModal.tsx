@@ -108,13 +108,16 @@ estrategiasEficazes: ["Comando curto","Suporte visual","Material concreto","Refo
 recomendacoesImediatas: ["Manter rotina visual","Adaptar atividade","Reduzir quantidade de itens","Oferecer apoio individual","Usar material concreto","Registrar nova observação","Conversar com família","Encaminhar para AEE","Solicitar estudo de caso"]
 
 INSTRUÇÕES:
-1. Identifique quais itens têm marcação visível (✓, ■, X, círculo preenchido, etc.).
-2. Use EXATAMENTE os textos listados acima. Mapeie o texto mais próximo do impresso.
-3. Não inclua itens sem marcação.
-4. Transcreva texto manuscrito nas "freeNotes".
-5. Identifique nome do aluno, professor, série e data se visíveis.
-6. Liste em "uncertainFields" itens com baixa legibilidade.
-7. "confidence": número de 0 a 1 com base na qualidade geral da leitura.
+1. Use SOMENTE o conteúdo visível nesta imagem/PDF enviado. Não use contexto externo, documentos anteriores, diagnóstico, PEI, PAEE, Estudo de Caso, perfil ou memória.
+2. Identifique apenas itens com marcação visível (✓, ■, X, círculo preenchido, risco dentro do marcador etc.).
+3. Use EXATAMENTE os textos listados acima. Mapeie o texto mais próximo do impresso somente quando a marcação estiver clara.
+4. Não inclua itens sem marcação. Não complete lacunas nem deduza respostas.
+5. Marcação duvidosa, borrada ou rasurada deve ir para "uncertainFields", não para "sections".
+6. Texto manuscrito ilegível deve ser transcrito como "ilegível" ou deixado vazio. Nunca adivinhe.
+7. Identifique nome do aluno, professor, série e data somente se estiverem visíveis.
+8. Não cite diagnóstico, suporte, frequência, comportamento ou condição se isso não aparecer literalmente no arquivo.
+9. Não gere parecer pedagógico, recomendações clínicas ou explicações; retorne apenas JSON extrativo.
+10. "confidence": número de 0 a 1 com base na qualidade geral da leitura.
 
 RETORNE APENAS JSON válido (sem markdown, sem comentários adicionais):
 {
@@ -167,13 +170,17 @@ estrategiasEficazes: ["Rotina visual","Antecipação verbal","Comando curto","Ob
 alertasSemana: ["Mudança de comportamento","Sonolência excessiva","Agitação incomum","Recusa alimentar","Crise recorrente","Dificuldade de separação da família","Sensibilidade sensorial acentuada","Necessidade de comunicar família/equipe"]
 
 INSTRUÇÕES:
-1. Identifique quais itens têm marcação visível (✓, ■, X, círculo preenchido, etc.).
-2. Use EXATAMENTE os textos listados acima.
-3. Não inclua itens sem marcação.
-4. Transcreva observações manuscritas nas "freeNotes".
-5. Identifique nome do aluno, cuidadora, turno e semana de referência se visíveis.
-6. Liste em "uncertainFields" itens com baixa legibilidade.
-7. "confidence": número de 0 a 1.
+1. Use SOMENTE o conteúdo visível nesta imagem/PDF enviado. Não use contexto externo, documentos anteriores, diagnóstico, PEI, PAEE, Estudo de Caso, perfil ou memória.
+2. Identifique apenas itens com marcação visível (✓, ■, X, círculo preenchido, risco dentro do marcador etc.).
+3. Use EXATAMENTE os textos listados acima.
+4. Não inclua itens sem marcação. Não complete lacunas nem deduza respostas.
+5. Marcação duvidosa, borrada ou rasurada deve ir para "uncertainFields", não para "sections".
+6. Texto manuscrito ilegível deve ser transcrito como "ilegível" ou deixado vazio. Nunca adivinhe.
+7. Transcreva observações manuscritas legíveis nas "freeNotes".
+8. Identifique nome do aluno, cuidadora, turno e semana de referência somente se estiverem visíveis.
+9. Não cite diagnóstico, suporte, frequência, comportamento ou condição se isso não aparecer literalmente no arquivo.
+10. Não gere parecer pedagógico, recomendações clínicas ou explicações; retorne apenas JSON extrativo.
+11. "confidence": número de 0 a 1.
 
 RETORNE APENAS JSON válido (sem markdown, sem comentários adicionais):
 {
@@ -336,7 +343,7 @@ export const ChecklistUploadModal: React.FC<ChecklistUploadModalProps> = ({
       }
       try {
         const base64 = await fileToBase64(file);
-        const result = await scanChecklistSheet(base64, checklistType, selectedStudentId);
+        const result = await scanChecklistSheet(base64, checklistType);
         setEnemScan(result.raw);
         setStep('upload');
       } catch (e) {
@@ -387,12 +394,11 @@ export const ChecklistUploadModal: React.FC<ChecklistUploadModalProps> = ({
     try {
       const base64 = await fileToBase64(file);
       const { result } = await callAIGateway({
-        task:            'document',
+        task:            'json',
         prompt:          buildOCRPrompt(checklistType),
         imageBase64:     base64,
         creditsRequired: AI_CREDIT_COSTS.ANALISE_DOCUMENTO,
         requestType:     'checklist_ocr',
-        studentId:       selectedStudentId,
       });
 
       const parsed = JSON.parse(cleanJsonString(result)) as AnalysisResult;

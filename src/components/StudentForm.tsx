@@ -5,6 +5,7 @@ import { SociofamilySection } from './SociofamilySection';
 import { MultiSelect } from './MultiSelect';
 import { SmartTextarea } from './SmartTextarea'; 
 import { PedagogicalProfileSection, PedagogicalProfileSuggestionKey } from './PedagogicalProfileSection';
+import { generateStudentUniqueCode } from '../utils/studentCodes';
 import { AIService, friendlyAIError } from '../services/aiService';
 import { StorageService } from '../services/storageService';
 
@@ -146,15 +147,6 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
   };
   const [schoolNameInput, setSchoolNameInput] = useState(resolveInitialSchoolName);
 
-  const generateUniqueCode = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
-    code += '-';
-    for (let i = 0; i < 4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
-    return `INC-${code}`;
-  };
-
   // Detecta se o aluno editado pertence a outro tenant (cross-tenant import).
   // Quando verdadeiro, o código original NÃO deve ser salvo como unique_code local.
   const isCrossTenantEdit = !!(
@@ -167,7 +159,7 @@ export const StudentForm: React.FC<Props> = ({ initialData, onSave, onCancel, re
     id: initialData?.id || crypto.randomUUID(),
     // Para cross-tenant, preserva o unique_code apenas como referência visual;
     // databaseService regenerará um código novo ao salvar.
-    unique_code: initialData?.unique_code || generateUniqueCode(),
+    unique_code: initialData?.unique_code || generateStudentUniqueCode(),
     // Preserva tenant_id do aluno original para que databaseService.isCrossTenant funcione.
     tenant_id: initialData?.tenant_id,
     name: initialData?.name || '',

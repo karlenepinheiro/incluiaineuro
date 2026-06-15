@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, resolvePlanTier, PLAN_LIMITS, formatPlanDisplayName, formatStudentLimit } from '../types';
+import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, UserRole, resolvePlanTier, PLAN_LIMITS, formatPlanDisplayName, formatStudentLimit } from '../types';
 import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
 import { Plus, Trash2, School, User as UserIcon, CreditCard, Star, Settings, Sparkles, AlertTriangle, ShoppingCart, Upload, Building2, MapPin, Phone, Hash, FileText, AlertCircle, ChevronDown, RefreshCw, ExternalLink, Search, CheckCircle, Lock, Eye, EyeOff, Shield, Info, Briefcase } from 'lucide-react';
 import { fetchSchoolByINEP, validateINEPCode, type INEPFetchError } from '../services/inepService';
@@ -117,6 +117,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
   const [estado, setEstado] = useState<string>((user as any).estado ?? '');
   const [personalCepLoading, setPersonalCepLoading] = useState(false);
   const [personalCepStatus, setPersonalCepStatus] = useState<'idle' | 'found' | 'not_found'>('idle');
+  const [codeBackfillBusy, setCodeBackfillBusy] = useState(false);
+  const [codeBackfillResult, setCodeBackfillResult] = useState<Awaited<ReturnType<typeof databaseService.backfillMissingStudentCodes>> | null>(null);
+  const canRunStudentCodeBackfill =
+    user.role === UserRole.MANAGER ||
+    user.role === UserRole.COORDINATOR ||
+    user.role === UserRole.TECHNICAL_RESP ||
+    !!(user as any).isAdmin;
 
   // ─── Preferências de documentos ─────────────────────────────────────────────
   const [displayName, setDisplayName] = useState<string>((user as any).display_name ?? '');
@@ -197,6 +204,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
       setPasswordMsg({ type: 'error', text: e?.message || 'Erro ao atualizar senha.' });
     } finally {
       setPasswordBusy(false);
+    }
+  };
+
+  const handleStudentCodeBackfill = async () => {
+    if (!canRunStudentCodeBackfill) return;
+    const confirmed = window.confirm(
+      'Gerar códigos apenas para alunos deste tenant que ainda estão sem Código do aluno? Códigos existentes não serão alterados.'
+    );
+    if (!confirmed) return;
+
+    setCodeBackfillBusy(true);
+    setCodeBackfillResult(null);
+    try {
+      const result = await databaseService.backfillMissingStudentCodes();
+      setCodeBackfillResult(result);
+    } catch (error: any) {
+      setCodeBackfillResult({
+        checked: 0,
+        missing: 0,
+        updated: 0,
+        skipped: 0,
+        failed: 1,
+        errors: [{ studentId: 'tenant', error: error?.message ?? String(error) }],
+      });
+    } finally {
+      setCodeBackfillBusy(false);
     }
   };
 
@@ -597,6 +630,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
             </div>
           </div>
 
+          {canRunStudentCodeBackfill && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
+                <Hash size={16} className="text-brand-600" />
+                <h3 className="font-bold text-gray-800">Manutenção de Códigos dos Alunos</h3>
+              </div>
+              <div className="p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Gerar códigos ausentes</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Atualiza somente alunos deste tenant sem código. Códigos existentes permanecem intocados.
+                  </p>
+                  {codeBackfillResult && (
+                    <p className={`text-xs mt-2 ${codeBackfillResult.failed ? 'text-amber-700' : 'text-green-700'}`}>
+                      Verificados: {codeBackfillResult.checked} · Sem código: {codeBackfillResult.missing} · Atualizados: {codeBackfillResult.updated} · Ignorados: {codeBackfillResult.skipped} · Falhas: {codeBackfillResult.failed}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleStudentCodeBackfill}
+                  disabled={codeBackfillBusy}
+                  className="bg-brand-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-brand-700 disabled:opacity-50 flex items-center gap-2 transition whitespace-nowrap"
+                >
+                  {codeBackfillBusy ? <RefreshCw size={14} className="animate-spin" /> : <Hash size={14} />}
+                  Gerar códigos ausentes
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ── Card 2: Segurança da Conta ────────────────────────────────── */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center gap-2">
@@ -817,7 +881,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                   <dd className="mt-1 font-bold text-gray-900 text-sm">
                     {formatPlanDisplayName(
                       isFreePlan ? 'FREE' : isProPlan ? 'PRO' : 'MASTER',
-                      (activeSubscription as any)?.billingCycle ?? tenantSummary?.billingCycle ?? 'monthly'
+                      (activeSubscription as any)?.billingCycle ?? tenantSummary?.billingCycle ?? undefined
                     )}
                   </dd>
                 </div>
@@ -867,9 +931,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                   <div className="flex gap-2">
                     <button
                       onClick={async () => {
-                        await databaseService.saveSchoolConfigs(user.id, schools);
-                        setExpandedSchoolId(null);
-                        alert('Escolas salvas!');
+                        try {
+                          await databaseService.saveSchoolConfigs(user.id, schools);
+                          setExpandedSchoolId(null);
+                          alert('Escolas salvas!');
+                        } catch (e: any) {
+                          console.error('[saveSchoolConfigs] erro:', e);
+                          alert('Erro ao salvar escolas: ' + (e?.message ?? 'tente novamente.'));
+                        }
                       }}
                       className="px-4 py-2 rounded-lg bg-white border border-gray-300 text-gray-700 font-bold text-sm hover:bg-gray-50"
                     >
@@ -878,10 +947,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                     {onFinishSetup && (
                       <button
                         onClick={async () => {
-                          await databaseService.saveSchoolConfigs(user.id, schools);
-                          setExpandedSchoolId(null);
-                          if (isSetupComplete) onFinishSetup();
-                          else alert('Preencha pelo menos a Escola principal (nome, gestor e contato).');
+                          try {
+                            await databaseService.saveSchoolConfigs(user.id, schools);
+                            setExpandedSchoolId(null);
+                            if (isSetupComplete) onFinishSetup();
+                            else alert('Preencha pelo menos a Escola principal (nome, gestor e contato).');
+                          } catch (e: any) {
+                            console.error('[saveSchoolConfigs] erro:', e);
+                            alert('Erro ao salvar escolas: ' + (e?.message ?? 'tente novamente.'));
+                          }
                         }}
                         className="px-4 py-2 rounded-lg bg-brand-600 text-white font-bold text-sm hover:bg-brand-700"
                       >
@@ -1217,7 +1291,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                   <div className="text-2xl font-extrabold text-gray-900">
                     {formatPlanDisplayName(
                       isFreePlan ? 'FREE' : isProPlan ? 'PRO' : 'MASTER',
-                      (activeSubscription as any)?.billingCycle ?? tenantSummary?.billingCycle ?? 'monthly'
+                      (activeSubscription as any)?.billingCycle ?? tenantSummary?.billingCycle ?? undefined
                     )}
                   </div>
                   {expiryDate ? (

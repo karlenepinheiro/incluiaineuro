@@ -813,6 +813,108 @@ Proibido na folha do aluno:
 - Qualquer idioma diferente do Português do Brasil`;
 }
 
+// ─── Fallback de conteúdo para modos visual/premium ───────────────────────────
+// Extrai uma seção do markdown do guia pedagógico delimitada por "## Heading".
+function extractGuiaSectionText(guia: string, heading: string): string {
+  if (!guia) return '';
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`##\\s*${escaped}[^\n]*\n([\\s\\S]*?)(?=\n##|$)`, 'i');
+  const match = guia.match(regex);
+  if (!match) return '';
+  return match[1]
+    .replace(/\*\*/g, '')
+    .split('\n')
+    .map((l: string) => l.replace(/^[-*•]\s*/, '').trim())
+    .filter(Boolean)
+    .slice(0, 5)
+    .join(' ')
+    .trim();
+}
+
+// Tenta extrair questões estruturadas do campo descricao_folha (padrão "QUESTAO N:").
+// Se não encontrar, gera fallback pedagógico genérico baseado no tema.
+function parseQuestoesFromDescricao(
+  descricao: string,
+  topic: string,
+): Array<{ number: number; kind: string; statement: string; options: string[]; answerLines: number }> {
+  const questoes: Array<{ number: number; kind: string; statement: string; options: string[]; answerLines: number }> = [];
+
+  if (descricao) {
+    const re = /QUEST[AÃ]O\s*(\d+)\s*[:\-–]\s*([^;.QUEST\n]{8,160})/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(descricao)) !== null && questoes.length < 5) {
+      const stmt = m[2].trim().replace(/\s+/g, ' ');
+      if (stmt.length > 8) {
+        questoes.push({ number: parseInt(m[1], 10), kind: 'short_answer', statement: stmt, options: [], answerLines: 3 });
+      }
+    }
+  }
+
+  if (questoes.length === 0) {
+    const fallbacks = [
+      `O que você sabe sobre "${topic}"?`,
+      `Escreva com suas palavras o que aprendeu nesta atividade.`,
+      `Complete: O tema desta atividade é ________________.`,
+      `Dê um exemplo relacionado ao tema estudado.`,
+      `Escreva uma frase usando o que você estudou.`,
+    ];
+    fallbacks.forEach((stmt, i) => {
+      questoes.push({ number: i + 1, kind: 'short_answer', statement: stmt, options: [], answerLines: 3 });
+    });
+  }
+
+  return questoes;
+}
+
+// Constrói um IncluiLabActivityContent útil e renderizável para os modos visual/premium,
+// usando os dados já retornados pelo Gemini (guia + descricao_folha).
+// Garante que o fallback HTML seja pedagogicamente válido quando a imagem falhar ou estiver ausente.
+function buildFallbackActivityContentFromVisualPayload(
+  parsed: GuiaConteudoResult,
+  topic: string,
+  targetType: TargetType,
+  anoSerie: string,
+): Record<string, unknown> {
+  const objetivo = extractGuiaSectionText(parsed.guia_pedagogico, 'Objetivo da Aula')
+    || extractGuiaSectionText(parsed.guia_pedagogico, 'Objetivo')
+    || `Desenvolver competências relacionadas ao tema: ${topic}.`;
+
+  const adaptacoes = extractGuiaSectionText(parsed.guia_pedagogico, 'Adaptações Inclusivas')
+    || extractGuiaSectionText(parsed.guia_pedagogico, 'Dicas de Media');
+
+  const questoes = parseQuestoesFromDescricao(parsed.descricao_folha, topic);
+
+  const subtitleParts: string[] = [];
+  if (anoSerie) subtitleParts.push(anoSerie);
+  if (targetType === 'turma_geral') subtitleParts.push('Turma geral');
+
+  const sections: unknown[] = [
+    { type: 'info_box', title: 'Objetivo', content: objetivo.slice(0, 220) },
+    { type: 'questions', title: 'Atividades', items: questoes },
+  ];
+
+  if (adaptacoes) {
+    sections.push({ type: 'info_box', title: 'Orientação', content: adaptacoes.slice(0, 180) });
+  }
+
+  return {
+    title: parsed.titulo_atividade || topic.slice(0, 60),
+    subtitle: subtitleParts.join(' · '),
+    subject: '',
+    grade: anoSerie,
+    studentFields: ['Nome', 'Turma', 'Data'],
+    introText: 'Leia as orientações e responda cada atividade com atenção.',
+    sections,
+    visualStyle: {
+      theme: 'school_clean',
+      background: 'white',
+      border: 'discreet',
+      illustrations: 'small_colored',
+      density: 'balanced',
+    },
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LegacyA4MarkdownRenderer: React.FC<{ content: string; studentName?: string }> = ({ content, studentName }) => {
@@ -1735,6 +1837,8 @@ const ResultView: React.FC<{
   const guiaProfessorRef = useRef<HTMLDivElement | null>(null);
   const [exportBusy, setExportBusy] = useState<'pdf' | 'png' | null>(null);
   const [exportError, setExportError] = useState('');
+  const [imageLoadError, setImageLoadError] = useState(false);
+  useEffect(() => { setImageLoadError(false); }, [result.id]);
 
   type ResultTab = 'folha' | 'guia' | 'analise';
   const [activeTab, setActiveTab] = useState<ResultTab>('folha');
@@ -1923,7 +2027,7 @@ const ResultView: React.FC<{
       {/* Conteúdo: folha do aluno */}
       {activeTab === 'folha' && (
         <>
-          {hasImage && (
+          {hasImage && !imageLoadError && (
             <PreviewStage innerRef={folhaAlunoRef}>
               <div data-incluilab-pdf-page="true" data-incluilab-image-page="true" style={{
                 width: 794,
@@ -1937,16 +2041,30 @@ const ResultView: React.FC<{
                 alignItems: 'center',
                 justifyContent: 'center',
               }}>
-                <img src={result.imageUrl} alt="Atividade gerada" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                <img src={result.imageUrl} alt="Atividade gerada" onError={() => setImageLoadError(true)} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
               </div>
             </PreviewStage>
           )}
-          {(result.contentJson || result.activity) && !hasImage && (
-            <PreviewStage innerRef={folhaAlunoRef}>
-              <ActivityA4Premium contentJson={result.contentJson || result.activity} studentName={studentName || undefined} visualStyle={visualStyle} />
-            </PreviewStage>
+          {(result.contentJson || result.activity) && (!hasImage || imageLoadError) && (
+            <>
+              {imageLoadError && (
+                <div role="alert" style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  marginBottom: 14, padding: '10px 14px',
+                  borderRadius: 10, border: '1px solid #FDE68A',
+                  background: '#FFFBEB', color: '#92400E',
+                  fontSize: 13, fontWeight: 650,
+                }}>
+                  <AlertCircle size={15} />
+                  <span>A imagem não pôde ser carregada. Exibindo versão editável em A4.</span>
+                </div>
+              )}
+              <PreviewStage innerRef={folhaAlunoRef}>
+                <ActivityA4Premium contentJson={result.contentJson || result.activity} studentName={studentName || undefined} visualStyle={visualStyle} />
+              </PreviewStage>
+            </>
           )}
-          {!result.contentJson && !result.activity && hasText && !hasImage && result.content && (
+          {!result.contentJson && !result.activity && hasText && (!hasImage || imageLoadError) && result.content && (
             <PreviewStage innerRef={folhaAlunoRef}>
               <ActivityA4Premium contentJson={normalizeIncluiLabActivity(result.content, { title: result.title })} studentName={studentName || undefined} visualStyle={visualStyle} />
             </PreviewStage>
@@ -2272,16 +2390,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         source: 'incluilab.generateA4Visual',
       });
       window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-      const contentJson = normalizeIncluiLabActivity({
-        title: parsed.titulo_atividade || topic.slice(0, 60),
-        subtitle: 'Atividade visual gerada pelo IncluiLAB',
-        subject: '',
-        grade: anoSerie,
-        studentFields: ['Nome', 'Turma', 'Data'],
-        introText: parsed.descricao_folha || topic,
-        sections: [{ type: 'info_box', title: 'Descricao da folha', content: parsed.descricao_folha || topic }],
-        visualStyle: { theme: 'school_clean', background: 'white', border: 'discreet', illustrations: 'small_colored', density: 'balanced' },
-      }, { title: topic });
+      const contentJson = normalizeIncluiLabActivity(
+        buildFallbackActivityContentFromVisualPayload(parsed, topic, targetType, anoSerie),
+        { title: topic },
+      );
       setResult({
         id: uid(),
         title: contentJson.title,
@@ -2365,16 +2477,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         source: 'incluilab.generateA4Premium',
       });
       window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-      const contentJson = normalizeIncluiLabActivity({
-        title: parsed.titulo_atividade || topic.slice(0, 60),
-        subtitle: 'Atividade premium gerada pelo IncluiLAB',
-        subject: '',
-        grade: anoSerie,
-        studentFields: ['Nome', 'Turma', 'Data'],
-        introText: parsed.descricao_folha || topic,
-        sections: [{ type: 'info_box', title: 'Descricao da folha', content: parsed.descricao_folha || topic }],
-        visualStyle: { theme: 'school_clean', background: 'white', border: 'discreet', illustrations: 'small_colored', density: 'balanced' },
-      }, { title: topic });
+      const contentJson = normalizeIncluiLabActivity(
+        buildFallbackActivityContentFromVisualPayload(parsed, topic, targetType, anoSerie),
+        { title: topic },
+      );
       setResult({
         id: uid(),
         title: contentJson.title,
@@ -2494,16 +2600,13 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         source: 'incluilab.generateAdaptarVisual',
       });
       window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-      const contentJson = normalizeIncluiLabActivity({
-        title: parsed.titulo_atividade || `Atividade Adaptada: ${file.name}`,
-        subtitle: 'Atividade visual adaptada pelo IncluiLAB',
-        subject: '',
-        grade: anoSerie,
-        studentFields: ['Nome', 'Turma', 'Data'],
-        introText: parsed.descricao_folha || extraInstructions || file.name,
-        sections: [{ type: 'info_box', title: 'Descricao da folha', content: parsed.descricao_folha || analysisText }],
-        visualStyle: { theme: 'school_clean', background: 'white', border: 'discreet', illustrations: 'small_colored', density: 'balanced' },
-      }, { title: file.name });
+      const contentJson = normalizeIncluiLabActivity(
+        buildFallbackActivityContentFromVisualPayload(
+          { ...parsed, titulo_atividade: parsed.titulo_atividade || `Atividade Adaptada: ${file.name}`, descricao_folha: parsed.descricao_folha || analysisText },
+          file.name, targetType, anoSerie,
+        ),
+        { title: file.name },
+      );
       setResult({
         id: uid(),
         title: contentJson.title,
@@ -2595,16 +2698,13 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         source: 'incluilab.generateAdaptarPremium',
       });
       window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-      const contentJson = normalizeIncluiLabActivity({
-        title: parsed.titulo_atividade || `Atividade Adaptada Premium: ${file.name}`,
-        subtitle: 'Atividade premium adaptada pelo IncluiLAB',
-        subject: '',
-        grade: anoSerie,
-        studentFields: ['Nome', 'Turma', 'Data'],
-        introText: parsed.descricao_folha || extraInstructions || file.name,
-        sections: [{ type: 'info_box', title: 'Descricao da folha', content: parsed.descricao_folha || analysisText }],
-        visualStyle: { theme: 'school_clean', background: 'white', border: 'discreet', illustrations: 'small_colored', density: 'balanced' },
-      }, { title: file.name });
+      const contentJson = normalizeIncluiLabActivity(
+        buildFallbackActivityContentFromVisualPayload(
+          { ...parsed, titulo_atividade: parsed.titulo_atividade || `Atividade Adaptada Premium: ${file.name}`, descricao_folha: parsed.descricao_folha || analysisText },
+          file.name, targetType, anoSerie,
+        ),
+        { title: file.name },
+      );
       setResult({
         id: uid(),
         title: contentJson.title,

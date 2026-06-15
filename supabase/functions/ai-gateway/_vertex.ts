@@ -68,15 +68,23 @@ export async function generateGeminiText(
   return text;
 }
 
-export async function generateGeminiJSON(prompt: string): Promise<string> {
+export async function generateGeminiJSON(prompt: string, imageBase64?: string): Promise<string> {
   const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) throw new Error('CONFIG_GEMINI');
 
   const url = `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const parts: GeminiPart[] = [{ text: prompt }];
+
+  if (imageBase64) {
+    const mimeMatch = imageBase64.match(/^data:([^;]+);base64,/);
+    const mimeType  = mimeMatch?.[1] || 'image/jpeg';
+    const data      = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
+    parts.push({ inlineData: { mimeType, data } });
+  }
 
   // Tenta com responseMimeType primeiro; cai em modo texto puro se falhar
   for (const jsonMode of [true, false]) {
-    const body: Record<string, unknown> = { contents: [{ parts: [{ text: prompt }] }] };
+    const body: Record<string, unknown> = { contents: [{ parts }] };
     if (jsonMode) body.generationConfig = { responseMimeType: 'application/json' };
 
     const res = await fetchWithTimeout(url, {
