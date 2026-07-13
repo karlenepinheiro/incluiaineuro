@@ -42,6 +42,10 @@ export const AI_CREDIT_COSTS = {
   UPLOAD_MODELO: 5,
   TEMPLATE: 5,
 
+  // Importação de alunos por documento (StudentImportModal)
+  IMPORTAR_DOCUMENTO_TEXTO: 3,    // DOCX / PDF com texto extraível
+  IMPORTAR_DOCUMENTO_VISUAL: 5,   // Imagem / PDF escaneado (leitura visual IA)
+
   // Imagens e Design (EduLens / NeuroDesign / AtivaIA / IncluiLAB)
   IMAGEM_LEVE: 8,           // Imagem visual (IncluiLAB Visual)
   IMAGEM_INTERMEDIARIA: 8,

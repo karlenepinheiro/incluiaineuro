@@ -185,9 +185,22 @@ export const PaymentService = {
   /**
    * Controle de acesso por status da assinatura.
    * Independente do gateway de pagamento.
+   *
+   * @param currentPeriodEnd - ISO string do fim do período. Se passado e no passado,
+   *   rejeita acesso mesmo com status ACTIVE para evitar acesso indevido em assinaturas vencidas.
    */
-  checkAccess(user: User): { allowed: boolean; reason?: string } {
+  checkAccess(user: User, currentPeriodEnd?: string | null): { allowed: boolean; reason?: string } {
     const status = user.subscriptionStatus;
+
+    // ACTIVE com período vencido → trata como encerrado
+    if (
+      status === 'ACTIVE' &&
+      currentPeriodEnd &&
+      new Date(currentPeriodEnd) < new Date()
+    ) {
+      return { allowed: false, reason: 'subscription_ended' };
+    }
+
     if (status === 'ACTIVE')        return { allowed: true };
     if (status === 'COURTESY')      return { allowed: true,  reason: 'courtesy' };
     if (status === 'INTERNAL_TEST') return { allowed: true,  reason: 'test_account' };

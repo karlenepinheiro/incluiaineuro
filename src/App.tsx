@@ -965,7 +965,7 @@ const App: React.FC = () => {
   };
 
   const checkPermission = (feature: 'add_student' | 'ai_gen') => {
-    const access = PaymentService.checkAccess(user);
+    const access = PaymentService.checkAccess(user, activeSubscription?.currentPeriodEnd ?? null);
 
     if (access.reason !== 'courtesy' && access.reason !== 'test_account') {
       if (!access.allowed && access.reason === 'payment_required') {

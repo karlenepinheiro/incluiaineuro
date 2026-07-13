@@ -1,733 +1,335 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { ArrowRight, CheckCircle, FileText, ClipboardList, GraduationCap } from 'lucide-react';
 
-// ─── Conteúdo por fase ────────────────────────────────────────────────────────
-const CONTENT = {
-  dor: {
-    headline: 'Quando foi seu último fim de semana livre?',
-    highlight: 'Com o IncluiAI, você para de levar trabalho para casa.',
-    sub: 'Documentos pedagógicos gerados em minutos. Com padrão profissional. Sem retrabalho.',
-    bullets: [
-      'Pronto em menos de 2 minutos',
-      'PDF profissional, pronto para assinar',
-    ],
-    accentColor: '#2563EB',
-    image: '/images/hero-dor.jpg',
-  },
-  leveza: {
-    headline: 'Seus alunos merecem uma professora descansada.',
-    highlight: 'Você merece tempo de volta.',
-    sub: 'Mais de 1.800 professoras já economizam horas toda semana com o IncluiAI.',
-    bullets: [
-      'Sem domingo de trabalho',
-      'Histórico real de cada aluno',
-    ],
-    accentColor: '#16A34A',
-    image: '/images/hero-leveza.jpg',
-  },
+// ─── Cores de marca (fonte: BrandLogo.tsx) ────────────────────────────────────
+const T = {
+  blue:     '#1F4E5F',   // "Inclui" — azul institucional
+  blueDk:   '#17404F',
+  blueLt:   '#EBF3F6',
+  orange:   '#E07B2A',   // "AI"    — laranja CTA
+  orangeDk: '#C4661E',
+  orangeLt: '#FEF3E8',
+  green:    '#10B981',
+  white:    '#FFFFFF',
+  ink:      '#0F172A',
+  textSec:  '#475569',
+  border:   '#E2E8F0',
+  surface:  '#F8FAFC',
 };
 
-// ─── Timings ──────────────────────────────────────────────────────────────────
-const DELAY_DOR_MS     = 4000;
-const DELAY_LEVEZA_MS  = 6000;
-const BG_FADE_MS       = 1000;
-const TEXT_FADE_OUT_MS = 320;
-const TEXT_FADE_IN_MS  = 480;
+// ─── Product preview SVG (dados anonimizados) ─────────────────────────────────
+const ProductPreview = () => (
+  <svg
+    viewBox="0 0 420 480"
+    xmlns="http://www.w3.org/2000/svg"
+    style={{ width: '100%', maxWidth: 420, height: 'auto', display: 'block' }}
+    role="img"
+    aria-label="Prévia da interface do IncluiAI mostrando documentos gerados"
+  >
+    <defs>
+      <filter id="hr-shadow">
+        <feDropShadow dx="0" dy="8" stdDeviation="18" floodColor="#1F4E5F" floodOpacity="0.12"/>
+      </filter>
+    </defs>
+    <rect x="8" y="8" width="404" height="464" rx="16" fill="white" filter="url(#hr-shadow)"/>
+    <rect x="8" y="8" width="404" height="52" rx="16" fill={T.blue}/>
+    <rect x="8" y="34" width="404" height="26" fill={T.blue}/>
+    <text x="28" y="39" fill="white" fontSize="13" fontWeight="700" fontFamily="system-ui">IncluiAI</text>
+    <text x="394" y="39" fill="rgba(255,255,255,0.5)" fontSize="10" fontFamily="system-ui" textAnchor="end">Painel do Profissional</text>
 
-// ─── Helper: formata segundos em HH:MM:SS ────────────────────────────────────
-const formatTime = (totalSeconds) => {
-  const h   = Math.floor(totalSeconds / 3600);
-  const m   = Math.floor((totalSeconds % 3600) / 60);
-  const s   = totalSeconds % 60;
-  return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
-};
+    <rect x="24" y="72" width="372" height="56" rx="10" fill={T.surface} stroke={T.border} strokeWidth="1"/>
+    <rect x="36" y="84" width="32" height="32" rx="8" fill={T.blueLt} stroke={T.blue} strokeWidth="1.5"/>
+    <text x="52" y="104" textAnchor="middle" fill={T.blue} fontSize="14" fontWeight="700" fontFamily="system-ui">A</text>
+    <text x="80" y="93" fill={T.textSec} fontSize="9" fontWeight="700" fontFamily="system-ui" letterSpacing="0.06em">ALUNO</text>
+    <text x="80" y="109" fill={T.ink} fontSize="13" fontWeight="600" fontFamily="system-ui">Estudante · 3º ano · Ensino Fundamental</text>
+    <rect x="355" y="84" width="38" height="18" rx="9" fill="#D1FAE5"/>
+    <text x="374" y="96" textAnchor="middle" fill={T.green} fontSize="10" fontWeight="700" fontFamily="system-ui">Ativo</text>
 
-// ─── Estilos ──────────────────────────────────────────────────────────────────
+    <text x="24" y="152" fill={T.textSec} fontSize="10" fontWeight="700" fontFamily="system-ui" letterSpacing="0.08em">DOCUMENTOS GERADOS</text>
+
+    {/* Doc 1 - Protocolo */}
+    <rect x="24" y="162" width="372" height="56" rx="10" fill="white" stroke={T.border} strokeWidth="1.5"/>
+    <rect x="36" y="174" width="32" height="32" rx="8" fill={T.blueLt}/>
+    <text x="52" y="194" textAnchor="middle" fill={T.blue} fontSize="18" fontFamily="system-ui">📄</text>
+    <text x="80" y="185" fill={T.ink} fontSize="12" fontWeight="700" fontFamily="system-ui">Protocolo de Aprendizagem</text>
+    <text x="80" y="200" fill={T.textSec} fontSize="11" fontFamily="system-ui">Gerado em 1 min 42s · PDF pronto</text>
+    <rect x="330" y="176" width="54" height="20" rx="5" fill={T.orange}/>
+    <text x="357" y="190" textAnchor="middle" fill="white" fontSize="10" fontWeight="700" fontFamily="system-ui">Baixar</text>
+
+    {/* Doc 2 - PEI */}
+    <rect x="24" y="228" width="372" height="56" rx="10" fill="white" stroke={T.border} strokeWidth="1.5"/>
+    <rect x="36" y="240" width="32" height="32" rx="8" fill={T.orangeLt}/>
+    <text x="52" y="259" textAnchor="middle" fill={T.orange} fontSize="18" fontFamily="system-ui">📋</text>
+    <text x="80" y="251" fill={T.ink} fontSize="12" fontWeight="700" fontFamily="system-ui">PEI — Plano Educacional Individualizado</text>
+    <text x="80" y="266" fill={T.textSec} fontSize="11" fontFamily="system-ui">Gerado em 2 min 18s · SHA-256 · LGPD</text>
+    <rect x="330" y="242" width="54" height="20" rx="5" fill={T.blueLt} stroke={T.blue} strokeWidth="1"/>
+    <text x="357" y="256" textAnchor="middle" fill={T.blue} fontSize="10" fontWeight="700" fontFamily="system-ui">Baixar</text>
+
+    {/* Doc 3 - PAEE */}
+    <rect x="24" y="294" width="372" height="56" rx="10" fill="white" stroke={T.border} strokeWidth="1.5"/>
+    <rect x="36" y="306" width="32" height="32" rx="8" fill="#D1FAE5"/>
+    <text x="52" y="325" textAnchor="middle" fill={T.green} fontSize="18" fontFamily="system-ui">🎓</text>
+    <text x="80" y="317" fill={T.ink} fontSize="12" fontWeight="700" fontFamily="system-ui">PAEE — Plano de AEE</text>
+    <text x="80" y="332" fill={T.textSec} fontSize="11" fontFamily="system-ui">Gerado em 1 min 55s · Assinatura digital</text>
+    <rect x="330" y="308" width="54" height="20" rx="5" fill="#D1FAE5" stroke={T.green} strokeWidth="1"/>
+    <text x="357" y="322" textAnchor="middle" fill={T.green} fontSize="10" fontWeight="700" fontFamily="system-ui">Baixar</text>
+
+    {/* Gerando */}
+    <rect x="24" y="362" width="372" height="56" rx="10" fill={T.surface} stroke={T.border} strokeWidth="1" strokeDasharray="4,2"/>
+    <rect x="36" y="374" width="32" height="32" rx="8" fill="white" stroke={T.border} strokeWidth="1"/>
+    <rect x="80" y="379" width="140" height="10" rx="4" fill={T.border}/>
+    <rect x="80" y="396" width="100" height="8" rx="4" fill={T.border}/>
+    <text x="380" y="396" fill={T.orange} fontSize="11" fontWeight="600" fontFamily="system-ui" textAnchor="end">Gerando...</text>
+
+    {/* Créditos */}
+    <rect x="24" y="430" width="372" height="30" rx="8" fill={T.blueLt}/>
+    <text x="36" y="449" fill={T.blue} fontSize="11" fontWeight="700" fontFamily="system-ui">Créditos disponíveis:</text>
+    <text x="168" y="449" fill={T.blue} fontSize="11" fontWeight="900" fontFamily="system-ui">342 / 500</text>
+    <rect x="264" y="440" width="120" height="8" rx="4" fill={T.blue} opacity="0.15"/>
+    <rect x="264" y="440" width="82" height="8" rx="4" fill={T.blue} opacity="0.45"/>
+  </svg>
+);
+
+// ─── CSS ──────────────────────────────────────────────────────────────────────
 const STYLES = `
-  /* Reset */
-  .hr-root *, .hr-root *::before, .hr-root *::after { box-sizing: border-box; }
-
-  /* ── Seção ── */
-  .hr-root {
-    position: relative;
-    min-height: 100vh;
-    min-height: 100svh; /* suporte a viewport real em mobile */
-    display: flex;
-    align-items: center;
+  .hr2-root {
+    background: ${T.white};
+    padding: 120px 0 80px;
     overflow: hidden;
-    isolation: isolate;
-  }
-
-  /* ── Camadas de background ──
-     inset: -10% -2% cria área extra para o parallax do desktop não
-     mostrar borda branca quando translateY desloca a imagem.
-     No mobile o parallax é desligado, então inset: 0 é suficiente.
-  */
-  .hr-bg {
-    position: absolute;
-    inset: -10% -2%;
-    background-size: cover;
-    background-position: center center;
-    background-repeat: no-repeat;
-    will-change: transform, opacity;
-    transition: opacity ${BG_FADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1);
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  /* ── Overlay gradiente — leitura sem esconder a imagem ── */
-  .hr-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      to right,
-      rgba(255,255,255,0.92) 30%,
-      rgba(255,255,255,0.50) 60%,
-      rgba(255,255,255,0.15) 100%
-    );
-    z-index: 1;
-    pointer-events: none;
-  }
-
-  /* ── Wrapper do conteúdo ── */
-  .hr-content {
     position: relative;
-    z-index: 2;
-    width: 100%;
-    max-width: 600px;
-    padding: 128px 56px 96px 72px;
-    opacity: 0;
-    transform: translateY(32px);
-    transition: opacity 0.8s cubic-bezier(0.22,1,0.36,1),
-                transform 0.8s cubic-bezier(0.22,1,0.36,1);
+    border-bottom: 1px solid ${T.border};
   }
 
-  .hr-content.hr-mounted {
-    opacity: 1;
-    transform: translateY(0);
+  .hr2-container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 28px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 64px;
+    align-items: center;
   }
 
-  /* ── Bloco de texto ── */
-  .hr-text {
-    animation: hr-text-in ${TEXT_FADE_IN_MS}ms cubic-bezier(0.22,1,0.36,1) both;
-  }
-
-  .hr-text.hr-text-out {
-    animation: hr-text-out ${TEXT_FADE_OUT_MS}ms ease forwards;
-  }
-
-  @keyframes hr-text-in {
-    from { opacity: 0; transform: translateY(16px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  @keyframes hr-text-out {
-    from { opacity: 1; transform: translateY(0); }
-    to   { opacity: 0; transform: translateY(-12px); }
-  }
-
-  /* ── Tipografia ── */
-  .hr-headline {
-    font-size: clamp(26px, 4vw, 50px);
-    font-weight: 900;
-    color: #0F172A;
-    line-height: 1.1;
-    letter-spacing: -0.04em;
-    margin: 0 0 16px 0;
-  }
-
-  .hr-highlight {
-    display: block;
-    font-size: clamp(18px, 2.8vw, 36px);
+  .hr2-headline {
+    font-size: clamp(30px, 4.2vw, 52px);
     font-weight: 800;
-    line-height: 1.18;
-    letter-spacing: -0.03em;
-    margin-bottom: 22px;
-    transition: color 0.6s ease;
+    color: ${T.ink};
+    letter-spacing: -0.04em;
+    line-height: 1.1;
+    margin: 0 0 20px;
   }
 
-  .hr-sub {
-    font-size: clamp(14px, 1.4vw, 17px);
-    color: #475569;
-    line-height: 1.78;
-    max-width: 500px;
-    margin: 0 0 14px 0;
+  .hr2-headline span {
+    color: ${T.blue};
   }
 
-  /* ── Prova social ── */
-  .hr-social-proof {
+  .hr2-sub {
+    font-size: 17px;
+    color: ${T.textSec};
+    line-height: 1.72;
+    margin: 0 0 32px;
+    max-width: 520px;
+  }
+
+  .hr2-cta-group {
     display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 28px;
+  }
+
+  /* ── CTA principal: laranja ── */
+  .hr2-btn-primary {
+    background: ${T.orange};
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-weight: 700;
+    font-family: inherit;
+    font-size: 16px;
+    padding: 14px 30px;
+    border-radius: 10px;
+    min-height: 48px;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
-    margin: 0 0 20px 0;
-    font-size: 13.5px;
+    transition: background 0.2s, transform 0.15s;
+    text-decoration: none;
+    touch-action: manipulation;
+  }
+  .hr2-btn-primary:hover  { background: ${T.orangeDk}; transform: translateY(-1px); }
+  .hr2-btn-primary:active { transform: translateY(0); }
+  .hr2-btn-primary:focus-visible { outline: 3px solid ${T.blue}; outline-offset: 2px; }
+
+  /* ── CTA secundário: azul ── */
+  .hr2-btn-secondary {
+    background: transparent;
+    color: ${T.blue};
+    border: 2px solid ${T.blue};
+    cursor: pointer;
     font-weight: 600;
-    color: #64748B;
-    animation: hr-text-in ${TEXT_FADE_IN_MS}ms cubic-bezier(0.22,1,0.36,1) both;
+    font-family: inherit;
+    font-size: 16px;
+    padding: 14px 28px;
+    border-radius: 10px;
+    min-height: 48px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 0.2s, color 0.2s;
+    touch-action: manipulation;
   }
+  .hr2-btn-secondary:hover { background: ${T.blue}; color: white; }
+  .hr2-btn-secondary:focus-visible { outline: 3px solid ${T.orange}; outline-offset: 2px; }
 
-  .hr-social-proof svg {
-    flex-shrink: 0;
-    color: #16A34A;
-  }
-
-  /* ── Contador ── */
-  .hr-counter {
+  .hr2-trust {
     display: flex;
     flex-wrap: wrap;
+    gap: 8px 20px;
     align-items: center;
-    gap: 4px 6px;
-    margin: 0 0 28px 0;
+  }
+
+  .hr2-trust-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: ${T.textSec};
+    font-weight: 500;
+  }
+
+  .hr2-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: ${T.blueLt};
+    color: ${T.blue};
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    padding: 6px 16px;
+    border-radius: 100px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(31,78,95,0.15);
+  }
+
+  .hr2-audience {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 28px;
+  }
+
+  .hr2-audience-tag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 13px;
     font-weight: 600;
-    line-height: 1.4;
+    color: ${T.blue};
+    background: white;
+    border: 1.5px solid ${T.border};
+    padding: 6px 14px;
+    border-radius: 8px;
   }
 
-  .hr-counter-label {
-    color: #94A3B8;
-  }
-
-  .hr-counter-time {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 14px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    transition: color 0.6s ease;
-  }
-
-  .hr-counter-suffix {
-    font-weight: 600;
-    transition: color 0.6s ease;
-  }
-
-  /* ── Indicadores de fase ── */
-  .hr-dots {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 32px;
-  }
-
-  .hr-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    border: none;
-    cursor: pointer;
-    padding: 0;
-    background: #CBD5E1;
-    transition: background 0.4s ease, transform 0.3s ease, width 0.4s ease;
-  }
-
-  .hr-dot.active {
-    width: 24px;
-    border-radius: 4px;
-    background: #2563EB;
-    transform: scale(1);
-  }
-
-  /* ── CTAs ── */
-  .hr-ctas {
-    display: flex;
-    gap: 14px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-
-  /* ── Botão primário ── */
-  .hr-btn-primary {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    background: #2563EB;
-    color: #ffffff;
-    font-size: 16px;
-    font-weight: 700;
-    padding: 16px 34px;
-    border-radius: 10px;
-    border: none;
-    cursor: pointer;
-    text-decoration: none;
-    box-shadow: 0 8px 28px rgba(37,99,235,0.30);
-    transition:
-      background 0.2s ease,
-      transform 0.2s cubic-bezier(0.34,1.56,0.64,1),
-      box-shadow 0.2s ease;
-    font-family: inherit;
-    white-space: nowrap;
-    letter-spacing: -0.01em;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .hr-btn-primary::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: rgba(255,255,255,0);
-    transition: background 0.15s ease;
-  }
-
-  .hr-btn-primary:hover {
-    background: #1D4ED8;
-    transform: translateY(-3px) scale(1.03);
-    box-shadow: 0 18px 44px rgba(37,99,235,0.45);
-    color: #ffffff;
-  }
-
-  .hr-btn-primary:active {
-    transform: translateY(0) scale(0.97);
-    box-shadow: 0 4px 16px rgba(37,99,235,0.25);
-  }
-
-  .hr-btn-primary:active::after {
-    background: rgba(255,255,255,0.18);
-  }
-
-  @keyframes hr-btn-pulse {
-    0%   { box-shadow: 0 8px 28px rgba(37,99,235,0.30); transform: scale(1); }
-    40%  { box-shadow: 0 0 0 10px rgba(37,99,235,0.12); transform: scale(1.04); }
-    70%  { box-shadow: 0 0 0 18px rgba(37,99,235,0.04); transform: scale(1.01); }
-    100% { box-shadow: 0 8px 28px rgba(37,99,235,0.30); transform: scale(1); }
-  }
-
-  .hr-btn-primary.hr-btn-attract {
-    animation: hr-btn-pulse 0.7s cubic-bezier(0.22,1,0.36,1);
-  }
-
-  .hr-btn-secondary {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: transparent;
-    color: #2563EB;
-    font-size: 15px;
-    font-weight: 700;
-    padding: 15px 26px;
-    border-radius: 10px;
-    border: 2px solid #2563EB;
-    cursor: pointer;
-    text-decoration: none;
-    transition:
-      background 0.2s ease,
-      color 0.2s ease,
-      transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
-    font-family: inherit;
-    white-space: nowrap;
-  }
-
-  .hr-btn-secondary:hover {
-    background: #2563EB;
-    color: #ffffff;
-    transform: translateY(-2px) scale(1.01);
-  }
-
-  .hr-btn-secondary:active {
-    transform: translateY(0) scale(0.98);
-  }
-
-  /* ── Badge A/B ── */
-  .hr-ab-badge {
-    position: absolute;
-    top: 20px;
-    right: 20px;
-    z-index: 10;
-    background: rgba(37,99,235,0.12);
-    color: #2563EB;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    padding: 4px 10px;
-    border-radius: 100px;
-    border: 1px solid rgba(37,99,235,0.25);
-    pointer-events: none;
-    font-family: monospace;
-  }
-
-  /* ─── TABLET (769px – 1024px) ────────────────────────────────────────────── */
-  @media (max-width: 1024px) {
-    .hr-content {
-      padding: 112px 48px 80px 56px;
-      max-width: 520px;
-    }
-  }
-
-  /* ─── MOBILE (≤ 768px) ───────────────────────────────────────────────────── */
-  @media (max-width: 768px) {
-    /* Altura: usar svh para descontar a barra do browser */
-    .hr-root {
-      min-height: 80vh;
-      min-height: 80svh;
-      align-items: flex-start;
-    }
-
-    /*
-      No mobile o parallax JS está desligado, então a div .hr-bg
-      não precisa de área extra — inset: 0 mantém a imagem exata.
-      background-position: 65% center mantém o foco na pessoa/sujeito
-      mesmo em telas estreitas (ajuste o valor conforme a composição
-      real das suas imagens).
-    */
-    .hr-bg {
-      inset: 0;
-      background-position: 65% center;
-      background-size: cover;
-      /* transform vira "none" via prop JS — esta regra é fallback */
-      transform: none !important;
-    }
-
-    /*
-      Overlay mais opaco embaixo para texto ficar legível quando
-      a imagem aparece na parte inferior da hero em mobile.
-    */
-    .hr-overlay {
-      background: linear-gradient(
-        to bottom,
-        rgba(255,255,255,0.96) 45%,
-        rgba(255,255,255,0.82) 70%,
-        rgba(255,255,255,0.50) 100%
-      );
-    }
-
-    .hr-content {
-      padding: 80px 24px 56px 24px;
-      max-width: 100%;
+  @media (max-width: 900px) {
+    .hr2-container {
+      grid-template-columns: 1fr;
+      gap: 48px;
       text-align: center;
     }
-
-    .hr-sub {
-      max-width: 100%;
-    }
-
-    .hr-dots {
-      justify-content: center;
-    }
-
-    .hr-social-proof {
-      justify-content: center;
-    }
-
-    .hr-counter {
-      justify-content: center;
-    }
-
-    .hr-ctas {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .hr-btn-primary,
-    .hr-btn-secondary {
-      width: 100%;
-      justify-content: center;
-      font-size: 15px;
-    }
-
-    .hr-ab-badge {
-      display: none;
-    }
+    .hr2-cta-group { justify-content: center; }
+    .hr2-trust { justify-content: center; }
+    .hr2-audience { justify-content: center; }
+    .hr2-sub { margin-left: auto; margin-right: auto; }
+    .hr2-visual { max-width: 420px; margin: 0 auto; }
   }
 
-  /* ─── MOBILE PEQUENO (≤ 480px) ───────────────────────────────────────────── */
   @media (max-width: 480px) {
-    .hr-root {
-      min-height: 85vh;
-      min-height: 85svh;
-    }
+    .hr2-root { padding: 100px 0 60px; }
+    .hr2-cta-group { flex-direction: column; }
+    .hr2-btn-primary, .hr2-btn-secondary { justify-content: center; width: 100%; }
+  }
 
-    .hr-content {
-      padding: 72px 18px 48px 18px;
-    }
-
-    /* Foco ainda mais à direita em telas muito estreitas */
-    .hr-bg {
-      background-position: 70% center;
-    }
+  @media (prefers-reduced-motion: reduce) {
+    .hr2-btn-primary, .hr2-btn-secondary { transition: none; }
   }
 `;
 
-// ─── Ícones inline ────────────────────────────────────────────────────────────
-const ArrowIcon = () => (
-  <svg
-    width="17" height="17" viewBox="0 0 24 24"
-    fill="none" stroke="currentColor"
-    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true"
-    style={{ flexShrink: 0 }}
-  >
-    <path d="M5 12h14M12 5l7 7-7 7" />
-  </svg>
-);
-
-const CheckIcon = () => (
-  <svg
-    width="15" height="15" viewBox="0 0 24 24"
-    fill="none" stroke="currentColor"
-    strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M20 6L9 17l-5-5" />
-  </svg>
-);
-
-// ─── Componente ───────────────────────────────────────────────────────────────
-const Hero = ({ onRegister }) => {
-
-  // A/B test — persiste no localStorage
-  const variant = useRef(null);
-  if (!variant.current) {
-    const stored = localStorage.getItem('heroVariant');
-    if (stored === 'A' || stored === 'B') {
-      variant.current = stored;
-    } else {
-      variant.current = Math.random() > 0.5 ? 'A' : 'B';
-      localStorage.setItem('heroVariant', variant.current);
-    }
-  }
-
-  // Estado da fase atual
-  const [bgPhase, setBgPhase]           = useState('dor');
-  const [textContent, setTextContent]   = useState(CONTENT.dor);
-  const [textKey, setTextKey]           = useState(0);
-  const [textOut, setTextOut]           = useState(false);
-  const [mounted, setMounted]           = useState(false);
-  const [parallaxY, setParallaxY]       = useState(0);
-
-  // Controle do pulso de atenção no botão
-  const [btnAttract, setBtnAttract] = useState(false);
-
-  // Detecta mobile de forma reativa para desligar parallax
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== 'undefined' && window.innerWidth <= 768
-  );
-
-  const sectionRef   = useRef(null);
-  const cycleTimeout = useRef(null);
-  const currentPhase = useRef('dor');
-
-  // ─── Fade-in inicial ───────────────────────────────────────────────────────
-  useEffect(() => {
-    const t = setTimeout(() => setMounted(true), 100);
-    return () => clearTimeout(t);
-  }, []);
-
-  // ─── Pulso de atenção no botão após 3s ───────────────────────────────────
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setBtnAttract(true);
-      // Remove a classe após a animação terminar para poder re-disparar se precisar
-      setTimeout(() => setBtnAttract(false), 800);
-    }, 3000);
-    return () => clearTimeout(t);
-  }, []);
-
-  // ─── Detecta resize para ligar/desligar parallax reativamente ───────────
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 768px)');
-    const handler = (e) => {
-      setIsMobile(e.matches);
-      if (e.matches) setParallaxY(0); // zera ao entrar em mobile
-    };
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-
-  // ─── Parallax suave no scroll (só desktop) ───────────────────────────────
-  useEffect(() => {
-    const onScroll = () => {
-      if (!sectionRef.current) return;
-      const { bottom } = sectionRef.current.getBoundingClientRect();
-      if (bottom > 0) setParallaxY(window.scrollY);
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
-  }, []);
-
-  // ─── Ciclo automático DOR → LEVEZA → DOR (loop) ───────────────────────────
-  const scheduleNext = useCallback(() => {
-    const phase = currentPhase.current;
-    const delay = phase === 'dor' ? DELAY_DOR_MS : DELAY_LEVEZA_MS;
-
-    cycleTimeout.current = setTimeout(() => {
-      const next = phase === 'dor' ? 'leveza' : 'dor';
-
-      setTextOut(true);
-      setBgPhase(next);
-
-      setTimeout(() => {
-        currentPhase.current = next;
-        setTextContent(CONTENT[next]);
-        setTextKey(k => k + 1);
-        setTextOut(false);
-        scheduleNext();
-      }, TEXT_FADE_OUT_MS + 40);
-
-    }, delay);
-  }, []);
-
-  useEffect(() => {
-    scheduleNext();
-    return () => { if (cycleTimeout.current) clearTimeout(cycleTimeout.current); };
-  }, [scheduleNext]);
-
-  // ─── Navegação manual pelos dots ─────────────────────────────────────────
-  const goToPhase = (target) => {
-    if (target === currentPhase.current) return;
-    if (cycleTimeout.current) clearTimeout(cycleTimeout.current);
-
-    setTextOut(true);
-    setBgPhase(target);
-
-    setTimeout(() => {
-      currentPhase.current = target;
-      setTextContent(CONTENT[target]);
-      setTextKey(k => k + 1);
-      setTextOut(false);
-      scheduleNext();
-    }, TEXT_FADE_OUT_MS + 40);
+// ─── Component ────────────────────────────────────────────────────────────────
+export default function Hero({ onRegister }) {
+  const scrollTo = (id) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
   };
-
-  // ─── Botão primário por variante ─────────────────────────────────────────
-  const kiwifyMaster = import.meta.env?.VITE_KIWIFY_CHECKOUT_MASTER_ANNUAL || '#';
-
-  const handleRegister = (e) => {
-    e.preventDefault();
-    if (onRegister) onRegister();
-    else window.location.href = '/cadastro';
-  };
-
-  const btnClass = `hr-btn-primary${btnAttract ? ' hr-btn-attract' : ''}`;
-
-  const primaryBtn = variant.current === 'A' ? (
-    <a
-      href="/cadastro"
-      className={btnClass}
-      onClick={handleRegister}
-    >
-      Começar grátis agora <ArrowIcon />
-    </a>
-  ) : (
-    <a
-      href={kiwifyMaster}
-      className={btnClass}
-      target="_blank"
-      rel="noopener noreferrer"
-    >
-      Começar grátis agora <ArrowIcon />
-    </a>
-  );
-
-  // Parallax — desligado em mobile para evitar enquadramento errado da imagem
-  const bgTransform = isMobile
-    ? 'none'
-    : `scale(1.1) translateY(${-(parallaxY * 0.18)}px)`;
 
   return (
-    <>
+    <section className="hr2-root" aria-labelledby="hero-headline">
       <style>{STYLES}</style>
+      <div className="hr2-container">
 
-      <section
-        ref={sectionRef}
-        className="hr-root"
-        aria-label="Seção principal"
-      >
-        {/* ── Backgrounds com crossfade ── */}
-        <div
-          aria-hidden="true"
-          className="hr-bg"
-          style={{
-            backgroundImage: `url(${CONTENT.dor.image})`,
-            opacity: bgPhase === 'dor' ? 1 : 0,
-            transform: bgTransform,
-          }}
-        />
-        <div
-          aria-hidden="true"
-          className="hr-bg"
-          style={{
-            backgroundImage: `url(${CONTENT.leveza.image})`,
-            opacity: bgPhase === 'leveza' ? 1 : 0,
-            transform: bgTransform,
-          }}
-        />
+        {/* ── Texto ── */}
+        <div>
+          <div className="hr2-pill">
+            <FileText size={13} aria-hidden="true" />
+            Educação Inclusiva · Documentação com IA
+          </div>
 
-        {/* ── Overlay ── */}
-        <div className="hr-overlay" aria-hidden="true" />
-
-        {/* ── Conteúdo ── */}
-        <div className={`hr-content${mounted ? ' hr-mounted' : ''}`}>
-
-          {/* Bloco de texto — key força re-mount e re-animação */}
-          <div
-            key={textKey}
-            className={`hr-text${textOut ? ' hr-text-out' : ''}`}
-          >
-            <h1 className="hr-headline">{textContent.headline}</h1>
-
-            <span
-              className="hr-highlight"
-              style={{ color: textContent.accentColor }}
-            >
-              {textContent.highlight}
+          <div className="hr2-audience" aria-label="Para quem é o IncluiAI">
+            <span className="hr2-audience-tag">
+              <GraduationCap size={14} aria-hidden="true" />
+              Professor de AEE
             </span>
-
-            <p className="hr-sub">{textContent.sub}</p>
-
-            {/* Bullets */}
-            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {(textContent.bullets || []).map(b => (
-                <li key={b} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 15, fontWeight: 600, color: '#1E293B' }}>
-                  <span style={{ flexShrink: 0, color: '#16A34A' }}><CheckIcon /></span>
-                  {b}
-                </li>
-              ))}
-            </ul>
-
-            {/* Prova social */}
-            <div className="hr-social-proof">
-              <CheckIcon />
-              +1.800 professoras já usam o IncluiAI no dia a dia
-            </div>
+            <span className="hr2-audience-tag">
+              <ClipboardList size={14} aria-hidden="true" />
+              Psicopedagogo
+            </span>
+            <span className="hr2-audience-tag">
+              <FileText size={14} aria-hidden="true" />
+              Coordenador pedagógico
+            </span>
           </div>
 
-          {/* Indicadores de fase (clicáveis) */}
-          <div className="hr-dots" role="tablist" aria-label="Navegar entre fases">
-            <button
-              className={`hr-dot${bgPhase === 'dor' ? ' active' : ''}`}
-              onClick={() => goToPhase('dor')}
-              aria-label="Ver fase: dor"
-              aria-selected={bgPhase === 'dor'}
-              role="tab"
-            />
-            <button
-              className={`hr-dot${bgPhase === 'leveza' ? ' active' : ''}`}
-              onClick={() => goToPhase('leveza')}
-              aria-label="Ver fase: leveza"
-              aria-selected={bgPhase === 'leveza'}
-              role="tab"
-            />
-          </div>
+          <h1 id="hero-headline" className="hr2-headline">
+            Documentação pedagógica profissional,{' '}
+            <span>gerada em minutos</span>{' '}
+            para cada aluno.
+          </h1>
 
-          {/* CTAs */}
-          <div className="hr-ctas">
-            {primaryBtn}
-            <a
-              href="#como-funciona"
-              className="hr-btn-secondary"
-              onClick={e => { e.preventDefault(); document.getElementById('como-funciona')?.scrollIntoView({ behavior: 'smooth' }); }}
-            >
+          <p className="hr2-sub">
+            PEI, PAEE, PDI, Protocolo de Aprendizagem e Estudo de Caso com o histórico
+            real do seu aluno, assinatura digital e conformidade LGPD — sem horas de burocracia.
+          </p>
+
+          <div className="hr2-cta-group">
+            <button className="hr2-btn-primary" onClick={() => scrollTo('pricing')}>
+              Ver planos <ArrowRight size={17} aria-hidden="true" />
+            </button>
+            <button className="hr2-btn-secondary" onClick={() => scrollTo('como-funciona')}>
               Ver como funciona
-            </a>
+            </button>
+          </div>
+
+          <div className="hr2-trust" role="list" aria-label="Garantias">
+            {[
+              'Pagamento seguro via Kiwify',
+              'Suporte pedagógico incluído',
+              'LGPD conforme',
+            ].map(item => (
+              <div key={item} className="hr2-trust-item" role="listitem">
+                <CheckCircle size={14} color={T.green} aria-hidden="true" />
+                <span>{item}</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Badge A/B — visível só em dev */}
-        {import.meta.env?.DEV && (
-          <div className="hr-ab-badge" aria-hidden="true">
-            VARIANT {variant.current}
-          </div>
-        )}
-      </section>
-    </>
-  );
-};
+        {/* ── Visual ── */}
+        <div className="hr2-visual" aria-hidden="true">
+          <ProductPreview />
+        </div>
 
-export default Hero;
+      </div>
+    </section>
+  );
+}

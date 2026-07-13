@@ -121,6 +121,7 @@ export async function reserveCredits(
     requestType?: string;
     task: string;
     metadata?: Record<string, unknown>;
+    expiresAt?: string | null;
   },
 ): Promise<CreditReservationResult> {
   const result = await callCreditRpc(adminDb, 'atomic_reserve_credits', {
@@ -129,6 +130,7 @@ export async function reserveCredits(
     p_description: params.description,
     p_tenant_id: params.tenantId,
     p_user_id: params.userId,
+    p_expires_at: params.expiresAt ?? null,
     p_metadata: {
       request_type: params.requestType ?? null,
       task: params.task,

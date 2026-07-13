@@ -35,6 +35,7 @@ import {
   type DocxSaveResult,
   type ImportFileType,
 } from '../services/studentDocumentImportService';
+import { CreditTransactionService } from '../services/creditService';
 
 // ─── Paleta ────────────────────────────────────────────────────────────────
 const C = {
@@ -322,6 +323,11 @@ export const StudentImportModal: React.FC<Props> = ({
   const [docxSaveResult, setDocxSaveResult]   = useState<DocxSaveResult | null>(null);
   const [docxIsSaving, setDocxIsSaving]       = useState(false);
 
+  // ── Reserva de créditos diferida (deferCommit) ─────────────────────────────
+  // Guardamos a reservationId em ref (não dispara re-render) para uso em cleanup/unmount
+  const pendingReservationRef = useRef<string | null>(null);
+  const pendingCreditsCostRef = useRef<number>(0);
+
   // ── Estado detecção de tipo de arquivo ─────────────────────────────────────
   const [importFileType, setImportFileType]         = useState<ImportFileType | null>(null);
   const [fileReady, setFileReady]                   = useState(false);
@@ -338,6 +344,23 @@ export const StudentImportModal: React.FC<Props> = ({
   const [duplicateCandidates, setDuplicateCandidates] = useState<DuplicateCandidate[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ── Cleanup: libera reserva pendente ao fechar/desmontar ──────────────────
+  useEffect(() => {
+    return () => {
+      const rid = pendingReservationRef.current;
+      if (!rid) return;
+      pendingReservationRef.current = null;
+      CreditTransactionService.atomicReleaseReservedCredits({
+        tenantId,
+        reservationId: rid,
+        userId,
+        description: 'Modal fechado — crédito reservado liberado',
+        source: 'student_import_modal.unmount',
+      }).catch(e => console.warn('[DocImport] Falha ao liberar reserva no unmount:', e));
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Animação IA ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -431,25 +454,68 @@ export const StudentImportModal: React.FC<Props> = ({
     }
   }, []);
 
+  // ── Helpers de reserva de créditos ────────────────────────────────────────
+  const releaseReservation = useCallback(async () => {
+    const rid = pendingReservationRef.current;
+    if (!rid) return;
+    pendingReservationRef.current = null;
+    try {
+      await CreditTransactionService.atomicReleaseReservedCredits({
+        tenantId,
+        reservationId: rid,
+        userId,
+        description: 'Importação cancelada ou falha — crédito liberado',
+        source: 'student_import_modal.release',
+      });
+      console.info('[DocImport] Reserva liberada:', rid);
+    } catch (e) {
+      console.warn('[DocImport] Falha ao liberar reserva:', e);
+    }
+  }, [tenantId, userId]);
+
+  const commitReservation = useCallback(async () => {
+    const rid = pendingReservationRef.current;
+    if (!rid) return;
+    pendingReservationRef.current = null;
+    try {
+      await CreditTransactionService.atomicCommitReservedCredits({
+        tenantId,
+        reservationId: rid,
+        userId,
+        description: `Importação de aluno concluída (${pendingCreditsCostRef.current} créditos)`,
+        source: 'student_import_modal.commit',
+      });
+      console.info('[DocImport] Reserva confirmada:', rid);
+    } catch (e) {
+      // Aluno já foi salvo — falha no commit é recuperável via reconciliação do ledger
+      console.warn('[DocImport] Falha ao confirmar reserva (aluno salvo, crédito pode ser reconciliado):', e);
+    }
+  }, [tenantId, userId]);
+
   // ── Processamento IA (chamado após confirmação de créditos) ───────────────
   const runAIProcessing = useCallback(async () => {
     if (!file || !importFileType) return;
     setStep('ai_processing');
     setParseError(null);
     try {
-      let drafts;
+      let aiResult;
       if (importFileType === 'docx') {
         const text = await extractTextFromDocx(file);
-        drafts = await mapDocumentTextToStudentPayload(text);
+        aiResult = await mapDocumentTextToStudentPayload(text);
       } else if (importFileType === 'pdf-text' && pendingExtractedText) {
-        drafts = await mapDocumentTextToStudentPayload(pendingExtractedText);
+        aiResult = await mapDocumentTextToStudentPayload(pendingExtractedText);
       } else {
-        drafts = await mapVisualDocumentToStudentPayload(file);
+        aiResult = await mapVisualDocumentToStudentPayload(file);
       }
-      setDocxDrafts(drafts.map(draftToEditable));
+      // Armazena reserva para commit/release posterior
+      pendingReservationRef.current = aiResult.reservationId;
+      pendingCreditsCostRef.current = aiResult.creditsConsumed;
+      setDocxDrafts(aiResult.drafts.map(draftToEditable));
       setCurrentDraftIdx(0);
       setStep('ai_preview');
     } catch (err: any) {
+      // IA falhou — Edge Function já liberou a reserva automaticamente
+      pendingReservationRef.current = null;
       setParseError(err?.message ?? 'Erro ao processar o documento.');
       setStep('upload');
       setFileReady(false);
@@ -511,10 +577,30 @@ export const StudentImportModal: React.FC<Props> = ({
     setParseError(null);
     try {
       const res = await saveStudentsFromDocx(docxDrafts, tenantId, userId, importFileType ?? 'docx');
+
+      if (res.saved > 0) {
+        // Pelo menos um aluno salvo → confirma débito de crédito
+        await commitReservation();
+      } else {
+        // Nenhum aluno salvo (todos falharam) → libera crédito reservado
+        await releaseReservation();
+        res.errors = res.errors.length > 0
+          ? res.errors
+          : ['Nenhum aluno foi salvo. Nenhum crédito foi cobrado.'];
+      }
+
       setDocxSaveResult(res);
       setStep('done');
     } catch (err: any) {
-      setParseError(err?.message ?? 'Erro ao salvar. Tente novamente.');
+      const msg: string = err?.message ?? String(err);
+      // Libera reserva em qualquer erro de salvamento
+      await releaseReservation();
+      if (msg.includes('students_import_source_check')) {
+        console.error('students_import_source_check: import_source inválido enviado pelo importador.', { importFileType, msg });
+        setParseError('A importação não foi concluída. Nenhum crédito foi cobrado. (Origem do arquivo não reconhecida — atualize a página e tente novamente.)');
+      } else {
+        setParseError(`A importação não foi concluída. Nenhum crédito foi cobrado. ${msg || 'Erro ao salvar. Tente novamente.'}`);
+      }
     } finally {
       setDocxIsSaving(false);
     }
@@ -527,6 +613,8 @@ export const StudentImportModal: React.FC<Props> = ({
 
   // ── Trocar modo ────────────────────────────────────────────────────────────
   const switchMode = (mode: ImportMode) => {
+    // Libera reserva caso usuária troque de modo após a IA ter processado
+    releaseReservation();
     setImportMode(mode);
     setParseError(null);
     setParsed(null);
@@ -539,6 +627,12 @@ export const StudentImportModal: React.FC<Props> = ({
     setPendingExtractedText(null);
     setIsDetecting(false);
   };
+
+  // ── Fechar modal liberando reserva pendente ────────────────────────────────
+  const handleClose = useCallback(() => {
+    releaseReservation();
+    onClose();
+  }, [releaseReservation, onClose]);
 
   // ── Configuração dos steps ─────────────────────────────────────────────────
   const csvStepOrder  = ['upload', 'preview', 'importing', 'done'];
@@ -605,7 +699,7 @@ export const StudentImportModal: React.FC<Props> = ({
           </div>
           {step !== 'importing' && step !== 'ai_processing' && (
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition hover:opacity-70"
               style={{ background: C.border }}
             >
@@ -1503,7 +1597,7 @@ export const StudentImportModal: React.FC<Props> = ({
           <div className="flex gap-3">
             {step === 'upload' && (
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="px-4 py-2 rounded-xl text-sm font-semibold transition hover:opacity-80"
                 style={{ background: C.border, color: C.dark }}
               >
@@ -1514,7 +1608,7 @@ export const StudentImportModal: React.FC<Props> = ({
             {step === 'preview' && previewCounts && (
               <>
                 <button
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-2 rounded-xl text-sm font-semibold transition hover:opacity-80"
                   style={{ background: C.border, color: C.dark }}
                 >
@@ -1536,7 +1630,7 @@ export const StudentImportModal: React.FC<Props> = ({
             {step === 'ai_preview' && (
               <>
                 <button
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="px-4 py-2 rounded-xl text-sm font-semibold transition hover:opacity-80"
                   style={{ background: C.border, color: C.dark }}
                 >

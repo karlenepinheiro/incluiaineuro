@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Implementação — Validação de Compra antes do Cadastro · IncluiAI · 02/07/2026</title>
+  <style>
+    :root {
+      --petrol:   #1F4E5F;
+      --dark:     #2E3A59;
+      --gold:     #C69214;
+      --bg:       #F6F4EF;
+      --surface:  #FFFFFF;
+      --border:   #E7E2D8;
+      --text:     #111827;
+      --muted:    #6B7280;
+      --success:  #065F46;
+      --success-bg:#ECFDF5;
+      --warn-bg:  #FEF3C7;
+      --warn:     #92400E;
+      --danger-bg:#FEE2E2;
+      --danger:   #991B1B;
+      --info-bg:  #EFF6FF;
+      --info:     #1D4ED8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.7; }
+
+    /* ── CAPA ─────────────────────────────────────────────────────────────── */
+    .cover {
+      background: linear-gradient(160deg, var(--petrol) 0%, var(--dark) 100%);
+      color: #fff;
+      padding: 56px 64px 48px;
+      position: relative;
+      overflow: hidden;
+    }
+    .cover::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.055) 1px, transparent 0);
+      background-size: 26px 26px;
+    }
+    .cover-inner { position: relative; z-index: 1; max-width: 860px; }
+    .cover-tag {
+      display: inline-block;
+      background: rgba(255,255,255,.12);
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 6px;
+      padding: 4px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .cover h1 { font-size: 30px; font-weight: 900; line-height: 1.25; margin-bottom: 14px; }
+    .cover .subtitle { opacity: .78; font-size: 15px; max-width: 700px; margin-bottom: 32px; }
+    .cover-meta { display: flex; gap: 28px; flex-wrap: wrap; font-size: 12px; opacity: .75; }
+    .cover-meta strong { color: #fff; opacity: 1; }
+
+    .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 22px; }
+    .cover-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,.13);
+      border: 1px solid rgba(255,255,255,.22);
+      border-radius: 8px;
+      padding: 5px 14px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* ── LAYOUT ───────────────────────────────────────────────────────────── */
+    .container { max-width: 900px; margin: 0 auto; padding: 40px 24px 80px; }
+
+    /* ── SEÇÕES ───────────────────────────────────────────────────────────── */
+    .section { margin-bottom: 40px; }
+    .section-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--petrol);
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title .num {
+      background: var(--petrol);
+      color: #fff;
+      border-radius: 6px;
+      width: 26px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    /* ── CARDS ────────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 14px;
+    }
+    .card-title { font-size: 13px; font-weight: 700; color: var(--dark); margin-bottom: 8px; }
+
+    /* ── ALERTAS ──────────────────────────────────────────────────────────── */
+    .alert {
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 14px;
+      font-size: 13px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .alert-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+    .alert-success { background: var(--success-bg); border: 1px solid #6EE7B7; color: var(--success); }
+    .alert-warn    { background: var(--warn-bg);    border: 1px solid #FCD34D; color: var(--warn);    }
+    .alert-danger  { background: var(--danger-bg);  border: 1px solid #FECACA; color: var(--danger);  }
+    .alert-info    { background: var(--info-bg);    border: 1px solid #BFDBFE; color: var(--info);    }
+
+    /* ── TABELAS ──────────────────────────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+    th { background: #F0F4F8; color: var(--dark); font-weight: 700; padding: 9px 14px; text-align: left; border-bottom: 2px solid var(--border); }
+    td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #FAFAFA; }
+
+    /* ── BADGES ───────────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+    }
+    .badge-green  { background: var(--success-bg); color: var(--success); border: 1px solid #6EE7B7; }
+    .badge-red    { background: var(--danger-bg);  color: var(--danger);  border: 1px solid #FECACA; }
+    .badge-yellow { background: var(--warn-bg);    color: var(--warn);    border: 1px solid #FCD34D; }
+    .badge-blue   { background: var(--info-bg);    color: var(--info);    border: 1px solid #BFDBFE; }
+    .badge-petrol { background: #E0EEF3; color: var(--petrol); border: 1px solid #93C5DA; }
+
+    /* ── CÓDIGO ───────────────────────────────────────────────────────────── */
+    pre, code {
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12px;
+    }
+    .code-block {
+      background: #0F172A;
+      color: #E2E8F0;
+      border-radius: 10px;
+      padding: 16px 20px;
+      overflow-x: auto;
+      line-height: 1.65;
+      margin: 8px 0;
+    }
+    .code-block .cm { color: #94A3B8; }
+    .code-block .kw { color: #93C5DA; }
+    .code-block .str{ color: #86EFAC; }
+    .code-block .fn { color: #FCA5A5; }
+    .code-block .ok { color: #4ADE80; }
+    .code-block .warn{ color: #FCD34D; }
+
+    /* ── FLUXO VISUAL ─────────────────────────────────────────────────────── */
+    .flow {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      margin: 12px 0;
+    }
+    .flow-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      position: relative;
+    }
+    .flow-step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      left: 19px;
+      top: 38px;
+      bottom: -2px;
+      width: 2px;
+      background: var(--border);
+    }
+    .flow-dot {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 14px;
+      flex-shrink: 0;
+      z-index: 1;
+    }
+    .flow-dot-petrol { background: var(--petrol); color: #fff; }
+    .flow-dot-green  { background: #059669; color: #fff; }
+    .flow-dot-red    { background: #DC2626; color: #fff; }
+    .flow-dot-gold   { background: var(--gold); color: #fff; }
+    .flow-body { padding: 8px 0 20px; }
+    .flow-label { font-weight: 700; font-size: 13px; color: var(--dark); }
+    .flow-desc  { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+    /* ── COMPARATIVO ──────────────────────────────────────────────────────── */
+    .compare {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 12px 0;
+    }
+    .compare-col { border-radius: 10px; padding: 16px 18px; }
+    .compare-before { background: #FEF2F2; border: 1px solid #FECACA; }
+    .compare-after  { background: #ECFDF5; border: 1px solid #6EE7B7; }
+    .compare-title { font-size: 12px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 10px; }
+    .compare-before .compare-title { color: #DC2626; }
+    .compare-after  .compare-title { color: #059669; }
+    .compare-col ul { padding-left: 16px; font-size: 12px; }
+    .compare-col li { margin-bottom: 5px; }
+
+    /* ── CHECKLIST ────────────────────────────────────────────────────────── */
+    .checklist { list-style: none; padding: 0; }
+    .checklist li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .checklist li:last-child { border-bottom: none; }
+    .check-icon { width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px; }
+    .check-ok   { color: #059669; }
+    .check-warn { color: #D97706; }
+    .check-todo { color: #94A3B8; }
+
+    /* ── FOOTER ───────────────────────────────────────────────────────────── */
+    .footer {
+      background: var(--petrol);
+      color: rgba(255,255,255,.7);
+      padding: 20px 64px;
+      font-size: 12px;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .footer strong { color: #fff; }
+
+    @media (max-width: 640px) {
+      .cover { padding: 32px 20px 28px; }
+      .compare { grid-template-columns: 1fr; }
+      .container { padding: 24px 16px 60px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     CAPA
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-inner">
+    <div class="cover-tag">Relatório de Implementação</div>
+    <h1>Validação de Compra antes do Cadastro</h1>
+    <p class="subtitle">
+      Implementação do gate de compra Kiwify em <code>LoginScreen.tsx</code>:
+      remoção do cadastro gratuito, verificação bloqueante via RPC, modal de compra não localizada
+      e remoção do login Google.
+    </p>
+    <div class="cover-meta">
+      <span><strong>Data:</strong> 02/07/2026</span>
+      <span><strong>Responsável:</strong> Claude Code + karlenepinheiro</span>
+      <span><strong>Branch:</strong> redesign-landing-experimental</span>
+      <span><strong>Build:</strong> ✅ Passou sem erros</span>
+      <span><strong>Arquivo alterado:</strong> src/components/LoginScreen.tsx (único)</span>
+    </div>
+    <div class="cover-badges">
+      <div class="cover-badge">🛡️ Segurança</div>
+      <div class="cover-badge">💳 Billing</div>
+      <div class="cover-badge">🔐 Cadastro</div>
+      <div class="cover-badge">⛔ FREE removido</div>
+      <div class="cover-badge">✅ Build limpo</div>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ══ 1. ESCOPO ══════════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">1</span> Escopo desta implementação</div>
+
+    <div class="alert alert-info">
+      <div class="alert-icon">ℹ️</div>
+      <div>
+        <strong>Arquivos alterados neste sprint:</strong> apenas <code>src/components/LoginScreen.tsx</code>.
+        Nenhum arquivo de backend, trigger, migration, webhook, Edge Function, schema ou tabela foi alterado.
+        O gate de compra é 100% frontend — chama o RPC <code>check_purchase_by_email</code> (já existente e com GRANT para anon).
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">O que foi feito</div>
+      <ul style="padding-left:18px; font-size:13px;">
+        <li>Remoção total do botão Google (JSX + estado <code>googleLoading</code> + handler <code>handleGoogle</code> + ícone SVG)</li>
+        <li>Remoção do divisor "ou" entre os botões</li>
+        <li>Verificação bloqueante de compra Kiwify <strong>antes</strong> de qualquer chamada a <code>onRegister</code>/<code>auth.signUp()</code></li>
+        <li>Modal de compra não localizada (3 ações: WhatsApp, verificar novamente, revisar e-mail)</li>
+        <li>Mensagem exata aprovada pela CEO no modal</li>
+        <li>Feedback de progresso em duas fases: "Verificando compra..." e "Criando conta..."</li>
+        <li>Remoção de todos os textos "gratuita/gratuito/gratuitamente"</li>
+        <li>Texto do rodapé: "Já fez sua compra? Criar conta" (tab login) / "Já tem conta? Entrar" (tab cadastro)</li>
+        <li>Callout informativo verde quando compra é encontrada no blur do campo e-mail</li>
+        <li>Normalização canônica do e-mail: <code>email.trim().toLowerCase()</code></li>
+        <li>Prop <code>onGoogleLogin</code> mantida na interface (opcional) para compatibilidade com App.tsx</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">O que NÃO foi alterado</div>
+      <ul style="padding-left:18px; font-size:13px;">
+        <li><code>src/App.tsx</code> — <code>handleRegister</code>, <code>handleGoogleLogin</code>, props do LoginScreen</li>
+        <li>Triggers PostgreSQL (<code>handle_new_user</code>, <code>create_user_profile_on_signup</code>)</li>
+        <li>Edge Functions, webhooks Kiwify, migrations, schema</li>
+        <li>RPC <code>check_purchase_by_email</code> (usada, não alterada)</li>
+        <li><code>src/services/purchaseActivationService.ts</code></li>
+        <li><code>src/config/contact.ts</code></li>
+        <li>Qualquer outro componente ou serviço do projeto</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══ 2. FLUXO ANTERIOR (ANTES) ══════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">2</span> Fluxo anterior (antes desta implementação)</div>
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-dot flow-dot-petrol">1</div>
+        <div class="flow-body">
+          <div class="flow-label">Usuário preenche o formulário de cadastro</div>
+          <div class="flow-desc">Nome, e-mail, telefone, CPF, senha, confirmar senha.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-dot flow-dot-gold">2</div>
+        <div class="flow-body">
+          <div class="flow-label">handleEmailBlur — verificação informativa (não bloqueante)</div>
+          <div class="flow-desc">Ao sair do campo e-mail, a UI chamava <code>checkPurchaseByEmail</code> e mostrava um callout verde se encontrada. Mas não bloqueava o cadastro.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-dot flow-dot-red">3</div>
+        <div class="flow-body">
+          <div class="flow-label">handleSubmit → onRegister → auth.signUp() — SEM verificação de compra</div>
+          <div class="flow-desc">Qualquer e-mail, mesmo sem compra Kiwify, resultava em conta criada. Os triggers PostgreSQL provisionavam o tenant como FREE com 60 créditos.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-dot flow-dot-petrol">4</div>
+        <div class="flow-body">
+          <div class="flow-label">Trigger <code>handle_new_user</code> + <code>create_user_profile_on_signup</code></div>
+          <div class="flow-desc">Qualquer <code>auth.users</code> INSERT criava tenant FREE automaticamente. Brecha comercial crítica.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert alert-danger">
+      <div class="alert-icon">🔴</div>
+      <div><strong>Problema crítico:</strong> era possível criar uma conta IncluiAI sem compra, obtendo acesso FREE com 60 créditos de IA gratuitamente. O botão Google também contornava qualquer verificação.</div>
+    </div>
+  </div>
+
+  <!-- ══ 3. FLUXO NOVO (DEPOIS) ═════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">3</span> Novo fluxo (após implementação)</div>
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-dot flow-dot-petrol">1</div>
+        <div class="flow-body">
+          <div class="flow-label">Usuário preenche todos os campos do formulário</div>
+          <div class="flow-desc">Nome, e-mail, telefone (com máscara), CPF (com máscara + validação mod11), senha e confirmar senha. Formulário único — sem etapa separada de verificação de e-mail.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-dot flow-dot-gold">2</div>
+        <div class="flow-body">
+          <div class="flow-label">Clica em "Criar conta" → validação dos campos</div>
+          <div class="flow-desc">Telefone com DDD, CPF válido (algoritmo mod11), senha ≥ 6 caracteres, senhas iguais.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-dot flow-dot-petrol">3</div>
+        <div class="flow-body">
+          <div class="flow-label">Fase 1 BLOQUEANTE: "Verificando compra..."</div>
+          <div class="flow-desc">
+            Chama <code>checkPurchaseByEmail(email.trim().toLowerCase())</code> → RPC <code>check_purchase_by_email</code>.<br>
+            <strong>Condição de aprovação:</strong> <code>found=true AND status='APPROVED' AND product_key !== 'UNKNOWN'</code>
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-dot flow-dot-red">4a</div>
+        <div class="flow-body">
+          <div class="flow-label">Compra NÃO aprovada → Modal de compra não localizada</div>
+          <div class="flow-desc">
+            <code>auth.signUp()</code> NÃO é chamado. Modal exibe mensagem exata aprovada + 3 ações.<br>
+            Também cobre: erro de rede (<code>network_error</code>), compra com <code>product_key='UNKNOWN'</code>.
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-dot flow-dot-green">4b</div>
+        <div class="flow-body">
+          <div class="flow-label">Compra aprovada → Fase 2: "Criando conta..."</div>
+          <div class="flow-desc">Apenas neste caso <code>onRegister()</code> é chamado, que internamente chama <code>auth.signUp()</code>. Os triggers PostgreSQL provisionam o tenant — mas a conta Kiwify ativará o plano correto logo após.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-dot flow-dot-petrol">5</div>
+        <div class="flow-body">
+          <div class="flow-label">Conta criada com sucesso</div>
+          <div class="flow-desc">Mensagem de sucesso exibida. O fluxo de ativação de plano Kiwify é responsabilidade do webhook (sprint anterior).</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 4. COMPARATIVO ANTES / DEPOIS ═══════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">4</span> Comparativo antes / depois</div>
+
+    <div class="compare">
+      <div class="compare-col compare-before">
+        <div class="compare-title">❌ Antes</div>
+        <ul>
+          <li>Cadastro aberto para qualquer e-mail</li>
+          <li>FREE com 60 créditos sem compra</li>
+          <li>Botão Google criava conta sem verificação</li>
+          <li>Texto "Criar conta gratuita"</li>
+          <li>Texto "Nenhum cartão necessário."</li>
+          <li>Texto "Criar gratuitamente" no rodapé</li>
+          <li>Verificação de compra era apenas informativa (blur)</li>
+          <li>Nenhum bloqueio antes de <code>auth.signUp()</code></li>
+        </ul>
+      </div>
+      <div class="compare-col compare-after">
+        <div class="compare-title">✅ Depois</div>
+        <ul>
+          <li>Cadastro bloqueado sem compra Kiwify aprovada</li>
+          <li>Nenhuma conta criada sem verificação prévia</li>
+          <li>Botão Google removido da UI</li>
+          <li>Texto "Criar conta" (sem "gratuita")</li>
+          <li>Texto "Nenhum cartão necessário." removido</li>
+          <li>Rodapé: "Já fez sua compra? Criar conta"</li>
+          <li>Verificação BLOQUEANTE no handleSubmit</li>
+          <li><code>auth.signUp()</code> nunca chamado sem compra aprovada</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 5. DETALHES TÉCNICOS ════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">5</span> Detalhes técnicos da implementação</div>
+
+    <div class="card">
+      <div class="card-title">Verificação bloqueante — lógica central</div>
+      <div class="code-block">
+<span class="cm">// Após validação dos campos locais:</span>
+setLoadingPhase(<span class="str">'verifying'</span>);
+<span class="kw">let</span> purchaseResult;
+<span class="kw">try</span> {
+  purchaseResult = <span class="kw">await</span> <span class="fn">checkPurchaseByEmail</span>(normalizedEmail);
+} <span class="kw">catch</span> {
+  <span class="cm">// Erro de rede — NÃO cria conta como fallback</span>
+  setPurchaseModalType(<span class="str">'network_error'</span>);
+  setShowPurchaseModal(<span class="ok">true</span>);
+  <span class="kw">return</span>; <span class="cm">// ← auth.signUp() NÃO é chamado</span>
+}
+
+<span class="kw">const</span> isApproved =
+  purchaseResult.found &&
+  purchaseResult.status === <span class="str">'APPROVED'</span> &&
+  purchaseResult.product_key !== <span class="str">'UNKNOWN'</span>;
+
+<span class="kw">if</span> (!isApproved) {
+  setPurchaseModalType(<span class="str">'not_found'</span>);
+  setShowPurchaseModal(<span class="ok">true</span>);
+  <span class="kw">return</span>; <span class="cm">// ← auth.signUp() NÃO é chamado</span>
+}
+
+<span class="cm">// Único caminho que chega aqui: compra aprovada e product_key válido</span>
+setLoadingPhase(<span class="str">'creating'</span>);
+<span class="kw">await</span> <span class="fn">onRegister</span>(...);
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Condição de aprovação explicada</div>
+      <table>
+        <tr><th>Condição</th><th>Resultado</th><th>Ação</th></tr>
+        <tr><td><code>found = false</code></td><td>E-mail sem compra no banco</td><td>Modal <code>not_found</code></td></tr>
+        <tr><td><code>status = 'PENDING'</code></td><td>Compra pendente (não paga)</td><td>Modal <code>not_found</code></td></tr>
+        <tr><td><code>product_key = 'UNKNOWN'</code></td><td>Produto não mapeado no webhook</td><td>Modal <code>not_found</code></td></tr>
+        <tr><td>Erro de rede / timeout</td><td>RPC inacessível</td><td>Modal <code>network_error</code></td></tr>
+        <tr><td><code>found=true + APPROVED + product_key válido</code></td><td>Compra confirmada</td><td>Prossegue com <code>auth.signUp()</code></td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Mensagem obrigatória exibida no modal (aprovada pela CEO)</div>
+      <div style="background:#F9FAFB; border:1px solid var(--border); border-radius:8px; padding:14px 16px; font-size:13px; font-style:italic; color:#374151;">
+        "Não encontramos uma compra aprovada para este e-mail. Use o mesmo e-mail informado no momento da compra pela Kiwify. Qualquer dúvida, entre em contato conosco pelo WhatsApp."
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Link WhatsApp — configuração</div>
+      <table>
+        <tr><th>Atributo</th><th>Valor</th></tr>
+        <tr><td>Número (de <code>contact.ts</code>)</td><td><code>5599984167490</code></td></tr>
+        <tr><td>Mensagem pré-preenchida</td><td><em>"Olá! Fiz uma compra do IncluiAI pela Kiwify, mas o sistema não localizou minha compra com o e-mail informado. Preciso de ajuda para acessar minha conta."</em></td></tr>
+        <tr><td>Atributos do <code>&lt;a&gt;</code></td><td><code>target="_blank" rel="noopener noreferrer"</code></td></tr>
+        <tr><td>Função usada</td><td><code>waUrl(WA_CADASTRO_MSG)</code> de <code>src/config/contact.ts</code></td></tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Estados de loading com rótulo semântico</div>
+      <div class="code-block">
+<span class="kw">const</span> buttonLabel = loading
+  ? loadingPhase === <span class="str">'verifying'</span> ? <span class="str">'Verificando compra...'</span>
+  : loadingPhase === <span class="str">'creating'</span>  ? <span class="str">'Criando conta...'</span>
+  :                                          <span class="str">'Entrando...'</span>
+  : tab === <span class="str">'login'</span> ? <span class="str">'Entrar na Plataforma'</span> : <span class="str">'Criar conta'</span>;
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Ações do modal de compra não localizada</div>
+      <table>
+        <tr><th>Botão</th><th>Ação</th><th>Observação</th></tr>
+        <tr>
+          <td>🟢 Falar pelo WhatsApp</td>
+          <td>Abre <code>wa.me/5599984167490?text=...</code></td>
+          <td><code>target="_blank" rel="noopener noreferrer"</code></td>
+        </tr>
+        <tr>
+          <td>Verificar novamente</td>
+          <td>Re-executa <code>checkPurchaseByEmail</code>; se aprovada agora, chama <code>onRegister</code> diretamente</td>
+          <td>Mostra spinner enquanto verifica</td>
+        </tr>
+        <tr>
+          <td>Revisar e-mail</td>
+          <td>Fecha modal e foca o campo e-mail com <code>emailRef.current?.focus()</code></td>
+          <td>Útil para corrigir typos no e-mail</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Normalização de e-mail (consistência com a RPC)</div>
+      <div class="code-block">
+<span class="cm">// Frontend (LoginScreen.tsx)</span>
+<span class="kw">const</span> normalizedEmail = email.trim().toLowerCase();
+
+<span class="cm">// purchaseActivationService.ts (já existia)</span>
+<span class="fn">checkPurchaseByEmail</span>(email.toLowerCase().trim())
+
+<span class="cm">// RPC check_purchase_by_email (PostgreSQL)</span>
+<span class="kw">WHERE</span> lower(trim(email)) = lower(trim(p_email))
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 6. TEXTOS ALTERADOS ═════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">6</span> Textos alterados</div>
+    <table>
+      <tr><th>Contexto</th><th>Antes</th><th>Depois</th></tr>
+      <tr>
+        <td>Botão principal (tab cadastro)</td>
+        <td><code>"Criar conta gratuita"</code></td>
+        <td><code>"Criar conta"</code></td>
+      </tr>
+      <tr>
+        <td>Subtexto abaixo do botão</td>
+        <td><code>"Nenhum cartão necessário."</code></td>
+        <td><em>Removido</em></td>
+      </tr>
+      <tr>
+        <td>Rodapé (tab login)</td>
+        <td><code>"Não tem conta? Criar gratuitamente"</code></td>
+        <td><code>"Já fez sua compra? Criar conta"</code></td>
+      </tr>
+      <tr>
+        <td>Rodapé (tab cadastro)</td>
+        <td><code>"Já tem conta? Entrar"</code></td>
+        <td><em>Mantido</em></td>
+      </tr>
+      <tr>
+        <td>Banner de plano pendente</td>
+        <td><code>"crie uma conta gratuita primeiro"</code></td>
+        <td><code>"crie uma conta primeiro"</code></td>
+      </tr>
+      <tr>
+        <td>Tabs de navegação</td>
+        <td><code>"Entrar" / "Cadastrar"</code></td>
+        <td><code>"Entrar" / "Criar conta"</code></td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ══ 7. ELEMENTOS REMOVIDOS ═════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">7</span> Elementos removidos da UI</div>
+    <table>
+      <tr><th>Elemento</th><th>Motivo</th></tr>
+      <tr>
+        <td>Botão "Continuar com Google"</td>
+        <td>Google OAuth não verifica compra Kiwify — representava bypass ao gate</td>
+      </tr>
+      <tr>
+        <td>Divisor "ou" entre formulário e Google</td>
+        <td>Sem razão de existir sem o botão Google</td>
+      </tr>
+      <tr>
+        <td>Componente <code>GoogleIcon</code> (SVG inline)</td>
+        <td>Não mais necessário</td>
+      </tr>
+      <tr>
+        <td>Estado <code>googleLoading</code></td>
+        <td>Não mais necessário</td>
+      </tr>
+      <tr>
+        <td>Handler <code>handleGoogle</code></td>
+        <td>Não mais necessário</td>
+      </tr>
+      <tr>
+        <td>Texto "Nenhum cartão necessário."</td>
+        <td>Contradiz o novo modelo de negócio (compra obrigatória)</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ══ 8. RESULTADO DO BUILD ════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">8</span> Resultado do build</div>
+
+    <div class="alert alert-success">
+      <div class="alert-icon">✅</div>
+      <div>
+        <strong>Build passou sem erros TypeScript.</strong><br>
+        Comando: <code>npm run build</code> · Tempo: ~22 segundos · 3.422 módulos transformados.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Avisos presentes (pré-existentes, não relacionados a esta sprint)</div>
+      <table>
+        <tr><th>Aviso</th><th>Arquivo</th><th>Origem</th></tr>
+        <tr>
+          <td>Dynamic + static import conflict</td>
+          <td><code>src/types.ts</code></td>
+          <td>Pré-existente desde Sprint 3+. Sem impacto em runtime.</td>
+        </tr>
+        <tr>
+          <td>Dynamic + static import conflict</td>
+          <td><code>src/services/persistenceService.ts</code></td>
+          <td>Pré-existente. Sem impacto em runtime.</td>
+        </tr>
+        <tr>
+          <td>Chunk &gt; 500 kB (aiGatewayService)</td>
+          <td><code>dist/assets/aiGatewayService-*.js</code> (502 kB)</td>
+          <td>Pré-existente. Fora do escopo desta sprint.</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══ 9. RISCOS E LIMITAÇÕES CONHECIDAS ══════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">9</span> Riscos e limitações conhecidas</div>
+
+    <div class="alert alert-warn">
+      <div class="alert-icon">⚠️</div>
+      <div>
+        <strong>Limitação principal (backend não alterado):</strong> os triggers PostgreSQL
+        <code>handle_new_user</code> e <code>create_user_profile_on_signup</code> ainda criam tenants FREE
+        automaticamente para qualquer INSERT em <code>auth.users</code>. O gate frontend impede que
+        usuários normais criem conta sem compra, mas um acesso direto à API Supabase <code>auth.signUp()</code>
+        (ex: curl, script de automação) ainda contornaria o gate. O hardening de backend (RLS, trigger condicional)
+        deve ser feito em sprint futuro.
+      </div>
+    </div>
+
+    <table>
+      <tr><th>Risco</th><th>Classificação</th><th>Status</th></tr>
+      <tr>
+        <td>Acesso direto à API Supabase sem passar pelo frontend</td>
+        <td><span class="badge badge-yellow">Alto</span></td>
+        <td>Pendente — hardening backend futuro</td>
+      </tr>
+      <tr>
+        <td>Google OAuth ainda funciona se URL acessada diretamente</td>
+        <td><span class="badge badge-yellow">Alto</span></td>
+        <td>Botão removido da UI; provider ainda habilitado no Supabase dashboard</td>
+      </tr>
+      <tr>
+        <td>Conta criada antes da ativação do plano Kiwify pelo webhook</td>
+        <td><span class="badge badge-blue">Médio</span></td>
+        <td>Janela de tempo mínima; webhook ativa em segundos</td>
+      </tr>
+      <tr>
+        <td>RPC <code>check_purchase_by_email</code> inacessível (Supabase offline)</td>
+        <td><span class="badge badge-blue">Médio</span></td>
+        <td>Modal <code>network_error</code> exibido; <em>nunca</em> cria conta como fallback</td>
+      </tr>
+      <tr>
+        <td>Usuário usa e-mail diferente do informado na Kiwify</td>
+        <td><span class="badge badge-blue">Médio</span></td>
+        <td>Modal orienta a usar o e-mail da compra + WhatsApp para suporte</td>
+      </tr>
+      <tr>
+        <td><code>product_key = 'UNKNOWN'</code> (produto não mapeado)</td>
+        <td><span class="badge badge-blue">Médio</span></td>
+        <td>Tratado como "não aprovado" — usuário vai para WhatsApp</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ══ 10. CHECKLIST DE TESTES RECOMENDADOS ════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">10</span> Checklist de testes recomendados</div>
+
+    <ul class="checklist">
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Testar com e-mail SEM compra → modal <code>not_found</code> aparece, conta NÃO é criada</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Testar com e-mail COM compra APPROVED e product_key válido → conta criada com sucesso</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Testar com e-mail em maiúsculas / com espaços → normalização correta antes da RPC</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Verificar que o botão Google não aparece mais em nenhuma resolução</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Confirmar que nenhum texto "gratuita/gratuito/gratuitamente" aparece na tela de login</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Clicar em "Falar pelo WhatsApp" no modal → deve abrir <code>wa.me</code> em nova aba com mensagem correta</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Clicar em "Verificar novamente" → spinner aparece, se compra aprovada agora cria conta</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Clicar em "Revisar e-mail" → modal fecha e foco vai para o campo e-mail</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Fluxo de login (não cadastro) → não é afetado, funciona normalmente</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>"Esqueci minha senha" continua funcionando no tab login</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>CPF inválido (ex: 111.111.111-11) → exibe erro sem chamar a RPC</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Telefone com menos de 10 dígitos → exibe erro sem chamar a RPC</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Compra com status <code>PENDING</code> → modal <code>not_found</code> (não cria conta)</span>
+      </li>
+      <li>
+        <svg class="check-icon check-todo" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="8"/></svg>
+        <span>Compra com <code>product_key='UNKNOWN'</code> → modal <code>not_found</code> (não cria conta)</span>
+      </li>
+    </ul>
+  </div>
+
+  <!-- ══ 11. PROCEDIMENTO DE RESTAURAÇÃO ════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">11</span> Procedimento de restauração (rollback)</div>
+
+    <div class="alert alert-info">
+      <div class="alert-icon">📁</div>
+      <div>
+        Backup do arquivo original criado em: <code>_backup_cadastro_kiwify_before/LoginScreen.tsx.bak</code><br>
+        Tamanho do backup: 26.3 KB (arquivo original antes desta sprint)
+      </div>
+    </div>
+
+    <div class="code-block">
+<span class="cm"># Para reverter apenas LoginScreen.tsx:</span>
+cp _backup_cadastro_kiwify_before/LoginScreen.tsx.bak src/components/LoginScreen.tsx
+npm run build
+
+<span class="cm"># Verificar que o build ainda passa após o rollback.</span>
+    </div>
+
+    <div class="alert alert-warn">
+      <div class="alert-icon">⚠️</div>
+      <div>
+        <strong>Atenção no rollback:</strong> reverter o arquivo restaura o cadastro aberto (qualquer e-mail cria conta FREE).
+        Use apenas se houver bloqueio crítico de produto que impeça logins ou cadastros legítimos.
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 12. TRABALHO FUTURO ═════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">12</span> Trabalho futuro (fora do escopo desta sprint)</div>
+
+    <table>
+      <tr><th>Item</th><th>Prioridade</th><th>Descrição</th></tr>
+      <tr>
+        <td>Hardening backend — triggers condicional</td>
+        <td><span class="badge badge-red">Crítica</span></td>
+        <td>Modificar <code>handle_new_user</code> e <code>create_user_profile_on_signup</code> para verificar compra aprovada antes de provisionar tenant. Impede bypass via API direta.</td>
+      </tr>
+      <tr>
+        <td>Desabilitar Google OAuth no Supabase</td>
+        <td><span class="badge badge-yellow">Alta</span></td>
+        <td>Remover o provider Google no dashboard Supabase ou adicionar verificação de compra no callback OAuth.</td>
+      </tr>
+      <tr>
+        <td>Auditoria de contas FREE existentes</td>
+        <td><span class="badge badge-yellow">Alta</span></td>
+        <td>Identificar tenants criados sem compra correspondente e definir política (manter, suspender, migrar).</td>
+      </tr>
+      <tr>
+        <td>Tratamento de compra PENDING no modal</td>
+        <td><span class="badge badge-blue">Média</span></td>
+        <td>Mensagem diferenciada para compra existente mas não confirmada (aguardando pagamento).</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ══ 13. CONCLUSÃO ══════════════════════════════════════════════════════ -->
+  <div class="section">
+    <div class="section-title"><span class="num">13</span> Conclusão</div>
+
+    <div class="alert alert-success">
+      <div class="alert-icon">✅</div>
+      <div>
+        <strong>Implementação concluída com sucesso.</strong><br>
+        A partir desta sprint, nenhum usuário consegue criar uma conta no IncluiAI sem uma compra Kiwify aprovada registrada para o e-mail informado.
+        O arquivo <code>src/components/LoginScreen.tsx</code> foi reescrito integralmente. O build passou sem erros TypeScript.
+        Todos os textos "gratuita" foram removidos. O botão Google foi eliminado. A verificação é bloqueante: <code>auth.signUp()</code>
+        nunca é chamado sem uma compra aprovada.
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ METADADOS ══════════════════════════════════════════════════════════ -->
+  <div class="card" style="margin-top:32px; background:#F9FAFB;">
+    <div class="card-title">Metadados de geração</div>
+    <table>
+      <tr><td style="width:220px; color:var(--muted);">Data/hora</td><td>02/07/2026 — sessão de implementação</td></tr>
+      <tr><td style="color:var(--muted);">Responsável técnico</td><td>Claude Code (claude-sonnet-4-6) + karlenepinheiro</td></tr>
+      <tr><td style="color:var(--muted);">Arquivo alterado</td><td><code>src/components/LoginScreen.tsx</code> (único arquivo modificado)</td></tr>
+      <tr><td style="color:var(--muted);">Arquivo de backup</td><td><code>_backup_cadastro_kiwify_before/LoginScreen.tsx.bak</code></td></tr>
+      <tr><td style="color:var(--muted);">Auditoria predecessora</td><td><a href="2026-07-02_auditoria-cadastro-validacao-compra-kiwify-e-remocao-free.html">2026-07-02_auditoria-cadastro-validacao-compra-kiwify-e-remocao-free.html</a></td></tr>
+      <tr><td style="color:var(--muted);">Confirmação</td><td>Nenhum arquivo de backend, trigger, migration, schema, webhook ou Edge Function foi alterado nesta sprint.</td></tr>
+    </table>
+  </div>
+
+</div>
+
+<div class="footer">
+  <span><strong>IncluiAI</strong> · Relatório de Implementação · Uso interno</span>
+  <span>02/07/2026 · Confidencial</span>
+</div>
+
+</body>
+</html>

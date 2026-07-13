@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Plano Técnico — Fase 0 Saneamento IncluiAI 2.0</title>
+<style>
+  :root {
+    --petrol:  #1F4E5F;
+    --dark:    #2E3A59;
+    --gold:    #C69214;
+    --bg:      #F6F4EF;
+    --surface: #FFFFFF;
+    --border:  #E7E2D8;
+    --text:    #111827;
+    --muted:   #6B7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; position: relative; overflow: hidden; }
+  .header::before { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0); background-size: 24px 24px; }
+  .header-inner { position: relative; z-index: 1; max-width: 1040px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 26px; font-weight: 800; max-width: 800px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 740px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1040px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 13px; }
+  .toc li { margin-bottom: 6px; break-inside: avoid; }
+  .toc a { color: var(--petrol); text-decoration: none; font-weight: 600; }
+  .toc a:hover { text-decoration: underline; }
+
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block h4 { font-size: 12.5px; color: var(--dark); margin: 14px 0 6px; font-weight: 700; }
+  section.block > p.lead { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: #FCFBF8; }
+  td.num-cell, th.num-cell { text-align: right; white-space: nowrap; }
+  .table-wrap { overflow-x: auto; }
+
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-critico  { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .badge-alto     { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+  .badge-medio    { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+  .badge-baixo    { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-ok       { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-info     { background: #F0F9FF; color: #075985; border: 1px solid #BAE6FD; }
+  .badge-gold     { background: #FEF7E8; color: #92660A; border: 1px solid #F3D999; }
+  .badge-readonly { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-template { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+  .badge-hipotese { background: #F3E8FF; color: #6B21A8; border: 1px solid #E9D5FF; }
+
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color: #C69214; background: #FEF9EE; }
+  .callout.risk { border-color: #B91C1C; background: #FEF2F2; }
+  .callout.decision { border-color: #065F46; background: #ECFDF5; }
+  .callout.hipotese { border-color: #6B21A8; background: #FAF5FF; }
+  .callout strong { color: var(--dark); }
+
+  pre { background: #1E293B; color: #E2E8F0; border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 12px; font-family: Consolas, Monaco, monospace; margin: 8px 0 16px; line-height: 1.55; }
+  pre .cm { color: #94A3B8; }
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+
+  .query-block { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+  .query-head { background: #FAF9F6; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+  .query-head .qtitle { font-weight: 700; font-size: 12.5px; color: var(--dark); }
+  .query-body { padding: 0 16px; }
+  .query-body pre { margin: 12px 0; }
+
+  .decision-line { display: flex; gap: 10px; padding: 6px 0; align-items: baseline; }
+  .decision-line .tag { flex-shrink: 0; font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--petrol); letter-spacing: .3px; min-width: 100px; }
+
+  .checklist { list-style: none; padding-left: 0; }
+  .checklist li { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 13px; align-items: baseline; }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist .box { flex-shrink: 0; width: 18px; height: 18px; border: 2px solid var(--petrol); border-radius: 4px; margin-top: 1px; }
+  .checklist .group-tag { font-size: 10px; color: var(--muted); font-weight: 700; text-transform: uppercase; margin-left: auto; padding-top: 2px; white-space: nowrap; }
+
+  .metadata-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 14px; font-size: 12.5px; }
+  .metadata-grid div strong { display: block; color: var(--dark); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 3px; }
+
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .footer strong { color: #fff; }
+
+  @media (max-width: 640px) {
+    .header { padding: 28px 20px; }
+    section.block { padding: 20px; }
+    .toc ol { columns: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="kicker">Plano Técnico de Execução · Fase 0</div>
+    <h1>Saneamento Técnico Obrigatório — IncluiAI 2.0</h1>
+    <p>Diagnóstico somente leitura para sanear a base atual antes de qualquer lançamento comercial dos planos 2.0. Deriva do documento oficial de 07/07/2026. Este plano não altera código, banco, schema ou dados — apenas define o que investigar, como investigar com segurança e como decidir depois.</p>
+    <div class="cover-badges">
+      <span class="badge badge-info">08/07/2026</span>
+      <span class="badge badge-readonly">Somente leitura — nenhum ALTER/DROP/CREATE/UPDATE/INSERT/DELETE</span>
+      <span class="badge badge-critico">Bloqueante para lançamento do 2.0</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Tipo</strong>Plano técnico de execução (diagnóstico)</div>
+    <div><strong>Base</strong>auditorias/2026-07-07_decisao-oficial-planos-creditos-billing-incluiai-2.0.html</div>
+    <div><strong>Código alterado</strong>Nenhum</div>
+    <div><strong>Banco alterado</strong>Nenhum — só SELECT / information_schema</div>
+    <div><strong>Responsável</strong>Karlene Pinheiro (CEO)</div>
+    <div><strong>Ambiente-alvo</strong>Produção — tratar com cautela máxima, ver Seção 8</div>
+  </div>
+
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#objetivo">Objetivo da Fase 0</a></li>
+      <li><a href="#escopo">Escopo da Fase 0</a></li>
+      <li><a href="#riscos">Riscos que a Fase 0 precisa eliminar</a></li>
+      <li><a href="#inventario">Inventário técnico necessário</a></li>
+      <li><a href="#queries">Queries de diagnóstico permitidas</a></li>
+      <li><a href="#mapa-decisao">Mapa de decisão pós-diagnóstico</a></li>
+      <li><a href="#correcao">Plano de correção posterior (conceitual)</a></li>
+      <li><a href="#ordem">Ordem segura de execução</a></li>
+      <li><a href="#criterios">Critérios de conclusão da Fase 0</a></li>
+      <li><a href="#checklist">Checklist final da Fase 0</a></li>
+      <li><a href="#registro">Registro em auditoria</a></li>
+      <li><a href="#metadados">Metadados de geração</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. OBJETIVO -->
+  <section class="block" id="objetivo">
+    <h2><span class="num">1</span>Objetivo da Fase 0</h2>
+    <p>Antes de qualquer lançamento comercial dos planos 2.0 (Essencial/Profissional/Especialista), a base técnica atual precisa estar saneada nos seguintes pontos, todos já documentados em auditorias anteriores do projeto:</p>
+    <ul>
+      <li>Confirmar, com evidência de banco real (não de arquivo <code>.sql</code>), qual dos dois triggers de criação automática de conta FREE está de fato ativo em produção — ou se ambos estão.</li>
+      <li>Resolver a divergência entre 10 e 60 créditos concedidos no cadastro, identificando qual valor está sendo aplicado hoje.</li>
+      <li>Levantar todas as contas que pagaram (compra <code>APPROVED</code> na Kiwify) mas que hoje aparecem com plano FREE ou sem assinatura ativa — para correção manual caso a caso, não em massa.</li>
+      <li>Confirmar o schema real (tabelas, colunas, triggers, funções) via <code>information_schema</code> e catálogos do PostgreSQL, sem presumir nomes com base em nenhum arquivo <code>.sql</code> do repositório — o projeto tem mais de 30 arquivos de schema/migration incrementais (<code>schema_v3</code> até <code>schema_v31</code>+, <code>fix_billing_v5</code> a <code>v7</code>, etc.), o que por si só é evidência de que qualquer arquivo isolado pode estar desatualizado em relação à produção.</li>
+      <li>Levantar clientes PRO e MASTER atuais para permitir, em fase futura, a classificação formal como Fundador PRO/Fundador MASTER — sem alterar nada neles agora.</li>
+    </ul>
+    <p><strong>O que a Fase 0 não faz:</strong> não corrige nada em produção, não implementa os planos 2.0, não implementa créditos em lote, não implementa pacotes de alunos. Fase 0 entrega diagnóstico + proposta de correção para aprovação da CEO — a execução da correção é uma etapa posterior dentro desta mesma fase, com portão de aprovação explícito (ver Seção 8).</p>
+  </section>
+
+  <!-- 2. ESCOPO -->
+  <section class="block" id="escopo">
+    <h2><span class="num">2</span>Escopo da Fase 0</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:50%">Entra nesta fase</th><th>Não entra nesta fase</th></tr>
+      <tr>
+        <td>
+          <ul style="margin-bottom:0;">
+            <li>Diagnóstico completo do schema via <code>information_schema</code> e catálogos do PostgreSQL</li>
+            <li>Identificação dos triggers/funções que criam contas FREE</li>
+            <li>Levantamento de contas pagas exibidas como FREE</li>
+            <li>Levantamento da divergência de créditos (10 vs 60)</li>
+            <li>Levantamento de clientes PRO/MASTER para futura classificação Fundador</li>
+            <li>Levantamento de vínculos quebrados (órfãos, duplicidades, e-mails divergentes)</li>
+            <li>Proposta conceitual de correção, para aprovação da CEO</li>
+            <li>Execução da correção pontual dos bugs já identificados (após aprovação, em ambiente seguro antes de produção)</li>
+          </ul>
+        </td>
+        <td>
+          <ul style="margin-bottom:0;">
+            <li>Implementação dos planos 2.0 (Essencial/Profissional/Especialista)</li>
+            <li>Implementação de créditos em lote (FIFO por validade)</li>
+            <li>Implementação de pacotes adicionais de alunos</li>
+            <li>Implementação do estado de capacidade excedida</li>
+            <li>Mudanças de UI/UX de checkout ou cadastro além do que já foi implementado em 02/07/2026</li>
+            <li>Alteração de Termos de Uso</li>
+            <li>Qualquer <code>ALTER</code>, <code>DROP</code>, <code>CREATE</code>, <code>UPDATE</code>, <code>INSERT</code> ou <code>DELETE</code> sem aprovação explícita da CEO</li>
+          </ul>
+        </td>
+      </tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 3. RISCOS -->
+  <section class="block" id="riscos">
+    <h2><span class="num">3</span>Riscos que a Fase 0 precisa eliminar</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:26%">Risco</th><th>Por que importa</th></tr>
+      <tr><td>Conta paga como FREE</td><td>Cliente pagando sem acesso ao que comprou — maior risco de reputação e de disputa/chargeback</td></tr>
+      <tr><td>Cadastro indevido sem compra</td><td>Já mitigado no frontend em 02/07/2026, mas o trigger de banco continua sendo a última linha de defesa contra chamadas diretas à API</td></tr>
+      <tr><td>Trigger criando FREE automaticamente</td><td>É a causa raiz identificada na auditoria de 02/07/2026 — origem de praticamente todos os outros riscos desta lista</td></tr>
+      <tr><td>Compra Kiwify não vinculada</td><td>Cliente pagou, mas o sistema não conseguiu ligar a compra à conta — fluxo já parcialmente tratado (fila "compra pendente de conta"), precisa de contagem atual</td></tr>
+      <tr><td>Cliente antigo não preservado</td><td>Base para a promessa de "Fundador" feita no documento oficial de 07/07/2026 — se o levantamento estiver errado, a preservação falha</td></tr>
+      <tr><td>Créditos divergentes</td><td>10 vs 60 créditos é uma inconsistência documentada e não resolvida — pode indicar ambiente local ≠ produção</td></tr>
+      <tr><td>Plano errado aplicado</td><td>Ativação atribuindo PRO a quem comprou MASTER (ou vice-versa) por erro de mapeamento produto→plano</td></tr>
+      <tr><td>Ausência de logs</td><td>Sem rastro de "por que essa conta está assim", toda correção futura vira suposição, não evidência</td></tr>
+      <tr><td>Redução automática indevida de acesso</td><td>Viola a regra permanente definida no documento oficial: nenhuma conta paga pode ser rebaixada automaticamente por falha de trigger ou webhook</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 4. INVENTÁRIO -->
+  <section class="block" id="inventario">
+    <h2><span class="num">4</span>Inventário técnico necessário</h2>
+    <p class="lead">Categorias de informação a levantar antes de propor qualquer correção. Nenhum nome de tabela/coluna abaixo é definitivo — todos serão confirmados pelas queries da Seção 5.</p>
+    <ul>
+      <li>Tabelas de usuários (incluindo <code>auth.users</code>, que é primitiva padrão do Supabase, e qualquer tabela pública de perfil/usuário da aplicação)</li>
+      <li>Tabelas de planos (catálogo de planos comerciais)</li>
+      <li>Tabelas de assinaturas (vínculo entre conta e plano contratado, com status)</li>
+      <li>Tabelas de compras Kiwify (registro bruto de webhook e status financeiro)</li>
+      <li>Tabelas de créditos (saldo, carteira, extrato/ledger)</li>
+      <li>Tabelas de tenants/organizações, se existir essa camada entre usuário e assinatura</li>
+      <li>Triggers ativos em <code>auth.users</code> e em tabelas públicas relacionadas</li>
+      <li>Functions/RPCs relacionadas a cadastro, ativação, compra, Kiwify, plano, crédito, tenant e usuário</li>
+      <li>Configuração de webhooks (Edge Functions relacionadas à Kiwify)</li>
+      <li>Campos de créditos (nome exato da coluna de saldo, se existe tabela de lançamentos/ledger)</li>
+      <li>Campos de limite de alunos (nome exato da coluna, onde vive: no plano, no tenant, ou em ambos)</li>
+      <li>Campos de status de assinatura (valores possíveis: ACTIVE, PENDING, CANCELED, etc.)</li>
+      <li>Relação real entre usuário, tenant, plano e compra (quais chaves estrangeiras existem de fato)</li>
+    </ul>
+  </section>
+
+  <!-- 5. QUERIES -->
+  <section class="block" id="queries">
+    <h2><span class="num">5</span>Queries de diagnóstico permitidas</h2>
+    <p class="lead">Todas as queries abaixo são <strong>somente leitura</strong> (<code>SELECT</code> ou <code>information_schema</code>/catálogos do sistema). Onde é necessário nome de tabela/coluna específico, a query é marcada como <span class="badge badge-template">TEMPLATE</span> — substituir os nomes entre <code>&lt;&gt;</code> pelos valores reais confirmados nas etapas A/B antes de executar.</p>
+
+    <div class="callout hipotese">
+      <strong>Hipóteses documentadas (não confirmadas) — fonte: auditoria de 02/07/2026</strong><br>
+      A auditoria <code>auditorias/2026-07-02_auditoria-cadastro-validacao-compra-kiwify-e-remocao-free.html</code> já identificou, por leitura de código-fonte (não do banco ao vivo), os seguintes nomes prováveis: triggers <code>handle_new_user()</code> e <code>create_user_profile_on_signup()</code> (ambos em <code>on_auth_user_created</code>, <code>AFTER INSERT ON auth.users</code>); tabelas <code>public.users</code>, <code>public.tenants</code>, <code>public.subscriptions</code>, <code>public.credits_wallet</code>, <code>public.credits_ledger</code>, <code>public.kiwify_purchases</code>, <code>public.kiwify_webhook_logs</code>; RPCs <code>check_purchase_by_email</code>, <code>activate_purchase_for_user</code>, <code>reconcile_pending_activations</code>. Essa mesma auditoria já deixou marcado como <strong>"Pendente"</strong> confirmar isso contra o banco real (item 1 do checklist daquele documento) — a Fase 0 existe justamente para fechar esse pendente. <strong>Use estes nomes apenas como ponto de partida para as buscas por palavra-chave abaixo, nunca como certeza.</strong>
+    </div>
+
+    <h3>Etapa A — Descoberta de schemas e tabelas candidatas</h3>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">A.1 — Listar todos os schemas existentes</span><span class="badge badge-readonly">Somente leitura</span></div>
+      <div class="query-body"><pre>SELECT schema_name
+FROM information_schema.schemata
+ORDER BY schema_name;</pre></div>
+    </div>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">A.2 — Tabelas candidatas por palavra-chave (schema public)</span><span class="badge badge-readonly">Somente leitura</span></div>
+      <div class="query-body"><pre>SELECT table_schema, table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND table_type = 'BASE TABLE'
+  AND (
+    table_name ILIKE '%user%'      OR table_name ILIKE '%profile%'  OR
+    table_name ILIKE '%plan%'      OR table_name ILIKE '%subscri%'  OR
+    table_name ILIKE '%credit%'    OR table_name ILIKE '%kiwify%'   OR
+    table_name ILIKE '%tenant%'    OR table_name ILIKE '%billing%'  OR
+    table_name ILIKE '%purchase%'  OR table_name ILIKE '%student%'  OR
+    table_name ILIKE '%payment%'
+  )
+ORDER BY table_name;</pre></div>
+    </div>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">A.3 — auth.users (primitiva padrão do Supabase — confirmar que existe e ver colunas relevantes)</span><span class="badge badge-readonly">Somente leitura</span></div>
+      <div class="query-body"><pre>SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'auth' AND table_name = 'users'
+ORDER BY ordinal_position;</pre></div>
+    </div>
+
+    <h3>Etapa B — Colunas das tabelas candidatas</h3>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">B.1 — Colunas de todas as tabelas encontradas na Etapa A.2</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>-- Colar aqui a lista de tabelas retornada por A.2
+SELECT table_name, column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name IN (&lt;lista_de_tabelas_da_etapa_A.2&gt;)
+ORDER BY table_name, ordinal_position;</pre></div>
+    </div>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">B.2 — Busca de colunas por palavra-chave em TODAS as tabelas (sem depender da lista de tabelas)</span><span class="badge badge-readonly">Somente leitura</span></div>
+      <div class="query-body"><pre>SELECT table_name, column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND (
+    column_name ILIKE '%plan%'      OR column_name ILIKE '%credit%'   OR
+    column_name ILIKE '%student%'   OR column_name ILIKE '%status%'   OR
+    column_name ILIKE '%tenant%'    OR column_name ILIKE '%subscri%'  OR
+    column_name ILIKE '%activated%' OR column_name ILIKE '%email%'
+  )
+ORDER BY table_name, column_name;</pre></div>
+    </div>
+
+    <h3>Etapa C — Triggers existentes</h3>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">C.1 — Triggers em auth.users (foco prioritário — é onde os 2 triggers suspeitos disparam)</span><span class="badge badge-readonly">Somente leitura</span></div>
+      <div class="query-body"><pre>SELECT
+  t.tgname            AS trigger_name,
+  t.tgenabled          AS status_enabled,  -- 'O' = habilitado (origin), 'D' = desabilitado
+  p.proname            AS function_name,
+  pg_get_triggerdef(t.oid) AS definicao_completa
+FROM pg_trigger t
+JOIN pg_class c   ON c.oid = t.tgrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_proc p    ON p.oid = t.tgfoid
+WHERE n.nspname = 'auth' AND c.relname = 'users'
+  AND NOT t.tgisinternal
+ORDER BY t.tgname;</pre></div>
+    </div>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">C.2 — Todos os triggers do schema public (varredura geral)</span><span class="badge badge-readonly">Somente leitura</span></div>
+      <div class="query-body"><pre>SELECT event_object_table AS table_name, trigger_name, action_timing, event_manipulation, action_statement
+FROM information_schema.triggers
+WHERE event_object_schema = 'public'
+ORDER BY event_object_table, trigger_name;</pre></div>
+    </div>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">C.3 — Definição completa das funções por trás dos triggers suspeitos (hipótese: handle_new_user / create_user_profile_on_signup)</span><span class="badge badge-hipotese">Nomes hipotéticos</span></div>
+      <div class="query-body"><pre>-- Confirmar antes se estes nomes existem de fato via C.4 (busca por palavra-chave)
+SELECT proname, pg_get_functiondef(oid) AS definicao
+FROM pg_proc
+WHERE proname IN ('handle_new_user', 'create_user_profile_on_signup');</pre></div>
+    </div>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">C.4 — Busca de funções por palavra-chave (caso os nomes hipotéticos não existam ou tenham sido renomeados)</span><span class="badge badge-readonly">Somente leitura</span></div>
+      <div class="query-body"><pre>SELECT n.nspname AS schema_name, p.proname AS function_name
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname IN ('public','auth')
+  AND (
+    p.proname ILIKE '%new_user%' OR p.proname ILIKE '%signup%'   OR
+    p.proname ILIKE '%free%'     OR p.proname ILIKE '%plan%'     OR
+    p.proname ILIKE '%tenant%'   OR p.proname ILIKE '%profile%'
+  )
+ORDER BY schema_name, function_name;</pre></div>
+    </div>
+
+    <h3>Etapa D — Funções/RPCs de negócio</h3>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">D.1 — Todas as functions/RPCs do schema public com assinatura</span><span class="badge badge-readonly">Somente leitura</span></div>
+      <div class="query-body"><pre>SELECT p.proname AS function_name,
+       pg_get_function_arguments(p.oid) AS argumentos,
+       pg_get_function_result(p.oid)    AS retorno
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+ORDER BY p.proname;</pre></div>
+    </div>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">D.2 — Filtro por relevância (cadastro, ativação, compra, Kiwify, plano, crédito, tenant, usuário)</span><span class="badge badge-readonly">Somente leitura</span></div>
+      <div class="query-body"><pre>SELECT p.proname AS function_name
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND (
+    p.proname ILIKE '%activat%' OR p.proname ILIKE '%purchase%' OR
+    p.proname ILIKE '%kiwify%'  OR p.proname ILIKE '%plan%'     OR
+    p.proname ILIKE '%credit%'  OR p.proname ILIKE '%tenant%'   OR
+    p.proname ILIKE '%signup%'  OR p.proname ILIKE '%reconcile%'
+  )
+ORDER BY p.proname;</pre></div>
+    </div>
+
+    <h3>Etapa E — Plano FREE (localização)</h3>
+    <div class="callout warn">Substituir <code>&lt;TABELA_PLANOS&gt;</code>, <code>&lt;TABELA_USUARIOS&gt;</code>, <code>&lt;TABELA_ASSINATURAS&gt;</code>, <code>&lt;TABELA_TENANTS&gt;</code> e as colunas correspondentes pelos nomes reais confirmados nas Etapas A e B.</div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">E.1 — Registro do plano FREE no catálogo de planos</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT * FROM &lt;TABELA_PLANOS&gt;
+WHERE &lt;coluna_nome_ou_codigo&gt; ILIKE '%free%';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">E.2 — Usuários/tenants com plano FREE (contagem e amostra)</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT COUNT(*) AS total_free
+FROM &lt;TABELA_USUARIOS_OU_TENANTS&gt;
+WHERE &lt;coluna_plano&gt; = 'FREE';
+
+SELECT * FROM &lt;TABELA_USUARIOS_OU_TENANTS&gt;
+WHERE &lt;coluna_plano&gt; = 'FREE'
+ORDER BY created_at DESC
+LIMIT 50;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">E.3 — Assinaturas com plano FREE</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT status, COUNT(*)
+FROM &lt;TABELA_ASSINATURAS&gt;
+WHERE &lt;coluna_plano_ou_plan_id&gt; = 'FREE'
+GROUP BY status;</pre></div>
+    </div>
+
+    <h3>Etapa F — Contas pagas aparecendo como FREE</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">F.1 — Compra APPROVED na Kiwify vinculada a conta hoje marcada como FREE (ou sem plano)</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT
+  kp.email, kp.plan_code, kp.status, kp.paid_at, kp.activated_at,
+  u.id AS user_id, u.&lt;coluna_plano&gt; AS plano_atual
+FROM &lt;TABELA_KIWIFY_PURCHASES&gt; kp
+LEFT JOIN &lt;TABELA_USUARIOS&gt; u
+  ON lower(trim(u.email)) = lower(trim(kp.email))
+WHERE kp.status = 'APPROVED'
+  AND (u.&lt;coluna_plano&gt; = 'FREE' OR u.&lt;coluna_plano&gt; IS NULL)
+ORDER BY kp.paid_at DESC;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">F.2 — Compras aprovadas sem assinatura ativa correspondente</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT kp.*
+FROM &lt;TABELA_KIWIFY_PURCHASES&gt; kp
+LEFT JOIN &lt;TABELA_ASSINATURAS&gt; s
+  ON s.tenant_id = kp.tenant_id AND s.status = 'ACTIVE'
+WHERE kp.status = 'APPROVED'
+  AND s.id IS NULL;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">F.3 — Assinatura ativa com plano divergente do produto efetivamente comprado</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT s.tenant_id, s.&lt;coluna_plan_id&gt;, kp.plan_code, kp.product_key
+FROM &lt;TABELA_ASSINATURAS&gt; s
+JOIN &lt;TABELA_KIWIFY_PURCHASES&gt; kp ON kp.tenant_id = s.tenant_id
+WHERE s.status = 'ACTIVE'
+  AND kp.status = 'APPROVED'
+  AND kp.plan_code IS NOT NULL
+  AND kp.plan_code &lt;&gt; s.&lt;coluna_plan_id&gt;::text;</pre></div>
+    </div>
+
+    <h3>Etapa G — Créditos (10 vs 60 e demais divergências)</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">G.1 — Distribuição de saldos de crédito (visão geral)</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT &lt;coluna_saldo&gt;, COUNT(*)
+FROM &lt;TABELA_CREDITOS&gt;
+GROUP BY &lt;coluna_saldo&gt;
+ORDER BY COUNT(*) DESC;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">G.2 — Registros exatamente com 10 ou 60 créditos</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT * FROM &lt;TABELA_CREDITOS&gt;
+WHERE &lt;coluna_saldo&gt; IN (10, 60);</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">G.3 — Qual valor está sendo concedido AGORA (contas criadas nos últimos 30 dias)</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT c.&lt;coluna_saldo&gt;, COUNT(*)
+FROM &lt;TABELA_CREDITOS&gt; c
+JOIN &lt;TABELA_TENANTS_OU_USUARIOS&gt; t ON t.id = c.tenant_id
+WHERE t.created_at > now() - interval '30 days'
+GROUP BY c.&lt;coluna_saldo&gt;
+ORDER BY COUNT(*) DESC;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">G.4 — Divergência entre plano contratado e créditos atribuídos</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT u.&lt;coluna_plano&gt;, c.&lt;coluna_saldo&gt;, COUNT(*)
+FROM &lt;TABELA_USUARIOS_OU_TENANTS&gt; u
+JOIN &lt;TABELA_CREDITOS&gt; c ON c.tenant_id = u.id
+GROUP BY u.&lt;coluna_plano&gt;, c.&lt;coluna_saldo&gt;
+ORDER BY u.&lt;coluna_plano&gt;, c.&lt;coluna_saldo&gt;;</pre></div>
+    </div>
+
+    <h3>Etapa H — Clientes antigos (PRO / MASTER)</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">H.1 — Contas PRO com 30 alunos e 500 créditos (candidatas a Fundador PRO)</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT *
+FROM &lt;TABELA_TENANTS_OU_USUARIOS&gt;
+WHERE &lt;coluna_plano&gt; = 'PRO';
+-- cruzar com &lt;TABELA_CREDITOS&gt; e coluna de limite de alunos para confirmar 30/500</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">H.2 — Contas MASTER com limite 9.999 e 700 créditos (candidatas a Fundador MASTER)</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT *
+FROM &lt;TABELA_TENANTS_OU_USUARIOS&gt;
+WHERE &lt;coluna_plano&gt; = 'MASTER';
+-- cruzar com &lt;TABELA_CREDITOS&gt; e coluna de limite de alunos para confirmar 9999/700</pre></div>
+    </div>
+
+    <h3>Etapa I — Vínculos quebrados</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.1 — Usuários/tenants sem assinatura</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT u.*
+FROM &lt;TABELA_USUARIOS_OU_TENANTS&gt; u
+LEFT JOIN &lt;TABELA_ASSINATURAS&gt; s ON s.tenant_id = u.id
+WHERE s.id IS NULL;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.2 — Assinatura sem tenant/usuário correspondente</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT s.*
+FROM &lt;TABELA_ASSINATURAS&gt; s
+LEFT JOIN &lt;TABELA_TENANTS_OU_USUARIOS&gt; t ON t.id = s.tenant_id
+WHERE t.id IS NULL;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.3 — Compra Kiwify aprovada sem usuário vinculado (fila "compra pendente de conta")</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT *
+FROM &lt;TABELA_KIWIFY_PURCHASES&gt;
+WHERE tenant_id IS NULL AND status = 'APPROVED';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.4 — Conta com mais de uma assinatura ativa simultânea</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT tenant_id, COUNT(*)
+FROM &lt;TABELA_ASSINATURAS&gt;
+WHERE status = 'ACTIVE'
+GROUP BY tenant_id
+HAVING COUNT(*) > 1;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.5 — E-mail da compra diferente do e-mail da conta vinculada</span><span class="badge badge-template">Template</span></div>
+      <div class="query-body"><pre>SELECT kp.email AS email_compra, u.email AS email_conta, kp.tenant_id
+FROM &lt;TABELA_KIWIFY_PURCHASES&gt; kp
+JOIN &lt;TABELA_USUARIOS&gt; u ON u.tenant_id = kp.tenant_id
+WHERE lower(trim(kp.email)) &lt;&gt; lower(trim(u.email));</pre></div>
+    </div>
+
+    <div class="callout risk">
+      <strong>Importante:</strong> nenhuma query desta seção deve ser executada com nomes de tabela/coluna presumidos. Sempre rodar as Etapas A, B, C e D primeiro; só então preencher os <code>&lt;placeholders&gt;</code> das Etapas E a I com os nomes confirmados. Se um nome hipotético (Etapa E/F/G/H/I, baseados na auditoria de 02/07) não existir mais, buscar o equivalente atual usando o padrão de descoberta das Etapas A.2 e B.2.
+    </div>
+  </section>
+
+  <!-- 6. MAPA DE DECISÃO -->
+  <section class="block" id="mapa-decisao">
+    <h2><span class="num">6</span>Mapa de decisão pós-diagnóstico</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:30%">Resultado do diagnóstico</th><th>Como interpretar / classificar</th></tr>
+      <tr><td>Conta FREE sem nenhuma compra Kiwify associada, criada normalmente</td><td><strong>Manter como está</strong> — é uma conta FREE legítima do modelo antigo; tratar conforme a Seção 5 do documento oficial (preservada até decisão comercial explícita)</td></tr>
+      <tr><td>Compra <code>APPROVED</code> vinculada a conta com plano divergente ou FREE</td><td><strong>Corrigir</strong> — aplicar o plano correto manualmente, registrando a origem da correção; é o caso central que a Fase 0 existe para resolver</td></tr>
+      <tr><td>Compra com <code>product_key = 'UNKNOWN'</code> ou sem mapeamento claro para um plano</td><td><strong>Revisão manual</strong> — não presumir qual plano aplicar; requer decisão humana sobre o produto Kiwify em questão</td></tr>
+      <tr><td>Conta com plano <code>PRO</code>, 30 alunos e 500 créditos, assinatura ativa e paga</td><td><strong>Classificar como candidata a Fundador PRO</strong> — sem alterar nada nela na Fase 0; apenas documentar para a Fase 1/4</td></tr>
+      <tr><td>Conta com plano <code>MASTER</code>, limite 9.999 e 700 créditos, assinatura ativa e paga</td><td><strong>Classificar como candidata a Fundador MASTER</strong> — mesma lógica acima</td></tr>
+      <tr><td>Conta sem nenhuma assinatura e sem nenhuma compra Kiwify</td><td><strong>Tratar como "conta sem assinatura"</strong> (estado de conta oficial "aguardando compra" definido no documento de 07/07/2026) — não é bug, é o estado esperado</td></tr>
+      <tr><td>Compra <code>APPROVED</code> sem <code>tenant_id</code> vinculado</td><td><strong>Tratar como "compra pendente de conta"</strong> — fluxo já existente (ver <code>reconcile_pending_activations</code>); confirmar que continua funcionando</td></tr>
+      <tr><td>E-mail da compra diferente do e-mail da conta encontrada por outro critério</td><td><strong>Tratar como "erro de vinculação"</strong> — nunca vincular automaticamente por suposição; cai em revisão manual</td></tr>
+      <tr><td>Dois triggers simultaneamente habilitados em <code>auth.users</code> com valores de crédito diferentes</td><td><strong>Revisão manual + correção planejada</strong> — decidir qual desativar/substituir antes de qualquer novo cadastro ser afetado</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 7. CORREÇÃO CONCEITUAL -->
+  <section class="block" id="correcao">
+    <h2><span class="num">7</span>Plano de correção posterior (conceitual)</h2>
+    <p class="lead">Nenhum destes itens é executado dentro do diagnóstico. São as correções prováveis, a serem detalhadas e aprovadas somente depois que os resultados reais das queries da Seção 5 estiverem em mãos.</p>
+    <ul>
+      <li><strong>Desativar/substituir os triggers que criam FREE automaticamente</strong> — manter apenas um caminho de criação de conta, condicionado à existência de compra aprovada (ou sem plano nenhum, ficando em "aguardando compra"), preservando idempotência para não quebrar login de contas existentes.</li>
+      <li><strong>Corrigir usuários pagos marcados como FREE</strong> — aplicar o plano correto individualmente, com registro do motivo e da origem da correção (nunca em lote automático sem revisão).</li>
+      <li><strong>Classificar Fundadores</strong> — marcar formalmente as contas PRO/MASTER elegíveis, preparando o terreno para a Fase 4 (migração assistida) sem alterar preço ou limite algum agora.</li>
+      <li><strong>Mapear produtos Kiwify para planos</strong> — garantir que todo <code>product_key</code> vendido tenha um destino claro, eliminando ocorrências de <code>UNKNOWN</code>.</li>
+      <li><strong>Padronizar créditos</strong> — decidir entre 10 e 60 (ou outro valor) como valor único de concessão inicial, eliminando a divergência documentada.</li>
+      <li><strong>Criar logs de ativação</strong> — garantir que toda atribuição/correção de plano fique registrada com origem, responsável e timestamp (pré-requisito para a arquitetura de lotes de crédito da Fase 3).</li>
+      <li><strong>Preparar os estados de conta</strong> definidos no documento oficial (aguardando compra, compra localizada, em recuperação, etc.) como próximo passo natural após o saneamento, sem implementá-los ainda na Fase 0.</li>
+      <li><strong>Preparar terreno conceitual para créditos em lote</strong> — não implementar agora, apenas garantir que o levantamento de créditos atuais (Etapa G) sirva de baseline para a migração futura.</li>
+    </ul>
+  </section>
+
+  <!-- 8. ORDEM SEGURA -->
+  <section class="block" id="ordem">
+    <h2><span class="num">8</span>Ordem segura de execução</h2>
+    <ol class="plain">
+      <li><strong>Diagnóstico somente leitura</strong> — rodar as Etapas A a D da Seção 5 (descoberta de schema, triggers e funções) em produção, sem risco, pois são consultas de catálogo.</li>
+      <li><strong>Exportação/backup dos dados críticos</strong> — antes de rodar as Etapas E a I (que tocam dados de negócio), garantir um snapshot/backup recente das tabelas envolvidas (usuários, assinaturas, compras, créditos), independente de qualquer correção futura.</li>
+      <li><strong>Análise manual dos resultados</strong> — CEO e/ou responsável técnico revisam as listas geradas (contas pagas como FREE, divergência de créditos, triggers ativos) antes de qualquer proposta de correção.</li>
+      <li><strong>Proposta de correção</strong> — documentar, caso a caso ou por padrão claro, o que será corrigido e como (sem SQL de alteração ainda nesta etapa — apenas descrição).</li>
+      <li><strong>Aprovação da CEO</strong> — nenhuma correção segue sem aprovação explícita, registrada.</li>
+      <li><strong>Execução primeiro em ambiente seguro</strong> — aplicar a correção em ambiente de homologação/staging (ou, na ausência de um, em uma cópia isolada), nunca direto em produção.</li>
+      <li><strong>Testes</strong> — validar que a correção resolve o problema sem quebrar cadastro, login ou ativação de contas existentes.</li>
+      <li><strong>Produção</strong> — aplicar a correção validada, em horário de baixo tráfego quando possível, com plano de rollback definido antes de começar.</li>
+      <li><strong>Nova auditoria documentada</strong> — gerar um novo relatório HTML em <code>auditorias/</code> confirmando o que foi corrigido, com evidência de antes/depois — fecha o ciclo da Fase 0.</li>
+    </ol>
+  </section>
+
+  <!-- 9. CRITÉRIOS DE CONCLUSÃO -->
+  <section class="block" id="criterios">
+    <h2><span class="num">9</span>Critérios de conclusão da Fase 0</h2>
+    <p class="lead">A Fase 1 (regras de produto e billing) só deve começar quando todos os itens abaixo forem verdadeiros:</p>
+    <ul>
+      <li>O schema real (tabelas, colunas, triggers, funções relevantes) está documentado com base em <code>information_schema</code>/catálogos, não em suposição de arquivo <code>.sql</code>.</li>
+      <li>Está confirmado qual trigger (ou triggers) de criação de conta está ativo em produção, e com qual valor de crédito.</li>
+      <li>Existe apenas <strong>um</strong> caminho de criação automática de conta FREE — ou nenhum, se a decisão for eliminá-lo — sem duplicidade de triggers concorrentes.</li>
+      <li>Todas as contas pagas identificadas como FREE foram corrigidas individualmente, com registro da correção.</li>
+      <li>A divergência de créditos (10 vs 60) foi resolvida e documentada.</li>
+      <li>Os clientes PRO e MASTER elegíveis a Fundador estão levantados e documentados (sem alteração de preço/limite ainda).</li>
+      <li>Os vínculos quebrados identificados (órfãos, duplicidades, e-mails divergentes) foram tratados ou encaminhados para revisão manual individual.</li>
+      <li>Uma nova auditoria documentada em <code>auditorias/</code> confirma o estado saneado, com evidência.</li>
+    </ul>
+  </section>
+
+  <!-- 10. CHECKLIST -->
+  <section class="block" id="checklist">
+    <h2><span class="num">10</span>Checklist final da Fase 0</h2>
+    <ul class="checklist">
+      <li><span class="box"></span>Rodar Etapa A (schemas e tabelas candidatas) <span class="group-tag">Diagnóstico</span></li>
+      <li><span class="box"></span>Rodar Etapa B (colunas das tabelas candidatas) <span class="group-tag">Diagnóstico</span></li>
+      <li><span class="box"></span>Rodar Etapa C (triggers em auth.users e schema public) <span class="group-tag">Diagnóstico</span></li>
+      <li><span class="box"></span>Rodar Etapa D (functions/RPCs relevantes) <span class="group-tag">Diagnóstico</span></li>
+      <li><span class="box"></span>Confirmar nomes reais e preencher os templates das Etapas E-I <span class="group-tag">Diagnóstico</span></li>
+      <li><span class="box"></span>Rodar Etapas E-I com nomes confirmados <span class="group-tag">Diagnóstico</span></li>
+      <li><span class="box"></span>Classificar cada resultado usando o Mapa de Decisão (Seção 6) <span class="group-tag">Decisão</span></li>
+      <li><span class="box"></span>Levantar lista final de contas pagas como FREE, com evidência <span class="group-tag">Decisão</span></li>
+      <li><span class="box"></span>Levantar lista final de candidatos a Fundador PRO/MASTER <span class="group-tag">Decisão</span></li>
+      <li><span class="box"></span>Decidir valor único de crédito inicial (10 ou 60) <span class="group-tag">Decisão</span></li>
+      <li><span class="box"></span>Redigir proposta de correção conceitual detalhada (Seção 7) <span class="group-tag">Correção</span></li>
+      <li><span class="box"></span>Obter aprovação explícita da CEO para cada correção <span class="group-tag">Correção</span></li>
+      <li><span class="box"></span>Aplicar correções em ambiente seguro (staging/cópia isolada) <span class="group-tag">Correção</span></li>
+      <li><span class="box"></span>Testar cadastro, login e ativação após a correção <span class="group-tag">Validação</span></li>
+      <li><span class="box"></span>Validar que nenhuma conta existente perdeu acesso indevidamente <span class="group-tag">Validação</span></li>
+      <li><span class="box"></span>Aplicar correção validada em produção, com plano de rollback <span class="group-tag">Liberação</span></li>
+      <li><span class="box"></span>Gerar auditoria de fechamento da Fase 0 em <code>auditorias/</code> <span class="group-tag">Liberação</span></li>
+      <li><span class="box"></span>Confirmar todos os critérios da Seção 9 antes de iniciar a Fase 1 <span class="group-tag">Liberação</span></li>
+    </ul>
+  </section>
+
+  <!-- 11. REGISTRO EM AUDITORIA -->
+  <section class="block" id="registro">
+    <h2><span class="num">11</span>Registro em auditoria</h2>
+    <p>Este plano técnico está registrado como o 6º item do índice de auditorias do projeto:</p>
+    <ul>
+      <li><code>auditorias/index.html</code> — entrada adicionada no topo (mais recente primeiro)</li>
+      <li><code>auditorias/README.md</code> — linha adicionada na tabela "Índice Atual"</li>
+      <li>Nome do arquivo: <code>2026-07-08_plano-tecnico-fase-0-saneamento-incluiai-2.0.html</code> (data de criação real do documento)</li>
+    </ul>
+  </section>
+
+  <!-- 12. METADADOS -->
+  <section class="block" id="metadados">
+    <h2><span class="num">12</span>Metadados de geração</h2>
+    <div class="metadata-grid">
+      <div><strong>Data/hora</strong>08/07/2026</div>
+      <div><strong>Responsável</strong>Karlene Pinheiro (CEO) + assistente Claude Code</div>
+      <div><strong>Documentos base</strong>Decisão oficial de 07/07/2026 · Auditoria de cadastro/Kiwify/FREE de 02/07/2026</div>
+      <div><strong>Arquivos de código alterados</strong>Nenhum</div>
+      <div><strong>Comandos executados no banco</strong>Nenhum — apenas queries propostas, não executadas nesta sessão</div>
+      <div><strong>Dados pessoais incluídos</strong>Nenhum</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Plano Técnico de Execução · Uso interno<br>
+  Gerado em 08/07/2026 — nenhum arquivo funcional ou dado do sistema foi alterado durante esta análise
+</div>
+
+</body>
+</html>

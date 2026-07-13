@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Índice de Auditorias — IncluiAI</title>
+  <style>
+    :root {
+      --petrol:  #1F4E5F;
+      --dark:    #2E3A59;
+      --gold:    #C69214;
+      --bg:      #F6F4EF;
+      --surface: #FFFFFF;
+      --border:  #E7E2D8;
+      --text:    #111827;
+      --muted:   #6B7280;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; }
+
+    .header {
+      background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%);
+      color: #fff;
+      padding: 40px 48px;
+      position: relative;
+      overflow: hidden;
+    }
+    .header::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0);
+      background-size: 24px 24px;
+    }
+    .header-inner { position: relative; z-index: 1; }
+    .header h1 { font-size: 24px; font-weight: 800; }
+    .header p { opacity: .75; margin-top: 6px; font-size: 13px; }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+
+    .info-bar {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 20px;
+      margin-bottom: 28px;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .info-bar strong { color: var(--text); }
+
+    .audit-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 26px;
+      margin-bottom: 16px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 16px;
+      align-items: start;
+      transition: box-shadow .15s ease;
+    }
+    .audit-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.08); }
+
+    .audit-date {
+      background: var(--petrol);
+      color: #fff;
+      border-radius: 8px;
+      padding: 10px 14px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.4;
+      min-width: 72px;
+    }
+    .audit-date .day { font-size: 22px; font-weight: 800; display: block; }
+
+    .audit-body { flex: 1; }
+    .audit-title { font-size: 15px; font-weight: 700; color: var(--dark); margin-bottom: 4px; }
+    .audit-meta { font-size: 12px; color: var(--muted); }
+    .audit-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+    .audit-action a {
+      display: inline-block;
+      background: var(--petrol);
+      color: #fff;
+      text-decoration: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      transition: background .15s;
+    }
+    .audit-action a:hover { background: var(--dark); }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+    }
+    .badge-critico  { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+    .badge-alto     { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+    .badge-medio    { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+    .badge-ok       { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+    .badge-concluida{ background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+    .badge-pendente { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+
+    .empty { text-align: center; padding: 48px 24px; color: var(--muted); font-size: 13px; }
+
+    .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 20px 48px; font-size: 12px; text-align: center; }
+    .footer strong { color: #fff; }
+
+    @media (max-width: 600px) {
+      .audit-card { grid-template-columns: 1fr; }
+      .audit-date { width: fit-content; }
+      .header { padding: 28px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <h1>Índice de Auditorias — IncluiAI</h1>
+    <p>Registro centralizado de todas as auditorias técnicas, funcionais e comerciais realizadas no projeto.</p>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <span><strong>Total de auditorias:</strong> 9</span>
+    <span><strong>Última atualização:</strong> 08/07/2026</span>
+    <span><strong>Convenção de nomes:</strong> <code>AAAA-MM-DD_motivo-da-auditoria.html</code></span>
+    <span><a href="README.md" style="color:var(--petrol); font-weight:600;">Ver README e regras →</a></span>
+  </div>
+
+  <!-- ── BLOQUEIO EMERGENCIAL FRONTEND (mais recente) ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">08</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Bloqueio Emergencial — Novas Contas FREE (Frontend)</div>
+      <div class="audit-meta">
+        Auditoria emergencial de todos os pontos de entrada de auth.signUp()/signInWithOAuth no frontend.
+        Confirmado: LoginScreen e ActivationView já bloqueiam criação de conta sem compra APPROVED
+        (implementação de 02/07/2026, reverificada linha a linha); Google OAuth não tem guarda mas está
+        inacessível na UI (gap documentado, fora de escopo); textos "Grátis"/"Começar grátis" existem em
+        PricingSection.tsx mas já filtrados do render. Build de produção passou. Trigger de banco
+        create_user_profile_on_signup NÃO foi alterado — pendência formal da Fase 0.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">Build: ✅ Passou</span>
+        <span class="badge badge-concluida">Status: Barreira de frontend confirmada</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Cadastro</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Kiwify Gate</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Emergencial</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">Trigger DB pendente</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-08_bloqueio-emergencial-novas-contas-free-frontend.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── ACHADO tenants.plan_id ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">08</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Achado — tenants.plan_id não atualizado na ativação Kiwify</div>
+      <div class="audit-meta">
+        Investigação somente-leitura do achado da CEO (9 clientes PRO/MASTER com tenants.plan_id em FREE):
+        leitura de código-fonte confirma que activate_purchase_for_user e reconcile_pending_activations
+        (v7, 18/06/2026) nunca atualizam tenants.plan_id, ao contrário da função admin changePlan (que
+        atualiza subscriptions+tenants+profiles+credits_wallet). Impacto real no app avaliado como baixo
+        (resolução de plano prioriza subscription); painel CEO tem caminho de fallback que lê tenants.plan_id
+        sem fallback. Queries de confirmação ao vivo preparadas + proposta conceitual de correção, sem SQL.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-alto">Inconsistência confirmada por código</span>
+        <span class="badge badge-concluida">Status: Investigação concluída, correção pendente aprovação</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Fase 0</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Kiwify</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">tenants.plan_id</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Somente Leitura</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-08_achado-tenants-plan-id-nao-atualizado-ativacao-incluiai-2.0.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── ACHADOS FASE 0 A-D ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">08</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Achados — Fase 0 Diagnóstico Etapas A-D IncluiAI 2.0</div>
+      <div class="audit-meta">
+        Resultado real do diagnóstico somente-leitura rodado pela CEO: apenas 1 trigger ativo confirmado em
+        auth.users (create_user_profile_on_signup, 60 créditos); handle_new_user tratada como resíduo técnico;
+        27 tabelas e 11 funções/RPCs confirmadas, incluindo camada de operações atômicas de crédito não
+        documentada antes; divergências vs. hipóteses de 02/07; gaps restantes; Etapas E-I preparadas com
+        nomes reais confirmados, ainda somente leitura.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-critico">1 trigger ativo confirmado</span>
+        <span class="badge badge-concluida">Status: Diagnóstico A-D concluído</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Fase 0</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Schema Real</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Créditos</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Somente Leitura</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-08_achados-diagnostico-fase-0-etapas-a-d-incluiai-2.0.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── PLANO TÉCNICO FASE 0 ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">08</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Plano Técnico — Fase 0 Saneamento IncluiAI 2.0</div>
+      <div class="audit-meta">
+        Plano de execução somente-leitura para sanear a base técnica antes do lançamento comercial do 2.0:
+        queries information_schema/catálogo para descobrir schema real, localizar os 2 triggers que criam FREE,
+        resolver divergência de créditos (10 vs 60), levantar contas pagas como FREE e candidatos a Fundador
+        PRO/MASTER. Mapa de decisão, plano de correção conceitual, ordem segura de execução e checklist por fase.
+        Nenhum comando de escrita foi executado.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-critico">Bloqueante p/ lançamento 2.0</span>
+        <span class="badge badge-concluida">Status: Plano pronto p/ execução</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Fase 0</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Triggers FREE</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Diagnóstico</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Somente Leitura</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-08_plano-tecnico-fase-0-saneamento-incluiai-2.0.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── DECISÃO OFICIAL ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">07</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Decisão Oficial — Planos, Créditos e Billing IncluiAI 2.0</div>
+      <div class="audit-meta">
+        Especificação oficial consolidando a análise estratégica em decisões objetivas: planos Essencial/Profissional/
+        Especialista/Institucional, pacotes de alunos e créditos, regras de Fundador PRO/MASTER, retirada do FREE,
+        matriz de status de conta, regras de Kiwify/ativação, créditos em lotes, regras de aluno ativo/triagem/
+        arquivamento, roadmap de 6 fases e checklist de aprovação por responsável.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-concluida">Status: Documento base oficial</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Planos</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Créditos</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Billing</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Kiwify</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Decisão Oficial</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-07_decisao-oficial-planos-creditos-billing-incluiai-2.0.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── ESTRATÉGIA COMERCIAL ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">07</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Estratégia — Planos, Créditos e Roadmap IncluiAI 2.0</div>
+      <div class="audit-meta">
+        Análise estratégica da proposta de novos planos (Essencial/Profissional/Especialista/Institucional),
+        pacotes adicionais de alunos, créditos em lotes com validade de 60 dias, regras de clientes Fundador
+        (PRO/MASTER legado), estados de conta, matriz de permissões e roadmap de 5 fases. Documento comercial —
+        nenhum código ou schema foi alterado.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-critico">Prioridade: Alta</span>
+        <span class="badge badge-concluida">Status: Proposta p/ validação da CEO</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Planos</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Créditos</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Billing</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Roadmap</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-07_estrategia-planos-creditos-e-roadmap-incluiai-2.0.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── ROTEIRO 1 ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">02</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Roteiro de Teste — Cadastro com Compra Aprovada Kiwify</div>
+      <div class="audit-meta">
+        Identificação do ambiente (PRODUÇÃO); ajustes visuais em <code>LoginScreen.tsx</code>
+        (popup 2 botões, link WhatsApp na tela de login); PRE_SCHEMA_CHECK; queries de localização
+        de compra; fixture sintética preparada para local/homologação; roteiro positivo e negativo;
+        queries de verificação completas; procedimento de limpeza.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-pendente">Status: Aguardando execução</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Cadastro</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Kiwify Gate</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Teste Positivo</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Teste Negativo</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">PRODUÇÃO</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-02_teste-cadastro-com-compra-aprovada-kiwify.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── IMPLEMENTAÇÃO 1 ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">02</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Implementação — Validação de Compra antes do Cadastro</div>
+      <div class="audit-meta">
+        Reescrita de <code>LoginScreen.tsx</code>: verificação bloqueante via RPC <code>check_purchase_by_email</code>
+        antes de qualquer chamada a <code>auth.signUp()</code>; modal de compra não localizada com 3 ações;
+        remoção do botão Google; remoção de textos "gratuita/gratuito"; build validado sem erros TypeScript.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">Build: ✅ Passou</span>
+        <span class="badge badge-concluida">Status: Concluída</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Cadastro</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Kiwify Gate</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">FREE Removido</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">LoginScreen</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-02_implementacao-validacao-compra-antes-do-cadastro.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── AUDITORIA 1 ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">02</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Auditoria do Cadastro, Validação de Compra Kiwify e Remoção do Plano FREE</div>
+      <div class="audit-meta">
+        Diagnóstico completo do fluxo atual de cadastro, criação automática de tenant, concessão do plano FREE,
+        ativação de compras Kiwify, validação por e-mail, dependências do frontend e backend, riscos e plano de correção.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-critico">Severidade: Crítica</span>
+        <span class="badge badge-concluida">Status: Concluída</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Cadastro</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Kiwify</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Triggers</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Plano FREE</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Segurança</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-02_auditoria-cadastro-validacao-compra-kiwify-e-remocao-free.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- Espaço para futuras auditorias -->
+  <!--
+  <div class="audit-card">
+    ...próxima auditoria...
+  </div>
+  -->
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Índice de Auditorias Técnicas · Uso interno<br>
+  Atualizado em: 08/07/2026 (9 auditorias)
+</div>
+
+</body>
+</html>

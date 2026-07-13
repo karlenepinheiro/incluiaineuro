@@ -106,16 +106,32 @@ export async function getActiveSubscription(tenantId: string): Promise<ActiveSub
  * Verifica se o usuário tem acesso aos recursos do sistema.
  *
  * Regras:
- * - ACTIVE      → acesso total
+ * - ACTIVE      → acesso total (desde que current_period_end não esteja no passado)
  * - TRIAL       → acesso total (período de avaliação)
  * - COURTESY    → acesso total (cortesia manual)
  * - INTERNAL_TEST → acesso total (conta interna)
  * - PENDING     → acesso com aviso ("período de carência" — pagamento em processamento)
  * - OVERDUE     → login permitido, recursos premium bloqueados
  * - CANCELED    → login permitido, recursos premium bloqueados
+ *
+ * @param currentPeriodEnd - ISO string do fim do período vigente. Se passado e no passado,
+ *   trata ACTIVE como vencido (subscription_ended) para evitar acesso indevido.
  */
-export function checkSubscriptionAccess(status: SubscriptionStatus, paymentLink?: string | null): SubscriptionAccessResult {
+export function checkSubscriptionAccess(
+  status: SubscriptionStatus,
+  paymentLink?: string | null,
+  currentPeriodEnd?: string | null,
+): SubscriptionAccessResult {
   const link = paymentLink ?? null;
+
+  // Status ACTIVE com período vencido → trata como encerrado
+  if (
+    status === 'ACTIVE' &&
+    currentPeriodEnd &&
+    new Date(currentPeriodEnd) < new Date()
+  ) {
+    return { allowed: false, status: 'CANCELED', reason: 'subscription_ended', paymentLink: link };
+  }
 
   switch (status) {
     case 'ACTIVE':

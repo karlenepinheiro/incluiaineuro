@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Achado — tenants.plan_id não atualizado na ativação Kiwify</title>
+<style>
+  :root { --petrol:#1F4E5F; --dark:#2E3A59; --gold:#C69214; --bg:#F6F4EF; --surface:#FFFFFF; --border:#E7E2D8; --text:#111827; --muted:#6B7280; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; position: relative; overflow: hidden; }
+  .header::before { content:''; position:absolute; inset:0; background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0); background-size: 24px 24px; }
+  .header-inner { position: relative; z-index: 1; max-width: 1040px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 25px; font-weight: 800; max-width: 800px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 740px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1040px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 13px; }
+  .toc li { margin-bottom: 6px; break-inside: avoid; }
+  .toc a { color: var(--petrol); text-decoration: none; font-weight: 600; }
+  .toc a:hover { text-decoration: underline; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block > p.lead { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: #FCFBF8; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-critico { background:#FEE2E2; color:#991B1B; border:1px solid #FECACA; }
+  .badge-alto { background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; }
+  .badge-medio { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; }
+  .badge-ok { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .badge-confirmado { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .badge-pendente { background:#FFF7ED; color:#9A3412; border:1px solid #FED7AA; }
+  .badge-hipotese { background:#F3E8FF; color:#6B21A8; border:1px solid #E9D5FF; }
+  .badge-readonly { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color:#C69214; background:#FEF9EE; }
+  .callout.risk { border-color:#B91C1C; background:#FEF2F2; }
+  .callout.ok { border-color:#065F46; background:#ECFDF5; }
+  .callout.hipotese { border-color:#6B21A8; background:#FAF5FF; }
+  .callout strong { color: var(--dark); }
+  pre { background:#1E293B; color:#E2E8F0; border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12px; font-family:Consolas,Monaco,monospace; margin:8px 0 16px; line-height:1.55; }
+  code { background:#F1EFE9; border:1px solid var(--border); border-radius:4px; padding:1px 6px; font-size:12px; font-family:Consolas,monospace; }
+  pre code { background:none; border:none; padding:0; color:inherit; }
+  .query-block { border:1px solid var(--border); border-radius:10px; margin-bottom:16px; overflow:hidden; }
+  .query-head { background:#FAF9F6; padding:10px 16px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; border-bottom:1px solid var(--border); }
+  .query-head .qtitle { font-weight:700; font-size:12.5px; color:var(--dark); }
+  .query-body { padding:0 16px; }
+  .query-body pre { margin:12px 0; }
+  .metadata-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; font-size:12.5px; }
+  .metadata-grid div strong { display:block; color:var(--dark); font-size:11px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:3px; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .footer strong { color: #fff; }
+  @media (max-width: 640px) { .header { padding: 28px 20px; } section.block { padding: 20px; } .toc ol { columns: 1; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="kicker">Fase 0 · Achado de Diagnóstico</div>
+    <h1>tenants.plan_id não é atualizado na ativação de compra Kiwify</h1>
+    <p>Investigação somente-leitura do achado da CEO: 9 clientes com compra APPROVED, profile/subscription/créditos corretos (PRO/MASTER), mas tenants.plan_id ainda em FREE. Nenhuma correção foi executada — apenas leitura de código-fonte e preparação de queries para confirmar contra o banco ao vivo.</p>
+    <div class="cover-badges">
+      <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">08/07/2026</span>
+      <span class="badge badge-readonly">Somente leitura — nenhuma correção executada</span>
+      <span class="badge badge-hipotese">Achado fundamentado em código-fonte — pendente de confirmação ao vivo</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Tipo</strong>Investigação de função (Fase 0)</div>
+    <div><strong>Gatilho</strong>Achado da CEO: 9 clientes com tenants.plan_id divergente</div>
+    <div><strong>Comandos executados no banco</strong>Nenhum — só leitura de arquivos-fonte nesta etapa</div>
+    <div><strong>Correção aplicada</strong>Nenhuma</div>
+    <div><strong>Responsável</strong>Karlene Pinheiro (CEO)</div>
+    <div><strong>Próximo passo</strong>Rodar as queries da Seção 4 para confirmar contra o banco ao vivo</div>
+  </div>
+
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#escopo">Escopo</a></li>
+      <li><a href="#resumo">Resumo executivo</a></li>
+      <li><a href="#metodo">Método — o que foi inspecionado</a></li>
+      <li><a href="#queries">Queries somente leitura para confirmação ao vivo</a></li>
+      <li><a href="#analise">Análise — o que a função faz e o que não faz</a></li>
+      <li><a href="#padrao">Comparação com o padrão já usado no admin (changePlan)</a></li>
+      <li><a href="#impacto">Avaliação de impacto real no usuário</a></li>
+      <li><a href="#gap">Novo gap encontrado — profiles pode ter tenant_id</a></li>
+      <li><a href="#proposta">Proposta conceitual de correção (não executar ainda)</a></li>
+      <li><a href="#riscos">Riscos</a></li>
+      <li><a href="#metadados">Metadados de geração</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. ESCOPO -->
+  <section class="block" id="escopo">
+    <h2><span class="num">1</span>Escopo</h2>
+    <p><strong>O que foi feito:</strong> leitura direta dos arquivos-fonte do repositório que definem <code>activate_purchase_for_user</code>, <code>reconcile_pending_activations</code> e da função administrativa <code>changePlan</code> (frontend), para levantar hipótese sobre por que <code>tenants.plan_id</code> ficou desatualizado nos 9 casos encontrados pela CEO. Também foram preparadas queries somente leitura para confirmar essas definições contra o banco ao vivo.</p>
+    <p><strong>O que NÃO foi feito:</strong> nenhuma query foi executada no Supabase nesta etapa (isso cabe à CEO rodar). Nenhuma correção foi proposta como SQL. Nenhum dado foi alterado.</p>
+    <div class="callout hipotese">
+      <strong>Natureza da evidência:</strong> a análise abaixo é baseada no arquivo de migration mais recente encontrado no repositório para essas funções (<code>supabase/migrations/20260618000001_fix_subscription_period_anchoring.sql</code>, v7). Isso é uma <strong>hipótese fundamentada em código-fonte</strong>, não uma confirmação contra o banco ao vivo — o próprio histórico deste projeto já mostrou casos de arquivo local divergente de produção. A Seção 4 fornece as queries para fechar essa confirmação.
+    </div>
+  </section>
+
+  <!-- 2. RESUMO -->
+  <section class="block" id="resumo">
+    <h2><span class="num">2</span>Resumo executivo</h2>
+    <ol class="plain">
+      <li><strong>Confirmado por leitura de código: nem <code>activate_purchase_for_user</code> nem <code>reconcile_pending_activations</code> (versão v7/v2, 18/06/2026) atualizam <code>tenants.plan_id</code>.</strong> Ambas atualizam <code>subscriptions.plan_id</code>, <code>profiles.plan</code>, <code>credits_wallet</code>, <code>credits_ledger</code> e <code>kiwify_purchases.activated_at</code> — mas nunca tocam a tabela <code>tenants</code>. Isso bate exatamente com o padrão que a CEO encontrou nos 9 clientes.</li>
+      <li><strong>Existe uma função administrativa (<code>billingService.ts → changePlan</code>) que já atualiza as 4 tabelas corretamente</strong>, inclusive com comentário explícito no código: <em>"Altera o plano de uma assinatura (admin) — atualiza subscriptions + tenants + profiles + credits_wallet"</em>. Isso mostra que o padrão correto já é conhecido e implementado em um caminho manual — só não foi replicado no caminho automático da Kiwify.</li>
+      <li><strong>O impacto real no app do cliente parece ser baixo</strong>, porque as duas funções que resolvem o plano efetivo do usuário no frontend (<code>databaseService.ts</code> e <code>subscriptionService.ts</code>) usam <code>subscription.plan_id</code> como fonte primária, com <code>tenant.plan_id</code> apenas como <em>fallback</em> — e nos 9 casos a subscription já está correta. Ou seja, é provável que esses 9 clientes já estejam usando o app com o plano certo.</li>
+      <li><strong>Mas o Dashboard da CEO tem um caminho que lê <code>tenant.plan_id</code> diretamente, sem fallback</strong> (<code>ceoService.ts</code>, laço de fallback para tenants que não aparecem na view <code>v_ceo_subscribers</code>) — esse é o caminho mais provável pelo qual a CEO viu esses 9 clientes como FREE no painel administrativo.</li>
+      <li><strong>Ainda não confirmado contra o banco ao vivo</strong> — a Seção 4 traz as queries para validar isso antes de qualquer correção ser proposta como definitiva.</li>
+    </ol>
+  </section>
+
+  <!-- 3. MÉTODO -->
+  <section class="block" id="metodo">
+    <h2><span class="num">3</span>Método — o que foi inspecionado</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:40%">Arquivo</th><th>O que foi encontrado</th></tr>
+      <tr><td><code>supabase/migrations/20260618000001_fix_subscription_period_anchoring.sql</code></td><td>Versão mais recente conhecida (v7) de <code>activate_purchase_for_user</code> e <code>reconcile_pending_activations</code> — corpo completo lido linha a linha</td></tr>
+      <tr><td><code>src/services/databaseService.ts</code></td><td>Resolução de plano efetivo via <code>subRow?.plan_id ?? tenantRow?.plan_id</code> (linhas ~440 e ~1505) — subscription tem prioridade sobre tenant</td></tr>
+      <tr><td><code>src/services/subscriptionService.ts</code></td><td><code>getActiveSubscription()</code> resolve plano via <code>subscriptions.plan_id → plans.name</code>, nunca lê <code>tenants.plan_id</code></td></tr>
+      <tr><td><code>src/services/billingService.ts</code></td><td>Função admin <code>changePlan()</code> atualiza <code>subscriptions</code> + <code>tenants</code> + <code>profiles</code> + <code>credits_wallet</code> — padrão de referência</td></tr>
+      <tr><td><code>src/services/ceoService.ts</code></td><td>Loop principal do dashboard usa <code>plan_code</code> vindo da view <code>v_ceo_subscribers</code>; loop de fallback (para tenants fora da view) lê <code>tenant.plan_id</code> diretamente, sem qualquer fallback para subscription</td></tr>
+      <tr><td><code>supabase/diagnostics/20260616_audit_missing_pro_subscribers_in_ceo_dashboard.sql</code></td><td>Diagnóstico anterior (16/06/2026) já usava o padrão <code>COALESCE(s.plan_id, t.plan_id)</code> para resolver plano nas views do CEO — confirma que esse padrão de fallback já era conhecido pela equipe antes deste achado</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 4. QUERIES -->
+  <section class="block" id="queries">
+    <h2><span class="num">4</span>Queries somente leitura para confirmação ao vivo</h2>
+    <p class="lead">Todas as queries abaixo são <code>SELECT</code>/catálogo apenas. Nenhuma altera dados.</p>
+
+    <h3>4.1 — Definições completas das 3 funções pedidas</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Definição completa de activate_purchase_for_user</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT pg_get_functiondef(oid) AS definicao
+FROM pg_proc
+WHERE proname = 'activate_purchase_for_user';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Definição completa de check_purchase_by_email</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT pg_get_functiondef(oid) AS definicao
+FROM pg_proc
+WHERE proname = 'check_purchase_by_email';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Definição completa de reconcile_pending_activations</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT pg_get_functiondef(oid) AS definicao
+FROM pg_proc
+WHERE proname = 'reconcile_pending_activations';</pre></div>
+    </div>
+
+    <h3>4.2 — Busca de qualquer função que mencione as tabelas/colunas relevantes</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Funções que mencionam tenants + plan_id</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT p.proname, pg_get_functiondef(p.oid) AS definicao
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND pg_get_functiondef(p.oid) ILIKE '%tenants%'
+  AND pg_get_functiondef(p.oid) ILIKE '%plan_id%';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Funções que mencionam profiles.plan</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT p.proname, pg_get_functiondef(p.oid) AS definicao
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND pg_get_functiondef(p.oid) ILIKE '%profiles%'
+  AND pg_get_functiondef(p.oid) ILIKE '%plan%';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Funções que mencionam subscriptions.plan_id</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT p.proname, pg_get_functiondef(p.oid) AS definicao
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND pg_get_functiondef(p.oid) ILIKE '%subscriptions%'
+  AND pg_get_functiondef(p.oid) ILIKE '%plan_id%';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Funções que mencionam kiwify_purchases</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT p.proname, pg_get_functiondef(p.oid) AS definicao
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND pg_get_functiondef(p.oid) ILIKE '%kiwify_purchases%';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Funções que mencionam credits_wallet</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT p.proname, pg_get_functiondef(p.oid) AS definicao
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND pg_get_functiondef(p.oid) ILIKE '%credits_wallet%';</pre></div>
+    </div>
+
+    <h3>4.3 — Confirmar o alcance real do problema (quantos tenants, não só os 9 já achados)</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Tenants com subscription PRO/MASTER ativa mas plan_id de tenant divergente</span><span class="badge badge-readonly">Pronta — usa apenas colunas já confirmadas na Fase 0</span></div>
+      <div class="query-body"><pre>SELECT
+  t.id AS tenant_id,
+  t.plan_id AS tenant_plan_id,
+  s.plan_id AS subscription_plan_id,
+  s.status AS subscription_status
+FROM public.tenants t
+JOIN public.subscriptions s ON s.tenant_id = t.id
+WHERE s.status = 'ACTIVE'
+  AND s.plan_id IS NOT NULL
+  AND t.plan_id IS DISTINCT FROM s.plan_id;</pre></div>
+    </div>
+    <div class="callout warn">
+      Esta última query estima quantos tenants estão no mesmo estado dos 9 já encontrados — importante para saber se é um problema pontual ou sistemático antes de propor qualquer correção em lote.
+    </div>
+  </section>
+
+  <!-- 5. ANÁLISE -->
+  <section class="block" id="analise">
+    <h2><span class="num">5</span>Análise — o que a função faz e o que não faz</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:34%">Pergunta da CEO</th><th>Resposta (baseada em código-fonte, v7 — 18/06/2026)</th></tr>
+      <tr><td>Atualiza <code>tenants.plan_id</code>?</td><td><span class="badge badge-critico">Não</span> — nenhuma referência a <code>UPDATE tenants</code> em nenhuma das duas funções</td></tr>
+      <tr><td>Atualiza <code>profiles.plan</code>?</td><td><span class="badge badge-confirmado">Sim</span> — <code>UPDATE profiles SET plan = v_plan_lookup WHERE id = v_user_id</code> (activate_purchase_for_user) / <code>WHERE id = v_user_id</code> (reconcile)</td></tr>
+      <tr><td>Atualiza <code>subscriptions.plan_id</code>?</td><td><span class="badge badge-confirmado">Sim</span> — via <code>UPDATE subscriptions SET plan_id = v_plan_id, status='ACTIVE', ...</code> (ou <code>INSERT</code> se não existir linha)</td></tr>
+      <tr><td>Concede créditos?</td><td><span class="badge badge-confirmado">Sim</span> — grava em <code>credits_wallet</code> (reset de saldo para plano) e em <code>credits_ledger</code> (tipo <code>monthly_grant</code>)</td></tr>
+      <tr><td>Marca <code>kiwify_purchases</code> como ativada?</td><td><span class="badge badge-confirmado">Sim</span> — <code>UPDATE kiwify_purchases SET activated_at = now(), tenant_id = v_tenant_id</code></td></tr>
+      <tr><td>Há risco de inconsistência entre tenant/profile/subscription?</td><td><span class="badge badge-alto">Sim, confirmado</span> — é exatamente o padrão que gera os 9 casos encontrados: <code>tenants.plan_id</code> nunca é tocado por este caminho de ativação</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 6. COMPARAÇÃO -->
+  <section class="block" id="padrao">
+    <h2><span class="num">6</span>Comparação com o padrão já usado no admin (changePlan)</h2>
+    <p>A função <code>changePlan(tenantId, newPlanCode)</code> em <code>src/services/billingService.ts</code> — usada quando a CEO/admin troca o plano de um cliente manualmente pelo painel — já atualiza as 4 tabelas relevantes, com o próprio comentário do código declarando essa intenção:</p>
+    <pre>/** Altera o plano de uma assinatura (admin) — atualiza subscriptions + tenants + profiles + credits_wallet */
+async changePlan(tenantId: string, newPlanCode: string): Promise&lt;void&gt; {
+  ...
+  // 1. subscriptions.plan_id
+  await supabase.from('subscriptions').update({ plan_id: planRow.id, status: 'ACTIVE' }).eq('tenant_id', tenantId);
+
+  // 2. tenants.plan_id
+  await supabase.from('tenants').update({ plan_id: planRow.id }).eq('id', tenantId);
+
+  // 3. profiles.plan — garante que o usuário veja o plano correto imediatamente após reload
+  await supabase.from('profiles').update({ plan: planCode }).eq('tenant_id', tenantId);
+
+  // 4. credits_wallet — reseta balance para o limite do novo plano
+  ...
+}</pre>
+    <div class="callout ok">
+      <strong>Conclusão desta seção:</strong> o padrão "atualizar as 4 tabelas juntas" já é conhecido e implementado no caminho manual. O caminho automático da Kiwify (<code>activate_purchase_for_user</code>/<code>reconcile_pending_activations</code>) ficou incompleto em relação a esse mesmo padrão — muito provavelmente um esquecimento ao evoluir a função em versões anteriores (v6→v7), não uma decisão deliberada.
+    </div>
+  </section>
+
+  <!-- 7. IMPACTO -->
+  <section class="block" id="impacto">
+    <h2><span class="num">7</span>Avaliação de impacto real no usuário</h2>
+    <ul>
+      <li><strong>App do cliente (o que o professor/AEE usa no dia a dia):</strong> resolve o plano via <code>subscriptionService.getActiveSubscription()</code> e via <code>databaseService.ts</code>, ambos usando <code>subscription.plan_id</code> como fonte primária. Como nos 9 casos a <code>subscription</code> está correta, <strong>é provável que esses clientes já estejam vendo e usando o plano certo no app</strong> — a inconsistência parece estar "silenciosa" do ponto de vista do cliente final.</li>
+      <li><strong>Painel da CEO:</strong> tem dois caminhos. O caminho principal usa a view <code>v_ceo_subscribers</code> (que, conforme o diagnóstico de 16/06/2026, já resolve plano com <code>COALESCE(subscription.plan_id, tenant.plan_id)</code> — também prioriza subscription). Mas existe um caminho de <strong>fallback</strong> em <code>ceoService.ts</code>, usado apenas para tenants que não aparecem na view principal, que lê <code>tenant.plan_id</code> diretamente, <strong>sem nenhum fallback para subscription</strong>. Se os 9 tenants caírem nesse segundo caminho (por não aparecerem em <code>v_ceo_subscribers</code> por qualquer motivo), o painel mostraria FREE para eles — o que bate com o que a CEO observou.</li>
+      <li><strong>Ainda não confirmado:</strong> se os 9 tenants realmente caem no caminho de fallback do <code>ceoService.ts</code>, ou se há algum outro ponto do sistema (Edge Function, RLS, relatório) que leia <code>tenants.plan_id</code> diretamente sem fallback. As queries da Seção 4.2 (busca por funções que mencionam <code>tenants</code>+<code>plan_id</code>) ajudam a fechar isso no lado do banco; no frontend, os arquivos já mapeados na Seção 3 cobrem os principais candidatos.</li>
+    </ul>
+  </section>
+
+  <!-- 8. GAP -->
+  <section class="block" id="gap">
+    <h2><span class="num">8</span>Novo gap encontrado — profiles pode ter tenant_id</h2>
+    <p>A função <code>changePlan()</code> executa <code>supabase.from('profiles').update({ plan: planCode }).eq('tenant_id', tenantId)</code> — isso é evidência de código-fonte de que a tabela <code>profiles</code> possui uma coluna <code>tenant_id</code>, o que contradiz a suposição anterior (relatório de achados A-D, 08/07/2026) de que o único vínculo entre <code>profiles</code> e <code>tenants</code> seria indireto, via e-mail passando por <code>users</code>.</p>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Confirmar se profiles tem coluna tenant_id</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'profiles'
+ORDER BY ordinal_position;</pre></div>
+    </div>
+  </section>
+
+  <!-- 9. PROPOSTA CONCEITUAL -->
+  <section class="block" id="proposta">
+    <h2><span class="num">9</span>Proposta conceitual de correção (não executar ainda)</h2>
+    <div class="callout risk">
+      <strong>Esta seção é só uma proposta para aprovação futura da CEO — nenhum SQL de alteração foi gerado, e nada deve ser executado a partir daqui sem passar pelas etapas 5-9 da ordem obrigatória em <code>REGRAS_SEGURANCA_INCLUIAI_2_0.md</code> (aprovação → backup/rollback → execução segura → produção → registro).</strong>
+    </div>
+    <h3>Correção estrutural (a função em si)</h3>
+    <ul>
+      <li>Estender <code>activate_purchase_for_user</code> e <code>reconcile_pending_activations</code> para também atualizar <code>tenants.plan_id</code> no mesmo bloco em que <code>subscriptions.plan_id</code> é atualizado — replicando exatamente o padrão já usado em <code>billingService.changePlan()</code>.</li>
+      <li>Deve ser a mesma transação (mesma função <code>plpgsql</code>), não uma chamada separada — para evitar reintroduzir o mesmo tipo de inconsistência parcial.</li>
+    </ul>
+    <h3>Correção de dados (backfill dos 9 casos já encontrados, e quaisquer outros que a query 4.3 revelar)</h3>
+    <ul>
+      <li>Corrigir <code>tenants.plan_id</code> individualmente para cada tenant afetado, usando o <code>subscriptions.plan_id</code> ativo como fonte de verdade (não em lote automático sem revisão, conforme regra de segurança).</li>
+      <li>Registrar a origem da correção (ex: coluna/log de auditoria, se existir, ou ao menos um registro manual em <code>auditorias/</code>) para cada tenant corrigido.</li>
+    </ul>
+    <h3>O que esta proposta NÃO inclui</h3>
+    <ul>
+      <li>Nenhum <code>UPDATE</code>/<code>ALTER</code> real nesta etapa.</li>
+      <li>Nenhuma decisão sobre remover o uso de <code>tenants.plan_id</code> em vez de corrigi-lo — essa é uma alternativa possível (já que o app não parece depender dele diretamente) a ser discutida com a CEO: <strong>corrigir o dado</strong> vs. <strong>parar de manter esse dado</strong> se ele for redundante. Ambas as opções devem ser avaliadas antes de decidir.</li>
+    </ul>
+  </section>
+
+  <!-- 10. RISCOS -->
+  <section class="block" id="riscos">
+    <h2><span class="num">10</span>Riscos</h2>
+    <ul>
+      <li><strong>Risco atual, moderado:</strong> qualquer código futuro (ou já existente e não mapeado) que leia <code>tenants.plan_id</code> como fonte única, sem fallback, herda esse bug silenciosamente para qualquer um dos tenants afetados.</li>
+      <li><strong>Risco caso a subscription seja removida/recriada:</strong> se a linha de <code>subscriptions</code> de um desses tenants for apagada ou o <code>plan_id</code> zerado por qualquer motivo futuro, o fallback <code>subscription.plan_id ?? tenant.plan_id</code> passaria a devolver o valor stale de <code>tenants.plan_id</code> (FREE) — nesse momento o bug se tornaria visível para o cliente final.</li>
+      <li><strong>Risco de escopo desconhecido:</strong> os "9 clientes" são os que a CEO já encontrou manualmente — a query 4.3 é necessária para saber se são exatamente 9 ou se há mais casos não descobertos ainda.</li>
+    </ul>
+  </section>
+
+  <!-- 11. METADADOS -->
+  <section class="block" id="metadados">
+    <h2><span class="num">11</span>Metadados de geração</h2>
+    <div class="metadata-grid">
+      <div><strong>Data/hora</strong>08/07/2026</div>
+      <div><strong>Responsável</strong>Karlene Pinheiro (CEO) + assistente Claude Code</div>
+      <div><strong>Achado original</strong>9 tenants com plan_id divergente, reportado pela CEO</div>
+      <div><strong>Arquivos lidos (código-fonte)</strong>20260618000001_fix_subscription_period_anchoring.sql, databaseService.ts, subscriptionService.ts, billingService.ts, ceoService.ts, 20260616_audit_missing_pro_subscribers_in_ceo_dashboard.sql</div>
+      <div><strong>Comandos executados no banco</strong>Nenhum</div>
+      <div><strong>Correção aplicada</strong>Nenhuma — só proposta conceitual, pendente de aprovação</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Investigação de Função · Fase 0 · Uso interno<br>
+  Gerado em 08/07/2026 — nenhum dado ou arquivo funcional foi alterado durante esta análise
+</div>
+
+</body>
+</html>

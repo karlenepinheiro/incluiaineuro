@@ -20,6 +20,7 @@ import * as mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 import { callAIGateway } from './aiGatewayService';
 import { databaseService } from './databaseService';
+import { AI_CREDIT_COSTS } from '../config/aiCosts';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -100,8 +101,19 @@ export interface DocxSaveResult {
 
 export type ImportFileType = 'docx' | 'pdf-text' | 'pdf-image' | 'image';
 
-export const CREDITS_DOC_TEXT = 3;   // Importar PDF texto
-export const CREDITS_VISUAL   = 5;   // Importar PDF visual / imagem
+// Reexporta para o modal exibir na UI — fonte única em aiCosts.ts
+export const CREDITS_DOC_TEXT = AI_CREDIT_COSTS.IMPORTAR_DOCUMENTO_TEXTO;
+export const CREDITS_VISUAL   = AI_CREDIT_COSTS.IMPORTAR_DOCUMENTO_VISUAL;
+
+/**
+ * Resultado de chamada IA de importação com reserva diferida.
+ * O frontend deve confirmar (commit) após salvar no banco ou liberar (release) em caso de falha/cancelamento.
+ */
+export interface DocxAiResult {
+  drafts: StudentDocumentDraft[];
+  reservationId: string | null;
+  creditsConsumed: number;
+}
 
 // ─── Extração de texto ───────────────────────────────────────────────────────
 
@@ -124,7 +136,7 @@ export async function extractTextFromDocx(file: File): Promise<string> {
 
 export async function mapDocumentTextToStudentPayload(
   text: string
-): Promise<StudentDocumentDraft[]> {
+): Promise<DocxAiResult> {
   const prompt = `Você é um assistente especializado em educação inclusiva brasileira. Analise o texto abaixo — pode ser uma ficha, anamnese ou relatório pedagógico — e extraia os dados de aluno(s) em JSON estruturado.
 
 REGRAS ABSOLUTAS — INTEGRIDADE DOS DADOS:
@@ -171,9 +183,10 @@ ${text.substring(0, 8000)}`;
     prompt,
     creditsRequired: CREDITS_DOC_TEXT,
     requestType: 'document_import',
+    deferCommit: true,
   });
   const aiMs = Math.round(performance.now() - t1);
-  console.info('[DocImport] Resposta IA em', aiMs, 'ms');
+  console.info('[DocImport] Resposta IA em', aiMs, 'ms — reservationId:', response.reservationId ?? 'none');
 
   let parsed: any;
   try {
@@ -203,7 +216,11 @@ ${text.substring(0, 8000)}`;
     '| Confiança média:', (normalized.reduce((s: number, d: StudentDocumentDraft) => s + (d.confidence ?? 0.5), 0) / normalized.length).toFixed(2),
   );
 
-  return normalized;
+  return {
+    drafts: normalized,
+    reservationId: response.reservationId ?? null,
+    creditsConsumed: CREDITS_DOC_TEXT,
+  };
 }
 
 // ─── Normalização ────────────────────────────────────────────────────────────
@@ -304,6 +321,15 @@ export function validateImportedStudentDraft(draft: StudentDocumentDraft): DocxV
 
 // ─── Persistência ────────────────────────────────────────────────────────────
 
+// Mapeia tipo de arquivo UI para o valor aceito pela constraint students_import_source_check
+// Constraint aceita: 'manual' | 'csv' | 'ai_converter'
+function toDbImportSource(source: string): 'manual' | 'csv' | 'ai_converter' {
+  if (source === 'csv') return 'csv';
+  if (source === 'manual') return 'manual';
+  // 'docx', 'pdf-text', 'pdf-image', 'image' → todos são conversão via IA
+  return 'ai_converter';
+}
+
 export async function saveStudentsFromDocx(
   editables: EditableDraft[],
   tenantId: string,
@@ -313,6 +339,7 @@ export async function saveStudentsFromDocx(
   const splitArr = (s: string): string[] =>
     s.split('\n').map((x: string) => x.trim()).filter(Boolean);
 
+  const dbSource = toDbImportSource(importSource);
   let saved = 0;
   const errors: string[] = [];
 
@@ -345,7 +372,7 @@ export async function saveStudentsFromDocx(
         schoolHistory:       e.schoolHistory || undefined,
         familyContext:       e.familyContext || undefined,
         observations:        e.observations || undefined,
-        import_source:       importSource,
+        import_source:       dbSource,
         registration_status: isComplete ? 'complete' : 'incomplete',
         is_pre_registered:   !isComplete,
         is_active:           true,
@@ -423,7 +450,7 @@ async function fileToBase64(file: File): Promise<string> {
 
 export async function mapVisualDocumentToStudentPayload(
   file: File,
-): Promise<StudentDocumentDraft[]> {
+): Promise<DocxAiResult> {
   const t0 = performance.now();
   const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
@@ -458,6 +485,7 @@ RETORNE SOMENTE JSON VÁLIDO (sem markdown, sem comentários, sem texto extra):
     imageBase64,
     creditsRequired: CREDITS_VISUAL,
     requestType:     'document_import_visual',
+    deferCommit:     true,
   });
 
   const ms = Math.round(performance.now() - t0);
@@ -503,5 +531,11 @@ RETORNE SOMENTE JSON VÁLIDO (sem markdown, sem comentários, sem texto extra):
     );
   }
 
-  return normalized;
+  console.info('[DocImport] Visual — reservationId:', response.reservationId ?? 'none');
+
+  return {
+    drafts: normalized,
+    reservationId: response.reservationId ?? null,
+    creditsConsumed: CREDITS_VISUAL,
+  };
 }

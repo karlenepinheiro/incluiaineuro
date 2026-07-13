@@ -48,6 +48,12 @@ interface GatewayPayload {
   documentType?: string;
   buildContextServer?: boolean;
   targetDocType?: string;
+  /**
+   * Quando true: reserva créditos mas NÃO commita após a IA.
+   * Retorna reservationId para o frontend confirmar/liberar após salvar no banco.
+   * A reserva expira em 30 minutos automaticamente.
+   */
+  deferCommit?: boolean;
 }
 
 Deno.serve(async (req: Request) => {
@@ -110,6 +116,7 @@ Deno.serve(async (req: Request) => {
     documentType,
     buildContextServer = false,
     targetDocType = '',
+    deferCommit = false,
   } = body;
 
   if (!task || !['text', 'json', 'image', 'document'].includes(task)) {
@@ -187,11 +194,16 @@ Deno.serve(async (req: Request) => {
         description: `IA: ${requestType ?? task}`,
         requestType,
         task,
+        // Quando deferCommit, a reserva expira em 30 min caso o frontend não confirme/libere
+        expiresAt: deferCommit
+          ? new Date(Date.now() + 30 * 60 * 1000).toISOString()
+          : null,
         metadata: {
           audit_id: auditId,
           student_id: studentId ?? null,
           document_type: documentType ?? null,
           target_doc_type: targetDocType || null,
+          defer_commit: deferCommit,
         },
       });
       reservationId = reservation.reservationId;
@@ -281,47 +293,52 @@ Deno.serve(async (req: Request) => {
   let creditsRemaining: number | undefined = undefined;
 
   if (cost > 0 && reservationId) {
-    try {
-      creditsRemaining = await commitReservedCredits(adminDb, {
-        operationId: `${baseOperationId}:commit`,
-        reservationId,
-        tenantId,
-        userId,
-        description: `IA: ${requestType ?? task}`,
-        metadata: {
-          audit_id: auditId,
-          latency_ms: latencyMs,
-          task,
-        },
-      });
-    } catch (e: unknown) {
-      console.error('[ai-gateway] commitReservedCredits failed:', (e as Error)?.message);
-
+    if (deferCommit) {
+      // Não commita agora — o frontend vai confirmar/liberar após salvar no banco
+      console.info('[ai-gateway] deferCommit=true — reserva mantida:', reservationId);
+    } else {
       try {
-        await releaseReservedCredits(adminDb, {
-          operationId: `${baseOperationId}:release_after_commit_failure`,
+        creditsRemaining = await commitReservedCredits(adminDb, {
+          operationId: `${baseOperationId}:commit`,
           reservationId,
           tenantId,
           userId,
-          description: `Rollback reserva: ${requestType ?? task}`,
+          description: `IA: ${requestType ?? task}`,
           metadata: {
-            failure_kind: 'commit_failed',
             audit_id: auditId,
+            latency_ms: latencyMs,
+            task,
           },
         });
-      } catch (releaseErr) {
-        console.error('[ai-gateway] release after commit failure also failed:', releaseErr);
-      }
+      } catch (e: unknown) {
+        console.error('[ai-gateway] commitReservedCredits failed:', (e as Error)?.message);
 
-      if (auditId) {
-        await completeAuditRecord(adminDb, auditId, {
-          status: 'failed',
-          latencyMs,
-          content: 'commit_failed',
-        });
-      }
+        try {
+          await releaseReservedCredits(adminDb, {
+            operationId: `${baseOperationId}:release_after_commit_failure`,
+            reservationId,
+            tenantId,
+            userId,
+            description: `Rollback reserva: ${requestType ?? task}`,
+            metadata: {
+              failure_kind: 'commit_failed',
+              audit_id: auditId,
+            },
+          });
+        } catch (releaseErr) {
+          console.error('[ai-gateway] release after commit failure also failed:', releaseErr);
+        }
 
-      return jsonError('Falha ao concluir a transacao de creditos.', 500);
+        if (auditId) {
+          await completeAuditRecord(adminDb, auditId, {
+            status: 'failed',
+            latencyMs,
+            content: 'commit_failed',
+          });
+        }
+
+        return jsonError('Falha ao concluir a transacao de creditos.', 500);
+      }
     }
   }
 
@@ -371,6 +388,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (creditsRemaining !== undefined) response.creditsRemaining = creditsRemaining;
+  if (deferCommit && reservationId) response.reservationId = reservationId;
   if (auditId) response.auditId = auditId;
 
   return jsonOk(response);

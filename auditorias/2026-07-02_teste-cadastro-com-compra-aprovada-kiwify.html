@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Roteiro de Teste — Cadastro com Compra Aprovada Kiwify · IncluiAI · 2026-07-02</title>
+  <style>
+    :root {
+      --petrol:  #1F4E5F;
+      --dark:    #2E3A59;
+      --gold:    #C69214;
+      --bg:      #F6F4EF;
+      --surface: #FFFFFF;
+      --border:  #E7E2D8;
+      --text:    #111827;
+      --muted:   #6B7280;
+      --red:     #DC2626;
+      --amber:   #D97706;
+      --green:   #059669;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+
+    .header {
+      background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%);
+      color: #fff;
+      padding: 40px 48px 32px;
+      position: relative; overflow: hidden;
+    }
+    .header::before {
+      content: '';
+      position: absolute; inset: 0;
+      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.05) 1px, transparent 0);
+      background-size: 24px 24px;
+    }
+    .header-inner { position: relative; z-index: 1; }
+    .header h1 { font-size: 22px; font-weight: 800; }
+    .header .sub { opacity: .75; margin-top: 6px; font-size: 13px; }
+    .header .meta { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 14px; font-size: 12px; opacity: .8; }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 80px; }
+
+    .env-badge {
+      display: inline-block;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+    }
+    .env-prod { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+    .env-local { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+
+    .alert {
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      font-size: 13px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .alert-red    { background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; }
+    .alert-amber  { background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; }
+    .alert-green  { background: #ECFDF5; border: 1px solid #6EE7B7; color: #065F46; }
+    .alert-blue   { background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E40AF; }
+    .alert-icon   { font-size: 18px; line-height: 1; flex-shrink: 0; }
+
+    section { margin-bottom: 40px; }
+    h2 {
+      font-size: 16px; font-weight: 800; color: var(--dark);
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 18px;
+    }
+    h3 { font-size: 14px; font-weight: 700; color: var(--petrol); margin: 20px 0 10px; }
+    p  { margin-bottom: 10px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      margin-bottom: 20px;
+    }
+    th {
+      background: var(--petrol);
+      color: #fff;
+      text-align: left;
+      padding: 9px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .4px;
+    }
+    td { padding: 9px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #F9F8F5; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+
+    .step-list { counter-reset: step; list-style: none; padding: 0; }
+    .step-list li {
+      counter-increment: step;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .step-list li:last-child { border-bottom: none; }
+    .step-num {
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      background: var(--petrol);
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800;
+    }
+    .step-body { flex: 1; }
+    .step-action { font-weight: 700; color: var(--dark); }
+    .step-detail { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 9px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+    }
+    .badge-red    { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+    .badge-amber  { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+    .badge-green  { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+    .badge-blue   { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+    .badge-gray   { background: #F3F4F6; color: #374151; border: 1px solid #D1D5DB; }
+    .badge-prod   { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+    .badge-pending { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+
+    code {
+      background: #F1F5F9;
+      border: 1px solid #E2E8F0;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #1F4E5F;
+    }
+    pre {
+      background: #1E293B;
+      color: #E2E8F0;
+      border-radius: 10px;
+      padding: 16px 20px;
+      font-size: 12px;
+      line-height: 1.7;
+      overflow-x: auto;
+      margin-bottom: 16px;
+    }
+    pre .cm { color: #64748B; }
+    pre .kw { color: #93C5FD; }
+    pre .st { color: #86EFAC; }
+    pre .fn { color: #FDE68A; }
+
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 640px) { .two-col { grid-template-columns: 1fr; } }
+
+    .verdict-ok   { color: var(--green); font-weight: 700; }
+    .verdict-fail { color: var(--red);   font-weight: 700; }
+    .verdict-pend { color: var(--amber); font-weight: 700; }
+
+    .footer {
+      background: var(--petrol);
+      color: rgba(255,255,255,.65);
+      padding: 20px 48px;
+      font-size: 12px;
+      text-align: center;
+    }
+    .footer strong { color: #fff; }
+
+    .toc { margin-bottom: 32px; }
+    .toc ul { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+    .toc a {
+      display: inline-block;
+      padding: 5px 12px;
+      border-radius: 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--petrol);
+      text-decoration: none;
+      font-weight: 600;
+      transition: background .15s;
+    }
+    .toc a:hover { background: var(--petrol); color: #fff; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <h1>Roteiro de Teste — Cadastro com Compra Aprovada Kiwify</h1>
+    <div class="sub">Preparação, roteiro manual e queries de verificação do fluxo positivo e negativo.</div>
+    <div class="meta">
+      <span>📅 Data: 02/07/2026</span>
+      <span>🔖 Tipo: Roteiro + Preparação</span>
+      <span>📦 Módulo: Cadastro / Kiwify Gate</span>
+      <span>👤 Responsável: CEO</span>
+      <span class="env-badge env-prod">⚠️ PRODUÇÃO</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Sumário -->
+  <nav class="toc">
+    <ul>
+      <li><a href="#ambiente">Ambiente</a></li>
+      <li><a href="#interface">Interface</a></li>
+      <li><a href="#schema">PRE_SCHEMA_CHECK</a></li>
+      <li><a href="#localizar">Localizar Compra</a></li>
+      <li><a href="#fixture">Fixture (local/homolog.)</a></li>
+      <li><a href="#roteiro-positivo">Roteiro Positivo</a></li>
+      <li><a href="#queries-verificacao">Queries de Verificação</a></li>
+      <li><a href="#roteiro-negativo">Roteiro Negativo</a></li>
+      <li><a href="#resultados">Resultados</a></li>
+      <li><a href="#limpeza">Limpeza</a></li>
+    </ul>
+  </nav>
+
+  <!-- AMBIENTE -->
+  <section id="ambiente">
+    <h2>1 — Identificação do Ambiente</h2>
+
+    <div class="alert alert-red">
+      <span class="alert-icon">⛔</span>
+      <div>
+        <strong>AMBIENTE DE PRODUÇÃO confirmado.</strong><br>
+        Nenhum dado foi inserido automaticamente. Nenhuma fixture foi executada.
+        Não criar usuários fictícios, não alterar dados existentes, não inserir compra sintética neste ambiente.
+      </div>
+    </div>
+
+    <table>
+      <thead><tr><th>Variável</th><th>Valor</th><th>Observação</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>VITE_SUPABASE_URL</code></td>
+          <td><code>https://hvjczfncppaodebopbvd.supabase.co</code></td>
+          <td>Supabase Cloud — projeto real</td>
+        </tr>
+        <tr>
+          <td>Project ref</td>
+          <td><code>hvjczfncppaodebopbvd</code></td>
+          <td>Não é local nem staging</td>
+        </tr>
+        <tr>
+          <td>Arquivos <code>.env</code> lidos</td>
+          <td><code>.env</code> (principal) + <code>.env.local</code> (vazio)</td>
+          <td><code>.env.local</code> não sobrescreve nenhuma variável</td>
+        </tr>
+        <tr>
+          <td>Classificação</td>
+          <td><span class="badge badge-prod">PRODUÇÃO</span></td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="alert alert-amber">
+      <span class="alert-icon">⚠️</span>
+      <div>
+        <strong>Para executar o teste positivo com fixture sintética:</strong> migre para um Supabase local (<code>supabase start</code>) ou crie um projeto de homologação separado.
+        O arquivo <code>supabase/test-fixtures/create-approved-kiwify-purchase-test.sql</code> está preparado para uso nesse ambiente.
+      </div>
+    </div>
+  </section>
+
+  <!-- INTERFACE -->
+  <section id="interface">
+    <h2>2 — Alterações de Interface (LoginScreen.tsx)</h2>
+
+    <div class="alert alert-green">
+      <span class="alert-icon">✅</span>
+      <div><strong>Alterações aplicadas com sucesso em <code>src/components/LoginScreen.tsx</code>.</strong></div>
+    </div>
+
+    <table>
+      <thead><tr><th>Item</th><th>Antes</th><th>Depois</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Botões do modal "Compra não localizada"</td>
+          <td>Falar pelo WhatsApp + Verificar novamente + Revisar e-mail</td>
+          <td>Falar pelo WhatsApp + Tentar novamente</td>
+        </tr>
+        <tr>
+          <td>Comportamento "Tentar novamente"</td>
+          <td>N/A (era "Revisar e-mail")</td>
+          <td>Fecha modal · mantém todos os campos · foca e-mail · sem re-consulta automática</td>
+        </tr>
+        <tr>
+          <td>Comportamento "Verificar novamente" (removido)</td>
+          <td>Fazia nova chamada à API e criava conta se aprovada</td>
+          <td>Removido — a nova verificação ocorre apenas ao clicar em "Criar conta"</td>
+        </tr>
+        <tr>
+          <td>Link WhatsApp na tela de login</td>
+          <td>Ausente</td>
+          <td>Adicionado: "Precisa de ajuda? Fale conosco pelo WhatsApp" — abaixo dos links de navegação</td>
+        </tr>
+        <tr>
+          <td>Mensagem WhatsApp (login)</td>
+          <td>N/A</td>
+          <td>"Olá! Preciso de ajuda para acessar o IncluiAI."</td>
+        </tr>
+        <tr>
+          <td>Número WhatsApp</td>
+          <td>—</td>
+          <td>Lido exclusivamente de <code>src/config/contact.ts</code> (<code>waUrl()</code>)</td>
+        </tr>
+        <tr>
+          <td>Estado <code>purchaseVerifying</code></td>
+          <td>Presente</td>
+          <td>Removido (sem uso após remover "Verificar novamente")</td>
+        </tr>
+        <tr>
+          <td>Função <code>handleVerifyAgain</code></td>
+          <td>Presente</td>
+          <td>Removida</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Verificação manual — Popup</h3>
+    <ol class="step-list">
+      <li>
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-action">Abrir a tela de cadastro com e-mail inexistente</div>
+          <div class="step-detail">Preencher todos os campos e clicar em "Criar conta" com e-mail sem compra cadastrada</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-action">Confirmar: popup exibe título "Compra não localizada"</div>
+          <div class="step-detail">Mensagem obrigatória: "Não encontramos uma compra aprovada para este e-mail..."</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-action">Confirmar: popup tem exatamente 2 botões</div>
+          <div class="step-detail">"Falar pelo WhatsApp" (verde) e "Tentar novamente" (cinza)</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <div class="step-action">Clicar em "Tentar novamente"</div>
+          <div class="step-detail">Modal deve fechar · campos permanecem preenchidos · foco no campo e-mail · sem nova requisição de API</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <div class="step-action">Confirmar link "Fale conosco pelo WhatsApp" na tela</div>
+          <div class="step-detail">Abaixo da linha "Já fez sua compra? / Já tem conta?" — visível em ambas as abas</div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- PRE_SCHEMA_CHECK -->
+  <section id="schema">
+    <h2>3 — PRE_SCHEMA_CHECK</h2>
+
+    <div class="alert alert-blue">
+      <span class="alert-icon">ℹ️</span>
+      <div>Executar no <strong>Supabase SQL Editor</strong> antes de qualquer inserção de teste. Confirmar colunas, tipos e valores reais.</div>
+    </div>
+
+    <pre><span class="cm">-- Estrutura das tabelas envolvidas no fluxo de compra</span>
+<span class="kw">SELECT</span>
+  table_name,
+  column_name,
+  data_type,
+  is_nullable
+<span class="kw">FROM</span> information_schema.columns
+<span class="kw">WHERE</span> table_schema = <span class="st">'public'</span>
+  <span class="kw">AND</span> table_name <span class="kw">IN</span> (
+    <span class="st">'kiwify_purchases'</span>,
+    <span class="st">'kiwify_products'</span>,
+    <span class="st">'users'</span>,
+    <span class="st">'tenants'</span>,
+    <span class="st">'subscriptions'</span>,
+    <span class="st">'credits_wallet'</span>,
+    <span class="st">'credits_ledger'</span>
+  )
+<span class="kw">ORDER BY</span> table_name, ordinal_position;
+
+<span class="cm">-- Constraint UNIQUE de provider_order_id</span>
+<span class="kw">SELECT</span>
+  tc.table_name, tc.constraint_name, tc.constraint_type, kcu.column_name
+<span class="kw">FROM</span> information_schema.table_constraints tc
+<span class="kw">JOIN</span> information_schema.key_column_usage kcu
+  <span class="kw">ON</span> tc.constraint_name = kcu.constraint_name
+  <span class="kw">AND</span> tc.table_schema   = kcu.table_schema
+<span class="kw">WHERE</span> tc.table_schema = <span class="st">'public'</span>
+  <span class="kw">AND</span> tc.table_name   = <span class="st">'kiwify_purchases'</span>
+  <span class="kw">AND</span> tc.constraint_type <span class="kw">IN</span> (<span class="st">'UNIQUE'</span>, <span class="st">'PRIMARY KEY'</span>);
+
+<span class="cm">-- Valores reais de status na tabela</span>
+<span class="kw">SELECT DISTINCT</span> status <span class="kw">FROM</span> public.kiwify_purchases <span class="kw">ORDER BY</span> status;
+
+<span class="cm">-- Produtos ativos e seus product_keys</span>
+<span class="kw">SELECT</span>
+  kiwify_product_id, product_name, product_key,
+  plan_code, billing_cycle, is_active
+<span class="kw">FROM</span> public.kiwify_products
+<span class="kw">WHERE</span> is_active = true
+<span class="kw">ORDER BY</span> display_order;</pre>
+
+    <h3>Mapeamento esperado (baseado no schema local)</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Coluna real</th><th>Tipo</th><th>Nota</th></tr></thead>
+      <tbody>
+        <tr><td>E-mail do comprador</td><td><code>kiwify_purchases.email</code></td><td>text</td><td>Comparado em <code>lower(trim(...))</code></td></tr>
+        <tr><td>Status aprovado</td><td><code>kiwify_purchases.status</code></td><td>text</td><td>Valor: <code>'APPROVED'</code></td></tr>
+        <tr><td>Chave do produto</td><td><code>kiwify_purchases.product_key</code></td><td>text</td><td>Ex: <code>'PRO_MONTHLY'</code>, <code>'MASTER_ANNUAL'</code></td></tr>
+        <tr><td>Data de pagamento</td><td><code>kiwify_purchases.paid_at</code></td><td>timestamptz</td><td>Nullable</td></tr>
+        <tr><td>Data de ativação</td><td><code>kiwify_purchases.activated_at</code></td><td>timestamptz</td><td>NULL = não ativada (condição do gate)</td></tr>
+        <tr><td>Tenant vinculado</td><td><code>kiwify_purchases.tenant_id</code></td><td>uuid</td><td>NULL antes do cadastro</td></tr>
+        <tr><td>ID único do pedido</td><td><code>kiwify_purchases.provider_order_id</code></td><td>text UNIQUE</td><td>Constraint UNIQUE confirmada no schema</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- LOCALIZAR COMPRA -->
+  <section id="localizar">
+    <h2>4 — Localizar Compra de Teste Existente (somente leitura)</h2>
+
+    <div class="alert alert-amber">
+      <span class="alert-icon">⚠️</span>
+      <div>Execute somente leitura. Não altere dados. Não exiba e-mail de cliente sem autorização.</div>
+    </div>
+
+    <h3>Resumo agregado de compras disponíveis (sem expor e-mails)</h3>
+    <pre><span class="kw">SELECT</span>
+  count(*)      <span class="kw">AS</span> total_aprovadas_sem_ativar,
+  product_key,
+  plan_code,
+  billing_cycle,
+  min(paid_at)  <span class="kw">AS</span> mais_antiga,
+  max(paid_at)  <span class="kw">AS</span> mais_recente
+<span class="kw">FROM</span> public.kiwify_purchases
+<span class="kw">WHERE</span> status       = <span class="st">'APPROVED'</span>
+  <span class="kw">AND</span> activated_at <span class="kw">IS NULL</span>
+  <span class="kw">AND</span> product_key != <span class="st">'UNKNOWN'</span>
+<span class="kw">GROUP BY</span> product_key, plan_code, billing_cycle
+<span class="kw">ORDER BY</span> max(paid_at) <span class="kw">DESC</span>;</pre>
+
+    <h3>Buscar por e-mail autorizado pela CEO</h3>
+    <pre><span class="cm">-- Substituir 'EMAIL_AUTORIZADO_AQUI' pelo e-mail fornecido pela CEO</span>
+<span class="kw">SELECT</span>
+  lower(email)                              <span class="kw">AS</span> email,
+  status,
+  product_key,
+  plan_code,
+  billing_cycle,
+  paid_at,
+  activated_at,
+  tenant_id,
+  left(provider_order_id, 8) || <span class="st">'...'</span>       <span class="kw">AS</span> order_id_parcial,
+  id
+<span class="kw">FROM</span> public.kiwify_purchases
+<span class="kw">WHERE</span> lower(trim(email)) = lower(trim(<span class="st">'EMAIL_AUTORIZADO_AQUI'</span>))
+<span class="kw">ORDER BY</span> paid_at <span class="kw">DESC NULLS LAST</span>;</pre>
+  </section>
+
+  <!-- FIXTURE -->
+  <section id="fixture">
+    <h2>5 — Fixture Sintética (somente em Local / Homologação)</h2>
+
+    <div class="alert alert-red">
+      <span class="alert-icon">⛔</span>
+      <div>
+        <strong>Não executar em produção.</strong> O arquivo abaixo foi preparado mas não executado.
+        Use somente em ambiente isolado (<code>supabase start</code> local ou projeto de homologação).
+      </div>
+    </div>
+
+    <div class="card">
+      <strong>Arquivo preparado:</strong>
+      <code>supabase/test-fixtures/create-approved-kiwify-purchase-test.sql</code>
+      <p style="margin-top: 10px; font-size: 13px; color: var(--muted);">
+        Contém: PRE_SCHEMA_CHECK · busca de compra existente · inserção sintética (comentada) · verificação · limpeza.
+      </p>
+    </div>
+
+    <h3>Dados de teste (para uso no ambiente local)</h3>
+    <table>
+      <thead><tr><th>Campo</th><th>Valor de teste</th></tr></thead>
+      <tbody>
+        <tr><td>E-mail de teste</td><td><code>teste.kiwify.fixture@incluiai.test</code></td></tr>
+        <tr><td><code>product_key</code></td><td><code>PRO_MONTHLY</code> (ajustar após PRE_SCHEMA_CHECK)</td></tr>
+        <tr><td><code>plan_code</code></td><td><code>PRO</code></td></tr>
+        <tr><td><code>credits_amount</code></td><td><code>0</code> (assinatura, não créditos avulsos)</td></tr>
+        <tr><td><code>status</code></td><td><code>APPROVED</code></td></tr>
+        <tr><td><code>provider_order_id</code></td><td><code>TEST-{uuid}</code> (gerado dinamicamente)</td></tr>
+        <tr><td><code>paid_at</code></td><td><code>2026-07-02 10:00:00+00</code> (fixo)</td></tr>
+        <tr><td><code>activated_at</code></td><td><code>NULL</code></td></tr>
+        <tr><td><code>tenant_id</code></td><td><code>NULL</code></td></tr>
+        <tr><td>Usuário criado?</td><td>Não — fixture insere APENAS a compra</td></tr>
+        <tr><td>Tenant criado?</td><td>Não</td></tr>
+        <tr><td>Créditos concedidos?</td><td>Não — será feito pela RPC de ativação após o cadastro</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ROTEIRO POSITIVO -->
+  <section id="roteiro-positivo">
+    <h2>6 — Roteiro do Teste Positivo</h2>
+
+    <div class="alert alert-amber">
+      <span class="alert-icon">⚠️</span>
+      <div>
+        <strong>Aguardando aprovação da CEO antes de executar.</strong><br>
+        Use o e-mail de uma compra aprovada real (localizada via PARTE 4) ou
+        a fixture sintética em ambiente local. Não executar automaticamente.
+      </div>
+    </div>
+
+    <ol class="step-list">
+      <li>
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-action">Iniciar o servidor de desenvolvimento</div>
+          <div class="step-detail"><code>npm run dev</code> — aguardar mensagem "Local: http://localhost:5173"</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-action">Acessar <code>http://localhost:5173/login</code></div>
+          <div class="step-detail">Confirmar que a tela de login carrega sem erros no console</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-action">Clicar na aba "Criar conta"</div>
+          <div class="step-detail">Confirmar que os campos Nome, E-mail, Telefone, CPF, Senha, Confirmar senha aparecem</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <div class="step-action">Preencher todos os campos com dados válidos</div>
+          <div class="step-detail">
+            Nome: qualquer nome · Telefone com DDD · CPF válido ·
+            Senha ≥ 6 caracteres · <strong>E-mail: exatamente o mesmo da compra de teste</strong>
+          </div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <div class="step-action">Mover foco para fora do campo e-mail (Tab ou clique)</div>
+          <div class="step-detail">Aguardar callout verde "Compra encontrada!" se e-mail bater com compra aprovada</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <div class="step-action">Clicar em "Criar conta"</div>
+          <div class="step-detail">Aguardar fase "Verificando compra..." e depois "Criando conta..."</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">7</div>
+        <div class="step-body">
+          <div class="step-action">Observar resultado: deve entrar no dashboard</div>
+          <div class="step-detail">Mensagem "Conta criada! Verifique seu e-mail se necessário." ou redirecionamento direto</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">8</div>
+        <div class="step-body">
+          <div class="step-action">Confirmar conta criada em <code>auth.users</code> (SQL Editor)</div>
+          <div class="step-detail">Ver Parte 7 — Queries de Verificação</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">9</div>
+        <div class="step-body">
+          <div class="step-action">Verificar plano final recebido</div>
+          <div class="step-detail">
+            Esperado: PRO ou MASTER (dependendo da compra) — <strong>não FREE</strong>.<br>
+            Se entrar como FREE: registrar exatamente o estado — será o diagnóstico da Sprint 2.
+          </div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">10</div>
+        <div class="step-body">
+          <div class="step-action">Verificar kiwify_purchases.<code>activated_at</code></div>
+          <div class="step-detail">Deve ser preenchido com timestamp da ativação</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">11</div>
+        <div class="step-body">
+          <div class="step-action">Verificar kiwify_purchases.<code>tenant_id</code></div>
+          <div class="step-detail">Deve apontar para o tenant recém-criado</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">12</div>
+        <div class="step-body">
+          <div class="step-action">Verificar <code>subscriptions</code></div>
+          <div class="step-detail">Status deve ser ACTIVE, plan_id correto, current_period_end ~30 dias à frente</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">13</div>
+        <div class="step-body">
+          <div class="step-action">Verificar <code>credits_wallet</code></div>
+          <div class="step-detail">PRO: 500 créditos · MASTER: 700 créditos (não FREE: 60)</div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- QUERIES DE VERIFICAÇÃO -->
+  <section id="queries-verificacao">
+    <h2>7 — Queries de Verificação (somente leitura)</h2>
+
+    <div class="alert alert-blue">
+      <span class="alert-icon">ℹ️</span>
+      <div>Substituir <code>EMAIL_DE_TESTE</code> pelo e-mail usado no teste. Executar no SQL Editor <strong>após</strong> o cadastro.</div>
+    </div>
+
+    <h3>auth.users — conta criada</h3>
+    <pre><span class="kw">SELECT</span>
+  id, email, created_at,
+  email_confirmed_at,
+  last_sign_in_at
+<span class="kw">FROM</span> auth.users
+<span class="kw">WHERE</span> email = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>));</pre>
+
+    <h3>public.users — perfil e tenant</h3>
+    <pre><span class="kw">SELECT</span>
+  id, email, name, tenant_id, plan, created_at
+<span class="kw">FROM</span> public.users
+<span class="kw">WHERE</span> email = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>));</pre>
+
+    <h3>tenants — tenant criado</h3>
+    <pre><span class="kw">SELECT</span>
+  t.id, t.name, t.created_at
+<span class="kw">FROM</span> public.tenants t
+<span class="kw">JOIN</span> public.users u <span class="kw">ON</span> u.tenant_id = t.id
+<span class="kw">WHERE</span> u.email = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>));</pre>
+
+    <h3>subscriptions — plano ativo</h3>
+    <pre><span class="kw">SELECT</span>
+  s.id, s.status, s.billing_cycle,
+  s.current_period_end, s.provider,
+  p.name <span class="kw">AS</span> plan_name,
+  s.updated_at
+<span class="kw">FROM</span> public.subscriptions s
+<span class="kw">JOIN</span> public.plans p <span class="kw">ON</span> p.id = s.plan_id
+<span class="kw">JOIN</span> public.users u <span class="kw">ON</span> u.tenant_id = s.tenant_id
+<span class="kw">WHERE</span> u.email = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>));</pre>
+
+    <h3>kiwify_purchases — compra ativada</h3>
+    <pre><span class="kw">SELECT</span>
+  lower(email)                        <span class="kw">AS</span> email,
+  status,
+  product_key,
+  plan_code,
+  paid_at,
+  activated_at,
+  tenant_id,
+  left(provider_order_id, 10) || <span class="st">'...'</span> <span class="kw">AS</span> order_parcial
+<span class="kw">FROM</span> public.kiwify_purchases
+<span class="kw">WHERE</span> lower(trim(email)) = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>))
+<span class="kw">ORDER BY</span> paid_at <span class="kw">DESC NULLS LAST</span>;</pre>
+
+    <h3>credits_wallet — saldo</h3>
+    <pre><span class="kw">SELECT</span>
+  cw.balance, cw.updated_at
+<span class="kw">FROM</span> public.credits_wallet cw
+<span class="kw">JOIN</span> public.users u <span class="kw">ON</span> u.tenant_id = cw.tenant_id
+<span class="kw">WHERE</span> u.email = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>));</pre>
+
+    <h3>credits_ledger — histórico de movimentações</h3>
+    <pre><span class="kw">SELECT</span>
+  cl.amount, cl.type, cl.description, cl.source, cl.created_at
+<span class="kw">FROM</span> public.credits_ledger cl
+<span class="kw">JOIN</span> public.users u <span class="kw">ON</span> u.tenant_id = cl.tenant_id
+<span class="kw">WHERE</span> u.email = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>))
+<span class="kw">ORDER BY</span> cl.created_at <span class="kw">DESC</span>;</pre>
+  </section>
+
+  <!-- ROTEIRO NEGATIVO -->
+  <section id="roteiro-negativo">
+    <h2>8 — Roteiro do Teste Negativo</h2>
+
+    <p>Usar um e-mail que <strong>não existe</strong> na tabela <code>kiwify_purchases</code>. Este teste pode ser executado em produção sem risco, pois não cria dados.</p>
+
+    <ol class="step-list">
+      <li>
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <div class="step-action">Acessar a aba "Criar conta"</div>
+          <div class="step-detail">Tela de login / cadastro</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <div class="step-action">Preencher todos os campos com dados válidos</div>
+          <div class="step-detail">Usar e-mail <strong>inexistente</strong> na base Kiwify (ex: <code>naoexiste@exemplo.test</code>)</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <div class="step-action">Clicar em "Criar conta"</div>
+          <div class="step-detail">Sistema deve chamar <code>checkPurchaseByEmail()</code> — aguardar "Verificando compra..."</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <div class="step-action">Confirmar: popup "Compra não localizada" exibido</div>
+          <div class="step-detail">Título e mensagem conforme especificação</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <div class="step-action">Confirmar: popup tem exatamente 2 botões</div>
+          <div class="step-detail">"Falar pelo WhatsApp" e "Tentar novamente" (sem "Verificar novamente" nem "Revisar e-mail")</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <div class="step-action">Testar botão "Falar pelo WhatsApp"</div>
+          <div class="step-detail">Abre em nova aba · URL no formato <code>https://wa.me/55...?text=...</code> · rel="noopener noreferrer"</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">7</div>
+        <div class="step-body">
+          <div class="step-action">Clicar em "Tentar novamente"</div>
+          <div class="step-detail">
+            Modal fecha ·
+            todos os campos (nome, telefone, cpf, senha) permanecem preenchidos ·
+            e-mail permanece preenchido ·
+            foco vai para o campo e-mail ·
+            nenhuma nova requisição à API é disparada automaticamente
+          </div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">8</div>
+        <div class="step-body">
+          <div class="step-action">Confirmar via Network tab (DevTools): auth.signUp() NÃO foi chamado</div>
+          <div class="step-detail">Nenhum POST para <code>/auth/v1/signup</code> deve aparecer nas requisições</div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">9</div>
+        <div class="step-body">
+          <div class="step-action">Confirmar via SQL: nenhum usuário criado</div>
+          <div class="step-detail">
+            <code>SELECT count(*) FROM auth.users WHERE email = 'naoexiste@exemplo.test';</code><br>
+            Resultado esperado: <code>0</code>
+          </div>
+        </div>
+      </li>
+      <li>
+        <div class="step-num">10</div>
+        <div class="step-body">
+          <div class="step-action">Confirmar: nenhum tenant criado, nenhum crédito concedido</div>
+          <div class="step-detail">O e-mail de teste não deve aparecer em <code>users</code>, <code>tenants</code>, <code>credits_wallet</code></div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- RESULTADOS -->
+  <section id="resultados">
+    <h2>9 — Resultados do Teste</h2>
+
+    <div class="alert alert-amber">
+      <span class="alert-icon">⚠️</span>
+      <div>
+        <strong>Teste ainda não executado.</strong> Esta seção será preenchida após a autorização e execução pela CEO.
+        Não corrigir automaticamente qualquer resultado adverso.
+      </div>
+    </div>
+
+    <h3>Teste Negativo</h3>
+    <table>
+      <thead><tr><th>Verificação</th><th>Resultado esperado</th><th>Resultado real</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Popup exibido</td><td>Sim</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Exatamente 2 botões</td><td>Sim</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>WhatsApp abre em nova aba</td><td>Sim</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>"Tentar novamente" fecha modal</td><td>Sim</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Campos mantidos após fechar</td><td>Sim</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Foco no e-mail após fechar</td><td>Sim</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>auth.signUp() não chamado</td><td>Sim (ausente no Network)</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Usuário não criado em auth.users</td><td>count = 0</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Nenhum tenant criado</td><td>Sem registro</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Nenhum crédito concedido</td><td>Sem registro</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+      </tbody>
+    </table>
+
+    <h3>Teste Positivo</h3>
+    <table>
+      <thead><tr><th>Verificação</th><th>Resultado esperado</th><th>Resultado real</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Callout verde "Compra encontrada!" no blur</td><td>Sim</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Cadastro concluído (sem popup de erro)</td><td>Sim</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Conta em auth.users</td><td>Sim, email_confirmed_at preenchido ou não (depende config)</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Perfil em public.users</td><td>Sim, com tenant_id</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Tenant em public.tenants</td><td>Sim</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>Plano final</td><td>PRO ou MASTER (não FREE)</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>kiwify_purchases.activated_at</td><td>Preenchido</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>kiwify_purchases.tenant_id</td><td>UUID do tenant criado</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>subscriptions.status</td><td>ACTIVE</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>credits_wallet.balance</td><td>500 (PRO) ou 700 (MASTER)</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+        <tr><td>credits_ledger entry</td><td>type = 'monthly_grant', source = 'kiwify_activation'</td><td>—</td><td><span class="badge badge-pending">Pendente</span></td></tr>
+      </tbody>
+    </table>
+
+    <h3>Falhas conhecidas / a monitorar</h3>
+    <div class="alert alert-amber">
+      <span class="alert-icon">⚠️</span>
+      <div>
+        <strong>Risco identificado — conta pode entrar como FREE:</strong> Se o trigger de signup criar a subscription como FREE antes da RPC <code>activate_purchase_for_user</code> ser chamada, e se o App.tsx não chamar a RPC ou a RPC falhar silenciosamente, o usuário verá o dashboard como FREE mesmo com compra paga.
+        <br><br>
+        <strong>Não corrigir agora.</strong> Se ocorrer, registrar o estado exato encontrado (queries acima) — esse será o diagnóstico da Sprint 2.
+      </div>
+    </div>
+  </section>
+
+  <!-- LIMPEZA -->
+  <section id="limpeza">
+    <h2>10 — Procedimento de Limpeza Pós-Teste</h2>
+
+    <div class="alert alert-red">
+      <span class="alert-icon">⛔</span>
+      <div>
+        <strong>Em produção:</strong> não limpar dados de uma compra real. A limpeza abaixo é exclusiva para o e-mail da fixture sintética em ambiente local/homologação.
+      </div>
+    </div>
+
+    <pre><span class="cm">-- Executar SOMENTE em LOCAL / HOMOLOGAÇÃO após o teste.</span>
+<span class="cm">-- Substituir 'EMAIL_DE_TESTE' pelo e-mail usado na fixture.</span>
+
+<span class="cm">-- 1. Apagar movimentações de crédito</span>
+<span class="kw">DELETE FROM</span> public.credits_ledger
+<span class="kw">WHERE</span> tenant_id <span class="kw">IN</span> (
+  <span class="kw">SELECT</span> tenant_id <span class="kw">FROM</span> public.users
+  <span class="kw">WHERE</span> email = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>))
+);
+
+<span class="cm">-- 2. Apagar carteira de créditos</span>
+<span class="kw">DELETE FROM</span> public.credits_wallet
+<span class="kw">WHERE</span> tenant_id <span class="kw">IN</span> (
+  <span class="kw">SELECT</span> tenant_id <span class="kw">FROM</span> public.users
+  <span class="kw">WHERE</span> email = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>))
+);
+
+<span class="cm">-- 3. Apagar subscription</span>
+<span class="kw">DELETE FROM</span> public.subscriptions
+<span class="kw">WHERE</span> tenant_id <span class="kw">IN</span> (
+  <span class="kw">SELECT</span> tenant_id <span class="kw">FROM</span> public.users
+  <span class="kw">WHERE</span> email = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>))
+);
+
+<span class="cm">-- 4. Apagar usuário em public.users</span>
+<span class="kw">DELETE FROM</span> public.users
+<span class="kw">WHERE</span> email = lower(trim(<span class="st">'EMAIL_DE_TESTE'</span>));
+
+<span class="cm">-- 5. Apagar tenant (se não houver outros usuários vinculados)</span>
+<span class="cm">-- Verificar primeiro:</span>
+<span class="cm">-- SELECT count(*) FROM public.users WHERE tenant_id = 'UUID_DO_TENANT';</span>
+
+<span class="cm">-- 6. Apagar fixture em kiwify_purchases</span>
+<span class="kw">DELETE FROM</span> public.kiwify_purchases
+<span class="kw">WHERE</span> lower(email) = <span class="st">'teste.kiwify.fixture@incluiai.test'</span>
+  <span class="kw">AND</span> provider_order_id <span class="kw">LIKE</span> <span class="st">'TEST-%'</span>;
+
+<span class="cm">-- 7. Apagar usuário em auth.users (Supabase CLI ou dashboard Auth)</span>
+<span class="cm">-- Via SQL: DELETE FROM auth.users WHERE email = 'EMAIL_DE_TESTE';</span>
+<span class="cm">-- (Requer service_role key — NÃO executar via frontend)</span></pre>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Roteiro de Teste — Cadastro com Compra Aprovada Kiwify · 2026-07-02<br>
+  Uso interno · Não contém dados pessoais · Não contém senhas, CPF, telefones ou e-mails reais de clientes
+</div>
+
+</body>
+</html>

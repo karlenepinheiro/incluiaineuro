@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Auditoria do Cadastro, Validação de Compra Kiwify e Remoção do Plano FREE — IncluiAI</title>
+  <style>
+    :root {
+      --petrol:   #1F4E5F;
+      --dark:     #2E3A59;
+      --gold:     #C69214;
+      --green:    #059669;
+      --red:      #DC2626;
+      --orange:   #D97706;
+      --bg:       #F6F4EF;
+      --surface:  #FFFFFF;
+      --border:   #E7E2D8;
+      --text:     #111827;
+      --muted:    #6B7280;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    /* COVER */
+    .cover {
+      background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%);
+      color: #fff;
+      padding: 64px 48px 48px;
+      position: relative;
+      overflow: hidden;
+    }
+    .cover::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0);
+      background-size: 24px 24px;
+    }
+    .cover-inner { position: relative; z-index: 1; max-width: 900px; }
+    .cover-badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.22);
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .cover h1 {
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1.3;
+      margin-bottom: 16px;
+    }
+    .cover .cover-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      margin-top: 28px;
+      border-top: 1px solid rgba(255,255,255,0.15);
+      padding-top: 20px;
+      font-size: 13px;
+    }
+    .cover-meta-item { display: flex; flex-direction: column; gap: 2px; }
+    .cover-meta-label { font-size: 10px; font-weight: 700; letter-spacing: 1px; opacity: .6; text-transform: uppercase; }
+    .cover-meta-value { font-weight: 600; }
+
+    /* LAYOUT */
+    .container { max-width: 960px; margin: 0 auto; padding: 0 24px 64px; }
+
+    /* TOC */
+    .toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px 32px;
+      margin: 32px 0;
+    }
+    .toc h2 { font-size: 14px; font-weight: 700; color: var(--petrol); margin-bottom: 16px; text-transform: uppercase; letter-spacing: .8px; }
+    .toc ol { padding-left: 20px; column-count: 2; column-gap: 32px; }
+    .toc li { margin-bottom: 6px; }
+    .toc a { color: var(--petrol); text-decoration: none; font-size: 13px; }
+    .toc a:hover { text-decoration: underline; }
+
+    /* SECTIONS */
+    section { margin-top: 48px; }
+    .section-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--petrol);
+      border-left: 4px solid var(--petrol);
+      padding-left: 14px;
+      margin-bottom: 20px;
+    }
+    .section-subtitle {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--dark);
+      margin: 20px 0 10px;
+    }
+    p { margin-bottom: 10px; }
+
+    /* CARDS */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .card-title { font-weight: 700; font-size: 13px; color: var(--petrol); margin-bottom: 8px; }
+
+    /* BADGES */
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+      vertical-align: middle;
+    }
+    .badge-critico   { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+    .badge-alto      { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+    .badge-medio     { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+    .badge-baixo     { background: #F0FDF4; color: #166534; border: 1px solid #BBF7D0; }
+    .badge-confirmado{ background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+    .badge-pendente  { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+    .badge-info      { background: #F0F9FF; color: #075985; border: 1px solid #BAE6FD; }
+
+    /* TABLES */
+    .table-wrap { overflow-x: auto; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: var(--petrol); color: #fff; text-align: left; padding: 10px 14px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+    td { padding: 9px 14px; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: #FAFAF8; }
+
+    /* CODE */
+    pre, code {
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12px;
+    }
+    pre {
+      background: #1E293B;
+      color: #E2E8F0;
+      padding: 16px 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 10px 0 16px;
+      line-height: 1.55;
+    }
+    code {
+      background: #F1F5F9;
+      color: #1E293B;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    /* ALERTS */
+    .alert {
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 14px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      font-size: 13px;
+    }
+    .alert-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+    .alert-critico { background: #FEF2F2; border: 1px solid #FECACA; color: #7F1D1D; }
+    .alert-alto    { background: #FFFBEB; border: 1px solid #FDE68A; color: #78350F; }
+    .alert-info    { background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E3A5F; }
+    .alert-ok      { background: #F0FDF4; border: 1px solid #BBF7D0; color: #14532D; }
+
+    /* FLOW */
+    .flow {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .flow-step {
+      display: flex;
+      gap: 14px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .flow-step:last-child { border-bottom: none; }
+    .flow-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--petrol);
+      color: #fff;
+      font-weight: 800;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .flow-content { flex: 1; }
+    .flow-title { font-weight: 700; font-size: 13px; color: var(--dark); }
+    .flow-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* RISK TABLE */
+    .risk-row-critico td:first-child { border-left: 3px solid var(--red); }
+    .risk-row-alto    td:first-child { border-left: 3px solid var(--orange); }
+    .risk-row-medio   td:first-child { border-left: 3px solid #3B82F6; }
+
+    /* FOOTER */
+    .footer {
+      background: var(--petrol);
+      color: rgba(255,255,255,0.7);
+      padding: 24px 48px;
+      font-size: 12px;
+      margin-top: 64px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .footer strong { color: #fff; }
+
+    /* PRINT */
+    @media print {
+      body { background: #fff; }
+      .cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .toc ol { column-count: 1; }
+      section { page-break-inside: avoid; }
+      pre { white-space: pre-wrap; }
+    }
+
+    @media (max-width: 640px) {
+      .cover { padding: 40px 24px 32px; }
+      .cover h1 { font-size: 20px; }
+      .toc ol { column-count: 1; }
+      .container { padding: 0 16px 48px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════ CAPA ═══════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-inner">
+    <div class="cover-badge">Auditoria Técnica · IncluiAI</div>
+    <h1>Auditoria do Cadastro,<br>Validação de Compra Kiwify<br>e Remoção do Plano FREE</h1>
+    <p style="opacity:.8; max-width:640px;">
+      Diagnóstico completo do fluxo atual de cadastro, criação automática de tenant, concessão do
+      plano FREE, ativação de compras Kiwify, validação por e-mail, dependências do frontend e
+      backend, riscos críticos e plano de implementação recomendado.
+    </p>
+    <div class="cover-meta">
+      <div class="cover-meta-item">
+        <span class="cover-meta-label">Data</span>
+        <span class="cover-meta-value">02/07/2026</span>
+      </div>
+      <div class="cover-meta-item">
+        <span class="cover-meta-label">Status</span>
+        <span class="cover-meta-value">✅ Concluída</span>
+      </div>
+      <div class="cover-meta-item">
+        <span class="cover-meta-label">Severidade Principal</span>
+        <span class="cover-meta-value">🔴 Crítica</span>
+      </div>
+      <div class="cover-meta-item">
+        <span class="cover-meta-label">Fase</span>
+        <span class="cover-meta-value">Diagnóstico — aguardando aprovação</span>
+      </div>
+      <div class="cover-meta-item">
+        <span class="cover-meta-label">Projeto</span>
+        <span class="cover-meta-value">IncluiAI — Plataforma de Inclusão com IA</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════ CONTAINER ═══════════════════════════════════════ -->
+<div class="container">
+
+  <!-- ÍNDICE -->
+  <nav class="toc" id="topo">
+    <h2>Índice</h2>
+    <ol>
+      <li><a href="#escopo">Escopo da auditoria</a></li>
+      <li><a href="#resumo">Resumo executivo</a></li>
+      <li><a href="#arquivos">Arquivos analisados</a></li>
+      <li><a href="#fluxo-cadastro">Fluxo atual do cadastro</a></li>
+      <li><a href="#fluxo-kiwify">Fluxo atual da compra Kiwify</a></li>
+      <li><a href="#fluxo-ativacao">Fluxo atual de ativação</a></li>
+      <li><a href="#tabelas">Tabelas e funções identificadas</a></li>
+      <li><a href="#triggers">Triggers identificados</a></li>
+      <li><a href="#free-criado">Onde o plano FREE é criado</a></li>
+      <li><a href="#creditos-free">Onde créditos FREE são concedidos</a></li>
+      <li><a href="#divergencias">Divergências encontradas</a></li>
+      <li><a href="#riscos">Riscos críticos</a></li>
+      <li><a href="#bordas">Casos de borda</a></li>
+      <li><a href="#whatsapp">WhatsApp — número oficial</a></li>
+      <li><a href="#recomendacoes">Recomendações</a></li>
+      <li><a href="#fases">Plano de implementação em fases</a></li>
+      <li><a href="#checklist">Checklist antes da execução</a></li>
+      <li><a href="#conclusao">Conclusão</a></li>
+    </ol>
+  </nav>
+
+  <!-- ═══════════════ 1. ESCOPO ═══════════════ -->
+  <section id="escopo">
+    <h2 class="section-title">1. Escopo da Auditoria</h2>
+    <div class="card">
+      <p><strong>Motivo:</strong> A CEO determinou que o IncluiAI não terá mais cadastro gratuito aberto.
+      Somente usuários com compra aprovada registrada pelo webhook da Kiwify poderão criar conta.
+      Esta auditoria mapeia todos os pontos do sistema que precisam ser alterados para implementar
+      essa regra de negócio, sem quebrar usuários ativos existentes.</p>
+
+      <p style="margin-top:12px;"><strong>O que foi analisado:</strong></p>
+      <ul style="padding-left:20px; margin-top:6px;">
+        <li>Componentes de autenticação e cadastro do frontend</li>
+        <li>Funções de criação de usuário, tenant e assinatura</li>
+        <li>Triggers PostgreSQL disparados pelo Supabase Auth</li>
+        <li>Tabela <code>kiwify_purchases</code> e seus campos</li>
+        <li>RPCs <code>check_purchase_by_email</code> e <code>activate_purchase_for_user</code></li>
+        <li>Edge Function <code>kiwify-webhook</code></li>
+        <li>Configuração do número de WhatsApp</li>
+        <li>Todos os pontos onde o plano FREE é concedido automaticamente</li>
+      </ul>
+
+      <p style="margin-top:12px;"><strong>O que não foi alterado:</strong> nenhum arquivo funcional foi modificado durante esta auditoria.</p>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 2. RESUMO EXECUTIVO ═══════════════ -->
+  <section id="resumo">
+    <h2 class="section-title">2. Resumo Executivo</h2>
+
+    <div class="alert alert-critico">
+      <span class="alert-icon">🔴</span>
+      <div>
+        <strong>Problema central:</strong> O sistema cria um tenant FREE com créditos para qualquer
+        e-mail que chame <code>supabase.auth.signUp()</code>, <em>sem verificar se existe compra aprovada</em>.
+        Isso ocorre via trigger automático no Supabase Auth e é independente do que o frontend faz.
+      </div>
+    </div>
+
+    <div class="alert alert-alto">
+      <span class="alert-icon">⚠️</span>
+      <div>
+        <strong>Dois triggers concorrentes encontrados:</strong> <code>handle_new_user()</code> e
+        <code>create_user_profile_on_signup()</code> ambos disparam após <code>INSERT ON auth.users</code>,
+        com valores distintos de créditos (10 vs 60). Risco de duplicidade e inconsistência.
+      </div>
+    </div>
+
+    <div class="alert alert-info">
+      <span class="alert-icon">ℹ️</span>
+      <div>
+        <strong>O que já existe e funciona:</strong> A RPC <code>check_purchase_by_email</code>
+        pode ser chamada sem autenticação, já normaliza o e-mail com <code>lower(trim())</code> e
+        filtra por <code>status = 'APPROVED'</code> e <code>activated_at IS NULL</code>.
+        O frontend já a chama no blur do campo e-mail — porém de forma <em>informativa</em>, não bloqueante.
+      </div>
+    </div>
+
+    <div class="alert alert-ok">
+      <span class="alert-icon">✅</span>
+      <div>
+        <strong>Impacto em usuários existentes:</strong> A mudança afeta somente o fluxo de
+        <em>novos cadastros</em>. Usuários FREE ativos continuam com login e acesso normais.
+        O plano FREE não deve ser removido do banco.
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 3. ARQUIVOS ANALISADOS ═══════════════ -->
+  <section id="arquivos">
+    <h2 class="section-title">3. Arquivos Analisados</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Arquivo</th><th>Tipo</th><th>Relevância</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>src/components/LoginScreen.tsx</code></td><td>Frontend</td><td>Componente de cadastro/login — ponto de entrada do usuário</td></tr>
+          <tr><td><code>src/App.tsx</code></td><td>Frontend</td><td><code>handleRegister()</code> chama <code>auth.signUp()</code> sem validação de compra</td></tr>
+          <tr><td><code>src/config/contact.ts</code></td><td>Config</td><td>Número oficial do WhatsApp: <code>5599984167490</code></td></tr>
+          <tr><td><code>src/components/common/WhatsAppFloatButton.tsx</code></td><td>Frontend</td><td>Usa <code>waUrl()</code> de <code>contact.ts</code></td></tr>
+          <tr><td><code>src/services/purchaseActivationService.ts</code></td><td>Serviço</td><td>Wrappers das RPCs <code>check_purchase_by_email</code> e <code>activate_purchase_for_user</code></td></tr>
+          <tr><td><code>src/services/kiwifyService.ts</code></td><td>Serviço</td><td>URLs de checkout; links oficiais Kiwify</td></tr>
+          <tr><td><code>src/types.ts</code></td><td>Tipos</td><td><code>resolvePlanTier()</code> retorna <code>FREE</code> como fallback</td></tr>
+          <tr><td><code>src/services/subscriptionService.ts</code></td><td>Serviço</td><td>Padrão <code>planCode = 'FREE'</code> quando plan_id não encontrado</td></tr>
+          <tr><td><code>supabase/schema.sql</code></td><td>SQL</td><td>Trigger <code>handle_new_user()</code> — cria tenant FREE com 10 créditos</td></tr>
+          <tr><td><code>supabase/schema_v13_auth_flow.sql</code></td><td>SQL</td><td>Trigger <code>create_user_profile_on_signup()</code> — cria tenant FREE com 60 créditos</td></tr>
+          <tr><td><code>supabase/schema_payment_activation.sql</code></td><td>SQL</td><td>Definição original da tabela <code>kiwify_purchases</code> e RPCs</td></tr>
+          <tr><td><code>supabase/schema_payment_v2.sql</code></td><td>SQL</td><td>Versão corrigida da RPC <code>check_purchase_by_email</code> com campo <code>product_key</code></td></tr>
+          <tr><td><code>supabase/migrations/20260407174103_remote_schema.sql</code></td><td>Migration</td><td>Schema espelho da produção — contém ambas as RPCs e a versão do trigger</td></tr>
+          <tr><td><code>supabase/migrations/20260508000001_fix_purchase_activation.sql</code></td><td>Migration</td><td>Reescrita da <code>activate_purchase_for_user</code> com correção de bugs críticos</td></tr>
+          <tr><td><code>supabase/functions/kiwify-webhook/index.ts</code></td><td>Edge Function</td><td>Processa pagamentos Kiwify; salva em <code>kiwify_purchases</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 4. FLUXO ATUAL DO CADASTRO ═══════════════ -->
+  <section id="fluxo-cadastro">
+    <h2 class="section-title">4. Fluxo Atual do Cadastro</h2>
+
+    <div class="alert alert-critico">
+      <span class="alert-icon">🔴</span>
+      <div><strong>Este fluxo contraria a nova regra comercial.</strong> A conta é criada antes de qualquer
+      validação de compra. O plano FREE é concedido automaticamente a qualquer e-mail.</div>
+    </div>
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <div class="flow-content">
+          <div class="flow-title">Usuário acessa <code>LoginScreen.tsx</code> → aba "Criar conta"</div>
+          <div class="flow-desc">Preenche nome, e-mail, telefone, CPF, senha, confirmação de senha.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <div class="flow-content">
+          <div class="flow-title">Blur no campo e-mail chama <code>handleEmailBlur()</code></div>
+          <div class="flow-desc">Chama <code>checkPurchaseByEmail(email)</code> → se APPROVED, exibe callout verde "Assinatura encontrada!".
+          Se não encontrada: <strong>não bloqueia o cadastro</strong> — apenas ignora silenciosamente.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <div class="flow-content">
+          <div class="flow-title">Usuário clica "Criar conta gratuita" → <code>handleSubmit()</code></div>
+          <div class="flow-desc">Valida campos localmente (nome, telefone, CPF, senha). <strong>Nenhuma verificação de compra.</strong></div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">4</div>
+        <div class="flow-content">
+          <div class="flow-title"><code>handleRegister()</code> em <code>App.tsx:869</code> chama <code>supabase.auth.signUp()</code></div>
+          <div class="flow-desc">Usuário criado no Supabase Auth sem qualquer guarda de compra.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">5</div>
+        <div class="flow-content">
+          <div class="flow-title">Trigger PostgreSQL dispara automaticamente</div>
+          <div class="flow-desc">
+            <code>handle_new_user()</code> e/ou <code>create_user_profile_on_signup()</code> criam:
+            tenant, usuário em <code>public.users</code> com <code>plan = 'FREE'</code>,
+            carteira de créditos (10 ou 60 créditos), assinatura <code>ACTIVE</code> com plano FREE.
+          </div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">6</div>
+        <div class="flow-content">
+          <div class="flow-title">App aguarda perfil e faz login</div>
+          <div class="flow-desc">Se havia compra aprovada: <code>ActivationView</code> detecta e eleva o plano. Se não: usuário fica FREE permanentemente.</div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="section-subtitle">Textos problemáticos encontrados no <code>LoginScreen.tsx</code></h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Linha</th><th>Texto atual</th><th>Problema</th></tr></thead>
+        <tbody>
+          <tr><td>569</td><td><code>"Criar conta gratuita"</code></td><td>Promove cadastro gratuito — deve ser removido</td></tr>
+          <tr><td>581</td><td><code>"Nenhum cartão necessário."</code></td><td>Contradiz nova regra — deve ser removido</td></tr>
+          <tr><td>608</td><td><code>"Criar gratuitamente"</code></td><td>Promove gratuidade — deve ser removido</td></tr>
+          <tr><td>277</td><td><code>"crie uma conta gratuita primeiro"</code></td><td>Pendente de análise — pode ser mantido se o contexto mudar</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 5. FLUXO ATUAL DA COMPRA KIWIFY ═══════════════ -->
+  <section id="fluxo-kiwify">
+    <h2 class="section-title">5. Fluxo Atual da Compra Kiwify</h2>
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <div class="flow-content">
+          <div class="flow-title">Usuário clica em "Assinar" → checkout Kiwify com <code>?sck=TENANT_ID</code></div>
+          <div class="flow-desc">O <code>sck</code> é o <code>tenant_id</code> para rastreamento e vinculação posterior.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <div class="flow-content">
+          <div class="flow-title">Kiwify processa o pagamento</div>
+          <div class="flow-desc">Pode ser aprovado, pendente ou recusado.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <div class="flow-content">
+          <div class="flow-title">Kiwify chama webhook: <code>POST /functions/v1/kiwify-webhook</code></div>
+          <div class="flow-desc">Edge Function <code>kiwify-webhook/index.ts</code> processa o evento.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">4</div>
+        <div class="flow-content">
+          <div class="flow-title">Edge Function extrai: <code>customerEmail</code>, <code>orderId</code>, <code>product_name</code>, <code>product_id</code></div>
+          <div class="flow-desc">E-mail normalizado com <code>trim().toLowerCase()</code>. Idempotência verificada via <code>kiwify_webhook_logs</code>.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">5</div>
+        <div class="flow-content">
+          <div class="flow-title">Salva em <code>kiwify_purchases</code> — sempre, mesmo sem <code>tenant_id</code></div>
+          <div class="flow-desc">Status: <code>APPROVED</code> / <code>PENDING</code> / <code>CANCELED</code>. Se <code>tenant_id</code> disponível, ativa imediatamente.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">6</div>
+        <div class="flow-content">
+          <div class="flow-title">Se não tem <code>tenant_id</code>: compra fica com <code>activated_at = NULL</code></div>
+          <div class="flow-desc">Compra aguarda o usuário criar conta. Resolvida depois por <code>activatePurchaseForUser()</code> ou pelo CEO via <code>reconcile_pending_activations()</code>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 6. FLUXO ATUAL DE ATIVAÇÃO ═══════════════ -->
+  <section id="fluxo-ativacao">
+    <h2 class="section-title">6. Fluxo Atual de Ativação</h2>
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <div class="flow-content">
+          <div class="flow-title">Usuário faz login → <code>ActivationView</code> verifica compras pendentes</div>
+          <div class="flow-desc">Chama <code>checkPurchaseByEmail(email)</code> — RPC pública, acessível sem autenticação.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <div class="flow-content">
+          <div class="flow-title"><code>check_purchase_by_email(p_email)</code> busca em <code>kiwify_purchases</code></div>
+          <div class="flow-desc">Filtra: <code>status = 'APPROVED'</code> e <code>activated_at IS NULL</code>.
+          Retorna: <code>found, status, plan_code, credits, product_key, purchase_id</code>.
+          Não expõe payload, CPF, nome ou dados de outras compras.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <div class="flow-content">
+          <div class="flow-title">Se <code>product_key = 'UNKNOWN'</code>: bloqueia ativação</div>
+          <div class="flow-desc">Produto não mapeado pelo webhook. CEO resolve manualmente.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">4</div>
+        <div class="flow-content">
+          <div class="flow-title">Se APPROVED e válido: chama <code>activate_purchase_for_user(purchase_id)</code></div>
+          <div class="flow-desc">RPC autenticada. Verifica e-mail do JWT = e-mail da compra. Usa <code>FOR UPDATE SKIP LOCKED</code> para idempotência.</div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">5</div>
+        <div class="flow-content">
+          <div class="flow-title">RPC atualiza <code>subscriptions</code>, <code>credits_wallet</code>, <code>credits_ledger</code></div>
+          <div class="flow-desc">Para planos: reseta saldo (não incrementa). Para créditos avulsos: incrementa. Marca <code>activated_at = now()</code>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 7. TABELAS E FUNÇÕES ═══════════════ -->
+  <section id="tabelas">
+    <h2 class="section-title">7. Tabelas e Funções Identificadas</h2>
+
+    <h3 class="section-subtitle">Tabela: <code>kiwify_purchases</code></h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Coluna</th><th>Tipo</th><th>Descrição</th><th>Restrição</th></tr></thead>
+        <tbody>
+          <tr><td><code>id</code></td><td>uuid</td><td>Chave primária</td><td>PK</td></tr>
+          <tr><td><code>email</code></td><td>text NOT NULL</td><td>E-mail do comprador — indexado por <code>lower(email)</code></td><td>Índice: <code>kiwify_purchases_email_idx</code></td></tr>
+          <tr><td><code>product_key</code></td><td>text NOT NULL</td><td>Ex: <code>PRO_MONTHLY</code>, <code>MASTER_ANNUAL</code>, <code>CREDITS_100</code>, <code>UNKNOWN</code></td><td>—</td></tr>
+          <tr><td><code>plan_code</code></td><td>text</td><td><code>PRO</code> | <code>MASTER</code> | <code>NULL</code> (créditos)</td><td>Nullable</td></tr>
+          <tr><td><code>credits_amount</code></td><td>int</td><td>0 para assinaturas; &gt;0 para créditos avulsos</td><td>DEFAULT 0</td></tr>
+          <tr><td><code>provider_order_id</code></td><td>text NOT NULL</td><td>ID único do pedido Kiwify</td><td>UNIQUE</td></tr>
+          <tr><td><code>status</code></td><td>text NOT NULL</td><td><code>PENDING</code> | <code>APPROVED</code> | <code>CANCELED</code> | <code>REFUNDED</code></td><td>DEFAULT 'PENDING'</td></tr>
+          <tr><td><code>payload</code></td><td>jsonb</td><td>Payload bruto do webhook — nunca exposto ao frontend</td><td>Nullable</td></tr>
+          <tr><td><code>paid_at</code></td><td>timestamptz</td><td>Data real do pagamento Kiwify</td><td>Nullable</td></tr>
+          <tr><td><code>activated_at</code></td><td>timestamptz</td><td><code>NULL</code> = não ativada; preenchida após ativação</td><td>Nullable</td></tr>
+          <tr><td><code>tenant_id</code></td><td>uuid</td><td>Vinculado na ativação</td><td>Nullable</td></tr>
+          <tr><td><code>created_at</code></td><td>timestamptz NOT NULL</td><td>Data de criação do registro</td><td>DEFAULT now()</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="section-subtitle">RPCs Identificadas</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Função</th><th>Auth</th><th>Acesso</th><th>O que faz</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>check_purchase_by_email(p_email text)</code></td>
+            <td><span class="badge badge-confirmado">anon + auth</span></td>
+            <td>Pública</td>
+            <td>Busca compra APPROVED + activated_at IS NULL. Retorna: found, status, plan_code, credits, product_key, purchase_id. Normaliza com lower(trim()).</td>
+          </tr>
+          <tr>
+            <td><code>activate_purchase_for_user(p_purchase_id uuid)</code></td>
+            <td><span class="badge badge-info">auth + service_role</span></td>
+            <td>Autenticada</td>
+            <td>Valida JWT vs e-mail da compra. Atualiza subscriptions, credits_wallet, credits_ledger. Marca activated_at. FOR UPDATE SKIP LOCKED.</td>
+          </tr>
+          <tr>
+            <td><code>reconcile_pending_activations()</code></td>
+            <td><span class="badge badge-alto">service_role + admin</span></td>
+            <td>Administrativa</td>
+            <td>Ativa compras APPROVED sem conta ainda associada. Usado pelo CEO via dashboard.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 8. TRIGGERS ═══════════════ -->
+  <section id="triggers">
+    <h2 class="section-title">8. Triggers Identificados</h2>
+
+    <div class="alert alert-critico">
+      <span class="alert-icon">🔴</span>
+      <div>
+        <strong>Ambos os triggers disparam em <code>AFTER INSERT ON auth.users</code>.</strong>
+        Isso significa que qualquer chamada a <code>supabase.auth.signUp()</code> — mesmo diretamente
+        via API, sem passar pelo frontend — cria automaticamente um tenant FREE com créditos.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Trigger 1: <code>handle_new_user()</code> <span class="badge badge-critico">Crítico</span></div>
+      <p><strong>Arquivo de origem:</strong> <code>supabase/schema.sql</code></p>
+      <p><strong>Trigger:</strong> <code>on_auth_user_created</code> | <code>AFTER INSERT ON auth.users</code></p>
+
+      <h4 style="margin:12px 0 6px; font-size:13px; color:var(--dark);">Comportamento:</h4>
+      <ul style="padding-left:20px; font-size:13px;">
+        <li>Determina plano por e-mail seed (<code>pro@incluiai.com</code> → PRO, outros → FREE)</li>
+        <li>Cria tenant com <code>plano_ativo = 'FREE'</code>, <code>student_limit_base = 5</code></li>
+        <li>Cria usuário em <code>public.users</code> com <code>plan = 'FREE'</code></li>
+        <li>Cria <code>credits_wallet</code> com <code>balance = 10</code></li>
+      </ul>
+
+      <pre>-- Trecho crítico (schema.sql)
+v_plan := case
+  when new.email = 'pro@incluiai.com'    then 'PRO'
+  when new.email = 'master@incluiai.com' then 'MASTER'
+  when new.email = 'admin@incluiai.com'  then 'MASTER'
+  else 'FREE'   -- ← PADRÃO: qualquer outro e-mail recebe FREE
+end;
+
+v_credits := case
+  when v_plan = 'PRO'    then 70
+  when v_plan = 'MASTER' then 100
+  else 10   -- ← FREE recebe 10 créditos iniciais
+end;</pre>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Trigger 2: <code>create_user_profile_on_signup()</code> <span class="badge badge-critico">Crítico</span></div>
+      <p><strong>Arquivo de origem:</strong> <code>supabase/schema_v13_auth_flow.sql</code> (sobrescreve versão anterior da migration)</p>
+      <p><strong>Trigger:</strong> <code>on_auth_user_created</code> | <code>AFTER INSERT ON auth.users</code></p>
+
+      <h4 style="margin:12px 0 6px; font-size:13px; color:var(--dark);">Comportamento:</h4>
+      <ul style="padding-left:20px; font-size:13px;">
+        <li>Cria tenant: <code>INSERT INTO public.tenants (..., creditos_ia_restantes = 10)</code></li>
+        <li>Cria usuário: <code>INSERT INTO public.users (..., plan = 'FREE')</code></li>
+        <li>Cria carteira: <code>credits_wallet.balance = 10</code></li>
+        <li>Cria assinatura: <code>subscriptions.status = 'ACTIVE'</code>, <code>provider = 'NONE'</code>, <code>plan_id = FREE</code></li>
+        <li>Cria ledger: <code>'Créditos iniciais plano FREE'</code></li>
+      </ul>
+
+      <div class="alert alert-alto" style="margin-top:12px;">
+        <span class="alert-icon">⚠️</span>
+        <div>A migration <code>20260407174103_remote_schema.sql</code> (espelho do banco em produção)
+        registra este trigger concedendo <strong>60 créditos</strong>, enquanto o schema local registra
+        <strong>10 créditos</strong>. Há discrepância entre o schema local e o banco de produção.</div>
+      </div>
+
+      <pre>-- Trecho crítico (schema_v13_auth_flow.sql / migration)
+INSERT INTO public.tenants (id, name, type, status_assinatura, creditos_ia_restantes)
+VALUES (gen_random_uuid(), ..., 'ACTIVE', 10);  -- 10 créditos
+
+-- Ou na migration (20260407174103):
+INSERT INTO public.credits_wallet (tenant_id, balance)
+VALUES (v_tenant_id, 60);  -- 60 créditos
+
+INSERT INTO public.subscriptions (tenant_id, plan_id, status, provider)
+VALUES (v_tenant_id, v_free_plan_id, 'ACTIVE', 'NONE');  -- FREE ATIVO</pre>
+    </div>
+
+    <div class="alert alert-alto">
+      <span class="alert-icon">⚠️</span>
+      <div>
+        <strong>Risco de duplicidade:</strong> Se ambos os triggers estiverem ativos simultaneamente
+        em produção, cada cadastro pode criar dois tenants ou dois registros na <code>credits_wallet</code>.
+        O <code>IF EXISTS (SELECT 1 FROM users WHERE id = NEW.id)</code> do Trigger 2 protege parcialmente,
+        mas precisa ser auditado no banco de produção via SQL.
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 9. ONDE O FREE É CRIADO ═══════════════ -->
+  <section id="free-criado">
+    <h2 class="section-title">9. Onde o Plano FREE é Criado Automaticamente</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Local</th><th>Arquivo</th><th>Como ocorre</th><th>Severidade</th></tr></thead>
+        <tbody>
+          <tr class="risk-row-critico">
+            <td>Trigger <code>handle_new_user()</code></td>
+            <td><code>supabase/schema.sql</code></td>
+            <td>Qualquer e-mail que não seja seed recebe <code>plan = 'FREE'</code> e tenant criado</td>
+            <td><span class="badge badge-critico">Crítico</span></td>
+          </tr>
+          <tr class="risk-row-critico">
+            <td>Trigger <code>create_user_profile_on_signup()</code></td>
+            <td><code>supabase/schema_v13_auth_flow.sql</code></td>
+            <td>Cria subscription <code>ACTIVE</code> com <code>plan_id = FREE</code> e <code>provider = 'NONE'</code></td>
+            <td><span class="badge badge-critico">Crítico</span></td>
+          </tr>
+          <tr class="risk-row-alto">
+            <td><code>resolvePlanTier()</code></td>
+            <td><code>src/types.ts</code></td>
+            <td>Fallback: <code>return PLAN_TIER_ALIASES[key] ?? PlanTier.FREE</code> — qualquer plano desconhecido vira FREE no frontend</td>
+            <td><span class="badge badge-medio">Médio</span></td>
+          </tr>
+          <tr class="risk-row-alto">
+            <td><code>subscriptionService.ts</code></td>
+            <td><code>src/services/subscriptionService.ts</code></td>
+            <td><code>let planCode = 'FREE'</code> — padrão quando <code>plan_id</code> não encontrado no banco</td>
+            <td><span class="badge badge-medio">Médio</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 10. CRÉDITOS FREE ═══════════════ -->
+  <section id="creditos-free">
+    <h2 class="section-title">10. Onde Créditos FREE São Concedidos</h2>
+
+    <div class="alert alert-critico">
+      <span class="alert-icon">🔴</span>
+      <div>
+        <strong>Divergência crítica:</strong> Foram encontrados dois valores distintos para créditos
+        iniciais do plano FREE: <strong>10 créditos</strong> (trigger no schema local) e
+        <strong>60 créditos</strong> (trigger espelhado na migration de produção).
+        É necessário auditar o banco de produção para confirmar qual trigger está ativo.
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Local</th><th>Créditos</th><th>Tipo de operação</th><th>Ledger</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>handle_new_user()</code> em <code>schema.sql</code></td>
+            <td><strong>10</strong></td>
+            <td>Criação de <code>credits_wallet.balance = 10</code></td>
+            <td>Não registrado no ledger</td>
+          </tr>
+          <tr>
+            <td><code>create_user_profile_on_signup()</code> em migration</td>
+            <td><strong>60</strong></td>
+            <td>Criação de <code>credits_wallet.balance = 60</code></td>
+            <td><code>'Créditos iniciais plano FREE'</code>, type: <code>monthly_grant</code></td>
+          </tr>
+          <tr>
+            <td><code>schema_v13_auth_flow.sql</code></td>
+            <td><strong>10</strong></td>
+            <td><code>INSERT INTO credits_wallet (balance = 10)</code></td>
+            <td><code>'Créditos iniciais plano FREE'</code>, type: <code>credit</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 11. DIVERGÊNCIAS ═══════════════ -->
+  <section id="divergencias">
+    <h2 class="section-title">11. Divergências Encontradas</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Divergência</th><th>Impacto</th><th>Severidade</th></tr></thead>
+        <tbody>
+          <tr class="risk-row-critico">
+            <td>1</td>
+            <td>Créditos FREE: 10 no schema local vs 60 na migration de produção</td>
+            <td>Inconsistência entre ambiente local e produção. Qual está ativo?</td>
+            <td><span class="badge badge-critico">Crítico</span></td>
+          </tr>
+          <tr class="risk-row-critico">
+            <td>2</td>
+            <td>Dois triggers com o mesmo nome de evento (<code>on_auth_user_created</code>)</td>
+            <td>Potencial duplicidade de dados. Um pode sobrescrever o outro ou ambos executam.</td>
+            <td><span class="badge badge-critico">Crítico</span></td>
+          </tr>
+          <tr class="risk-row-critico">
+            <td>3</td>
+            <td>Verificação de compra no blur do e-mail é informativa, não bloqueante</td>
+            <td>Usuário sem compra pode completar o cadastro normalmente</td>
+            <td><span class="badge badge-critico">Crítico</span></td>
+          </tr>
+          <tr class="risk-row-alto">
+            <td>4</td>
+            <td>Login via Google (OAuth) também dispara o trigger FREE sem verificação de compra</td>
+            <td>Burla do gatekeeping via Google OAuth</td>
+            <td><span class="badge badge-alto">Alto</span></td>
+          </tr>
+          <tr class="risk-row-alto">
+            <td>5</td>
+            <td><code>check_purchase_by_email</code> v1 (schema.sql) não retorna <code>product_key</code></td>
+            <td>Versão antiga pode estar em produção sem o campo necessário para detectar UNKNOWN</td>
+            <td><span class="badge badge-alto">Alto</span></td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td><code>activate_purchase_for_user</code> em <code>schema_payment_activation.sql</code> tem bugs conhecidos</td>
+            <td>Versão corrigida está em <code>20260508000001_fix_purchase_activation.sql</code> — confirmar que está em produção</td>
+            <td><span class="badge badge-medio">Médio</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 12. RISCOS ═══════════════ -->
+  <section id="riscos">
+    <h2 class="section-title">12. Riscos Críticos</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Risco</th><th>Descrição</th><th>Mitigação</th><th>Severidade</th></tr></thead>
+        <tbody>
+          <tr class="risk-row-critico">
+            <td>Burla via API direta</td>
+            <td>Alguém pode chamar <code>supabase.auth.signUp()</code> diretamente, ignorando o frontend, e criar um tenant FREE</td>
+            <td>Patch no trigger: verificar <code>kiwify_purchases</code> antes de criar tenant FREE</td>
+            <td><span class="badge badge-critico">Crítico</span></td>
+          </tr>
+          <tr class="risk-row-critico">
+            <td>Google OAuth sem compra</td>
+            <td><code>handleGoogleLogin()</code> dispara <code>signInWithOAuth</code> → trigger cria FREE sem verificação</td>
+            <td>Verificar compra no callback de retorno do Google antes de completar o onboarding</td>
+            <td><span class="badge badge-critico">Crítico</span></td>
+          </tr>
+          <tr class="risk-row-critico">
+            <td>Webhook atrasado bloqueia cadastro legítimo</td>
+            <td>Cliente paga e tenta cadastrar imediatamente; webhook ainda não chegou</td>
+            <td>Botão "Verificar novamente" + orientação de aguardar + WhatsApp de suporte</td>
+            <td><span class="badge badge-critico">Crítico</span></td>
+          </tr>
+          <tr class="risk-row-alto">
+            <td>Regressão em usuários FREE existentes</td>
+            <td>Patch no trigger pode afetar usuários que fazem re-login ou re-autenticação</td>
+            <td>Manter <code>IF EXISTS (SELECT 1 FROM users WHERE id = NEW.id) THEN RETURN NEW</code></td>
+            <td><span class="badge badge-alto">Alto</span></td>
+          </tr>
+          <tr class="risk-row-alto">
+            <td>product_key = 'UNKNOWN' bloqueia cliente legítimo</td>
+            <td>Produto não mapeado no webhook → compra APPROVED mas cliente bloqueado</td>
+            <td>CEO pode resolver via <code>reconcile_pending_activations()</code> ou ajuste manual</td>
+            <td><span class="badge badge-alto">Alto</span></td>
+          </tr>
+          <tr>
+            <td>Compra ativada, cliente tenta novo cadastro</td>
+            <td><code>activated_at IS NOT NULL</code> → compra não aparece na busca → cliente bloqueado no cadastro (mas e-mail já existe no Auth)</td>
+            <td>Supabase Auth também bloqueia e-mail duplicado — fluxo é: recuperar senha / fazer login</td>
+            <td><span class="badge badge-medio">Médio</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 13. CASOS DE BORDA ═══════════════ -->
+  <section id="bordas">
+    <h2 class="section-title">13. Casos de Borda</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Cenário</th><th>Comportamento esperado</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Compra APPROVED, sem conta ainda</td><td>Etapa 1 libera → formulário de dados → cria conta → ativa plano automaticamente</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>2</td><td>Compra já ativada, mesma conta</td><td><code>activated_at IS NOT NULL</code> → não retorna na busca → "não encontrada" (Supabase Auth também rejeita e-mail duplicado)</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>3</td><td>Compra ativada em outra conta</td><td>Retorna "não encontrada" genericamente — sem revelar outra conta</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>4</td><td>Compra mensal</td><td><code>product_key</code> como <code>PRO_MONTHLY</code> → libera e ativa normalmente</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>5</td><td>Compra anual</td><td><code>product_key</code> como <code>PRO_ANNUAL</code> → libera e ativa com <code>billing_cycle = 'annual'</code></td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>6</td><td>Pagamento PENDING</td><td><code>{ found: true, status: 'PENDING' }</code> → mostra "aguarde" + "Verificar novamente"</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>7</td><td>Pagamento recusado</td><td><code>status = 'CANCELED'</code> → não retorna na query APPROVED → "não encontrada"</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>8</td><td>Reembolso</td><td><code>status = 'REFUNDED'</code> → não retorna → "não encontrada"</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>9</td><td>Chargeback</td><td>Normalmente <code>CANCELED</code> ou <code>REFUNDED</code> → "não encontrada"</td><td><span class="badge badge-pendente">Confirmar</span></td></tr>
+          <tr><td>10</td><td>Cancelamento</td><td><code>status = 'CANCELED'</code> → "não encontrada"</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>11</td><td>Webhook atrasado</td><td><code>found: false</code> → "Verificar novamente" + aguardar + WhatsApp</td><td><span class="badge badge-pendente">Requer UX</span></td></tr>
+          <tr><td>12</td><td>Webhook duplicado</td><td>Idempotência: <code>UNIQUE (kiwify_order_id, event_type)</code> em logs + <code>UNIQUE (provider_order_id)</code> em purchases</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>13</td><td>E-mail com maiúsculas</td><td><code>lower(trim())</code> em ambos os lados — equiparado</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>14</td><td>Espaços antes/depois do e-mail</td><td><code>trim()</code> — ignorados</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>15</td><td>Duas compras APPROVED no mesmo e-mail</td><td><code>ORDER BY paid_at DESC LIMIT 1</code> — usa a mais recente</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>16</td><td>Upgrade posterior</td><td>Compra anterior ativada → nova compra de upgrade = novo registro → funciona normalmente</td><td><span class="badge badge-confirmado">Suportado</span></td></tr>
+          <tr><td>17</td><td>Produto UNKNOWN</td><td><code>product_key = 'UNKNOWN'</code> → libera para criar conta (compra existe) mas bloqueia ativação automática → CEO resolve</td><td><span class="badge badge-pendente">Definir política</span></td></tr>
+          <tr><td>18</td><td>Conta antiga FREE fazendo login</td><td>Login NÃO é afetado. Apenas novos cadastros exigem compra.</td><td><span class="badge badge-confirmado">Preservado</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 14. WHATSAPP ═══════════════ -->
+  <section id="whatsapp">
+    <h2 class="section-title">14. Número Oficial do WhatsApp</h2>
+
+    <div class="card">
+      <div class="card-title">Origem: <code>src/config/contact.ts</code></div>
+      <div class="table-wrap" style="margin-top:12px;">
+        <table>
+          <thead><tr><th>Constante</th><th>Valor</th></tr></thead>
+          <tbody>
+            <tr><td><code>WHATSAPP_SUPPORT_NUMBER</code></td><td><code>5599984167490</code></td></tr>
+            <tr><td><code>WHATSAPP_SUPPORT_DISPLAY</code></td><td><code>(99) 98416-7490</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4 style="margin:14px 0 6px; font-size:13px;">Função de geração de URL:</h4>
+      <pre>export function waUrl(message?: string): string {
+  const text = encodeURIComponent(message ?? DEFAULT_WA_MESSAGE);
+  return `https://wa.me/${WHATSAPP_SUPPORT_NUMBER}?text=${text}`;
+}</pre>
+
+      <h4 style="margin:14px 0 6px; font-size:13px;">Mensagem obrigatória para o botão de cadastro:</h4>
+      <div class="alert alert-info">
+        <span class="alert-icon">💬</span>
+        <div>
+          <strong>Texto aprovado pela CEO:</strong><br>
+          <em>"Olá! Fiz uma compra do IncluiAI pela Kiwify, mas o sistema não localizou minha compra com
+          o e-mail informado. Preciso de ajuda para acessar minha conta."</em>
+          <br><br>
+          <strong>URL resultante:</strong><br>
+          <code>https://wa.me/5599984167490?text=Ol%C3%A1!%20Fiz%20uma%20compra%20do%20IncluiAI%20pela%20Kiwify...</code>
+          <br><br>
+          <strong>Requisitos:</strong> <code>target="_blank"</code> · <code>rel="noopener noreferrer"</code>
+        </div>
+      </div>
+
+      <h4 style="margin:14px 0 6px; font-size:13px;">Uso correto no componente:</h4>
+      <pre>import { waUrl } from '../../config/contact';
+
+const WA_CADASTRO = waUrl(
+  'Olá! Fiz uma compra do IncluiAI pela Kiwify, mas o sistema não localizou ' +
+  'minha compra com o e-mail informado. Preciso de ajuda para acessar minha conta.'
+);</pre>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 15. RECOMENDAÇÕES ═══════════════ -->
+  <section id="recomendacoes">
+    <h2 class="section-title">15. Recomendações</h2>
+
+    <div class="card">
+      <div class="card-title">Nova mensagem pública obrigatória em caso de compra não encontrada:</div>
+      <div class="alert alert-critico" style="margin-top:10px;">
+        <span class="alert-icon">📢</span>
+        <div style="font-style:italic;">
+          "Não encontramos uma compra aprovada para este e-mail. Use o mesmo e-mail informado no
+          momento da compra pela Kiwify. Qualquer dúvida, entre em contato conosco pelo WhatsApp."
+        </div>
+      </div>
+    </div>
+
+    <h3 class="section-subtitle">Recomendações por camada</h3>
+
+    <div class="card">
+      <div class="card-title">Frontend — <code>src/components/LoginScreen.tsx</code></div>
+      <ul style="padding-left:20px; font-size:13px; line-height:1.8;">
+        <li>Transformar a aba "Criar conta" em duas etapas: verificação de e-mail → formulário de dados</li>
+        <li>Etapa 1: campo "E-mail da compra" + botão "Continuar" (loading: "Verificando sua compra...")</li>
+        <li>Etapa 2: formulário completo (nome, telefone, CPF, senha) — somente se compra APPROVED</li>
+        <li>Estado de erro: mensagem exata + "Tentar outro e-mail" + "Verificar novamente" + "Falar pelo WhatsApp"</li>
+        <li>Estado PENDING: "aguarde alguns instantes" + "Verificar novamente" + WhatsApp</li>
+        <li>Remover: "Criar conta gratuita", "Nenhum cartão necessário", "Criar gratuitamente"</li>
+        <li>Não mencionar FREE, gratuito, teste gratuito ou créditos gratuitos</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Backend — Trigger PostgreSQL (segurança adicional)</div>
+      <ul style="padding-left:20px; font-size:13px; line-height:1.8;">
+        <li>Modificar <code>create_user_profile_on_signup()</code> para verificar <code>kiwify_purchases</code> antes de criar tenant FREE</li>
+        <li>Se não existe compra APPROVED: criar usuário em <code>auth.users</code> (obrigatório) mas NÃO criar tenant nem subscription FREE</li>
+        <li>App detecta ausência de tenant e exibe tela de "compra não localizada"</li>
+        <li>Preservar: <code>IF EXISTS (SELECT 1 FROM users WHERE id = NEW.id) THEN RETURN NEW</code> (idempotência)</li>
+        <li>Tratar exceções para não bloquear o auth.users (usar EXCEPTION WHEN OTHERS)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Google OAuth</div>
+      <ul style="padding-left:20px; font-size:13px; line-height:1.8;">
+        <li>No callback de retorno do Google, verificar se o usuário tem compra aprovada antes de completar onboarding</li>
+        <li>Se não tem compra: exibir tela de "compra não localizada" + opção de usar e-mail/senha com e-mail correto</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 16. PLANO DE IMPLEMENTAÇÃO ═══════════════ -->
+  <section id="fases">
+    <h2 class="section-title">16. Plano de Implementação em Fases</h2>
+
+    <div class="card">
+      <div class="card-title">Fase 1 — Frontend (menor risco, maior impacto visível) <span class="badge badge-confirmado">Recomendada primeiro</span></div>
+      <ul style="padding-left:20px; font-size:13px; line-height:1.8;">
+        <li>Modificar <code>LoginScreen.tsx</code>: adicionar etapa de verificação obrigatória</li>
+        <li>Remover textos de gratuidade</li>
+        <li>Implementar UX dos estados: verificando, encontrada, não encontrada, pendente</li>
+        <li>Adicionar botão WhatsApp com mensagem aprovada</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Fase 2 — Backend (camada de segurança no trigger) <span class="badge badge-alto">Alta prioridade</span></div>
+      <ul style="padding-left:20px; font-size:13px; line-height:1.8;">
+        <li>Auditar banco de produção: confirmar qual trigger está ativo e quantos créditos são concedidos</li>
+        <li>Modificar trigger para não criar tenant FREE sem compra</li>
+        <li>Garantir que o trigger continua funcionando para usuários existentes (idempotência)</li>
+        <li>Testar com e-mail de compra simulada via INSERT no SQL Editor</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Fase 3 — Google OAuth <span class="badge badge-medio">Médio prazo</span></div>
+      <ul style="padding-left:20px; font-size:13px; line-height:1.8;">
+        <li>Verificar compra no callback do OAuth</li>
+        <li>Exibir tela de bloqueio se não há compra para o e-mail Google</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">O que NÃO fazer em nenhuma fase</div>
+      <ul style="padding-left:20px; font-size:13px; line-height:1.8; color:#7F1D1D;">
+        <li>Remover o plano FREE do banco</li>
+        <li>Alterar usuários FREE existentes</li>
+        <li>Alterar créditos de usuários ativos</li>
+        <li>Alterar o webhook da Kiwify</li>
+        <li>Criar fallback com tenant FREE temporário</li>
+        <li>Usar data de cadastro como início do período de assinatura</li>
+        <li>Vincular compra por nome, CPF, telefone ou similaridade de e-mail</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 17. CHECKLIST ═══════════════ -->
+  <section id="checklist">
+    <h2 class="section-title">17. Checklist Antes da Execução</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>Verificação</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Confirmar qual trigger está ativo em produção (<code>handle_new_user</code> ou <code>create_user_profile_on_signup</code>)</td><td><span class="badge badge-pendente">Pendente</span></td></tr>
+          <tr><td>2</td><td>Confirmar quantos créditos FREE o trigger em produção concede (10 ou 60)</td><td><span class="badge badge-pendente">Pendente</span></td></tr>
+          <tr><td>3</td><td>Confirmar que a versão v2 de <code>check_purchase_by_email</code> (com <code>product_key</code>) está em produção</td><td><span class="badge badge-pendente">Pendente</span></td></tr>
+          <tr><td>4</td><td>Confirmar que a migration <code>20260508000001_fix_purchase_activation.sql</code> foi aplicada em produção</td><td><span class="badge badge-pendente">Pendente</span></td></tr>
+          <tr><td>5</td><td>Testar <code>check_purchase_by_email</code> com e-mail de compra real para confirmar retorno correto</td><td><span class="badge badge-pendente">Pendente</span></td></tr>
+          <tr><td>6</td><td>Confirmar que o número <code>5599984167490</code> está ativo e sendo monitorado</td><td><span class="badge badge-confirmado">Confirmado</span></td></tr>
+          <tr><td>7</td><td>Ter pelo menos uma compra de teste (<code>status = 'APPROVED'</code>) no banco para validar o novo fluxo</td><td><span class="badge badge-pendente">Pendente</span></td></tr>
+          <tr><td>8</td><td>Aprovação da CEO nas mensagens de erro e textos da nova UX de cadastro</td><td><span class="badge badge-confirmado">Aprovado</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══════════════ 18. CONCLUSÃO ═══════════════ -->
+  <section id="conclusao">
+    <h2 class="section-title">18. Conclusão</h2>
+
+    <div class="card">
+      <p>
+        O sistema atual permite que qualquer pessoa crie uma conta no IncluiAI com plano FREE e 10–60
+        créditos de IA, sem nenhuma compra registrada. Isso ocorre por design, através de dois triggers
+        PostgreSQL que disparam automaticamente após qualquer novo usuário no Supabase Auth.
+      </p>
+      <p style="margin-top:12px;">
+        A infraestrutura de validação de compras já existe e funciona: a tabela <code>kiwify_purchases</code>,
+        as RPCs <code>check_purchase_by_email</code> e <code>activate_purchase_for_user</code>, e o
+        <code>purchaseActivationService.ts</code> já são utilizados no fluxo de pós-compra. O que falta
+        é transformar essa verificação de <em>informativa</em> em <em>bloqueante</em>, tanto no frontend
+        quanto no trigger de backend.
+      </p>
+      <p style="margin-top:12px;">
+        A implementação é segura e de impacto controlado se feita nas fases recomendadas: frontend
+        primeiro (UX bloqueante no cadastro), depois backend (trigger sem tenant FREE sem compra),
+        e por último o fluxo Google OAuth.
+      </p>
+      <p style="margin-top:12px;">
+        Nenhuma alteração deve ser feita em usuários FREE existentes, no plano FREE do banco,
+        nos créditos de usuários ativos ou no webhook da Kiwify.
+      </p>
+    </div>
+  </section>
+
+  <div style="margin-top:40px; padding:20px 24px; background:var(--surface); border:1px solid var(--border); border-radius:10px; font-size:12px; color:var(--muted);">
+    <strong style="color:var(--text);">Gerado em:</strong> 02/07/2026 —
+    <strong style="color:var(--text);">Arquivo:</strong> <code>auditorias/2026-07-02_auditoria-cadastro-validacao-compra-kiwify-e-remocao-free.html</code> —
+    <strong style="color:var(--text);">Responsável:</strong> Claude Code (claude-sonnet-4-6) —
+    <strong style="color:var(--text);">Nenhum arquivo funcional foi alterado.</strong>
+  </div>
+
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  <div>
+    <strong>IncluiAI</strong> · Plataforma de Inclusão com Inteligência Artificial<br>
+    Auditoria Técnica — Uso interno
+  </div>
+  <div style="text-align:right;">
+    Gerado em: 02/07/2026<br>
+    <span style="color:rgba(255,255,255,0.4); font-size:10px;">auditorias/2026-07-02_auditoria-cadastro-validacao-compra-kiwify-e-remocao-free.html</span>
+  </div>
+</div>
+
+</body>
+</html>

@@ -73,6 +73,79 @@ function inferPlanFromName(name: string): string | null {
   return null;
 }
 
+// ── parseKiwifyDate: converte campo de data do payload Kiwify para ISO 8601 ────
+// Suporta: ISO 8601, formato brasileiro (DD/MM/YYYY HH:MM:SS), Unix timestamp.
+function parseKiwifyDate(raw: unknown): string | null {
+  if (!raw || typeof raw !== 'string') return null;
+  // ISO 8601: "2026-05-08T09:28:00Z" ou "2026-05-08 09:28:00"
+  if (/\d{4}-\d{2}-\d{2}/.test(raw)) {
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  // Formato brasileiro: "08/05/2026 09:28:00" ou "08/05/2026"
+  const brMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}:\d{2}:\d{2}))?/);
+  if (brMatch) {
+    const [, day, month, year, time = '00:00:00'] = brMatch;
+    const d = new Date(`${year}-${month}-${day}T${time}Z`);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  // Unix timestamp numérico como string (10 ou 13 dígitos)
+  if (/^\d{10,13}$/.test(raw)) {
+    const ts = parseInt(raw, 10);
+    const d  = new Date(ts > 9_999_999_999 ? ts : ts * 1000);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  return null;
+}
+
+// ── extractKiwifyPaidAt: data real do pagamento aprovado na Kiwify ─────────────
+// Tenta campos em ordem de confiabilidade decrescente.
+// NUNCA deve representar: data de cadastro do usuário, data de ativação de conta,
+// data de processamento do webhook. Apenas a data real do pagamento Kiwify.
+// Último recurso: now() com log de anomalia obrigatório.
+function extractKiwifyPaidAt(payload: any, order: any, reqId: string): string {
+  const candidates: Array<[string, unknown]> = [
+    ['order.approved_date',    order?.approved_date],
+    ['payload.approved_date',  payload?.approved_date],
+    ['order.payment_date',     order?.payment_date],
+    ['payload.payment_date',   payload?.payment_date],
+    ['order.paid_date',        order?.paid_date],
+    ['payload.paid_date',      payload?.paid_date],
+    ['order.paidAt',           order?.paidAt],
+    ['payload.paidAt',         payload?.paidAt],
+    ['order.paid_at',          order?.paid_at],
+    ['payload.paid_at',        payload?.paid_at],
+    ['order.approved_at',      order?.approved_at],
+    ['payload.approved_at',    payload?.approved_at],
+    ['order.created_at',       order?.created_at],  // proxy — menor confiabilidade
+  ];
+
+  for (const [field, raw] of candidates) {
+    const parsed = parseKiwifyDate(raw);
+    if (parsed) {
+      console.log(`[kiwify/${reqId}] ✅ paid_at extraído de "${field}": ${parsed}`);
+      return parsed;
+    }
+  }
+
+  const fallback = new Date().toISOString();
+  console.warn(
+    `[kiwify/${reqId}] ⚠️ ANOMALIA: nenhuma data de pagamento encontrada no payload Kiwify.` +
+    ` Chaves em order: [${Object.keys(order ?? {}).join(', ') || 'vazio'}].` +
+    ` Usando now()=${fallback} como fallback — ESTE TIMESTAMP NÃO REPRESENTA O PAGAMENTO REAL.` +
+    ` Corrija o cadastro manual em kiwify_purchases.paid_at após identificar a data real.`
+  );
+  return fallback;
+}
+
+// ── keepEarlierDate: preserva o paid_at mais antigo entre banco e evento atual ──
+// Evita que retry ou reenvio de webhook sobrescreva a data real de pagamento.
+// Regra: paid_at real é sempre o mais antigo — eventos posteriores são notificações.
+function keepEarlierDate(existing: string | null, extracted: string): string {
+  if (!existing) return extracted;
+  return new Date(existing) <= new Date(extracted) ? existing : extracted;
+}
+
 Deno.serve(async (req: Request) => {
   const reqId    = crypto.randomUUID().slice(0, 8);
   const startMs  = Date.now();
@@ -385,13 +458,40 @@ async function processWebhook(
   );
 
   // ── billing_cycle ──────────────────────────────────────────────────────────
-  const isAnnual    = /anual|annual/i.test(productName) || /annual/i.test(kiwifyProductId);
-  const billingCycle: 'monthly' | 'annual' = isAnnual ? 'annual' : 'monthly';
+  // Regra: nome do produto é a evidência primária (Kiwify é explícito: "ANUAL" / "MENSAL").
+  // Se nenhuma evidência → NULL. Não presumir monthly como fallback.
+  const isAnnual  = /anual|annual/i.test(productName);
+  const isMonthly = /mensal|monthly/i.test(productName);
+  const billingCycle: 'monthly' | 'annual' | null =
+    isAnnual ? 'annual' : isMonthly ? 'monthly' : null;
+
+  if (billingCycle === null && planCode && productType === 'subscription') {
+    console.warn(
+      `[kiwify/${reqId}] ⚠️ ANOMALIA: billing_cycle não determinado para produto` +
+      ` id="${kiwifyProductId}" name="${productName}" plan=${planCode}.` +
+      ` Salvo com billing_cycle=NULL. Corrija via painel CEO.`
+    );
+  }
+
+  // ── Helper: calcula period_end correto por ciclo ────────────────────────────
+  // Retorna null quando ciclo é desconhecido — não presumir period_end.
+  function periodEndFromCycle(cycle: 'monthly' | 'annual' | null, from?: Date): string | null {
+    if (!cycle) return null;
+    const base = from ?? new Date();
+    const d = new Date(base);
+    if (cycle === 'annual') {
+      d.setFullYear(d.getFullYear() + 1);
+    } else {
+      d.setMonth(d.getMonth() + 1);
+    }
+    return d.toISOString();
+  }
 
   // ── product_key ────────────────────────────────────────────────────────────
   let productKey: string;
   if (planCode && productType === 'subscription') {
-    productKey = `${planCode}_${billingCycle === 'annual' ? 'ANNUAL' : 'MONTHLY'}`;
+    const cycleSuffix = billingCycle === 'annual' ? 'ANNUAL' : billingCycle === 'monthly' ? 'MONTHLY' : 'UNKNOWN_CYCLE';
+    productKey = `${planCode}_${cycleSuffix}`;
   } else if (productType === 'credits' && creditsToGrant > 0) {
     productKey = `CREDITS_${creditsToGrant}`;
   } else {
@@ -415,6 +515,35 @@ async function processWebhook(
     creditsAmount: creditsToGrant,
   });
 
+  // ── Extrai a data real do pagamento Kiwify ───────────────────────────────────
+  // Regra comercial: paid_at = data aprovação do pagamento na Kiwify, nunca now().
+  const extractedPaidAt: string | null = isApproved
+    ? extractKiwifyPaidAt(payload, order, reqId)
+    : null;
+
+  // ── Preserva paid_at mais antigo — proteção contra retry/reenvio ─────────────
+  // Se já existe um registro com paid_at anterior, mantém o original.
+  // Isso evita que um segundo evento da Kiwify (ex: subscription_activated) sobrescreva
+  // a data real do pagamento com o timestamp do evento de notificação posterior.
+  let finalPaidAt: string | null = extractedPaidAt;
+  if (isApproved && extractedPaidAt && orderId) {
+    const { data: existingRec } = await db
+      .from('kiwify_purchases')
+      .select('paid_at')
+      .eq('provider_order_id', orderId)
+      .maybeSingle();
+
+    if (existingRec?.paid_at) {
+      finalPaidAt = keepEarlierDate(existingRec.paid_at, extractedPaidAt);
+      if (finalPaidAt !== extractedPaidAt) {
+        console.log(
+          `[kiwify/${reqId}] 🔒 paid_at preservado: existente (${existingRec.paid_at}) ` +
+          `é anterior ao extraído (${extractedPaidAt}) — retry/reenvio detectado, data original mantida.`
+        );
+      }
+    }
+  }
+
   // ── Salva em kiwify_purchases (SEMPRE, mesmo sem tenant_id) ───────────────
   if (customerEmail) {
     const purchasePayload = {
@@ -425,7 +554,7 @@ async function processWebhook(
       provider_order_id: orderId,
       status:            purchaseStatus,
       payload:           payload,
-      paid_at:           isApproved ? new Date().toISOString() : null,
+      paid_at:           finalPaidAt,
       tenant_id:         tenantId,
     };
     console.log(`[kiwify/${reqId}] Tentando upsert em kiwify_purchases: ${JSON.stringify({
@@ -513,16 +642,27 @@ async function processWebhook(
             throw new Error(`Plano "${normalizedPlanCode}" não encontrado em plans nem em PLAN_IDS.`);
           }
 
-          const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+          // Ancora o período na data real do pagamento Kiwify, não em now().
+          // current_period_start = paid_at da Kiwify
+          // current_period_end   = paid_at + ciclo (1 mês ou 12 meses)
+          const paidAtDate: Date | undefined = finalPaidAt ? new Date(finalPaidAt) : undefined;
+          if (!paidAtDate && billingCycle) {
+            console.warn(
+              `[kiwify/${reqId}] ⚠️ ANOMALIA: current_period_start será NULL — ` +
+              `paid_at não disponível. period_end calculado a partir de now() como fallback.`
+            );
+          }
+          const periodEnd = periodEndFromCycle(billingCycle, paidAtDate);
 
           const { data: updatedSub, error: updateSubErr } = await db
             .from('subscriptions')
             .update({
-              plan_id:            resolvedPlanId,
-              status:             'ACTIVE',
-              current_period_end: periodEnd,
-              provider:           'kiwify',
-              billing_cycle:      billingCycle,
+              plan_id:              resolvedPlanId,
+              status:               'ACTIVE',
+              current_period_start: finalPaidAt ?? null,
+              current_period_end:   periodEnd,
+              provider:             'kiwify',
+              billing_cycle:        billingCycle,
             })
             .eq('tenant_id', effectiveTenantId)
             .select('id')
@@ -534,12 +674,13 @@ async function processWebhook(
             const { error: insertSubErr } = await db
               .from('subscriptions')
               .insert({
-                tenant_id:          effectiveTenantId,
-                plan_id:            resolvedPlanId,
-                status:             'ACTIVE',
-                current_period_end: periodEnd,
-                provider:           'kiwify',
-                billing_cycle:      billingCycle,
+                tenant_id:            effectiveTenantId,
+                plan_id:              resolvedPlanId,
+                status:               'ACTIVE',
+                current_period_start: finalPaidAt ?? null,
+                current_period_end:   periodEnd,
+                provider:             'kiwify',
+                billing_cycle:        billingCycle,
               });
             if (insertSubErr) throw new Error(`subscriptions insert failed: ${insertSubErr.message}`);
           }
@@ -602,8 +743,23 @@ async function processWebhook(
         }
 
       } else if (event === 'subscription_renewed') {
-        const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        await db.from('subscriptions').update({ status: 'ACTIVE', current_period_end: periodEnd }).eq('tenant_id', effectiveTenantId);
+        // Para renovação: consulta billing_cycle atual da assinatura para calcular period_end corretamente
+        const { data: currentSubData } = await db
+          .from('subscriptions')
+          .select('billing_cycle')
+          .eq('tenant_id', effectiveTenantId)
+          .maybeSingle();
+        const renewCycle: 'monthly' | 'annual' =
+          currentSubData?.billing_cycle === 'annual' ? 'annual' : 'monthly';
+        // Para renovação, o período começa na data de renovação real (agora).
+        // Extrai do payload se disponível; fallback para now() é semanticamente correto aqui.
+        const renewStart = extractKiwifyPaidAt(payload, order, reqId);
+        const periodEnd  = periodEndFromCycle(renewCycle, new Date(renewStart));
+        await db.from('subscriptions').update({
+          status:               'ACTIVE',
+          current_period_start: renewStart,
+          current_period_end:   periodEnd,
+        }).eq('tenant_id', effectiveTenantId);
 
         let effectivePlanCode = planCode;
         if (!effectivePlanCode) {
@@ -697,12 +853,22 @@ async function setCredits(
 ) {
   if (amount <= 0) return;
 
+  const now = new Date().toISOString();
+
+  // credits_wallet schema real: id, tenant_id, balance, last_reset_at, updated_at
+  // (last_credit_grant_at e next_credit_grant_at NÃO existem — derivados do credits_ledger)
+  const walletFields: Record<string, string | number> = {
+    tenant_id:  tenantId,
+    balance:    amount,
+    updated_at: now,
+  };
+  if (ledgerType === 'monthly_grant') {
+    walletFields.last_reset_at = now;
+  }
+
   const { error: walletErr } = await db
     .from('credits_wallet')
-    .upsert(
-      { tenant_id: tenantId, balance: amount, updated_at: new Date().toISOString() },
-      { onConflict: 'tenant_id' }
-    );
+    .upsert(walletFields, { onConflict: 'tenant_id' });
 
   if (walletErr) {
     console.error(`[kiwify/${reqId}] ❌ Falha ao resetar credits_wallet: ${walletErr.message}`);

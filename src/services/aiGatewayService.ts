@@ -23,6 +23,11 @@ export interface AIGatewayRequest {
   // Sprint IA-9: Opção C Híbrida — Edge monta contexto canônico via service_role
   buildContextServer?: boolean; // quando true: Edge busca contexto do aluno pelo studentId
   targetDocType?:      string;  // pei | paee | pdi | plano_acao_aee | plano_acao_regente | perfil_inteligente
+  /**
+   * Quando true: Edge reserva créditos mas não commita após a IA.
+   * A resposta inclui reservationId para o frontend confirmar/liberar após salvar no banco.
+   */
+  deferCommit?:        boolean;
 }
 
 export interface AIGatewayResponse {
@@ -32,6 +37,8 @@ export interface AIGatewayResponse {
   documentId?:               string;
   warnings?:                 string[];
   missingOptionalSources?:   string[];
+  /** Presente quando deferCommit=true: ID da reserva a ser confirmada ou liberada pelo frontend */
+  reservationId?:            string;
 }
 
 // ─── Chamada principal ────────────────────────────────────────────────────────
@@ -102,5 +109,6 @@ export async function callAIGateway(req: AIGatewayRequest): Promise<AIGatewayRes
     documentId:             body.documentId,
     warnings:               body.warnings,
     missingOptionalSources: body.missingOptionalSources,
+    reservationId:          body.reservationId,
   };
 }

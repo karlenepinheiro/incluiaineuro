@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Achados — Fase 0 Diagnóstico Etapas A-D IncluiAI 2.0</title>
+<style>
+  :root {
+    --petrol:  #1F4E5F; --dark: #2E3A59; --gold: #C69214;
+    --bg: #F6F4EF; --surface: #FFFFFF; --border: #E7E2D8;
+    --text: #111827; --muted: #6B7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; position: relative; overflow: hidden; }
+  .header::before { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0); background-size: 24px 24px; }
+  .header-inner { position: relative; z-index: 1; max-width: 1040px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 25px; font-weight: 800; max-width: 800px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 740px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1040px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 13px; }
+  .toc li { margin-bottom: 6px; break-inside: avoid; }
+  .toc a { color: var(--petrol); text-decoration: none; font-weight: 600; }
+  .toc a:hover { text-decoration: underline; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block > p.lead { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: #FCFBF8; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-critico  { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .badge-alto     { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+  .badge-medio    { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+  .badge-ok       { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-confirmado { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-pendente { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+  .badge-novo     { background: #F3E8FF; color: #6B21A8; border: 1px solid #E9D5FF; }
+  .badge-readonly { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-template { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color: #C69214; background: #FEF9EE; }
+  .callout.risk { border-color: #B91C1C; background: #FEF2F2; }
+  .callout.ok { border-color: #065F46; background: #ECFDF5; }
+  .callout.novo { border-color: #6B21A8; background: #FAF5FF; }
+  .callout strong { color: var(--dark); }
+  pre { background: #1E293B; color: #E2E8F0; border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 12px; font-family: Consolas, Monaco, monospace; margin: 8px 0 16px; line-height: 1.55; }
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+  .query-block { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+  .query-head { background: #FAF9F6; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+  .query-head .qtitle { font-weight: 700; font-size: 12.5px; color: var(--dark); }
+  .query-body { padding: 0 16px; }
+  .query-body pre { margin: 12px 0; }
+  .metadata-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 14px; font-size: 12.5px; }
+  .metadata-grid div strong { display: block; color: var(--dark); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 3px; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .footer strong { color: #fff; }
+  @media (max-width: 640px) { .header { padding: 28px 20px; } section.block { padding: 20px; } .toc ol { columns: 1; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="kicker">Fase 0 · Diagnóstico Somente Leitura</div>
+    <h1>Achados Confirmados — Etapas A-D + Queries Preparadas E-I</h1>
+    <p>Resultado real do diagnóstico rodado pela CEO no SQL Editor do Supabase (schema, triggers, funções). Nenhum comando de escrita foi executado nesta etapa nem em nenhuma etapa anterior. Este documento fecha as Etapas A-D e prepara, com nomes reais confirmados, as Etapas E-I.</p>
+    <div class="cover-badges">
+      <span class="badge badge-info" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">08/07/2026</span>
+      <span class="badge badge-readonly">Somente leitura confirmada</span>
+      <span class="badge badge-critico">Achado crítico: 1 trigger ativo confirmado</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Tipo</strong>Relatório de achados (diagnóstico Fase 0)</div>
+    <div><strong>Base</strong>auditorias/2026-07-08_plano-tecnico-fase-0-saneamento-incluiai-2.0.html</div>
+    <div><strong>Comandos executados no banco</strong>Somente SELECT / information_schema / pg_catalog (rodados pela CEO)</div>
+    <div><strong>Correção aplicada</strong>Nenhuma</div>
+    <div><strong>Responsável</strong>Karlene Pinheiro (CEO)</div>
+    <div><strong>Próximo passo</strong>Rodar Etapas E-I preparadas na Seção 8 e trazer os resultados</div>
+  </div>
+
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#escopo">Escopo</a></li>
+      <li><a href="#resumo">Resumo executivo</a></li>
+      <li><a href="#trigger">Achado central — trigger ativo</a></li>
+      <li><a href="#tabelas">Inventário de tabelas confirmado</a></li>
+      <li><a href="#colunas">Colunas confirmadas</a></li>
+      <li><a href="#funcoes">Funções/RPCs confirmadas</a></li>
+      <li><a href="#divergencias">Divergências vs. hipóteses da auditoria de 02/07</a></li>
+      <li><a href="#gaps">Gaps ainda não confirmados</a></li>
+      <li><a href="#queries-ei">Etapas E-I preparadas (nomes reais)</a></li>
+      <li><a href="#controle">Tabela de controle das queries E-I</a></li>
+      <li><a href="#riscos">Riscos atualizados após o diagnóstico</a></li>
+      <li><a href="#metadados">Metadados de geração</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. ESCOPO -->
+  <section class="block" id="escopo">
+    <h2><span class="num">1</span>Escopo</h2>
+    <p><strong>O que foi feito:</strong> a CEO executou as 12 queries somente leitura das Etapas A-D preparadas no plano técnico de 08/07/2026, diretamente no SQL Editor do Supabase (produção), e trouxe os resultados reais para análise.</p>
+    <p><strong>O que NÃO foi alterado:</strong> nenhum dado, tabela, coluna, trigger, função ou schema. Nenhum comando de escrita (<code>UPDATE</code>/<code>DELETE</code>/<code>INSERT</code>/<code>ALTER</code>/<code>DROP</code>/<code>CREATE</code>/<code>TRUNCATE</code>) foi proposto ou executado. Este documento apenas registra os achados e prepara o próximo lote de leitura (Etapas E-I).</p>
+  </section>
+
+  <!-- 2. RESUMO EXECUTIVO -->
+  <section class="block" id="resumo">
+    <h2><span class="num">2</span>Resumo executivo</h2>
+    <ol class="plain">
+      <li><strong>Existe apenas um trigger ativo em <code>auth.users</code>: <code>on_auth_user_created</code>, executando <code>create_user_profile_on_signup()</code>.</strong> A hipótese de dois triggers concorrentes, levantada na auditoria de 02/07/2026 a partir de arquivos <code>.sql</code>, está parcialmente descartada: apenas um está de fato ativo hoje.</li>
+      <li><strong>A divergência histórica "10 vs 60 créditos" está resolvida a favor de 60.</strong> A função ativa (<code>create_user_profile_on_signup</code>) concede 60 créditos. A função <code>handle_new_user</code> também existe no banco e, na sua definição atual, também usa 60 créditos — mas não está anexada como trigger ativo confirmado, devendo ser tratada como resíduo técnico até nova evidência (ex: uso indireto via outra chamada, ou trigger em tabela diferente de <code>auth.users</code>).</li>
+      <li><strong>O schema real é significativamente mais rico do que qualquer arquivo <code>.sql</code> isolado sugeria.</strong> Foram confirmadas 27 tabelas e uma camada de operações atômicas de crédito (<code>atomic_debit_credits</code>, <code>atomic_grant_credits</code>, <code>atomic_reserve_credits</code>, <code>atomic_refund_credits</code>, tabelas <code>credit_operations</code> e <code>credit_reservations</code>) que não constava em nenhuma auditoria ou memória de projeto anterior — ver Seção 7 (divergências).</li>
+      <li><strong>Existem funções de concessão mensal de crédito já implementadas</strong> (<code>reset_monthly_credits</code>, <code>grant_missing_monthly_credits_for_active_subscriptions</code>, <code>grant_missing_monthly_credits_for_subscription</code>) que não estavam documentadas — relevantes para o desenho futuro de créditos em lote (Fase 3 do roadmap oficial), a investigar com mais profundidade antes de qualquer decisão de arquitetura.</li>
+      <li><strong>Persistem gaps de coluna que impedem localizar o plano FREE com precisão total</strong> — a tabela <code>plans</code> tem <code>ai_credits_per_month</code> e <code>max_students</code> confirmados, mas não a coluna que identifica cada plano (código/nome). A Seção 9 prepara uma consulta específica para fechar esse gap antes de qualquer query que dependa dele.</li>
+    </ol>
+  </section>
+
+  <!-- 3. TRIGGER -->
+  <section class="block" id="trigger">
+    <h2><span class="num">3</span>Achado central — trigger ativo em auth.users</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th>Item</th><th>Valor confirmado</th></tr>
+      <tr><td>Trigger</td><td><code>on_auth_user_created</code></td></tr>
+      <tr><td>Status</td><td><code>tgenabled = 'O'</code> (habilitado)</td></tr>
+      <tr><td>Função executada</td><td><code>create_user_profile_on_signup()</code></td></tr>
+      <tr><td>Evento</td><td><code>AFTER INSERT ON auth.users</code></td></tr>
+    </table>
+    </div>
+    <h3>Comportamento confirmado da função</h3>
+    <ul>
+      <li>Busca o plano FREE em <code>public.plans</code></li>
+      <li>Cria registro em <code>tenants</code></li>
+      <li>Cria registro em <code>users</code></li>
+      <li>Cria registro em <code>profiles</code> com <code>plan = 'FREE'</code></li>
+      <li>Cria <code>credits_wallet</code> com saldo de <strong>60</strong> créditos</li>
+      <li>Cria <code>subscription</code> com <code>status = 'ACTIVE'</code> e <code>provider = 'NONE'</code></li>
+      <li>Cria lançamento em <code>credits_ledger</code> com 60 créditos</li>
+    </ul>
+    <div class="callout warn">
+      <strong>handle_new_user() — tratamento definido:</strong> a função existe no banco e sua definição também concede 60 créditos em um fluxo equivalente, mas <strong>não apareceu anexada como trigger ativo em <code>auth.users</code></strong>. Conforme instrução explícita da CEO, esta função é tratada como <strong>resíduo técnico / hipótese de uso indireto</strong>, não como trigger ativo confirmado, até que surja nova evidência (por exemplo, um trigger em outra tabela do schema <code>public</code>, ou uma chamada direta a partir de outra função). Isso ainda precisa ser verificado via a Etapa C.2 (todos os triggers do schema public) — não presumir que ela é totalmente inofensiva só por não estar em <code>auth.users</code>.
+    </div>
+  </section>
+
+  <!-- 4. TABELAS -->
+  <section class="block" id="tabelas">
+    <h2><span class="num">4</span>Inventário de tabelas confirmado</h2>
+    <p class="lead">27 tabelas confirmadas via <code>information_schema</code> (Etapa A.2), agrupadas por área funcional para leitura mais fácil.</p>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:22%">Área</th><th>Tabelas</th></tr>
+      <tr><td>Identidade / conta</td><td><code>users</code>, <code>profiles</code>, <code>admin_users</code></td></tr>
+      <tr><td>Organização</td><td><code>tenants</code>, <code>tenant_appointments</code></td></tr>
+      <tr><td>Planos e assinatura</td><td><code>plans</code>, <code>subscriptions</code></td></tr>
+      <tr><td>Créditos</td><td><code>credits_wallet</code>, <code>credits_ledger</code>, <code>credit_operations</code>, <code>credit_reservations</code> <span class="badge badge-novo">Não documentado antes</span></td></tr>
+      <tr><td>Kiwify / billing</td><td><code>kiwify_products</code>, <code>kiwify_purchases</code>, <code>kiwify_webhook_logs</code>, <code>billing_events</code> <span class="badge badge-novo">Não documentado antes</span></td></tr>
+      <tr><td>Alunos</td><td><code>students</code>, <code>student_profiles</code>, <code>student_timeline</code>, <code>student_documents</code>, <code>student_tenant_access</code>, <code>student_access_protocols</code>, <code>student_action_plans</code>, <code>student_aee_action_plans</code>, <code>student_intelligent_profiles</code>, <code>student_custom_fields</code>, <code>student_custom_sections</code></td></tr>
+      <tr><td>Documentos</td><td><code>user_document_templates</code></td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 5. COLUNAS -->
+  <section class="block" id="colunas">
+    <h2><span class="num">5</span>Colunas confirmadas</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:20%">Tabela</th><th>Colunas confirmadas</th></tr>
+      <tr><td><code>plans</code></td><td><code>ai_credits_per_month</code>, <code>max_students</code></td></tr>
+      <tr><td><code>subscriptions</code></td><td><code>tenant_id</code>, <code>plan_id</code>, <code>status</code>, <code>last_payment_status</code></td></tr>
+      <tr><td><code>tenants</code></td><td><code>plan_id</code></td></tr>
+      <tr><td><code>users</code></td><td><code>email</code>, <code>tenant_id</code></td></tr>
+      <tr><td><code>profiles</code></td><td><code>email</code>, <code>plan</code></td></tr>
+      <tr><td><code>credits_wallet</code></td><td><code>tenant_id</code></td></tr>
+      <tr><td><code>credits_ledger</code></td><td><code>tenant_id</code></td></tr>
+      <tr><td><code>kiwify_purchases</code></td><td><code>email</code>, <code>tenant_id</code>, <code>status</code>, <code>plan_code</code>, <code>credits_amount</code>, <code>activation_status</code>, <code>activated_at</code></td></tr>
+      <tr><td><code>kiwify_products</code></td><td><code>plan_code</code>, <code>credits_amount</code></td></tr>
+      <tr><td><code>kiwify_webhook_logs</code></td><td><code>tenant_id</code>, <code>plan_code</code>, <code>credits_granted</code></td></tr>
+    </table>
+    </div>
+    <div class="callout warn">
+      Estas colunas foram confirmadas via busca por palavra-chave (Etapa B.2) — <strong>não são necessariamente a lista completa</strong> de colunas de cada tabela, apenas as que casaram com os termos buscados (plan, credit, student, status, tenant, subscri, activated, email). Colunas de identificação (ex: PK <code>id</code>, coluna de código/nome em <code>plans</code>, coluna de saldo em <code>credits_wallet</code>) não foram confirmadas por esse filtro — ver Seção 8 (gaps) e Seção 9 (Etapa E.0, que fecha isso antes das queries substantivas).
+    </div>
+  </section>
+
+  <!-- 6. FUNÇÕES -->
+  <section class="block" id="funcoes">
+    <h2><span class="num">6</span>Funções/RPCs confirmadas</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:38%">Função</th><th>Situação</th></tr>
+      <tr><td><code>check_purchase_by_email</code></td><td><span class="badge badge-confirmado">Já documentada</span> — auditoria 02/07/2026</td></tr>
+      <tr><td><code>activate_purchase_for_user</code></td><td><span class="badge badge-confirmado">Já documentada</span> — corrigida em 08/05/2026</td></tr>
+      <tr><td><code>reconcile_pending_activations</code></td><td><span class="badge badge-confirmado">Já documentada</span> — usada pelo CEO/admin dashboard</td></tr>
+      <tr><td><code>reset_monthly_credits</code></td><td><span class="badge badge-novo">Novo achado</span> — sugere rotina de reset mensal já implementada; investigar antes da Fase 3 (créditos em lote)</td></tr>
+      <tr><td><code>grant_missing_monthly_credits_for_active_subscriptions</code></td><td><span class="badge badge-novo">Novo achado</span> — processo em lote de concessão; entender gatilho (cron? manual?)</td></tr>
+      <tr><td><code>grant_missing_monthly_credits_for_subscription</code></td><td><span class="badge badge-novo">Novo achado</span> — versão por assinatura individual da função acima</td></tr>
+      <tr><td><code>atomic_debit_credits</code></td><td><span class="badge badge-novo">Novo achado</span> — débito atômico de créditos</td></tr>
+      <tr><td><code>atomic_grant_credits</code></td><td><span class="badge badge-novo">Novo achado</span> — concessão atômica de créditos</td></tr>
+      <tr><td><code>atomic_reserve_credits</code></td><td><span class="badge badge-novo">Novo achado</span> — reserva de créditos (sugere fluxo de "hold" antes de débito definitivo)</td></tr>
+      <tr><td><code>atomic_refund_credits</code></td><td><span class="badge badge-novo">Novo achado</span> — estorno de créditos reservados/debitados</td></tr>
+      <tr><td><code>get_tenant_billing_summary</code></td><td><span class="badge badge-novo">Novo achado</span> — provável fonte de dados para telas de billing/CEO dashboard</td></tr>
+    </table>
+    </div>
+    <div class="callout novo">
+      <strong>Achado relevante para o roadmap:</strong> a existência de <code>atomic_reserve_credits</code>/<code>atomic_refund_credits</code> e das tabelas <code>credit_reservations</code>/<code>credit_operations</code> sugere que o sistema já pode ter, ao menos parcialmente, uma infraestrutura mais sofisticada de controle de crédito do que a assumida no documento oficial de 07/07/2026 (que descreveu o modelo atual como "saldo único, SET para plano / ADD para avulso"). Isso <strong>não muda nenhuma decisão já tomada</strong>, mas é um sinal de que a Fase 1/3 (créditos em lote) deve investigar essas funções e tabelas antes de desenhar a migração — pode ser que parte do trabalho já exista.
+    </div>
+  </section>
+
+  <!-- 7. DIVERGÊNCIAS -->
+  <section class="block" id="divergencias">
+    <h2><span class="num">7</span>Divergências vs. hipóteses da auditoria de 02/07/2026</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:30%">Hipótese (02/07/2026, via leitura de código)</th><th>Achado real (08/07/2026, via banco ao vivo)</th></tr>
+      <tr><td>Dois triggers concorrentes ativos: <code>handle_new_user()</code> e <code>create_user_profile_on_signup()</code></td><td>Apenas <code>create_user_profile_on_signup()</code> confirmado ativo em <code>auth.users</code>. <code>handle_new_user()</code> existe mas não está anexada ali — tratada como resíduo até nova evidência</td></tr>
+      <tr><td>Créditos iniciais divergentes: 10 (schema.sql local) vs 60 (migration espelho de produção)</td><td>Resolvido a favor de <strong>60</strong> — é o valor da função ativa hoje. O valor "10" não foi encontrado em nenhuma função ativa</td></tr>
+      <tr><td>Tabela de usuário única (<code>public.users</code> com coluna <code>plan</code>)</td><td>Existem <strong>duas</strong> tabelas: <code>users</code> (email, tenant_id) e <code>profiles</code> (email, plan) — o plano vive em <code>profiles</code>, não em <code>users</code></td></tr>
+      <tr><td>Tenant com colunas diretas de crédito/plano (<code>plano_ativo</code>, <code>creditos_ia_restantes</code>, <code>student_limit_base</code>) — citadas em schema_v13</td><td>Não confirmado — <code>tenants</code> só teve <code>plan_id</code> confirmado (aponta para <code>plans</code>, não guarda valores diretos). Limite de alunos e créditos parecem viver em <code>plans</code>, não em <code>tenants</code></td></tr>
+      <tr><td>Sistema de créditos como saldo único simples</td><td>Existem tabelas/funções de operação atômica e reserva (<code>credit_operations</code>, <code>credit_reservations</code>, <code>atomic_*</code>) não documentadas antes — requer investigação antes de presumir simplicidade</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 8. GAPS -->
+  <section class="block" id="gaps">
+    <h2><span class="num">8</span>Gaps ainda não confirmados</h2>
+    <ul>
+      <li>Coluna identificadora do plano em <code>plans</code> (código/nome — ex: <code>code</code>, <code>name</code>, <code>slug</code> — desconhecida)</li>
+      <li>Coluna de saldo em <code>credits_wallet</code> (equivalente a "balance" — nome real desconhecido)</li>
+      <li>Colunas de <code>credits_ledger</code> além de <code>tenant_id</code> (tipo de lançamento, quantidade, origem, data — desconhecidas)</li>
+      <li>Chave primária real de <code>plans</code>, <code>tenants</code>, <code>subscriptions</code>, <code>users</code>, <code>profiles</code> (assumido por convenção como <code>id</code>, mas não confirmado por nenhuma das queries A-D, já que "id" não casa com nenhum filtro de palavra-chave usado)</li>
+      <li>Se <code>profiles</code> tem alguma coluna de vínculo direto com <code>tenants</code> (ex: <code>tenant_id</code>) ou se o único vínculo disponível é via <code>email</code> (indireto, passando por <code>users</code>)</li>
+      <li>Se <code>handle_new_user()</code> está de fato desconectada de qualquer trigger (pendente confirmar via Etapa C.2 completa, nos triggers do schema <code>public</code>, não só <code>auth.users</code>)</li>
+      <li>Colunas de <code>credit_operations</code> e <code>credit_reservations</code> (tabelas novas, ainda não inspecionadas)</li>
+    </ul>
+    <div class="callout warn">
+      Todos os gaps acima são fechados pela <strong>Etapa E.0</strong> (Seção 9), que é uma query de introspecção segura sobre tabelas cuja existência já está 100% confirmada — não presume nada, apenas lista as colunas reais que faltam.
+    </div>
+  </section>
+
+  <!-- 9. QUERIES E-I -->
+  <section class="block" id="queries-ei">
+    <h2><span class="num">9</span>Etapas E-I preparadas (nomes reais confirmados)</h2>
+    <p class="lead">Todas somente leitura. Onde uma coluna necessária ainda não foi confirmada (Seção 8), a query está marcada <span class="badge badge-template">Template</span> e depende da Etapa E.0. As demais estão marcadas <span class="badge badge-readonly">Pronta</span> — usam apenas colunas já confirmadas na Seção 5, ou assunções estruturais padrão do Supabase (PK <code>id</code>) explicitamente sinalizadas.</p>
+
+    <h3>Etapa E.0 — Pré-requisito: fechar os gaps de coluna antes de tudo</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">E.0 — Colunas completas das tabelas críticas ainda com gap</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT table_name, column_name, data_type, is_nullable, column_default
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name IN (
+    'plans', 'credits_wallet', 'credits_ledger', 'profiles',
+    'tenants', 'subscriptions', 'users', 'credit_operations', 'credit_reservations'
+  )
+ORDER BY table_name, ordinal_position;</pre></div>
+    </div>
+    <div class="callout warn">
+      <strong>Rodar esta query antes de qualquer outra desta seção.</strong> O resultado fecha todos os gaps da Seção 8 e permite substituir os poucos placeholders restantes abaixo pelos nomes reais.
+    </div>
+
+    <h3>E — Plano FREE</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">E.1 — Registro do plano FREE em plans</span><span class="badge badge-template">Template — depende de E.0</span></div>
+      <div class="query-body"><pre>-- Substituir &lt;coluna_identificadora&gt; pelo nome real (ex: code, name, slug) confirmado em E.0
+SELECT * FROM public.plans
+WHERE &lt;coluna_identificadora&gt; ILIKE '%free%';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">E.2 — Tenants com plan_id apontando para FREE</span><span class="badge badge-template">Template — depende de E.0 e E.1</span></div>
+      <div class="query-body"><pre>SELECT t.*
+FROM public.tenants t
+WHERE t.plan_id = (
+  SELECT id FROM public.plans WHERE &lt;coluna_identificadora&gt; ILIKE '%free%' LIMIT 1
+);</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">E.3 — Profiles com plan = FREE (contagem e amostra)</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT COUNT(*) AS total_free FROM public.profiles WHERE plan = 'FREE';
+
+SELECT * FROM public.profiles
+WHERE plan = 'FREE'
+LIMIT 50;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">E.4 — Subscriptions com plan_id apontando para FREE</span><span class="badge badge-template">Template — depende de E.0 e E.1</span></div>
+      <div class="query-body"><pre>SELECT s.status, COUNT(*)
+FROM public.subscriptions s
+WHERE s.plan_id = (
+  SELECT id FROM public.plans WHERE &lt;coluna_identificadora&gt; ILIKE '%free%' LIMIT 1
+)
+GROUP BY s.status;</pre></div>
+    </div>
+
+    <h3>F — Contas pagas como FREE</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">F.1 — Compra APPROVED com tenant vinculado a plano FREE</span><span class="badge badge-template">Template — depende de E.0 e E.1</span></div>
+      <div class="query-body"><pre>SELECT kp.email, kp.plan_code, kp.status, kp.activated_at, t.id AS tenant_id
+FROM public.kiwify_purchases kp
+JOIN public.tenants t ON t.id = kp.tenant_id
+WHERE kp.status = 'APPROVED'
+  AND t.plan_id = (
+    SELECT id FROM public.plans WHERE &lt;coluna_identificadora&gt; ILIKE '%free%' LIMIT 1
+  );</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">F.2 — Compra APPROVED com profile FREE (via e-mail — sem depender de plans)</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT kp.email, kp.plan_code, kp.status, kp.paid_at, kp.activated_at, p.plan AS plano_atual_profile
+FROM public.kiwify_purchases kp
+JOIN public.profiles p ON lower(trim(p.email)) = lower(trim(kp.email))
+WHERE kp.status = 'APPROVED'
+  AND p.plan = 'FREE'
+ORDER BY kp.paid_at DESC NULLS LAST;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">F.3 — Compra APPROVED sem subscription ACTIVE</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT kp.*
+FROM public.kiwify_purchases kp
+LEFT JOIN public.subscriptions s
+  ON s.tenant_id = kp.tenant_id AND s.status = 'ACTIVE'
+WHERE kp.status = 'APPROVED'
+  AND kp.tenant_id IS NOT NULL
+  AND s.tenant_id IS NULL;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">F.4 — Subscription ACTIVE divergente do plan_code da compra</span><span class="badge badge-template">Template — depende de E.0 (coluna identificadora de plans, para comparar com plan_code)</span></div>
+      <div class="query-body"><pre>-- Só comparável com segurança se plans tiver uma coluna equivalente a plan_code
+SELECT s.tenant_id, s.plan_id, pl.&lt;coluna_identificadora&gt; AS plano_assinatura, kp.plan_code AS plano_comprado
+FROM public.subscriptions s
+JOIN public.plans pl ON pl.id = s.plan_id
+JOIN public.kiwify_purchases kp ON kp.tenant_id = s.tenant_id
+WHERE s.status = 'ACTIVE'
+  AND kp.status = 'APPROVED'
+  AND kp.plan_code IS NOT NULL
+  AND pl.&lt;coluna_identificadora&gt; &lt;&gt; kp.plan_code;</pre></div>
+    </div>
+
+    <h3>G — Créditos</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">G.1 — Distribuição dos saldos em credits_wallet</span><span class="badge badge-template">Template — depende de E.0</span></div>
+      <div class="query-body"><pre>SELECT &lt;coluna_saldo&gt;, COUNT(*)
+FROM public.credits_wallet
+GROUP BY &lt;coluna_saldo&gt;
+ORDER BY COUNT(*) DESC;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">G.2 — Registros com exatamente 10 ou 60 créditos</span><span class="badge badge-template">Template — depende de E.0</span></div>
+      <div class="query-body"><pre>SELECT * FROM public.credits_wallet
+WHERE &lt;coluna_saldo&gt; IN (10, 60);</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">G.3 — Tenants criados nos últimos 30 dias e seus saldos</span><span class="badge badge-template">Template — depende de E.0 (coluna de data em tenants + coluna de saldo em credits_wallet)</span></div>
+      <div class="query-body"><pre>SELECT cw.&lt;coluna_saldo&gt;, COUNT(*)
+FROM public.credits_wallet cw
+JOIN public.tenants t ON t.id = cw.tenant_id
+WHERE t.&lt;coluna_data_criacao&gt; > now() - interval '30 days'
+GROUP BY cw.&lt;coluna_saldo&gt;
+ORDER BY COUNT(*) DESC;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">G.4 — Comparação entre plans.ai_credits_per_month e credits_wallet</span><span class="badge badge-template">Template — depende de E.0</span></div>
+      <div class="query-body"><pre>SELECT pl.ai_credits_per_month, cw.&lt;coluna_saldo&gt;, COUNT(*)
+FROM public.tenants t
+JOIN public.plans pl ON pl.id = t.plan_id
+JOIN public.credits_wallet cw ON cw.tenant_id = t.id
+GROUP BY pl.ai_credits_per_month, cw.&lt;coluna_saldo&gt;
+ORDER BY pl.ai_credits_per_month;</pre></div>
+    </div>
+
+    <h3>H — Clientes antigos (PRO / MASTER)</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">H.1 — Candidatos PRO (via profiles.plan — pronta)</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT COUNT(*) FROM public.profiles WHERE plan = 'PRO';
+
+SELECT * FROM public.profiles WHERE plan = 'PRO' LIMIT 50;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">H.2 — Candidatos MASTER (via profiles.plan — pronta)</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT COUNT(*) FROM public.profiles WHERE plan = 'MASTER';
+
+SELECT * FROM public.profiles WHERE plan = 'MASTER' LIMIT 50;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">H.3 — Tenants com plano MASTER, via cadeia tenants→users→profiles (evita depender de plans)</span><span class="badge badge-readonly">Pronta — assume tenants.id como PK (padrão Supabase, não confirmado por B.2)</span></div>
+      <div class="query-body"><pre>SELECT DISTINCT t.id AS tenant_id, u.email
+FROM public.tenants t
+JOIN public.users u ON u.tenant_id = t.id
+JOIN public.profiles p ON lower(trim(p.email)) = lower(trim(u.email))
+WHERE p.plan = 'MASTER';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">H.4 — Tenants/plans com max_students = 9999</span><span class="badge badge-template">Template — depende de E.0 (PK de plans)</span></div>
+      <div class="query-body"><pre>-- max_students vive em plans, não em tenants — confirmar PK de plans em E.0
+SELECT t.id AS tenant_id, pl.max_students, pl.ai_credits_per_month
+FROM public.tenants t
+JOIN public.plans pl ON pl.id = t.plan_id
+WHERE pl.max_students = 9999;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">H.5 — Tenants com plano PRO (30 alunos / 500 créditos), se os campos permitirem</span><span class="badge badge-template">Template — depende de E.0 (PK de plans)</span></div>
+      <div class="query-body"><pre>SELECT t.id AS tenant_id, pl.max_students, pl.ai_credits_per_month
+FROM public.tenants t
+JOIN public.plans pl ON pl.id = t.plan_id
+WHERE pl.max_students = 30
+  AND pl.ai_credits_per_month = 500;</pre></div>
+    </div>
+
+    <h3>I — Vínculos quebrados</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.1 — Users sem tenant</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT * FROM public.users WHERE tenant_id IS NULL;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.2 — Tenants sem subscription</span><span class="badge badge-readonly">Pronta — assume tenants.id como PK</span></div>
+      <div class="query-body"><pre>SELECT t.*
+FROM public.tenants t
+LEFT JOIN public.subscriptions s ON s.tenant_id = t.id
+WHERE s.tenant_id IS NULL;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.3 — Subscriptions sem tenant</span><span class="badge badge-readonly">Pronta — assume tenants.id como PK</span></div>
+      <div class="query-body"><pre>SELECT s.*
+FROM public.subscriptions s
+LEFT JOIN public.tenants t ON t.id = s.tenant_id
+WHERE t.id IS NULL;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.4 — kiwify_purchases APPROVED sem tenant_id</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT * FROM public.kiwify_purchases
+WHERE tenant_id IS NULL AND status = 'APPROVED';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.5 — Tenants com mais de uma subscription ACTIVE</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT tenant_id, COUNT(*)
+FROM public.subscriptions
+WHERE status = 'ACTIVE'
+GROUP BY tenant_id
+HAVING COUNT(*) > 1;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">I.6 — E-mail da compra diferente do e-mail do user vinculado ao tenant</span><span class="badge badge-readonly">Pronta</span></div>
+      <div class="query-body"><pre>SELECT kp.email AS email_compra, u.email AS email_usuario, kp.tenant_id
+FROM public.kiwify_purchases kp
+JOIN public.users u ON u.tenant_id = kp.tenant_id
+WHERE lower(trim(kp.email)) &lt;&gt; lower(trim(u.email));</pre></div>
+    </div>
+  </section>
+
+  <!-- 10. CONTROLE -->
+  <section class="block" id="controle">
+    <h2><span class="num">10</span>Tabela de controle das queries E-I</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th>Query</th><th>Pode rodar agora?</th><th>Depende de</th></tr>
+      <tr><td>E.0</td><td><span class="badge badge-confirmado">Sim</span></td><td>Nada — rodar primeiro, sempre</td></tr>
+      <tr><td>E.1, E.2, E.4</td><td><span class="badge badge-pendente">Não</span></td><td>Resultado de E.0 (coluna identificadora de plans)</td></tr>
+      <tr><td>E.3</td><td><span class="badge badge-confirmado">Sim</span></td><td>Nada</td></tr>
+      <tr><td>F.1, F.4</td><td><span class="badge badge-pendente">Não</span></td><td>Resultado de E.0</td></tr>
+      <tr><td>F.2, F.3</td><td><span class="badge badge-confirmado">Sim</span></td><td>Nada</td></tr>
+      <tr><td>G.1, G.2, G.4</td><td><span class="badge badge-pendente">Não</span></td><td>Resultado de E.0 (coluna de saldo)</td></tr>
+      <tr><td>G.3</td><td><span class="badge badge-pendente">Não</span></td><td>Resultado de E.0 (coluna de saldo + coluna de data em tenants)</td></tr>
+      <tr><td>H.1, H.2, H.3</td><td><span class="badge badge-confirmado">Sim</span></td><td>Nada (H.3 assume PK <code>tenants.id</code>, sinalizado)</td></tr>
+      <tr><td>H.4, H.5</td><td><span class="badge badge-pendente">Não</span></td><td>Resultado de E.0 (PK de plans)</td></tr>
+      <tr><td>I.1, I.4, I.5, I.6</td><td><span class="badge badge-confirmado">Sim</span></td><td>Nada</td></tr>
+      <tr><td>I.2, I.3</td><td><span class="badge badge-confirmado">Sim</span></td><td>Nada (assume PK <code>tenants.id</code>, sinalizado)</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 11. RISCOS -->
+  <section class="block" id="riscos">
+    <h2><span class="num">11</span>Riscos atualizados após o diagnóstico</h2>
+    <ul>
+      <li><strong>Reduzido:</strong> o risco de "dois triggers concorrentes duplicando criação de conta" cai de crítico para baixo — só um trigger está confirmado ativo. Ainda assim, <code>handle_new_user()</code> precisa ser confirmada como totalmente inofensiva (não chamada por nenhum outro caminho) antes de ser descartada de vez.</li>
+      <li><strong>Mantido:</strong> o risco central da Fase 0 continua de pé — o trigger ativo cria conta FREE automaticamente para qualquer novo cadastro em <code>auth.users</code>, sem checar compra aprovada. Isso é a causa raiz que a Fase 0 existe para corrigir (correção ainda não proposta nem aprovada).</li>
+      <li><strong>Novo:</strong> a camada de operações atômicas de crédito (reserva/débito/estorno) não documentada exige investigação própria antes da Fase 3 — risco de desenhar uma arquitetura de créditos em lote que ignore ou colida com infraestrutura já existente.</li>
+      <li><strong>Novo, menor:</strong> a separação entre <code>users</code> e <code>profiles</code> (plano vive em <code>profiles</code>, não em <code>users</code>) precisa ser respeitada em qualquer correção futura — presumir que "plano" está em <code>users</code> geraria uma correção que não funciona.</li>
+    </ul>
+  </section>
+
+  <!-- 12. METADADOS -->
+  <section class="block" id="metadados">
+    <h2><span class="num">12</span>Metadados de geração</h2>
+    <div class="metadata-grid">
+      <div><strong>Data/hora</strong>08/07/2026</div>
+      <div><strong>Responsável</strong>Karlene Pinheiro (CEO) + assistente Claude Code</div>
+      <div><strong>Documento base</strong>auditorias/2026-07-08_plano-tecnico-fase-0-saneamento-incluiai-2.0.html</div>
+      <div><strong>Comandos de escrita executados</strong>Nenhum</div>
+      <div><strong>Correção proposta nesta etapa</strong>Nenhuma — só diagnóstico e preparação de queries</div>
+      <div><strong>Dados pessoais incluídos</strong>Nenhum (nenhum e-mail, CPF ou dado individual real foi colado neste documento)</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Achados de Diagnóstico · Fase 0 · Uso interno<br>
+  Gerado em 08/07/2026 — nenhum dado ou arquivo funcional foi alterado durante esta análise
+</div>
+
+</body>
+</html>

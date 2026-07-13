@@ -197,7 +197,7 @@ function buildEnvFallback(): KiwifyProduct[] {
       billing_cycle: 'monthly',
       plan_code: 'PRO',
       credits_amount: 0,
-      price_brl: 67.00,
+      price_brl: 79.00,
       checkout_url: proMonthlyUrl,
     },
     {

@@ -2646,7 +2646,7 @@ export interface CeoSubscriber {
   user_name: string;
   user_email: string;
   plan_code: string;
-  billing_cycle: 'monthly' | 'annual';
+  billing_cycle: 'monthly' | 'annual' | null;
   subscription_status: string;
   next_due_date: string | null;
   billing_provider: string;
@@ -2659,6 +2659,12 @@ export interface CeoSubscriber {
   flag_low_credits: boolean;
   flag_expiring_7d: boolean;
   tenant_created_at: string;
+  // Campos de período (adicionados em 20260616000004)
+  subscription_id?: string | null;
+  current_period_start?: string | null;
+  current_period_end?: string | null;
+  last_credit_grant_at?: string | null;
+  next_credit_grant_at?: string | null;
   provider_sub_id?: string | null;
   purchase_id?: string | null;
   purchase_status?: string | null;
@@ -2815,7 +2821,13 @@ export async function getCeoSubscribersPage(opts?: CeoSubscriberQueryOptions): P
     .select('*', { count: 'exact' });
 
   if (opts?.planCode && opts.planCode !== 'all') q = q.eq('plan_code', opts.planCode);
-  if (opts?.cycle && opts.cycle !== 'all') q = q.eq('billing_cycle', opts.cycle);
+  if (opts?.cycle && opts.cycle !== 'all') {
+    if (opts.cycle === 'unknown') {
+      q = q.is('billing_cycle', null);
+    } else {
+      q = q.eq('billing_cycle', opts.cycle);
+    }
+  }
   if (opts?.status && opts.status !== 'all') q = q.eq('subscription_status', opts.status);
   if (opts?.flagLowCredits) q = q.eq('flag_low_credits', true);
   if (opts?.flagExpiring) q = q.eq('flag_expiring_7d', true);
@@ -2840,6 +2852,17 @@ export async function getCeoSubscribersPage(opts?: CeoSubscriberQueryOptions): P
     page,
     pageSize,
   };
+}
+
+/** Conta assinantes PRO/MASTER com billing_cycle NULL (sem filtros de página). */
+export async function getCeoNullCycleCount(): Promise<number> {
+  const { count, error } = await supabase
+    .from('v_ceo_subscribers')
+    .select('*', { count: 'exact', head: true })
+    .is('billing_cycle', null)
+    .neq('plan_code', 'FREE');
+  if (error) throw error;
+  return count ?? 0;
 }
 
 export async function getCeoSubscribers(opts?: {
@@ -3256,4 +3279,303 @@ export async function logAction(
   } catch {
     // silencioso - auditoria nunca bloqueia operacao principal
   }
+}
+
+// ============================================================================
+// GESTÃO DE CICLO DE ASSINATURA (Sprint CEO — 2026-06-16)
+// ============================================================================
+
+export interface CycleUpdateResult {
+  success: boolean;
+  subscription_id?: string;
+  tenant_id?: string;
+  old_billing_cycle?: string | null;
+  new_billing_cycle?: string;
+  old_period_end?: string | null;
+  new_period_end?: string | null;
+  period_start_used?: string | null;
+  error?: string;
+}
+
+export interface CycleInferResult {
+  subscription_id: string | null;
+  tenant_id: string | null;
+  user_email: string | null;
+  plan_code: string | null;
+  current_billing_cycle: string | null;
+  inferred_billing_cycle: string | null;
+  confidence: 'high' | 'medium' | 'low';
+  evidence: string;
+  suggested_period_start: string | null;
+  suggested_period_end: string | null;
+  should_fix: boolean;
+  reason: string;
+}
+
+export interface SubscriptionCreditGrantResult {
+  tenant_id: string | null;
+  tenant_name: string | null;
+  user_email: string | null;
+  plan_code: string | null;
+  billing_cycle: string | null;
+  credits_to_grant: number;
+  balance_before: number;
+  balance_after: number | null;
+  operation_id: string | null;
+  grant_status: string;
+  detail: string;
+}
+
+/**
+ * Atualiza billing_cycle e período de uma assinatura de forma segura.
+ * Requer super_admin. Registra auditoria em admin_audit_logs.
+ * NÃO altera créditos.
+ */
+export async function adminUpdateSubscriptionCycle(
+  subscriptionId: string,
+  billingCycle: 'monthly' | 'annual',
+  currentPeriodStart: string | null,
+  applyPeriodEnd: boolean,
+  reason: string,
+  adminUser: AdminUser,
+): Promise<CycleUpdateResult> {
+  const { data, error } = await supabase.rpc('admin_update_subscription_cycle', {
+    p_subscription_id:      subscriptionId,
+    p_billing_cycle:        billingCycle,
+    p_current_period_start: currentPeriodStart ?? null,
+    p_apply_period_end:     applyPeriodEnd,
+    p_reason:               reason || null,
+  });
+
+  if (error) throw new Error(error.message);
+
+  const result = data as CycleUpdateResult | null;
+  if (!result?.success) {
+    throw new Error(result?.error ?? 'Erro ao atualizar ciclo da assinatura.');
+  }
+
+  await logAction(
+    adminUser,
+    'SUBSCRIPTION_CYCLE_UPDATED',
+    'subscription',
+    subscriptionId,
+    subscriptionId,
+    { billing_cycle: result.old_billing_cycle, period_end: result.old_period_end },
+    { billing_cycle: result.new_billing_cycle, period_end: result.new_period_end },
+    reason,
+  );
+
+  return result;
+}
+
+/**
+ * Infere billing_cycle de uma assinatura com base em evidências (somente leitura).
+ * Requer super_admin. Não altera nenhum dado.
+ */
+export async function adminInferSubscriptionCycle(
+  subscriptionId: string,
+): Promise<CycleInferResult | null> {
+  const { data, error } = await supabase.rpc('admin_infer_subscription_cycle', {
+    p_subscription_id: subscriptionId,
+  });
+
+  if (error) throw new Error(error.message);
+
+  const rows = data as CycleInferResult[] | null;
+  if (!rows || rows.length === 0) return null;
+
+  const row = rows[0];
+  return {
+    ...row,
+    confidence: (row.confidence as 'high' | 'medium' | 'low') ?? 'low',
+  };
+}
+
+/**
+ * Dry-run (padrão) ou concessão real de créditos mensais para UMA assinatura.
+ * Mesmas regras de idempotência do grant global.
+ * Requer super_admin.
+ */
+export async function adminGrantMissingCreditsForSubscription(
+  subscriptionId: string,
+  dryRun: boolean,
+  adminUser: AdminUser,
+): Promise<SubscriptionCreditGrantResult> {
+  const { data, error } = await supabase.rpc('grant_missing_monthly_credits_for_subscription', {
+    p_subscription_id: subscriptionId,
+    p_dry_run:         dryRun,
+  });
+
+  if (error) throw new Error(error.message);
+
+  const rows = data as SubscriptionCreditGrantResult[] | null;
+  if (!rows || rows.length === 0) {
+    throw new Error('Nenhum resultado retornado pela função de concessão.');
+  }
+
+  const result = rows[0];
+
+  if (!dryRun && result.grant_status === 'GRANTED') {
+    await logAction(
+      adminUser,
+      'SUBSCRIPTION_CREDITS_GRANTED',
+      'credits_wallet',
+      result.tenant_id ?? subscriptionId,
+      result.tenant_name ?? subscriptionId,
+      { balance: result.balance_before },
+      { balance: result.balance_after, credits_granted: result.credits_to_grant },
+      `Concessão manual de créditos mensais via painel CEO — ${result.plan_code} (${result.billing_cycle})`,
+    );
+  }
+
+  return result;
+}
+
+// ============================================================================
+// HISTÓRICO COMERCIAL — subscription_commercial_events (Sprint 2026-06-17)
+// ============================================================================
+
+export interface CommercialEvent {
+  id: string;
+  tenant_id: string;
+  subscription_id: string | null;
+  event_type: string;
+  from_plan_code: string | null;
+  to_plan_code: string | null;
+  from_billing_cycle: string | null;
+  to_billing_cycle: string | null;
+  amount_paid_brl: number | null;
+  source: string;
+  kiwify_order_id: string | null;
+  kiwify_product_key: string | null;
+  notes: string | null;
+  performed_by_email: string | null;
+  event_date: string;
+  created_at: string;
+}
+
+/**
+ * Carrega histórico comercial de uma assinante.
+ * Retorna [] silenciosamente se a tabela não existir ou não houver eventos.
+ */
+export async function getSubscriberCommercialEvents(tenantId: string): Promise<CommercialEvent[]> {
+  try {
+    const { data, error } = await supabase
+      .from('subscription_commercial_events')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('event_date', { ascending: false })
+      .limit(20);
+    if (error) return [];
+    return (data ?? []) as CommercialEvent[];
+  } catch {
+    return [];
+  }
+}
+
+const PLAN_RANK: Record<string, number> = {
+  FREE: 0, PRO: 1, MASTER: 2, PREMIUM: 2, INSTITUTIONAL: 3,
+};
+
+export type CommercialStatus =
+  | 'UPGRADE_REGISTERED'
+  | 'UPGRADE_SEM_REGISTRO'
+  | 'DOWNGRADE_SEM_REGISTRO'
+  | 'CICLO_DIVERGENTE'
+  | 'OK'
+  | 'NO_PURCHASE';
+
+export interface CommercialStatusResult {
+  status: CommercialStatus;
+  detail: string;
+  purchaseProductKey: string | null;
+  purchasePlanCode: string | null;
+  currentPlanCode: string;
+  expectedBillingCycle: 'annual' | 'monthly' | null;
+  actualBillingCycle: 'monthly' | 'annual' | null;
+  isUpgrade: boolean;
+  isDowngrade: boolean;
+  isCycleDivergent: boolean;
+}
+
+/**
+ * Calcula o status comercial derivado dos campos purchase_* e billing_cycle
+ * já disponíveis em CeoSubscriber — sem query adicional.
+ */
+export function computeCommercialStatus(
+  sub: CeoSubscriber,
+  events: CommercialEvent[],
+): CommercialStatusResult {
+  const purchasePlan = sub.purchase_plan_code ?? null;
+  const currentPlan  = sub.plan_code ?? 'FREE';
+  const productKey   = sub.purchase_product_key ?? null;
+  const actualCycle  = sub.billing_cycle ?? null;
+
+  const expectedCycle: 'annual' | 'monthly' | null =
+    productKey?.includes('ANNUAL')  ? 'annual'  :
+    productKey?.includes('MONTHLY') ? 'monthly' :
+    (sub.purchase_billing_cycle as 'annual' | 'monthly' | null) ?? null;
+
+  const isCycleDivergent =
+    expectedCycle !== null &&
+    actualCycle   !== null &&
+    expectedCycle !== actualCycle;
+
+  const purchaseRank = purchasePlan ? (PLAN_RANK[purchasePlan] ?? -1) : -1;
+  const currentRank  = PLAN_RANK[currentPlan] ?? 0;
+
+  const isUpgrade   = purchaseRank >= 0 && currentRank > purchaseRank;
+  const isDowngrade = purchaseRank >= 0 && currentRank < purchaseRank;
+
+  const hasRegisteredEvent = events.some(e =>
+    ['UPGRADE_PLAN', 'PAYMENT_DIFFERENCE', 'DOWNGRADE_PLAN', 'CYCLE_CORRECTION'].includes(e.event_type),
+  );
+
+  if (!purchasePlan && !productKey) {
+    return {
+      status: 'NO_PURCHASE', detail: 'Sem compra Kiwify vinculada.',
+      purchaseProductKey: null, purchasePlanCode: null, currentPlanCode: currentPlan,
+      expectedBillingCycle: null, actualBillingCycle: actualCycle,
+      isUpgrade: false, isDowngrade: false, isCycleDivergent: false,
+    };
+  }
+
+  if (isUpgrade) {
+    return {
+      status: hasRegisteredEvent ? 'UPGRADE_REGISTERED' : 'UPGRADE_SEM_REGISTRO',
+      detail: hasRegisteredEvent
+        ? `Upgrade ${purchasePlan} → ${currentPlan} registrado.`
+        : `Plano atual (${currentPlan}) superior ao produto comprado (${purchasePlan}). Sem evento registrado.`,
+      purchaseProductKey: productKey, purchasePlanCode: purchasePlan, currentPlanCode: currentPlan,
+      expectedBillingCycle: expectedCycle, actualBillingCycle: actualCycle,
+      isUpgrade: true, isDowngrade: false, isCycleDivergent,
+    };
+  }
+
+  if (isDowngrade) {
+    return {
+      status: 'DOWNGRADE_SEM_REGISTRO',
+      detail: `Plano atual (${currentPlan}) inferior ao produto comprado (${purchasePlan}).`,
+      purchaseProductKey: productKey, purchasePlanCode: purchasePlan, currentPlanCode: currentPlan,
+      expectedBillingCycle: expectedCycle, actualBillingCycle: actualCycle,
+      isUpgrade: false, isDowngrade: true, isCycleDivergent,
+    };
+  }
+
+  if (isCycleDivergent) {
+    return {
+      status: 'CICLO_DIVERGENTE',
+      detail: `Produto: ${expectedCycle}. Ciclo atual: ${actualCycle ?? '—'}. Usar "→ Anual" no painel de ciclo.`,
+      purchaseProductKey: productKey, purchasePlanCode: purchasePlan, currentPlanCode: currentPlan,
+      expectedBillingCycle: expectedCycle, actualBillingCycle: actualCycle,
+      isUpgrade: false, isDowngrade: false, isCycleDivergent: true,
+    };
+  }
+
+  return {
+    status: 'OK', detail: 'Plano e ciclo consistentes com a compra Kiwify.',
+    purchaseProductKey: productKey, purchasePlanCode: purchasePlan, currentPlanCode: currentPlan,
+    expectedBillingCycle: expectedCycle, actualBillingCycle: actualCycle,
+    isUpgrade: false, isDowngrade: false, isCycleDivergent: false,
+  };
 }

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Decisão Oficial — Planos, Créditos e Billing IncluiAI 2.0</title>
+<style>
+  :root {
+    --petrol:  #1F4E5F;
+    --dark:    #2E3A59;
+    --gold:    #C69214;
+    --bg:      #F6F4EF;
+    --surface: #FFFFFF;
+    --border:  #E7E2D8;
+    --text:    #111827;
+    --muted:   #6B7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; position: relative; overflow: hidden; }
+  .header::before { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0); background-size: 24px 24px; }
+  .header-inner { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 26px; font-weight: 800; max-width: 780px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 720px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1000px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 13px; }
+  .toc li { margin-bottom: 6px; break-inside: avoid; }
+  .toc a { color: var(--petrol); text-decoration: none; font-weight: 600; }
+  .toc a:hover { text-decoration: underline; }
+
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block > p.lead { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: #FCFBF8; }
+  td.num-cell, th.num-cell { text-align: right; white-space: nowrap; }
+  .table-wrap { overflow-x: auto; }
+
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-critico  { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .badge-alto     { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+  .badge-medio    { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+  .badge-baixo    { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-ok       { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-info     { background: #F0F9FF; color: #075985; border: 1px solid #BAE6FD; }
+  .badge-gold     { background: #FEF7E8; color: #92660A; border: 1px solid #F3D999; }
+  .badge-decidido { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-ceo      { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+  .badge-tecnico  { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+  .badge-juridico { background: #FCE7F3; color: #9D174D; border: 1px solid #FBCFE8; }
+  .badge-kiwify   { background: #F3E8FF; color: #6B21A8; border: 1px solid #E9D5FF; }
+  .badge-futuro   { background: #F1EFE9; color: #57534E; border: 1px solid #E7E2D8; }
+
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color: #C69214; background: #FEF9EE; }
+  .callout.risk { border-color: #B91C1C; background: #FEF2F2; }
+  .callout.decision { border-color: #065F46; background: #ECFDF5; }
+  .callout strong { color: var(--dark); }
+
+  .decision-line { display: flex; gap: 10px; padding: 6px 0; align-items: baseline; }
+  .decision-line .tag { flex-shrink: 0; font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--petrol); letter-spacing: .3px; min-width: 90px; }
+
+  .metadata-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 14px; font-size: 12.5px; }
+  .metadata-grid div strong { display: block; color: var(--dark); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 3px; }
+
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .footer strong { color: #fff; }
+
+  @media (max-width: 640px) {
+    .header { padding: 28px 20px; }
+    section.block { padding: 20px; }
+    .toc ol { columns: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="kicker">Documento Oficial de Decisão de Produto</div>
+    <h1>IncluiAI.app 2.0 — Planos, Créditos, Pacotes e Billing</h1>
+    <p>Especificação consolidada e aprovada pela CEO para orientar toda implementação futura. Substitui a fase de análise (documento de 07/07/2026 "Estratégia — Planos, Créditos e Roadmap") por decisões objetivas e sem ambiguidade. Nenhum código, SQL, migration ou arquivo do sistema foi criado ou alterado.</p>
+    <div class="cover-badges">
+      <span class="badge badge-info">07/07/2026</span>
+      <span class="badge badge-decidido">Status: Documento base oficial</span>
+      <span class="badge badge-ceo">Itens pendentes de validação sinalizados na Seção 11</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Tipo</strong>Especificação oficial de produto / billing</div>
+    <div><strong>Base</strong>Deriva de auditorias/2026-07-07_estrategia-planos-creditos-e-roadmap-incluiai-2.0.html</div>
+    <div><strong>Código alterado</strong>Nenhum</div>
+    <div><strong>Migrations criadas</strong>Nenhuma</div>
+    <div><strong>Responsável</strong>Karlene Pinheiro (CEO)</div>
+    <div><strong>Uso</strong>Base oficial para toda implementação futura — não iniciar código sem revisar a Seção 11</div>
+  </div>
+
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#planos">Decisões finais — Planos 2.0</a></li>
+      <li><a href="#pacotes-alunos">Decisões finais — Pacotes adicionais de alunos</a></li>
+      <li><a href="#pacotes-creditos">Decisões finais — Pacotes de créditos</a></li>
+      <li><a href="#fundadores">Decisões finais — Clientes Fundadores</a></li>
+      <li><a href="#free">Decisões finais — FREE</a></li>
+      <li><a href="#status-conta">Decisões finais — Status de conta</a></li>
+      <li><a href="#kiwify">Decisões finais — Kiwify e ativação</a></li>
+      <li><a href="#lotes">Decisões finais — Créditos em lotes</a></li>
+      <li><a href="#alunos">Decisões finais — Aluno ativo, triagem e arquivamento</a></li>
+      <li><a href="#roadmap">Roadmap oficial em fases</a></li>
+      <li><a href="#checklist">Checklist final de aprovação</a></li>
+      <li><a href="#metadados">Metadados de geração</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. PLANOS -->
+  <section class="block" id="planos">
+    <h2><span class="num">1</span>Decisões finais sobre os planos 2.0</h2>
+    <div class="table-wrap">
+    <table>
+      <tr>
+        <th>Plano</th><th class="num-cell">Preço sugerido</th><th class="num-cell">Alunos ativos</th><th class="num-cell">Créditos/mês</th>
+        <th>Ferramentas incluídas</th><th>Público-alvo</th><th>Observações comerciais</th>
+      </tr>
+      <tr>
+        <td><strong>Essencial</strong></td>
+        <td class="num-cell">R$ 59,90</td>
+        <td class="num-cell">25</td>
+        <td class="num-cell">300</td>
+        <td>Categoria Essenciais: relatório individual, parecer descritivo, plano de intervenção, adaptação de atividade, objetivos pedagógicos, sugestões de estratégias, exportação, cadastro/organização de alunos</td>
+        <td>Professor individual, professor de AEE autônomo, primeiro contato pago com a plataforma</td>
+        <td>Substitui o FREE como porta de entrada — é o novo piso comercial da plataforma, não um plano gratuito</td>
+      </tr>
+      <tr>
+        <td><strong>Profissional</strong></td>
+        <td class="num-cell">R$ 99,90</td>
+        <td class="num-cell">50</td>
+        <td class="num-cell">700</td>
+        <td>Essenciais + categoria Profissionais: PEI, PDI, estudo de caso, relatórios multidimensionais, análise de evolução, atividades personalizadas, histórico inteligente, reaproveitamento de dados do aluno</td>
+        <td>Professor com volume médio de alunos, coordenador pedagógico de escola pequena/média</td>
+        <td>Plano de maior volume esperado de conversão — equivalente funcional ao PRO legado, porém com 50 alunos em vez de 30</td>
+      </tr>
+      <tr>
+        <td><strong>Especialista</strong></td>
+        <td class="num-cell">R$ 169,90</td>
+        <td class="num-cell">100</td>
+        <td class="num-cell">1.500</td>
+        <td>Essenciais + Profissionais + categoria Premium: geração em lote, análise comparativa, dashboard avançado, personalização de marca, relatórios consolidados, assistente de revisão, modelos personalizados, exportações avançadas, indicadores pedagógicos, análise longitudinal</td>
+        <td>Equipe pedagógica, profissional de AEE atendendo múltiplas escolas/redes pequenas</td>
+        <td>Topo do catálogo B2C; inclui acesso a Recursos Experimentais em caráter opt-in (laboratório, beta, votação de roadmap)</td>
+      </tr>
+      <tr>
+        <td><strong>Institucional</strong></td>
+        <td class="num-cell">Sob consulta</td>
+        <td class="num-cell">Sob consulta</td>
+        <td class="num-cell">Sob consulta</td>
+        <td>Tudo do Especialista + customizações e múltiplos usuários por conta</td>
+        <td>Escolas, redes de ensino, secretarias de educação</td>
+        <td><strong>Não lançar agora.</strong> Existir apenas como possibilidade comercial futura, com formulário "Fale com a gente" — sem checkout self-service</td>
+      </tr>
+    </table>
+    </div>
+    <div class="callout warn">
+      <strong>Pendente:</strong> preço final de cada plano depende de validação de margem contra o custo real de tokens de IA por crédito (ver Seção 11). Os valores acima são a decisão de piso a ser publicada, sujeitos a ajuste fino antes do lançamento (Fase 1).
+    </div>
+  </section>
+
+  <!-- 2. PACOTES ADICIONAIS DE ALUNOS -->
+  <section class="block" id="pacotes-alunos">
+    <h2><span class="num">2</span>Decisões finais sobre pacotes adicionais de alunos</h2>
+    <div class="decision-line"><span class="tag">Pacotes</span><span>+10, +25, +50 e +100 alunos ativos. Cardápio fechado — não criar tamanhos intermediários por padrão.</span></div>
+    <div class="decision-line"><span class="tag">Natureza</span><span>Recorrentes, cobrados no mesmo ciclo de cobrança do plano-base (mensal ou anual, nunca um ciclo próprio e independente).</span></div>
+    <div class="decision-line"><span class="tag">Limite total</span><span><code>limite_total_alunos = plano_base.alunos + Σ(pacotes_ativos) + Σ(bônus_administrativos)</code></span></div>
+    <div class="decision-line"><span class="tag">Dependência</span><span>Todo pacote adicional existe apenas vinculado a uma assinatura ativa. Cancelamento do plano-base cancela automaticamente os pacotes associados.</span></div>
+    <div class="decision-line"><span class="tag">Cancelamento isolado</span><span>Se o cliente cancelar só o pacote (plano-base continua ativo) e o número de alunos ativos ficar acima do novo limite, a conta entra em <strong>capacidade excedida</strong> — nunca há exclusão ou arquivamento automático de alunos.</span></div>
+    <h3>Regra de capacidade excedida</h3>
+    <ul>
+      <li>Todos os dados permanecem preservados e visíveis; documentos já gerados continuam acessíveis normalmente.</li>
+      <li><strong>Bloqueado:</strong> cadastrar aluno novo; reativar aluno arquivado.</li>
+      <li><strong>Permitido:</strong> gerar documentos para alunos que já estavam ativos; arquivar alunos manualmente; reativar o pacote cancelado.</li>
+      <li>Janela de regularização: <strong>15 dias corridos</strong> a partir do início do excesso.</li>
+      <li>Após a janela sem regularização: bloquear também novas gerações de documento até a capacidade ser regularizada (por arquivamento manual ou reativação de pacote).</li>
+    </ul>
+    <h3>Regra para alunos arquivados</h3>
+    <ul>
+      <li>Alunos arquivados <strong>não ocupam</strong> vaga no limite total.</li>
+      <li>Alunos arquivados permanecem visíveis no histórico, com todos os documentos e dados preservados.</li>
+      <li>Reativação de aluno arquivado só é permitida quando a conta está dentro do limite (não em capacidade excedida).</li>
+    </ul>
+  </section>
+
+  <!-- 3. PACOTES DE CRÉDITOS -->
+  <section class="block" id="pacotes-creditos">
+    <h2><span class="num">3</span>Decisões finais sobre pacotes de créditos</h2>
+    <div class="decision-line"><span class="tag">Pacotes</span><span>Manter estrutura de 3 tamanhos (pequeno/médio/grande). Quantidade e preço exatos ficam para validação de margem na Fase 1 — não fixados neste documento (ver Seção 11).</span></div>
+    <div class="decision-line"><span class="tag">Validade</span><span>90 a 180 dias — mais longa que o crédito de mensalidade (60 dias), por ser uma compra pontual e paga à parte. Valor exato definido na Fase 1.</span></div>
+    <div class="decision-line"><span class="tag">Natureza</span><span>Avulsos, não recorrentes. Uma compra, um lote, sem renovação automática.</span></div>
+    <div class="decision-line"><span class="tag">Consumo</span><span>FIFO por data de validade — o lote mais próximo do vencimento é sempre debitado primeiro, independentemente de ser crédito de plano, avulso ou bônus.</span></div>
+    <div class="decision-line"><span class="tag">Histórico</span><span>Todo pacote comprado gera um lote auditável (origem = "compra adicional", quantidade, data de concessão, data de validade). Extrato de créditos deve listar todas as movimentações, não apenas o saldo atual — item hoje pendente de implementação (ver Pendências conhecidas do projeto).</span></div>
+  </section>
+
+  <!-- 4. FUNDADORES -->
+  <section class="block" id="fundadores">
+    <h2><span class="num">4</span>Decisões finais sobre clientes Fundadores</h2>
+    <h3>PRO legado → Plano Fundador PRO</h3>
+    <ul>
+      <li><strong>Preço preservado:</strong> R$ 79,90/mês, sem alteração enquanto a assinatura estiver ativa.</li>
+      <li><strong>Limites preservados:</strong> 30 alunos ativos, 500 créditos/mês.</li>
+      <li>Pode comprar pacotes adicionais de alunos e pacotes de créditos avulsos normalmente.</li>
+    </ul>
+    <h3>MASTER legado → Plano Fundador MASTER</h3>
+    <ul>
+      <li><strong>Preço preservado:</strong> R$ 149,90/mês, sem alteração enquanto a assinatura estiver ativa.</li>
+      <li><strong>Limites preservados:</strong> 9.999 alunos ativos, 700 créditos/mês.</li>
+      <li>Não é mais vendido para novos clientes a partir do lançamento do 2.0.</li>
+      <li><strong>Política de uso justo:</strong> consumo sustentado no topo da base MASTER (top 5%, por 2 ou mais ciclos consecutivos) gera contato comercial proativo — nunca throttling, bloqueio ou redução automática.</li>
+    </ul>
+    <h3>Quando a condição Fundador é perdida</h3>
+    <table>
+      <tr><th>Evento</th><th>Efeito</th></tr>
+      <tr><td>Cancelamento definitivo</td><td>Perde o status Fundador de forma imediata e irreversível</td></tr>
+      <tr><td>Reembolso (Kiwify, art. 49 CDC)</td><td>Perde o status Fundador — deve reaproveitar o evento de reembolso já existente no webhook</td></tr>
+      <tr><td>Migração voluntária para plano 2.0</td><td>Perde o status Fundador — irreversível por definição da migração</td></tr>
+      <tr><td>Inadimplência além da janela de recuperação</td><td>Perde o status Fundador junto com o cancelamento por inadimplência</td></tr>
+      <tr><td>Nova assinatura após encerramento da anterior</td><td>Não recupera o status Fundador, mesmo que volte a assinar</td></tr>
+      <tr><td>Falha temporária de pagamento (estado "em recuperação")</td><td><strong>Não</strong> perde o status — preservado durante a janela de recuperação</td></tr>
+    </table>
+    <h3>Como pode migrar para o 2.0</h3>
+    <ul>
+      <li>Somente de forma <strong>voluntária</strong>, mediante convite comercial explícito.</li>
+      <li>Deve ser acompanhada de tabela de equivalência clara (o que muda em alunos/créditos/ferramentas) e, quando aplicável, bônus de transição.</li>
+      <li>A confirmação da migração deve alertar explicitamente que a condição Fundador não retorna.</li>
+    </ul>
+    <div class="callout risk">
+      <strong>O que não pode acontecer automaticamente:</strong> rebaixar o plano de um cliente Fundador; remover benefício contratado; excluir ou arquivar alunos/dados por consequência de mudança de plano; forçar migração para o 2.0; ou fazer o cliente perder o status Fundador por falha técnica (bug de trigger, webhook ou RPC) sem passar por revisão manual antes de qualquer redução de acesso.
+    </div>
+  </section>
+
+  <!-- 5. FREE -->
+  <section class="block" id="free">
+    <h2><span class="num">5</span>Decisões finais sobre o FREE</h2>
+    <div class="decision-line"><span class="tag">Retirada</span><span>O plano FREE é retirado comercialmente — não pode ser vendido, oferecido no checkout ou mencionado como opção gratuita em qualquer material de marketing ou tela do produto.</span></div>
+    <div class="decision-line"><span class="tag">Atribuição</span><span>O cadastro de um usuário nunca atribui plano comercial automaticamente. Cadastro só é liberado mediante compra aprovada na Kiwify (regra já implementada em 02/07/2026).</span></div>
+    <div class="decision-line"><span class="tag">Ausência de plano</span><span>A ausência de assinatura deixa de ser um "plano" (FREE) e passa a ser um <strong>estado de conta</strong>: "aguardando compra" (ver Seção 6) — sem acesso a ferramentas pagas, apenas ao fluxo de checkout.</span></div>
+    <div class="decision-line"><span class="tag">Usuários FREE existentes</span><span>Contas FREE criadas antes desta decisão são preservadas como estão até decisão comercial explícita da CEO (oferta de upgrade com condição especial, ou prazo de desativação com aviso prévio). <strong>Não há exclusão sumária</strong> nem rebaixamento de acesso sem comunicação.</span></div>
+  </section>
+
+  <!-- 6. STATUS DE CONTA -->
+  <section class="block" id="status-conta">
+    <h2><span class="num">6</span>Decisões finais sobre status de conta</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:16%">Status</th><th>Significado</th><th>Acesso permitido</th><th>Bloqueios</th><th>Ação recomendada</th></tr>
+      <tr><td>Cadastro iniciado</td><td>Cadastro começou, compra ainda não confirmada</td><td>Nenhum acesso ao produto</td><td>Todo o produto</td><td>Direcionar para checkout / verificação de compra</td></tr>
+      <tr><td>Aguardando compra</td><td>Conta existe, sem compra Kiwify vinculada</td><td>Tela de checkout apenas</td><td>Todo o produto</td><td>Oferecer planos 2.0; nunca liberar acesso "por enquanto"</td></tr>
+      <tr><td>Compra localizada</td><td>Webhook recebido, aguardando vínculo/ativação</td><td>Nenhum até ativação concluir</td><td>Todo o produto</td><td>Disparar RPC de ativação automaticamente</td></tr>
+      <tr><td>Assinatura ativa</td><td>Plano pago em dia</td><td>Pleno, conforme matriz de permissões do plano</td><td>Nenhum</td><td>—</td></tr>
+      <tr><td>Pagamento pendente</td><td>Cobrança do ciclo ainda não confirmada</td><td>Mantido, com tolerância curta</td><td>Nenhum imediato</td><td>Banner de aviso; monitorar confirmação</td></tr>
+      <tr><td>Em recuperação</td><td>Falha de pagamento, dentro da janela de retry</td><td>Mantido; status Fundador preservado</td><td>Nenhum imediato</td><td>Banner de urgência com link de atualização de pagamento</td></tr>
+      <tr><td>Cancelada</td><td>Cancelamento confirmado ou janela de recuperação expirada</td><td>Somente leitura/exportação de dados próprios</td><td>Ferramentas pagas e geração de novos documentos</td><td>Oferecer reativação; dados preservados</td></tr>
+      <tr><td>Reembolsada</td><td>Reembolso confirmado pela Kiwify</td><td>Somente leitura/exportação</td><td>Ferramentas pagas; perde Fundador se aplicável</td><td>Nenhuma ação automática além do já processado pelo webhook</td></tr>
+      <tr><td>Expirada</td><td>Fim de ciclo sem renovação</td><td>Tratada como cancelada para acesso</td><td>Ferramentas pagas</td><td>Créditos não vencidos continuam visíveis até expirar naturalmente</td></tr>
+      <tr><td>Bloqueada</td><td>Ação administrativa (fraude, abuso, disputa)</td><td>Nenhum</td><td>Todo o produto</td><td>Requer decisão explícita da CEO/admin para reverter</td></tr>
+      <tr><td>Erro de vinculação</td><td>Compra existe na Kiwify, e-mail não casa com conta</td><td>Depende do caso — por padrão nenhum</td><td>Ativação automática</td><td>Fila de revisão com WhatsApp/instruções (já implementado)</td></tr>
+      <tr><td>Revisão manual</td><td>Qualquer divergência que a automação não resolve com segurança</td><td>Mantém o último estado seguro conhecido</td><td>Qualquer redução de acesso até decisão humana</td><td><strong>Nunca</strong> rebaixar para "sem plano" automaticamente</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 7. KIWIFY -->
+  <section class="block" id="kiwify">
+    <h2><span class="num">7</span>Decisões finais sobre Kiwify e ativação</h2>
+    <div class="decision-line"><span class="tag">Prioridade</span><span>A Kiwify e o registro interno da assinatura determinam o plano — o cadastro do usuário nunca atribui plano comercial por conta própria.</span></div>
+    <h3>Ordem de resolução em caso de divergência</h3>
+    <ol class="plain">
+      <li>Verificar compra na Kiwify</li>
+      <li>Verificar produto comprado</li>
+      <li>Verificar status financeiro</li>
+      <li>Verificar vínculo entre e-mail da compra e conta</li>
+      <li>Aplicar o plano correspondente</li>
+      <li>Registrar a origem da decisão (auditoria)</li>
+      <li><strong>Nunca</strong> reduzir automaticamente uma conta paga para "sem plano" por falha de trigger ou webhook</li>
+    </ol>
+    <table>
+      <tr><th style="width:22%">Cenário</th><th>Regra final</th></tr>
+      <tr><td>Compra aprovada</td><td>Ativação automática via RPC de ativação; toast de confirmação ao usuário</td></tr>
+      <tr><td>Compra pendente (sem conta ainda)</td><td>Fica em fila "compra pendente de conta"; ativa automaticamente assim que o mesmo e-mail cria a conta</td></tr>
+      <tr><td>Compra não localizada</td><td>Cai na fila de revisão do CEO/admin com ações prontas (copiar e-mail, copiar instruções, WhatsApp, link de cadastro)</td></tr>
+      <tr><td>E-mail diferente do cadastro</td><td>Tratado como "erro de vinculação" → revisão manual; nunca ativar por suposição de identidade</td></tr>
+      <tr><td>Conta paga aparecendo como FREE</td><td>Nunca é um resultado aceitável — é sempre tratado como bug a ser corrigido, nunca como comportamento esperado do sistema</td></tr>
+      <tr><td>Revisão manual (qualquer divergência residual)</td><td>Decisão final cabe à CEO/admin; sistema não deve "adivinhar" para resolver sozinho</td></tr>
+    </table>
+  </section>
+
+  <!-- 8. LOTES -->
+  <section class="block" id="lotes">
+    <h2><span class="num">8</span>Decisões finais sobre créditos em lotes</h2>
+    <ul>
+      <li><strong>Lote de crédito:</strong> unidade individual e rastreável de concessão de créditos — a conta nunca tem "um saldo", tem a soma de vários lotes.</li>
+      <li><strong>Origem:</strong> mensalidade, bônus promocional, compra adicional, compensação, migração, ajuste administrativo, indicação, cortesia. Todo lote registra sua origem.</li>
+      <li><strong>Validade:</strong> mensalidade = 60 dias; compra avulsa = 90–180 dias (valor exato na Fase 1); bônus/cortesia = definida caso a caso pelo motivo da concessão.</li>
+      <li><strong>Consumo:</strong> sempre o lote com validade mais próxima é debitado primeiro (FIFO por vencimento), independente da origem.</li>
+      <li><strong>Histórico:</strong> cada lote é auditável — origem, quantidade inicial, quantidade restante, data de concessão, data de validade, referência (plano ou compra). É a base do extrato de créditos.</li>
+      <li><strong>Expiração:</strong> lote vencido deixa de ser consumível; não gera reembolso, conversão em dinheiro nem prorrogação automática.</li>
+      <li><strong>Saldo exibido ao usuário:</strong> soma de todos os lotes não expirados — a UI principal mostra apenas o total consolidado; a granularidade de lotes fica disponível em um extrato/histórico detalhado, não na tela principal de créditos.</li>
+    </ul>
+  </section>
+
+  <!-- 9. ALUNOS -->
+  <section class="block" id="alunos">
+    <h2><span class="num">9</span>Decisões finais sobre aluno ativo, triagem e arquivamento</h2>
+    <p class="lead">Regra geral: todo status diferente de "arquivado" ocupa vaga no limite de alunos. A existência de laudo nunca é critério de ocupação de limite.</p>
+    <table>
+      <tr><th style="width:26%">Status do aluno</th><th class="num-cell" style="width:110px">Ocupa vaga</th><th>Regra</th></tr>
+      <tr><td>Com laudo</td><td class="num-cell">Sim</td><td>Nenhum tratamento diferenciado por ter laudo — ocupa vaga como qualquer outro ativo</td></tr>
+      <tr><td>Sem laudo</td><td class="num-cell">Sim</td><td>Ocupa vaga igualmente; laudo nunca é critério de limite</td></tr>
+      <tr><td>Em suspeita</td><td class="num-cell">Sim</td><td>Ocupa vaga desde o primeiro registro</td></tr>
+      <tr><td>Em triagem</td><td class="num-cell">Sim</td><td>Ocupa vaga durante todo o pipeline de triagem</td></tr>
+      <tr><td>Aguardando avaliação</td><td class="num-cell">Sim</td><td>Ocupa vaga</td></tr>
+      <tr><td>Em intervenção</td><td class="num-cell">Sim</td><td>Ocupa vaga</td></tr>
+      <tr><td>Acompanhamento concluído</td><td class="num-cell">Sim</td><td>Ocupa vaga por padrão; sistema deve <strong>sugerir</strong> arquivamento após período de inatividade definido — nunca arquivar automaticamente</td></tr>
+      <tr><td>Arquivado</td><td class="num-cell">Não</td><td>Não ocupa vaga; permanece no histórico com dados e documentos preservados; só pode ser reativado se a conta não estiver em capacidade excedida</td></tr>
+    </table>
+  </section>
+
+  <!-- 10. ROADMAP -->
+  <section class="block" id="roadmap">
+    <h2><span class="num">10</span>Roadmap oficial em fases</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:13%">Fase</th><th>Objetivo</th><th>Entregas</th></tr>
+      <tr>
+        <td><strong>Fase 0</strong><br><span class="badge badge-critico">Obrigatória</span></td>
+        <td>Saneamento técnico</td>
+        <td>Remover os 2 triggers que ainda criam contas FREE · Auditar e corrigir contas pagas hoje exibidas como FREE · Confirmar schema real via <code>information_schema</code></td>
+      </tr>
+      <tr>
+        <td><strong>Fase 1</strong></td>
+        <td>Regras de produto e billing</td>
+        <td>Validar preços finais contra custo real de IA por crédito · Fechar quantidade/preço/validade dos pacotes de crédito avulsos · Redigir cláusulas de Fundador e fair use nos Termos de Uso · Definir prazos exatos (janela de recuperação, janela de regularização)</td>
+      </tr>
+      <tr>
+        <td><strong>Fase 2</strong></td>
+        <td>Identidade visual e site</td>
+        <td>Publicar nova identidade visual · Site novo em produção · Landing page redesenhada · Pode avançar em paralelo às Fases 0/1, mas <strong>não publicar preços/planos 2.0 como definitivos</strong> antes da Fase 1 estar fechada</td>
+      </tr>
+      <tr>
+        <td><strong>Fase 3</strong></td>
+        <td>Implementação dos planos 2.0</td>
+        <td>Modelo de créditos em lotes (FIFO por validade) · Pacotes adicionais de alunos · Estados de conta e capacidade excedida · Tudo isolado por feature flag, sem afetar clientes atuais</td>
+      </tr>
+      <tr>
+        <td><strong>Fase 4</strong></td>
+        <td>Migração assistida</td>
+        <td>Tabela de equivalência PRO/MASTER → planos 2.0 · Comunicação individual com bônus de transição · Migração sempre voluntária, nunca forçada</td>
+      </tr>
+      <tr>
+        <td><strong>Fase 5</strong></td>
+        <td>Lançamento controlado</td>
+        <td>Planos 2.0 disponíveis apenas para novos cadastros · Clientes Fundadores permanecem intocados · Remoção definitiva de qualquer menção a FREE/ilimitado no marketing</td>
+      </tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 11. CHECKLIST -->
+  <section class="block" id="checklist">
+    <h2><span class="num">11</span>Checklist final de aprovação</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th>Item</th><th style="width:190px">Categoria</th></tr>
+      <tr><td>Nomes e posicionamento dos 4 planos (Essencial/Profissional/Especialista/Institucional)</td><td><span class="badge badge-decidido">Já decidido</span></td></tr>
+      <tr><td>Limites de alunos por plano (25/50/100)</td><td><span class="badge badge-decidido">Já decidido</span></td></tr>
+      <tr><td>Créditos mensais por plano (300/700/1.500)</td><td><span class="badge badge-decidido">Já decidido</span></td></tr>
+      <tr><td>Categorias de ferramentas por plano (essenciais/profissionais/premium/experimental)</td><td><span class="badge badge-decidido">Já decidido</span></td></tr>
+      <tr><td>Tamanhos dos pacotes adicionais de alunos (+10/+25/+50/+100) e natureza recorrente</td><td><span class="badge badge-decidido">Já decidido</span></td></tr>
+      <tr><td>Regra de capacidade excedida (bloqueios, janela de 15 dias)</td><td><span class="badge badge-decidido">Já decidido</span></td></tr>
+      <tr><td>Regra de preservação do Fundador PRO/MASTER e eventos de perda</td><td><span class="badge badge-decidido">Já decidido</span></td></tr>
+      <tr><td>Retirada comercial do FREE e tratamento de contas FREE existentes</td><td><span class="badge badge-decidido">Já decidido</span></td></tr>
+      <tr><td>Matriz de status de conta (12 estados)</td><td><span class="badge badge-decidido">Já decidido</span></td></tr>
+      <tr><td>Regra de aluno ativo desvinculada de laudo</td><td><span class="badge badge-decidido">Já decidido</span></td></tr>
+      <tr><td>Preço final de cada plano (Essencial/Profissional/Especialista)</td><td><span class="badge badge-ceo">Validação CEO</span></td></tr>
+      <tr><td>Quantidade e preço final dos pacotes de crédito avulsos</td><td><span class="badge badge-ceo">Validação CEO</span></td></tr>
+      <tr><td>Validade exata do lote avulso (90 vs. 180 dias)</td><td><span class="badge badge-ceo">Validação CEO</span></td></tr>
+      <tr><td>Gatilho exato de "uso justo" do Fundador MASTER (percentil e nº de ciclos)</td><td><span class="badge badge-ceo">Validação CEO</span></td></tr>
+      <tr><td>Teto de pacotes adicionais por tier (evitar empilhamento indevido)</td><td><span class="badge badge-ceo">Validação CEO</span></td></tr>
+      <tr><td>Remoção dos 2 triggers que criam contas FREE</td><td><span class="badge badge-tecnico">Auditoria técnica</span></td></tr>
+      <tr><td>Confirmação do schema real via <code>information_schema</code></td><td><span class="badge badge-tecnico">Auditoria técnica</span></td></tr>
+      <tr><td>Levantamento de todas as contas pagas hoje exibidas como FREE</td><td><span class="badge badge-tecnico">Auditoria técnica</span></td></tr>
+      <tr><td>Cláusulas de Plano Fundador e fair use nos Termos de Uso</td><td><span class="badge badge-juridico">Jurídico / Termos</span></td></tr>
+      <tr><td>Política de retenção de dados de alunos arquivados (LGPD, dado sensível)</td><td><span class="badge badge-juridico">Jurídico / Termos</span></td></tr>
+      <tr><td>Comunicação formal de descontinuação de venda do MASTER</td><td><span class="badge badge-juridico">Jurídico / Termos</span></td></tr>
+      <tr><td>Mapeamento de pacotes adicionais como produtos Kiwify (1 tenant → N produtos)</td><td><span class="badge badge-kiwify">Depende da Kiwify</span></td></tr>
+      <tr><td>Expansão do mapeamento produto Kiwify → efeito no sistema</td><td><span class="badge badge-kiwify">Depende da Kiwify</span></td></tr>
+      <tr><td>Migração do modelo de créditos de saldo único para lotes FIFO</td><td><span class="badge badge-futuro">Implementação futura</span></td></tr>
+      <tr><td>Implementação de pacotes de alunos e estado de capacidade excedida</td><td><span class="badge badge-futuro">Implementação futura</span></td></tr>
+      <tr><td>Lançamento dos planos 2.0 restrito a novos cadastros (execução)</td><td><span class="badge badge-futuro">Implementação futura</span></td></tr>
+      <tr><td>Extrato/histórico detalhado de movimentações de crédito na UI</td><td><span class="badge badge-futuro">Implementação futura</span></td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 12. METADADOS -->
+  <section class="block" id="metadados">
+    <h2><span class="num">12</span>Metadados de geração</h2>
+    <div class="metadata-grid">
+      <div><strong>Data/hora</strong>07/07/2026</div>
+      <div><strong>Responsável</strong>Karlene Pinheiro (CEO) + assistente Claude Code</div>
+      <div><strong>Documento base</strong>auditorias/2026-07-07_estrategia-planos-creditos-e-roadmap-incluiai-2.0.html</div>
+      <div><strong>Arquivos de código alterados</strong>Nenhum</div>
+      <div><strong>Migrations/SQL criados</strong>Nenhum</div>
+      <div><strong>Dados pessoais incluídos</strong>Nenhum</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Documento Oficial de Decisão de Produto · Uso interno<br>
+  Gerado em 07/07/2026 — nenhum arquivo funcional do sistema foi alterado durante esta análise
+</div>
+
+</body>
+</html>

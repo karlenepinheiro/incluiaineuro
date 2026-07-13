@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Bloqueio Emergencial — Novas Contas FREE (Frontend)</title>
+<style>
+  :root { --petrol:#1F4E5F; --dark:#2E3A59; --gold:#C69214; --bg:#F6F4EF; --surface:#FFFFFF; --border:#E7E2D8; --text:#111827; --muted:#6B7280; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; position: relative; overflow: hidden; }
+  .header::before { content:''; position:absolute; inset:0; background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0); background-size: 24px 24px; }
+  .header-inner { position: relative; z-index: 1; max-width: 1040px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 25px; font-weight: 800; max-width: 800px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 740px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1040px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 13px; }
+  .toc li { margin-bottom: 6px; break-inside: avoid; }
+  .toc a { color: var(--petrol); text-decoration: none; font-weight: 600; }
+  .toc a:hover { text-decoration: underline; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block > p.lead { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: #FCFBF8; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-critico { background:#FEE2E2; color:#991B1B; border:1px solid #FECACA; }
+  .badge-alto { background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; }
+  .badge-medio { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; }
+  .badge-ok { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .badge-confirmado { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .badge-pendente { background:#FFF7ED; color:#9A3412; border:1px solid #FED7AA; }
+  .badge-gap { background:#F3E8FF; color:#6B21A8; border:1px solid #E9D5FF; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color:#C69214; background:#FEF9EE; }
+  .callout.risk { border-color:#B91C1C; background:#FEF2F2; }
+  .callout.ok { border-color:#065F46; background:#ECFDF5; }
+  .callout strong { color: var(--dark); }
+  pre { background:#1E293B; color:#E2E8F0; border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12px; font-family:Consolas,Monaco,monospace; margin:8px 0 16px; line-height:1.55; }
+  code { background:#F1EFE9; border:1px solid var(--border); border-radius:4px; padding:1px 6px; font-size:12px; font-family:Consolas,monospace; }
+  pre code { background:none; border:none; padding:0; color:inherit; }
+  .metadata-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; font-size:12.5px; }
+  .metadata-grid div strong { display:block; color:var(--dark); font-size:11px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:3px; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .footer strong { color: #fff; }
+  @media (max-width: 640px) { .header { padding: 28px 20px; } section.block { padding: 20px; } .toc ol { columns: 1; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="kicker">Ação Emergencial · Barreira de Frontend</div>
+    <h1>Bloqueio Emergencial de Novas Contas FREE — Camada de Frontend</h1>
+    <p><strong>Esta é uma barreira emergencial apenas no frontend.</strong> O trigger de banco <code>create_user_profile_on_signup()</code> continua ativo e continua criando conta FREE para qualquer <code>auth.signUp()</code> — ele não foi tocado. Esta ação garante apenas que a aplicação web não chame <code>auth.signUp()</code> antes de uma compra aprovada ser localizada. A correção definitiva no banco permanece pendente para a Fase 0, com backup, staging e plano de rollback.</p>
+    <div class="cover-badges">
+      <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">08/07/2026</span>
+      <span class="badge badge-ok">Build: passou</span>
+      <span class="badge badge-critico">Não resolve o trigger no banco — apenas o frontend</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Tipo</strong>Ação emergencial (frontend) + auditoria</div>
+    <div><strong>Gatilho</strong>Necessidade de retomar vendas antes da correção definitiva do trigger (Fase 0)</div>
+    <div><strong>Banco alterado</strong>Nenhum</div>
+    <div><strong>Trigger alterado</strong>Nenhum — <code>create_user_profile_on_signup()</code> continua ativo, intocado</div>
+    <div><strong>Responsável</strong>Karlene Pinheiro (CEO)</div>
+    <div><strong>Pendência</strong>Correção do trigger no banco — Fase 0, com backup/staging/rollback</div>
+  </div>
+
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#escopo">Escopo</a></li>
+      <li><a href="#resumo">Resumo executivo</a></li>
+      <li><a href="#entrypoints">Todos os pontos de entrada de auth.signUp() localizados</a></li>
+      <li><a href="#loginscreen">Fluxo LoginScreen — verificação bloqueante</a></li>
+      <li><a href="#activationview">Fluxo ActivationView — verificação bloqueante</a></li>
+      <li><a href="#google">Google OAuth — caminho não bloqueado, porém inacessível na UI</a></li>
+      <li><a href="#textos">Auditoria de textos FREE/grátis/gratuito</a></li>
+      <li><a href="#criterios">Critérios de aceite — verificação item a item</a></li>
+      <li><a href="#build">Build</a></li>
+      <li><a href="#riscoresidual">O que esta barreira NÃO resolve</a></li>
+      <li><a href="#metadados">Metadados de geração</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. ESCOPO -->
+  <section class="block" id="escopo">
+    <h2><span class="num">1</span>Escopo</h2>
+    <p><strong>O que foi feito:</strong> auditoria completa do frontend para localizar todo caminho que chama <code>auth.signUp()</code> ou equivalente (<code>signInWithOAuth</code>), verificação linha a linha de que a criação de conta só ocorre após confirmação positiva de compra aprovada, execução do build de produção para confirmar que nada quebrou, e levantamento de textos residuais de FREE/gratuito no código.</p>
+    <p><strong>O que NÃO foi feito:</strong> nenhuma alteração em banco de dados, trigger, função, migration ou schema. Nenhuma conta existente foi tocada. Nenhuma correção foi aplicada ao trigger <code>create_user_profile_on_signup()</code> — essa é a pendência da Fase 0.</p>
+    <div class="callout warn">
+      <strong>Achado principal desta auditoria:</strong> a barreira de frontend pedida já estava implementada no código atual (sprint de 02/07/2026, "Implementação — Validação de Compra antes do Cadastro", registrada em <code>auditorias/2026-07-02_implementacao-validacao-compra-antes-do-cadastro.html</code>). Este documento <strong>reverifica linha a linha</strong> essa implementação contra as regras detalhadas desta tarefa emergencial, confirma que ela continua correta e íntegra, roda o build, e documenta um gap residual não coberto por nenhuma auditoria anterior (Seção 6).
+    </div>
+  </section>
+
+  <!-- 2. RESUMO -->
+  <section class="block" id="resumo">
+    <h2><span class="num">2</span>Resumo executivo</h2>
+    <ol class="plain">
+      <li><strong>Foram localizados 3 pontos no frontend que chamam <code>supabase.auth.signUp()</code>ou <code>signInWithOAuth()</code>.</strong> Dois (<code>LoginScreen.tsx</code> → <code>App.tsx handleRegister</code>, e <code>ActivationView.tsx</code>) já bloqueiam corretamente a criação de conta até uma compra aprovada ser confirmada. O terceiro (Google OAuth, <code>App.tsx handleGoogleLogin</code>) <strong>não tem essa verificação</strong>, mas está <strong>inacessível pela interface</strong> — o botão de Google não é renderizado em nenhuma tela hoje.</li>
+      <li><strong>Todos os 11 itens do fluxo obrigatório e todos os critérios de aceite pedidos já são satisfeitos</strong> pelo código atual — verificado item a item na Seção 8.</li>
+      <li><strong>O texto "Grátis"/"Começar grátis" existe no código-fonte de <code>PricingSection.tsx</code>, mas já está filtrado e nunca é exibido</strong> na tela (<code>plans.filter(p =&gt; p.id !== 'free')</code>) — confirmado por leitura direta do componente.</li>
+      <li><strong>O build de produção (<code>npm run build</code>) passou sem erros.</strong> Existem erros de <code>tsc --noEmit</code> pré-existentes no projeto, nenhum deles nos arquivos de cadastro/login/ativação — são diagnósticos já conhecidos e não relacionados a esta ação (ver Seção 9).</li>
+      <li><strong>Esta barreira não substitui a correção do trigger.</strong> Qualquer chamada a <code>auth.signUp()</code> feita fora do frontend da aplicação (API direta, script, ou reativação futura do botão Google sem guarda) continua criando conta FREE automaticamente, porque o trigger de banco não foi alterado.</li>
+    </ol>
+  </section>
+
+  <!-- 3. ENTRYPOINTS -->
+  <section class="block" id="entrypoints">
+    <h2><span class="num">3</span>Todos os pontos de entrada de auth.signUp() localizados</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:26%">Local</th><th>Verificação de compra antes de criar conta?</th><th>Acessível pela UI hoje?</th></tr>
+      <tr><td><code>src/App.tsx:870</code> — <code>handleRegister()</code>, chamado por <code>LoginScreen.tsx</code></td><td><span class="badge badge-confirmado">Sim</span> — via <code>checkPurchaseByEmail</code> bloqueante no submit</td><td><span class="badge badge-confirmado">Sim</span> — fluxo principal de cadastro</td></tr>
+      <tr><td><code>src/components/ActivationView.tsx:197</code> — <code>handleRegister()</code></td><td><span class="badge badge-confirmado">Sim</span> — só alcançável no estado <code>approved</code>, atingido apenas após <code>runCheck()</code> confirmar compra <code>APPROVED</code> com produto reconhecido</td><td><span class="badge badge-confirmado">Sim</span> — fluxo de ativação pós-pagamento</td></tr>
+      <tr><td><code>src/App.tsx:921</code> — <code>handleGoogleLogin()</code>, <code>signInWithOAuth</code></td><td><span class="badge badge-critico">Não</span> — dispara o redirect para o Google sem nenhuma verificação prévia</td><td><span class="badge badge-gap">Não — botão não renderizado em nenhuma tela</span></td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 4. LOGINSCREEN -->
+  <section class="block" id="loginscreen">
+    <h2><span class="num">4</span>Fluxo LoginScreen — verificação bloqueante</h2>
+    <p>Verificado em <code>src/components/LoginScreen.tsx</code>, função <code>handleSubmit</code> (aba "Criar conta"):</p>
+    <pre>// PASSO 1: verificar compra aprovada (BLOQUEANTE)
+setLoadingPhase('verifying');
+let purchaseResult;
+try {
+  purchaseResult = await checkPurchaseByEmail(normalizedEmail);
+} catch {
+  // Erro técnico de rede/timeout — NÃO cria conta como fallback
+  ...
+  setPurchaseModalType('network_error');
+  setShowPurchaseModal(true);
+  return;
+}
+
+const isApproved =
+  purchaseResult.found &&
+  purchaseResult.status === 'APPROVED' &&
+  purchaseResult.product_key !== 'UNKNOWN';
+
+if (!isApproved) {
+  ...
+  setPurchaseModalType('not_found');
+  setShowPurchaseModal(true);
+  return;  // ← auth.signUp() NUNCA é chamado aqui
+}
+
+// PASSO 2: compra confirmada — só agora cria a conta
+setLoadingPhase('creating');
+await onRegister(formData.name, formData.email, formData.pass, formData.phone, formData.cpf);</pre>
+    <p><code>onRegister</code> é <code>handleRegister</code> em <code>App.tsx</code>, que chama <code>supabase.auth.signUp()</code> — e só é invocado depois do <code>return</code> acima nunca ter sido alcançado.</p>
+  </section>
+
+  <!-- 5. ACTIVATIONVIEW -->
+  <section class="block" id="activationview">
+    <h2><span class="num">5</span>Fluxo ActivationView — verificação bloqueante</h2>
+    <p>Verificado em <code>src/components/ActivationView.tsx</code>. O formulário de cadastro (com o botão que chama <code>handleRegister</code>, que executa <code>auth.signUp()</code>) só é renderizado quando <code>state === 'approved'</code>. Esse estado só é setado dentro de <code>runCheck()</code>:</p>
+    <pre>const result = await checkPurchaseByEmail(emailToCheck);
+if (!result.found)                       { setState('not_found');       return; }
+if (result.status === 'PENDING')         { setState('pending');         return; }
+if (result.product_key === 'UNKNOWN')    { setState('unknown_product'); return; }
+...
+setState('approved');  // ← só aqui o formulário de cadastro aparece</pre>
+    <p>Não há caminho de código entre <code>idle</code>/<code>checking</code> e o formulário de <code>signUp()</code> que não passe por uma compra <code>APPROVED</code> com produto reconhecido.</p>
+  </section>
+
+  <!-- 6. GOOGLE -->
+  <section class="block" id="google">
+    <h2><span class="num">6</span>Google OAuth — caminho não bloqueado, porém inacessível na UI</h2>
+    <p><code>handleGoogleLogin()</code> em <code>App.tsx</code> chama <code>supabase.auth.signInWithOAuth({ provider: 'google', ... })</code> sem qualquer verificação de compra. Isso é funcionalmente equivalente a <code>auth.signUp()</code> do ponto de vista do trigger de banco: um usuário Google novo também dispara <code>on_auth_user_created</code> e recebe FREE automaticamente.</p>
+    <p><strong>Por que isso não é corrigido nesta ação emergencial:</strong></p>
+    <ul>
+      <li>O botão de login com Google <strong>não é renderizado em nenhuma tela</strong> hoje — <code>LoginScreen.tsx</code> recebe a prop <code>onGoogleLogin</code> mas não a usa (comentário no código: <em>"Mantido para compatibilidade com App.tsx — não exposto na interface"</em>). Não há vetor de UI ativo hoje.</li>
+      <li>Corrigir esse caminho corretamente exige verificar a compra <strong>depois</strong> do redirecionamento do Google retornar (o e-mail só é conhecido nesse momento), não antes — é uma mudança de padrão diferente da usada em <code>LoginScreen</code>/<code>ActivationView</code>, com risco real de quebrar login de clientes pagantes que já usam Google para entrar, se feita às pressas.</li>
+      <li>Esse mesmo risco já havia sido identificado na auditoria de 02/07/2026 e recomendado para uma fase própria ("Fase 3 — Google OAuth, médio prazo"), não para a correção emergencial.</li>
+    </ul>
+    <div class="callout warn">
+      <strong>Gap residual documentado, não corrigido:</strong> se o botão de Google for reativado no futuro sem uma guarda equivalente (verificação pós-retorno do OAuth), essa seria uma nova porta para contas FREE automáticas. Recomenda-se tratar isso formalmente antes de qualquer reativação do login Google — ver <code>REGRAS_SEGURANCA_INCLUIAI_2_0.md</code> seção 9 (proibido "criar FREE automaticamente").
+    </div>
+  </section>
+
+  <!-- 7. TEXTOS -->
+  <section class="block" id="textos">
+    <h2><span class="num">7</span>Auditoria de textos FREE/grátis/gratuito</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:30%">Local</th><th>Classificação</th></tr>
+      <tr><td><code>LoginScreen.tsx</code></td><td><span class="badge badge-confirmado">Limpo</span> — nenhuma menção a FREE/grátis/gratuito na tela de cadastro (já removido em 02/07/2026: "Criar conta gratuita", "Nenhum cartão necessário", "Criar gratuitamente")</td></tr>
+      <tr><td><code>PricingSection.tsx</code> — card "Grátis" / botão "Começar grátis"</td><td><span class="badge badge-confirmado">Existe no código, mas nunca renderizado</span> — <code>plans.filter(p =&gt; p.id !== 'free')</code> remove o card antes do <code>.map()</code> que desenha a tela. Verificado: não há nenhum outro ponto do componente que renderize esse card.</td></tr>
+      <tr><td><code>adminService.ts</code> / <code>ceo/tabs/LandingTab.tsx</code> — <code>cta_primary: 'Começar Grátis'</code></td><td><span class="badge badge-gap">Config, não código ativo</span> — é um valor padrão de um editor de conteúdo da Landing Page usado só pela CEO no painel; não é renderizado diretamente em nenhum componente público (confirmado por busca em todo o <code>src/</code>). Recomenda-se a CEO revisar/trocar esse texto padrão na tela de conteúdo da Landing quando conveniente — não é um bug de código.</td></tr>
+      <tr><td><code>SubscriptionView.tsx</code> / <code>SettingsView.tsx</code> — "Você está no plano gratuito", "Plano FREE — X créditos/mês"</td><td><span class="badge badge-ok">Fora de escopo, deliberadamente preservado</span> — são telas que descrevem o plano atual de uma conta já existente (não promovem cadastro novo). Alterar isso contraria a regra de segurança "não corrigir contas antigas" e "contas FREE antigas devem ser analisadas antes de qualquer ação".</td></tr>
+      <tr><td>Telas administrativas (CEO dashboard: <code>ceoService.ts</code>, <code>SubscriberRowCard.tsx</code>)</td><td><span class="badge badge-ok">Fora de escopo, uso legítimo</span> — referência interna ao código de plano "FREE" para fins administrativos/diagnóstico, não é superfície pública de venda.</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 8. CRITÉRIOS -->
+  <section class="block" id="criterios">
+    <h2><span class="num">8</span>Critérios de aceite — verificação item a item</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:50%">Critério pedido</th><th>Status</th></tr>
+      <tr><td>auth.signUp() não pode ser chamado antes de verificação positiva</td><td><span class="badge badge-confirmado">Atende</span> — LoginScreen e ActivationView</td></tr>
+      <tr><td>E-mail sem compra não cria conta</td><td><span class="badge badge-confirmado">Atende</span> — modal "not_found", <code>return</code> antes do signUp</td></tr>
+      <tr><td>Erro de rede não cria conta</td><td><span class="badge badge-confirmado">Atende</span> — catch trata erro como bloqueio, modal "network_error"</td></tr>
+      <tr><td>Compra não localizada mostra modal de orientação</td><td><span class="badge badge-confirmado">Atende</span> — modal com título, texto aprovado pela CEO, e ações</td></tr>
+      <tr><td>Modal oferece compra/WhatsApp</td><td><span class="badge badge-confirmado">Atende</span> — botão WhatsApp com mensagem pré-aprovada + "Tentar novamente"</td></tr>
+      <tr><td>Textos de FREE/grátis/gratuito/teste grátis removidos</td><td><span class="badge badge-confirmado">Atende nas superfícies de cadastro</span> — ver ressalvas da Seção 7 para textos fora de escopo</td></tr>
+      <tr><td>Build passa</td><td><span class="badge badge-confirmado">Atende</span> — ver Seção 9</td></tr>
+      <tr><td>Relatório de auditoria criado em auditorias/</td><td><span class="badge badge-confirmado">Atende</span> — este documento</td></tr>
+      <tr><td>Impedir clique duplo / desabilitar botão durante verificação</td><td><span class="badge badge-confirmado">Atende</span> — <code>disabled={loading}</code> em ambos os fluxos, com rótulo dinâmico ("Verificando compra...", "Criando conta...")</td></tr>
+      <tr><td>Nunca criar conta provisória</td><td><span class="badge badge-confirmado">Atende</span> — <code>checkPurchaseByEmail</code>/<code>check_purchase_by_email</code> é uma RPC somente leitura, sem efeito colateral em <code>auth.users</code></td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 9. BUILD -->
+  <section class="block" id="build">
+    <h2><span class="num">9</span>Build</h2>
+    <p><code>npm run build</code> (Vite/Rollup) — <span class="badge badge-confirmado">✓ built in 1m 6s</span>, sem erros. Apenas avisos de tamanho de chunk (não bloqueantes, pré-existentes).</p>
+    <p><code>npx tsc --noEmit</code> — existem diagnósticos de tipo pré-existentes no projeto (ex: <code>WorkflowCanvas.tsx</code>, <code>PDFGenerator.ts</code>, <code>ceoService.ts</code>, <code>SettingsView.tsx</code>, entre outros). <strong>Nenhum desses erros está em <code>LoginScreen.tsx</code>, <code>ActivationView.tsx</code>, <code>PricingSection.tsx</code> ou na função <code>handleRegister</code>/<code>handleGoogleLogin</code> de <code>App.tsx</code></strong> — são diagnósticos já conhecidos do projeto, não relacionados a esta ação e não introduzidos por ela (consistente com o registrado na memória do projeto: "Diagnósticos TS pré-existentes... não introduzidos pelo Claude"). O build de produção via Vite/esbuild não é bloqueado por eles.</p>
+  </section>
+
+  <!-- 10. RISCO RESIDUAL -->
+  <section class="block" id="riscoresidual">
+    <h2><span class="num">10</span>O que esta barreira NÃO resolve</h2>
+    <div class="callout risk">
+      <strong>Declaração explícita:</strong> esta é uma barreira emergencial de frontend. Ela impede que a <em>aplicação web</em> do IncluiAI crie contas FREE sem compra aprovada. Ela <strong>não corrige, não desativa e não altera</strong> o trigger <code>create_user_profile_on_signup()</code> no banco de dados Supabase.
+    </div>
+    <ul>
+      <li>Qualquer chamada direta à API do Supabase Auth (fora do frontend da aplicação — script, ferramenta externa, chamada manual) ainda dispara o trigger e cria conta FREE com 60 créditos, exatamente como documentado em <code>auditorias/2026-07-08_achados-diagnostico-fase-0-etapas-a-d-incluiai-2.0.html</code>.</li>
+      <li>O botão de login Google, se reativado sem uma guarda equivalente pós-retorno OAuth, reabre a mesma porta (Seção 6).</li>
+      <li>A correção definitiva — desativar ou substituir o trigger de forma segura — permanece como pendência formal da <strong>Fase 0</strong>, e deve seguir a ordem obrigatória de <code>REGRAS_SEGURANCA_INCLUIAI_2_0.md</code>: diagnóstico → confirmação de schema → proposta → aprovação da CEO → backup/plano de rollback → execução em ambiente seguro → produção → nova auditoria.</li>
+    </ul>
+  </section>
+
+  <!-- 11. METADADOS -->
+  <section class="block" id="metadados">
+    <h2><span class="num">11</span>Metadados de geração</h2>
+    <div class="metadata-grid">
+      <div><strong>Data/hora</strong>08/07/2026</div>
+      <div><strong>Responsável</strong>Karlene Pinheiro (CEO) + assistente Claude Code</div>
+      <div><strong>Arquivos de código alterados</strong>Nenhum — implementação já existente foi verificada, não modificada</div>
+      <div><strong>Comandos executados</strong><code>npx tsc --noEmit</code>, <code>npm run build</code> — ambos apenas leitura/compilação, nenhuma escrita em banco</div>
+      <div><strong>Banco/trigger alterados</strong>Nenhum</div>
+      <div><strong>Pendência formal</strong>Correção do trigger create_user_profile_on_signup — Fase 0</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Ação Emergencial de Frontend · Uso interno<br>
+  Gerado em 08/07/2026 — nenhum banco de dados, trigger ou conta existente foi alterado
+</div>
+
+</body>
+</html>

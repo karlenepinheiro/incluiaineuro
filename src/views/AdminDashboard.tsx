@@ -24,12 +24,13 @@ import { LandingService } from '../services/landingService';
 import { SubscriptionService } from '../services/billingService';
 import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
 import {
-  getCeoKpis, getCeoCreditDashboard, getCeoSubscribersPage, getKiwifyProducts, upsertKiwifyProduct,
+  getCeoKpis, getCeoCreditDashboard, getCeoSubscribersPage, getCeoNullCycleCount, getKiwifyProducts, upsertKiwifyProduct,
   getCoupons, upsertCoupon, toggleCoupon, deleteCoupon, buildCouponShareLink,
   getAdminAuditLog, logAction, getKiwifyPurchases, getCeoInactiveTenants,
   setTenantInternal, reconcilePendingPurchases, buildPendingAccountInstructions,
   getCeoSubscribersContacts, adminUpdateUserContact, getCeoInternalTenants,
   getCeoHealthDiagnostics, getCeoCreditCommandCenter, getCeoPricingAiAdmin, getCeoBillingKiwifyReconciliation, getCeoUsersTenantsAdmin, getCeoAlertsIncidentCenter, computeKiwifyAlerts,
+  adminUpdateSubscriptionCycle,
   type CeoKpis, type CeoCreditDashboard, type CeoSubscriber, type CeoSubscriberPage, type KiwifyProduct, type CeoCoupon, type AdminAuditEntry,
   type KiwifyPurchaseRow, type InactiveTenantRow, type ReconcileResult, type CeoHealthDiagnostics, type CeoHealthAlert, type CeoCreditCommandCenter,
   type CeoCreditWalletRow, type CeoPricingAiAdmin, type CeoPricingKiwifyProductRow, type CeoPricingCouponRow,
@@ -1046,6 +1047,7 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterDivergence, setFilterDivergence] = useState(false);
+  const [filterCycle, setFilterCycle] = useState<string>('all');
   const [page, setPage] = useState(1);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [resetTarget, setResetTarget] = useState<{ email: string; name: string } | null>(null);
@@ -1059,6 +1061,7 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
   const [reconcileConfirm, setReconcileConfirm] = useState<{ tenantName: string } | null>(null);
   const [reconcileLoading, setReconcileLoading] = useState(false);
   const [reconcileResultLocal, setReconcileResultLocal] = useState<ReconcileResult[] | null>(null);
+  const [unknownCycleTotalCount, setUnknownCycleTotalCount] = useState(0);
 
   const subscribers = subscriberPage.rows;
   const totalSubscribers = subscriberPage.total;
@@ -1073,14 +1076,15 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
 
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, filterStatus, filterDivergence]);
+  }, [debouncedSearch, filterStatus, filterDivergence, filterCycle]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [pageData, purchases, inactive, contactsMap, internal, nextKpis] = await Promise.all([
+    const [pageData, purchases, inactive, contactsMap, internal, nextKpis, nullCycleCount] = await Promise.all([
       getCeoSubscribersPage({
         search: debouncedSearch || undefined,
         status: filterStatus,
+        cycle: filterCycle !== 'all' ? filterCycle : undefined,
         onlyFindings: filterDivergence,
         page,
         pageSize: subscriberPage.pageSize,
@@ -1098,6 +1102,7 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
       getCeoSubscribersContacts().catch(() => new Map()),
       getCeoInternalTenants().catch(() => [] as InactiveTenantRow[]),
       getCeoKpis().catch(() => null),
+      getCeoNullCycleCount().catch(() => 0),
     ]);
 
     // Mescla phone/cpf na lista de subscribers
@@ -1120,8 +1125,9 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
     setInactiveTenants(inactive);
     setInternalTenants(internal);
     setKpis(nextKpis);
+    setUnknownCycleTotalCount(nullCycleCount);
     setLoading(false);
-  }, [debouncedSearch, filterStatus, filterDivergence, page, subscriberPage.pageSize]);
+  }, [debouncedSearch, filterStatus, filterDivergence, filterCycle, page, subscriberPage.pageSize]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1129,7 +1135,11 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
     p => !p.tenant_id && p.status === 'APPROVED' && !p.activated_at
   );
 
+  // DB filtra todos os ciclos (inclusive 'unknown' → IS NULL); sem filtro local.
   const filtered = subscribers;
+
+  // Contagem real do banco — não depende da página atual.
+  const unknownCycleCount = unknownCycleTotalCount;
 
   const doAction = async (action: () => Promise<void>, tenantId: string) => {
     setActionLoading(tenantId);
@@ -1204,6 +1214,16 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
             <option value="TRIAL">Trial</option>
             <option value="NO_SUBSCRIPTION">Sem subscription</option>
           </select>
+          <select
+            className="border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-200 bg-white"
+            value={filterCycle}
+            onChange={e => setFilterCycle(e.target.value)}
+          >
+            <option value="all">Todos os ciclos</option>
+            <option value="monthly">Mensal</option>
+            <option value="annual">Anual</option>
+            <option value="unknown">Indefinido (NULL)</option>
+          </select>
           <button
             onClick={() => setFilterDivergence(v => !v)}
             className={`px-3 py-2 text-xs font-semibold rounded-xl border transition flex items-center gap-1.5 ${filterDivergence ? 'bg-red-600 text-white border-red-600' : 'bg-white text-red-500 border-red-200 hover:bg-red-50'}`}
@@ -1223,7 +1243,7 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
 
       {/* KPI strip */}
       {!loading && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
           <BillingHealthCard
             title="Ativos"
             value={kpis?.active_subscribers ?? 0}
@@ -1237,6 +1257,16 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
             icon={AlertTriangle}
             severity={(kpis?.overdue_subscribers ?? 0) > 0 ? 'warn' : 'ok'}
             subtext="pagamentos vencidos"
+          />
+          <BillingHealthCard
+            title="Ciclo Indefinido"
+            value={unknownCycleCount}
+            icon={AlertTriangle}
+            severity={unknownCycleCount > 0 ? 'warn' : 'ok'}
+            subtext="billing_cycle NULL (PRO/MASTER)"
+            cta={unknownCycleCount > 0 && filterCycle !== 'unknown'
+              ? { label: 'Filtrar', onClick: () => setFilterCycle('unknown') }
+              : undefined}
           />
           <BillingHealthCard
             title="Pend. Ativação"
@@ -1320,6 +1350,10 @@ const SubscribersTab = ({ adminUser }: { adminUser: AdminUser }) => {
                 onEditContact={(email, phone, cpf, name) =>
                   setContactEditTarget({ email, name, phone, cpf })
                 }
+                onUpdateCycle={async (subId, cycle, periodStart, reason) => {
+                  await adminUpdateSubscriptionCycle(subId, cycle, periodStart, true, reason, adminUser);
+                  await load();
+                }}
               />
             );
           })}
