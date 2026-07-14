@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Execução Blocos C/D Corrigidos — Sincronização tenants.plan_id nas funções de ativação Kiwify</title>
+<style>
+  :root { --petrol:#1F4E5F; --dark:#2E3A59; --gold:#C69214; --bg:#F6F4EF; --surface:#FFFFFF; --border:#E7E2D8; --text:#111827; --muted:#6B7280; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; position: relative; overflow: hidden; }
+  .header::before { content:''; position:absolute; inset:0; background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0); background-size: 24px 24px; }
+  .header-inner { position: relative; z-index: 1; max-width: 1040px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 24px; font-weight: 800; max-width: 820px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 760px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1040px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 13px; }
+  .toc li { margin-bottom: 6px; break-inside: avoid; }
+  .toc a { color: var(--petrol); text-decoration: none; font-weight: 600; }
+  .toc a:hover { text-decoration: underline; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block > p.lead { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: #FCFBF8; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-critico { background:#FEE2E2; color:#991B1B; border:1px solid #FECACA; }
+  .badge-alto { background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; }
+  .badge-medio { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; }
+  .badge-ok { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .badge-readonly { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .badge-write { background:#FEE2E2; color:#991B1B; border:1px solid #FECACA; }
+  .badge-pendente { background:#FFF7ED; color:#9A3412; border:1px solid #FED7AA; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color:#C69214; background:#FEF9EE; }
+  .callout.risk { border-color:#B91C1C; background:#FEF2F2; }
+  .callout.ok { border-color:#065F46; background:#ECFDF5; }
+  .callout strong { color: var(--dark); }
+  pre { background:#1E293B; color:#E2E8F0; border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12px; font-family:Consolas,Monaco,monospace; margin:8px 0 16px; line-height:1.55; }
+  code { background:#F1EFE9; border:1px solid var(--border); border-radius:4px; padding:1px 6px; font-size:12px; font-family:Consolas,monospace; }
+  pre code { background:none; border:none; padding:0; color:inherit; }
+  .query-block { border:1px solid var(--border); border-radius:10px; margin-bottom:16px; overflow:hidden; }
+  .query-head { background:#FAF9F6; padding:10px 16px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; border-bottom:1px solid var(--border); }
+  .query-head .qtitle { font-weight:700; font-size:12.5px; color:var(--dark); }
+  .query-body { padding:0 16px; }
+  .query-body pre { margin:12px 0; }
+  .metadata-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; font-size:12.5px; }
+  .metadata-grid div strong { display:block; color:var(--dark); font-size:11px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:3px; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .footer strong { color: #fff; }
+  @media (max-width: 640px) { .header { padding: 28px 20px; } section.block { padding: 20px; } .toc ol { columns: 1; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="kicker">Fase 0 · Execução Autorizada (Blocos C + D Corrigidos) · Escrita em Funções — Zero Escrita em Dados</div>
+    <h1>Execução dos Blocos C e D corrigidos — tenants.plan_id agora sincronizado nas duas funções de ativação Kiwify</h1>
+    <p>Execução autorizada pela CEO, restrita a <code>CREATE OR REPLACE FUNCTION</code> das duas funções, com base no corpo real de produção confirmado em 14/07/2026 (Blocos B.2/B.3). Nenhum backfill, nenhum UPDATE em tabelas de dados, nenhuma migration geral, nenhum <code>db push</code>.</p>
+    <div class="cover-badges">
+      <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">14/07/2026</span>
+      <span class="badge badge-ok">Funções alteradas e verificadas com sucesso</span>
+      <span class="badge badge-critico">Bloco E — NÃO executado</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Tipo</strong>Execução de correção estrutural (função) — dados de cliente não tocados</div>
+    <div><strong>Autorização</strong>CEO — restrita aos Blocos C e D corrigidos do relatório de 14/07 (confirmação A/B)</div>
+    <div><strong>Ambiente</strong>Produção real — projeto <code>incluiai</code> (hvjczfncppaodebopbvd), via <code>supabase db query --linked</code></div>
+    <div><strong>Comandos executados</strong>2× <code>CREATE OR REPLACE FUNCTION</code> + 2× <code>GRANT EXECUTE</code> (idempotente) + verificações <code>SELECT</code>/<code>pg_get_functiondef</code></div>
+    <div><strong>Responsável</strong>Karlene Pinheiro (CEO)</div>
+    <div><strong>Bloco E</strong>Não executado — nenhum UPDATE em tenants, subscriptions, credits_wallet, credits_ledger ou profiles</div>
+  </div>
+
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#resumo">Resumo executivo</a></li>
+      <li><a href="#horarios">Horário de execução</a></li>
+      <li><a href="#c-executado">Bloco C executado — activate_purchase_for_user</a></li>
+      <li><a href="#d-executado">Bloco D executado — reconcile_pending_activations</a></li>
+      <li><a href="#verificacao">Verificação pós-execução — pg_get_functiondef</a></li>
+      <li><a href="#sem-impacto">Garantia — nenhum dado de cliente foi alterado</a></li>
+      <li><a href="#bloco-e">Confirmação — Bloco E não executado</a></li>
+      <li><a href="#checklist">Checklist de segurança</a></li>
+      <li><a href="#proximos">Próximos passos (nenhum executado)</a></li>
+      <li><a href="#metadados">Metadados de geração</a></li>
+    </ol>
+  </div>
+
+  <!-- RESUMO -->
+  <section class="block" id="resumo">
+    <h2><span class="num">1</span>Resumo executivo</h2>
+    <ol class="plain">
+      <li>Os Blocos C e D corrigidos (baseados no corpo <strong>real</strong> de produção confirmado em B.2/B.3, não na versão v7/v2 do arquivo de migration) foram executados com sucesso contra o banco de produção.</li>
+      <li>As duas funções — <code>activate_purchase_for_user</code> e <code>reconcile_pending_activations</code> — agora incluem <code>UPDATE tenants SET plan_id = ..., updated_at = now()</code> na mesma transação em que <code>subscriptions.plan_id</code> é definido, corrigindo a causa raiz identificada nas auditorias de 08/07, 13/07 e 14/07.</li>
+      <li>Verificação pós-execução via <code>pg_get_functiondef</code> confirma que o bloco novo está presente, e que nenhuma outra parte da lógica original (créditos, ledger, kiwify_purchases, profiles) foi alterada.</li>
+      <li><strong>Nenhum dado de cliente foi tocado</strong>: <code>CREATE OR REPLACE FUNCTION</code> redefine o comportamento apenas para chamadas futuras — não invoca a função, não lê nem escreve linhas de tabela. Confirmado por reconsulta dos 12 tenants divergentes: mesma contagem (12), mesmo <code>plan_id</code> atual, mesmo <code>updated_at</code> (datas de maio/2026, sem alteração).</li>
+      <li><strong>Bloco E não foi executado</strong> — os 12 tenants continuam com <code>tenants.plan_id</code> = FREE até nova aprovação explícita da CEO.</li>
+    </ol>
+  </section>
+
+  <!-- HORÁRIOS -->
+  <section class="block" id="horarios">
+    <h2><span class="num">2</span>Horário de execução</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:30%">Etapa</th><th>Horário (UTC)</th></tr>
+      <tr><td>Bloco C — CREATE OR REPLACE FUNCTION activate_purchase_for_user</td><td>2026-07-14 13:49:00 UTC</td></tr>
+      <tr><td>Bloco D — CREATE OR REPLACE FUNCTION reconcile_pending_activations</td><td>2026-07-14 13:49:11 UTC</td></tr>
+      <tr><td>Verificação pós-execução (pg_get_functiondef ×2)</td><td>2026-07-14, imediatamente após C e D</td></tr>
+      <tr><td>Verificação de não-impacto em dados (12 tenants + grants)</td><td>2026-07-14, imediatamente após a verificação de função</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- BLOCO C -->
+  <section class="block" id="c-executado">
+    <h2><span class="num">3</span>Bloco C executado — activate_purchase_for_user</h2>
+    <p>Comando: <code>supabase db query -f bloco_C_activate_purchase_for_user.sql --linked</code>. Conteúdo idêntico ao Bloco C corrigido publicado em <code>auditorias/2026-07-14_confirmacao-blocos-a-b-e-funcoes-reais-producao-tenants-plan-id.html</code> (Seção 8).</p>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Resultado da execução</span><span class="badge badge-ok">Sucesso — sem erro</span></div>
+      <div class="query-body"><pre>{"rows": []}  -- CREATE OR REPLACE FUNCTION não retorna linhas; ausência de erro = sucesso</pre></div>
+    </div>
+  </section>
+
+  <!-- BLOCO D -->
+  <section class="block" id="d-executado">
+    <h2><span class="num">4</span>Bloco D executado — reconcile_pending_activations</h2>
+    <p>Comando: <code>supabase db query -f bloco_D_reconcile_pending_activations.sql --linked</code>. Conteúdo idêntico ao Bloco D corrigido publicado em <code>auditorias/2026-07-14_confirmacao-blocos-a-b-e-funcoes-reais-producao-tenants-plan-id.html</code> (Seção 9).</p>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Resultado da execução</span><span class="badge badge-ok">Sucesso — sem erro</span></div>
+      <div class="query-body"><pre>{"rows": []}  -- CREATE OR REPLACE FUNCTION não retorna linhas; ausência de erro = sucesso</pre></div>
+    </div>
+  </section>
+
+  <!-- VERIFICAÇÃO -->
+  <section class="block" id="verificacao">
+    <h2><span class="num">5</span>Verificação pós-execução — pg_get_functiondef</h2>
+    <p><code>pg_get_functiondef</code> reexecutado (mesma query do Bloco B.2/B.3) para confirmar o estado real após a alteração:</p>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:38%">Verificação</th><th>activate_purchase_for_user</th><th>reconcile_pending_activations</th></tr>
+      <tr><td>Contém <code>UPDATE tenants</code></td><td><span class="badge badge-ok">Sim (1×)</span></td><td><span class="badge badge-ok">Sim (1×)</span></td></tr>
+      <tr><td>Contém marcador <code>★ NOVO</code></td><td><span class="badge badge-ok">Sim (1×)</span></td><td><span class="badge badge-ok">Sim (1×)</span></td></tr>
+      <tr><td>Reintroduziu <code>current_period_start</code> (não deveria)</td><td><span class="badge badge-ok">Não (0×)</span></td><td><span class="badge badge-ok">Não (0×)</span></td></tr>
+      <tr><td>Ocorrência de <code>paid_at</code></td><td>0× (esperado)</td><td>1× — <code>ORDER BY kp.paid_at ASC NULLS LAST</code>, já existia no corpo real original, não é lógica nova</td></tr>
+      <tr><td>Estrutura restante idêntica ao corpo real de produção (B.2/B.3)</td><td><span class="badge badge-ok">Confirmado, linha a linha</span></td><td><span class="badge badge-ok">Confirmado, linha a linha</span></td></tr>
+    </table>
+    </div>
+    <div class="callout ok">
+      A única diferença entre o corpo pós-execução e o corpo real capturado em B.2/B.3 é exatamente o bloco de 3 linhas <code>UPDATE tenants SET plan_id = v_plan_id, updated_at = now() WHERE id = v_tenant_id;</code> (mais comentário), inserido no ponto correto em ambas as funções. Nenhuma lógica de período/paid_at foi reintroduzida.
+    </div>
+  </section>
+
+  <!-- SEM IMPACTO -->
+  <section class="block" id="sem-impacto">
+    <h2><span class="num">6</span>Garantia — nenhum dado de cliente foi alterado</h2>
+    <p><code>CREATE OR REPLACE FUNCTION</code> é uma operação de DDL sobre o catálogo de funções — não invoca a função, não lê nem grava linhas de tabela. Para confirmar isso na prática (e não apenas por definição), reconsultei os 12 tenants divergentes originais do Bloco A imediatamente após C e D:</p>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Reconsulta dos 12 tenants — comparação com o snapshot do Bloco A (13:01:46 UTC)</span><span class="badge badge-readonly">SELECT — somente leitura</span></div>
+      <div class="query-body"><pre>-- Resultado: ainda exatamente 12 linhas, mesmos tenant_id, mesmo tenant_plan_id_atual (FREE =
+-- c4dd657f-9b0c-4d91-8c76-fc46c9bf5a29 em todos), mesmo subscription_plan_id.
+-- tenant_updated_at de TODOS os 12 permanece com datas de maio/2026 (anteriores a esta sessão) —
+-- ou seja, NENHUMA linha de tenants foi escrita por esta execução.</pre></div>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <tr><th>tenant_id</th><th>tenant_plan_id_atual</th><th>tenant_updated_at (inalterado)</th></tr>
+      <tr><td><code>176f06f1…a10b</code></td><td>FREE</td><td>2026-05-08 18:27:51</td></tr>
+      <tr><td><code>364f3d99…f1cd6</code></td><td>FREE</td><td>2026-05-15 19:07:38</td></tr>
+      <tr><td><code>3691bd69…b95f</code></td><td>FREE</td><td>2026-05-08 20:57:43</td></tr>
+      <tr><td><code>500d2569…11bb</code></td><td>FREE</td><td>2026-05-13 11:34:44</td></tr>
+      <tr><td><code>503c5efe…fe9</code></td><td>FREE</td><td>2026-05-08 17:15:47</td></tr>
+      <tr><td><code>59c4aef5…4d03</code></td><td>FREE</td><td>2026-05-08 17:15:47</td></tr>
+      <tr><td><code>59e937e6…c3f5</code></td><td>FREE</td><td>2026-05-08 15:05:54</td></tr>
+      <tr><td><code>62fd7090…f166a</code></td><td>FREE</td><td>2026-05-11 22:15:13</td></tr>
+      <tr><td><code>6536ff20…dee28</code></td><td>FREE</td><td>2026-05-11 19:55:33</td></tr>
+      <tr><td><code>a2337aa3…683b</code></td><td>FREE</td><td>2026-05-13 11:59:24</td></tr>
+      <tr><td><code>ed2b6752…bde7</code></td><td>FREE</td><td>2026-05-09 22:19:29</td></tr>
+      <tr><td><code>fe081714…ca00</code></td><td>FREE</td><td>2026-05-11 14:49:26</td></tr>
+    </table>
+    </div>
+    <p>Também confirmei que os <code>GRANT EXECUTE</code> (idempotentes, já existiam antes) permanecem intactos para <code>anon</code>, <code>authenticated</code> e <code>service_role</code> nas duas funções — o comportamento de quem pode chamar a função não mudou.</p>
+  </section>
+
+  <!-- BLOCO E -->
+  <section class="block" id="bloco-e">
+    <h2><span class="num">7</span>Confirmação — Bloco E não executado</h2>
+    <ul>
+      <li>Nenhum <code>UPDATE tenants</code> avulso foi rodado nesta sessão — só o que está embutido dentro do corpo das duas funções, que só executa quando a função é <em>chamada</em> (próxima compra Kiwify ou próxima reconciliação), não quando é <em>redefinida</em>.</li>
+      <li>Nenhum backfill dos 12 tenants foi aplicado — confirmado na Seção 6 acima (mesma contagem, mesmo plan_id, mesmo updated_at).</li>
+      <li>Nenhum <code>UPDATE</code>/<code>INSERT</code>/<code>DELETE</code> em <code>credits_wallet</code>, <code>credits_ledger</code>, <code>subscriptions</code> ou <code>profiles</code> fora do corpo original das funções.</li>
+      <li>Nenhuma trigger, <code>auth.users</code>, migration geral ou <code>supabase db push</code> foi tocada.</li>
+      <li>As 29 migrations locais pendentes (ver auditoria de 14/07, Seção 6) continuam não aplicadas — não fizeram parte desta execução.</li>
+    </ul>
+    <div class="callout warn">
+      <strong>Consequência prática:</strong> os 12 tenants continuam hoje com <code>tenants.plan_id = FREE</code>. A correção estrutural (função) está pronta para valer a partir da próxima ativação/reconciliação Kiwify de <em>qualquer</em> tenant — mas os 12 casos já existentes só serão corrigidos quando o Bloco E for aprovado e executado separadamente.
+    </div>
+  </section>
+
+  <!-- CHECKLIST -->
+  <section class="block" id="checklist">
+    <h2><span class="num">8</span>Checklist de segurança (REGRAS_SEGURANCA_INCLUIAI_2_0.md, Seção 15)</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:55%">Pergunta</th><th>Resposta</th></tr>
+      <tr><td>Foi feita auditoria?</td><td><span class="badge badge-ok">Sim</span> — 08/07, 13/07, 14/07 (A/B) e este documento</td></tr>
+      <tr><td>O schema real foi confirmado?</td><td><span class="badge badge-ok">Sim</span> — corpo real das funções confirmado via pg_get_functiondef antes de escrever</td></tr>
+      <tr><td>A alteração mexe no banco?</td><td>Sim — apenas definição das 2 funções (DDL de catálogo)</td></tr>
+      <tr><td>Existe risco de perda de dados?</td><td><span class="badge badge-ok">Nenhum</span> — nenhuma tabela de dados foi escrita</td></tr>
+      <tr><td>Existe backup?</td><td>Sim — snapshot dos 12 casos já salvo em 14/07 (Bloco A) antes desta execução</td></tr>
+      <tr><td>Existe plano de rollback?</td><td>Sim — reverter é reaplicar o corpo real capturado em B.2/B.3 (documentado na auditoria de 14/07, Seção 4)</td></tr>
+      <tr><td>A CEO aprovou?</td><td><span class="badge badge-ok">Sim</span> — autorização explícita restrita a C e D</td></tr>
+      <tr><td>A mudança é reversível?</td><td>Sim — CREATE OR REPLACE FUNCTION pode ser revertido a qualquer momento</td></tr>
+      <tr><td>Afeta clientes pagos?</td><td>Afeta o comportamento de <em>futuras</em> ativações; os 12 casos existentes não foram alterados</td></tr>
+      <tr><td>Afeta Kiwify?</td><td>Não altera nenhuma linha de <code>kiwify_purchases</code></td></tr>
+      <tr><td>Afeta créditos?</td><td><span class="badge badge-ok">Não</span></td></tr>
+      <tr><td>Afeta alunos?</td><td>Não</td></tr>
+      <tr><td>Bloco E executado?</td><td><span class="badge badge-critico">Não</span> — confirmado na Seção 7</td></tr>
+      <tr><td>Foi registrado em auditoria?</td><td>Sim — este documento + índice atualizado</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- PRÓXIMOS PASSOS -->
+  <section class="block" id="proximos">
+    <h2><span class="num">9</span>Próximos passos (nenhum executado)</h2>
+    <ol class="plain">
+      <li>CEO decide se e quando aprovar o Bloco E (backfill dos 12 tenants) da proposta de 13/07/2026 — continua válido, pois nunca dependeu do corpo interno das funções.</li>
+      <li>Opcional: testar a correção com uma ativação real ou com <code>reconcile_pending_activations()</code> em ambiente controlado antes do backfill, para confirmar que o novo <code>UPDATE tenants</code> se comporta como esperado em uma chamada real.</li>
+      <li>Separadamente: decidir se vale investigar as 29 migrations locais sem registro no tracking remoto (achado de 14/07, Seção 6) — fora do escopo desta correção.</li>
+    </ol>
+  </section>
+
+  <!-- METADADOS -->
+  <section class="block" id="metadados">
+    <h2><span class="num">10</span>Metadados de geração</h2>
+    <div class="metadata-grid">
+      <div><strong>Data/hora</strong>14/07/2026, ~13:49 UTC</div>
+      <div><strong>Responsável</strong>Karlene Pinheiro (CEO) + assistente Claude Code</div>
+      <div><strong>Autorização</strong>Blocos C e D corrigidos, escrita restrita a CREATE OR REPLACE FUNCTION</div>
+      <div><strong>Comando usado</strong><code>supabase db query -f &lt;arquivo.sql&gt; --linked -o json</code></div>
+      <div><strong>Projeto Supabase</strong>incluiai (hvjczfncppaodebopbvd) — produção</div>
+      <div><strong>Funções alteradas</strong>public.activate_purchase_for_user(uuid), public.reconcile_pending_activations()</div>
+      <div><strong>Dados de cliente alterados</strong>Nenhum — confirmado por reconsulta dos 12 tenants (Seção 6)</div>
+      <div><strong>Bloco E</strong>Não executado</div>
+      <div><strong>Documentos relacionados</strong>2026-07-13_proposta-correcao-tenants-plan-id-divergente-incluiai-2.0.html · 2026-07-14_confirmacao-blocos-a-b-e-funcoes-reais-producao-tenants-plan-id.html</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Execução de Correção Estrutural (Função) · Uso interno<br>
+  Gerado em 14/07/2026 — funções corrigidas; nenhum dado de cliente foi alterado; Bloco E permanece pendente de aprovação
+</div>
+
+</body>
+</html>

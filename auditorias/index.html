@@ -138,13 +138,174 @@
 <div class="container">
 
   <div class="info-bar">
-    <span><strong>Total de auditorias:</strong> 9</span>
-    <span><strong>Última atualização:</strong> 08/07/2026</span>
+    <span><strong>Total de auditorias:</strong> 14</span>
+    <span><strong>Última atualização:</strong> 14/07/2026</span>
     <span><strong>Convenção de nomes:</strong> <code>AAAA-MM-DD_motivo-da-auditoria.html</code></span>
     <span><a href="README.md" style="color:var(--petrol); font-weight:600;">Ver README e regras →</a></span>
   </div>
 
-  <!-- ── BLOQUEIO EMERGENCIAL FRONTEND (mais recente) ── -->
+  <!-- ── EXECUÇÃO BLOCOS C/D CORRIGIDOS (mais recente) ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">14</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Execução Blocos C/D Corrigidos — tenants.plan_id agora sincronizado nas funções de ativação Kiwify</div>
+      <div class="audit-meta">
+        Autorização explícita da CEO para executar SOMENTE os Blocos C e D corrigidos (baseados no corpo real de
+        produção confirmado em B.2/B.3): CREATE OR REPLACE FUNCTION em activate_purchase_for_user e
+        reconcile_pending_activations, adicionando UPDATE tenants.plan_id na mesma transação. Executado às 13:49
+        UTC. Verificação pós-execução via pg_get_functiondef confirma o bloco novo presente em ambas, sem
+        reintrodução de lógica de período. Reconsulta dos 12 tenants divergentes confirma updated_at inalterado
+        (datas de maio/2026) — nenhum dado de cliente foi tocado. Bloco E (backfill) NÃO executado — os 12 tenants
+        continuam FREE até nova aprovação.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">Funções corrigidas e verificadas</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">Bloco E não executado</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Kiwify</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Billing</span>
+        <span class="badge badge-ok">Dados de cliente: não alterados</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-14_execucao-blocos-c-d-corrigidos-tenants-plan-id-sync.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── CONFIRMAÇÃO BLOCOS A/B — FUNÇÕES REAIS DE PRODUÇÃO ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">14</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Confirmação Blocos A/B — funções reais de produção divergem do arquivo de migration (Blocos C/D de 13/07 invalidados)</div>
+      <div class="audit-meta">
+        Execução autorizada pela CEO, restrita a leitura (Bloco A: snapshot/backup dos 12 tenants; Bloco B: contagem +
+        pg_get_functiondef ao vivo), via supabase db query --linked contra produção real. Confirmou 12/12 casos
+        (9 MASTER + 3 PRO) e a causa raiz (tenants.plan_id nunca atualizado). Mas revelou que as funções reais em
+        produção NÃO são a versão v7/v2 assumida na proposta de 13/07 — são uma versão anterior, sem ancoragem de
+        período em paid_at. supabase migration list --linked confirma 29 migrations locais sem registro no tracking
+        remoto. Blocos C/D de 13/07 foram invalidados e reescritos com base no corpo real; backup salvo em
+        supabase/diagnostics/20260714_backup_snapshot_12_tenants_plan_id_divergentes.sql. Nenhuma escrita executada.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-readonly">Somente leitura — nenhuma escrita executada</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">Blocos C/D de 13/07 invalidados</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Kiwify</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Billing</span>
+        <span class="badge badge-pendente">Status: Blocos C/D corrigidos, aguardando aprovação</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-14_confirmacao-blocos-a-b-e-funcoes-reais-producao-tenants-plan-id.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── PROPOSTA CORREÇÃO tenants.plan_id (12 CASOS CONFIRMADOS) ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">13</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Proposta de Correção — tenants.plan_id divergente (12 tenants confirmados: 9 MASTER + 3 PRO)</div>
+      <div class="audit-meta">
+        Continuação do achado de 08/07/2026: CEO confirmou contra o banco ao vivo 12 tenants com
+        subscriptions.status=ACTIVE e plan_id PRO/MASTER, mas tenants.plan_id ainda em FREE. Documento com
+        blocos SQL separados (A-G) para revisão: backup/exportação, conferência antes, CREATE OR REPLACE das
+        funções activate_purchase_for_user (v8) e reconcile_pending_activations (v3) passando a atualizar
+        tenants.plan_id na mesma transação, backfill restrito aos 12 casos (com variante por lista explícita de
+        tenant_id), conferência depois e plano de rollback em 3 níveis. Nenhum comando foi executado — apenas
+        proposta, pendente de aprovação explícita da CEO.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-readonly">Somente proposta — nada executado</span>
+        <span class="badge badge-pendente">Status: Aguardando aprovação da CEO</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Kiwify</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Billing</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Fase 0</span>
+        <span class="badge badge-ok">Créditos: não afetados</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-13_proposta-correcao-tenants-plan-id-divergente-incluiai-2.0.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── LANDING: PNGs TRANSPARENTES SEM FUNDO PRETO (mais recente) ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">13</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Landing Page — Ajuste para PNGs Transparentes (Hero e Demonstração sem fundo preto)</div>
+      <div class="audit-meta">
+        Correção do redesign anterior: Hero.jsx e LandingPage.tsx passaram a usar apenas as 2 imagens PNG
+        transparentes fornecidas pela CEO (hero-leveza.png, antes-depois-incluiai.png), confirmadas via inspeção do
+        canal alfa (RGBA, cantos com alpha=0). Novo card do Hero com gradiente suave e overflow visível (professora
+        "saindo do quadro", object-fit contain, sem cortar rosto/cabelo). Tablet do bloco de demonstração agora
+        flutua sobre o fundo claro da seção com drop-shadow, sem moldura/fundo preto. Bloco de dor deixou de usar
+        hero-dor.jpg e passou a usar uma composição 100% HTML/CSS (cards de documentos com ícones), sem repetir a
+        imagem da professora. Nenhuma referência aos JPGs antigos restou no código nem no bundle final. Testado
+        visualmente (Playwright, desktop + mobile) e build de produção passou.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">Build: ✅ Passou</span>
+        <span class="badge badge-ok">Teste visual: ✅ Playwright desktop + mobile</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Landing Page</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Imagens PNG</span>
+        <span class="badge badge-ok">Banco: não alterado</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-13_landing-imagens-png-transparentes-sem-fundo-preto.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── REDESIGN LANDING PAGE ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">13</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Redesign da Landing Page — Hero, Dor, Solução, Demonstração e Benefícios</div>
+      <div class="audit-meta">
+        Redesign visual e de copy da landing pública (Hero.jsx + LandingPage.tsx): novo hero com destaque circular
+        na palavra "tempo", faixa de palavras em movimento, imagens da professora (hero-leveza.jpg / hero-dor.jpg)
+        e do mockup de Estudo de Caso (antes-depois-incluiai.jpg) fornecidas pela CEO, blocos de Dor/Solução/
+        Demonstração/Benefícios/Para quem é reformulados, novo CTA final com WhatsApp. Seções antigas redundantes
+        (comparativo sem/com, produto, diferenciais, créditos explicador) foram simplificadas/absorvidas. Nenhum
+        banco, trigger, billing ou autenticação foi tocado. Build de produção passou.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">Build: ✅ Passou</span>
+        <span class="badge badge-concluida">Status: Concluído — aguardando revisão visual da CEO</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Landing Page</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Redesign visual</span>
+        <span class="badge badge-ok">Banco: não alterado</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-13_redesign-landing-page-hero-dor-solucao-demonstracao.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── BLOQUEIO EMERGENCIAL FRONTEND ── -->
   <div class="audit-card">
     <div class="audit-date">
       <span class="day">08</span>

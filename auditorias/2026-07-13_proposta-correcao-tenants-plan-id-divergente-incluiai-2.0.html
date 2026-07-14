@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Proposta de Correção — tenants.plan_id divergente (12 tenants confirmados)</title>
+<style>
+  :root { --petrol:#1F4E5F; --dark:#2E3A59; --gold:#C69214; --bg:#F6F4EF; --surface:#FFFFFF; --border:#E7E2D8; --text:#111827; --muted:#6B7280; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; position: relative; overflow: hidden; }
+  .header::before { content:''; position:absolute; inset:0; background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0); background-size: 24px 24px; }
+  .header-inner { position: relative; z-index: 1; max-width: 1040px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 24px; font-weight: 800; max-width: 820px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 760px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1040px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 13px; }
+  .toc li { margin-bottom: 6px; break-inside: avoid; }
+  .toc a { color: var(--petrol); text-decoration: none; font-weight: 600; }
+  .toc a:hover { text-decoration: underline; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block > p.lead { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: #FCFBF8; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-critico { background:#FEE2E2; color:#991B1B; border:1px solid #FECACA; }
+  .badge-alto { background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; }
+  .badge-medio { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; }
+  .badge-ok { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .badge-readonly { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .badge-write { background:#FEE2E2; color:#991B1B; border:1px solid #FECACA; }
+  .badge-pendente { background:#FFF7ED; color:#9A3412; border:1px solid #FED7AA; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color:#C69214; background:#FEF9EE; }
+  .callout.risk { border-color:#B91C1C; background:#FEF2F2; }
+  .callout.ok { border-color:#065F46; background:#ECFDF5; }
+  .callout strong { color: var(--dark); }
+  pre { background:#1E293B; color:#E2E8F0; border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12px; font-family:Consolas,Monaco,monospace; margin:8px 0 16px; line-height:1.55; }
+  code { background:#F1EFE9; border:1px solid var(--border); border-radius:4px; padding:1px 6px; font-size:12px; font-family:Consolas,monospace; }
+  pre code { background:none; border:none; padding:0; color:inherit; }
+  .query-block { border:1px solid var(--border); border-radius:10px; margin-bottom:16px; overflow:hidden; }
+  .query-head { background:#FAF9F6; padding:10px 16px; display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; border-bottom:1px solid var(--border); }
+  .query-head .qtitle { font-weight:700; font-size:12.5px; color:var(--dark); }
+  .query-body { padding:0 16px; }
+  .query-body pre { margin:12px 0; }
+  .metadata-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; font-size:12.5px; }
+  .metadata-grid div strong { display:block; color:var(--dark); font-size:11px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:3px; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .footer strong { color: #fff; }
+  @media (max-width: 640px) { .header { padding: 28px 20px; } section.block { padding: 20px; } .toc ol { columns: 1; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="kicker">Fase 0 · Proposta Técnica de Correção — Não Executada</div>
+    <h1>Correção de tenants.plan_id divergente — 12 tenants confirmados (9 MASTER + 3 PRO)</h1>
+    <p>Continuação do achado de 08/07/2026 (9 casos, hipótese de código-fonte). A CEO confirmou contra o banco ao vivo: 12 tenants com <code>subscriptions.status = ACTIVE</code> e <code>subscriptions.plan_id</code> em PRO/MASTER, mas <code>tenants.plan_id = FREE</code>. Este documento contém apenas a proposta técnica e os SQLs separados em blocos, para revisão da CEO. Nada foi executado.</p>
+    <div class="cover-badges">
+      <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">13/07/2026</span>
+      <span class="badge badge-readonly">Nenhum comando executado nesta etapa</span>
+      <span class="badge badge-critico">Bloqueado até aprovação explícita da CEO</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Tipo</strong>Proposta técnica de correção (blocos A–G, não executados)</div>
+    <div><strong>Base</strong>2026-07-08_achado-tenants-plan-id-nao-atualizado-ativacao-incluiai-2.0.html</div>
+    <div><strong>Gatilho</strong>Query de divergência confirmada pela CEO: 12 tenants (9 MASTER, 3 PRO)</div>
+    <div><strong>Comandos executados no banco</strong>Nenhum</div>
+    <div><strong>Correção aplicada</strong>Nenhuma — proposta pendente de aprovação</div>
+    <div><strong>Responsável</strong>Karlene Pinheiro (CEO)</div>
+  </div>
+
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#contexto">Contexto confirmado</a></li>
+      <li><a href="#causa">Causa raiz</a></li>
+      <li><a href="#estrategia">Estratégia de correção</a></li>
+      <li><a href="#bloco-a">Bloco A — Backup/exportação dos 12 casos</a></li>
+      <li><a href="#bloco-b">Bloco B — Conferência antes</a></li>
+      <li><a href="#bloco-c">Bloco C — activate_purchase_for_user (v8)</a></li>
+      <li><a href="#bloco-d">Bloco D — reconcile_pending_activations (v3)</a></li>
+      <li><a href="#bloco-e">Bloco E — Backfill dos 12 tenants</a></li>
+      <li><a href="#bloco-f">Bloco F — Conferência depois</a></li>
+      <li><a href="#bloco-g">Bloco G — Plano de rollback</a></li>
+      <li><a href="#checklist">Checklist de segurança (REGRAS_SEGURANCA_INCLUIAI_2_0.md)</a></li>
+      <li><a href="#metadados">Metadados de geração</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. CONTEXTO -->
+  <section class="block" id="contexto">
+    <h2><span class="num">1</span>Contexto confirmado</h2>
+    <p>A query de divergência foi executada pela CEO contra o banco ao vivo e retornou <strong>12 tenants</strong> com:</p>
+    <ul>
+      <li><code>tenants.plan_id</code> = FREE</li>
+      <li><code>subscriptions.status</code> = ACTIVE</li>
+      <li><code>subscriptions.plan_id</code> = PRO ou MASTER</li>
+    </ul>
+    <p>Distribuição: <strong>9 MASTER</strong> · <strong>3 PRO</strong>. Isso confirma, com evidência de banco real, a hipótese já levantada por leitura de código-fonte em <code>auditorias/2026-07-08_achado-tenants-plan-id-nao-atualizado-ativacao-incluiai-2.0.html</code>.</p>
+  </section>
+
+  <!-- 2. CAUSA -->
+  <section class="block" id="causa">
+    <h2><span class="num">2</span>Causa raiz</h2>
+    <p>Lida linha a linha em <code>supabase/migrations/20260618000001_fix_subscription_period_anchoring.sql</code> (versão mais recente encontrada no repositório para estas duas funções — v7 de <code>activate_purchase_for_user</code> e v2 de <code>reconcile_pending_activations</code>):</p>
+    <ul>
+      <li>Ambas as funções atualizam <code>subscriptions.plan_id</code>, <code>profiles.plan</code>, <code>credits_wallet</code>, <code>credits_ledger</code> e <code>kiwify_purchases.activated_at</code>.</li>
+      <li><strong>Nenhuma das duas contém qualquer <code>UPDATE tenants</code>.</strong> A tabela <code>tenants</code> nunca é tocada pelo caminho automático de ativação Kiwify.</li>
+      <li>O caminho manual do admin (<code>src/services/billingService.ts → changePlan()</code>) já atualiza as 4 tabelas corretamente, inclusive <code>tenants</code> — é o padrão de referência usado nos Blocos C e D abaixo.</li>
+    </ul>
+    <div class="callout warn">
+      <strong>Nota de proveniência:</strong> esta seção descreve o que o arquivo de migration mais recente do repositório contém. Antes de aplicar os Blocos C/D em produção, o Bloco B inclui a query <code>pg_get_functiondef</code> para confirmar que a função ao vivo no banco é exatamente esta — o próprio histórico deste projeto já mostrou casos de arquivo local divergente de produção.
+    </div>
+  </section>
+
+  <!-- 3. ESTRATÉGIA -->
+  <section class="block" id="estrategia">
+    <h2><span class="num">3</span>Estratégia de correção</h2>
+    <ol class="plain">
+      <li><strong>Corrigir as funções (Blocos C e D)</strong> — adicionar <code>UPDATE tenants SET plan_id = ...</code> dentro da mesma transação plpgsql, no mesmo ponto em que <code>subscriptions.plan_id</code> é definido. Nenhuma outra lógica da função é alterada (créditos, período, ledger permanecem intactos).</li>
+      <li><strong>Corrigir os 12 dados já divergentes (Bloco E)</strong> — usar <code>subscriptions.plan_id</code> como fonte de verdade, restrito exatamente aos tenants em que <code>status = 'ACTIVE'</code> e <code>tenants.plan_id IS DISTINCT FROM subscriptions.plan_id</code>.</li>
+      <li><strong>Nada além disso</strong> — não mexe em créditos, não mexe em linhas de <code>subscriptions</code> fora do que a função já faz, não cria/remove tabela, não afeta clientes Fundadores além de corrigir o campo que já deveria refletir o plano pago.</li>
+    </ol>
+  </section>
+
+  <!-- BLOCO A -->
+  <section class="block" id="bloco-a">
+    <h2><span class="num">4</span>Bloco A — SELECT de backup/exportação dos 12 casos</h2>
+    <p class="lead">Somente leitura. Rodar e <strong>exportar o resultado (CSV/JSON) antes de qualquer outro bloco</strong> — é o snapshot que permite reverter o Bloco E manualmente linha a linha se necessário (ver Bloco G).</p>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">A.1 — Snapshot completo dos 12 tenants divergentes (tenant + subscription + wallet)</span><span class="badge badge-readonly">SELECT — seguro, sem aprovação necessária</span></div>
+      <div class="query-body"><pre>-- SEGURANÇA: somente leitura. Exportar este resultado (CSV/JSON) e guardar
+-- antes de rodar qualquer UPDATE. É a base do rollback manual do Bloco G.
+SELECT
+  t.id                    AS tenant_id,
+  t.name                  AS tenant_name,
+  t.plan_id                AS tenant_plan_id_atual,
+  tp.name                  AS tenant_plan_nome_atual,
+  s.id                     AS subscription_id,
+  s.plan_id                AS subscription_plan_id,
+  sp.name                  AS subscription_plan_nome,
+  s.status                 AS subscription_status,
+  s.current_period_start,
+  s.current_period_end,
+  s.provider,
+  s.billing_cycle,
+  cw.balance                AS credits_balance_atual,
+  now()                     AS snapshot_capturado_em
+FROM public.tenants t
+JOIN public.subscriptions s   ON s.tenant_id = t.id
+LEFT JOIN public.plans tp     ON tp.id = t.plan_id
+LEFT JOIN public.plans sp     ON sp.id = s.plan_id
+LEFT JOIN public.credits_wallet cw ON cw.tenant_id = t.id
+WHERE s.status = 'ACTIVE'
+  AND s.plan_id IS NOT NULL
+  AND t.plan_id IS DISTINCT FROM s.plan_id
+ORDER BY t.id;</pre></div>
+    </div>
+    <div class="callout ok">
+      <strong>Por que SELECT e não CREATE TABLE backup:</strong> conforme <code>REGRAS_SEGURANCA_INCLUIAI_2_0.md</code> Seção 5, <code>CREATE</code> também exige aprovação explícita, mesmo sendo não-destrutivo. Um <code>SELECT</code> exportado (CSV/JSON pelo painel do Supabase, ou <code>\copy</code> via psql) cumpre o mesmo objetivo de backup sem precisar de aprovação para rodar. Se a CEO preferir um snapshot em tabela dentro do próprio banco, isso pode ser incluído como uma variação aprovada do Bloco A antes da execução.
+    </div>
+  </section>
+
+  <!-- BLOCO B -->
+  <section class="block" id="bloco-b">
+    <h2><span class="num">5</span>Bloco B — SELECT de conferência ANTES</h2>
+    <p class="lead">Somente leitura. Confirma (1) que ainda são exatamente os mesmos 12 casos e (2) que as funções ao vivo no banco batem com o código lido nos Blocos C/D antes de propor o <code>CREATE OR REPLACE</code>.</p>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">B.1 — Contagem e distribuição por plano (deve bater com 9 MASTER + 3 PRO = 12)</span><span class="badge badge-readonly">SELECT</span></div>
+      <div class="query-body"><pre>SELECT sp.name AS plano_correto, COUNT(*) AS quantidade
+FROM public.tenants t
+JOIN public.subscriptions s ON s.tenant_id = t.id
+JOIN public.plans sp        ON sp.id = s.plan_id
+WHERE s.status = 'ACTIVE'
+  AND s.plan_id IS NOT NULL
+  AND t.plan_id IS DISTINCT FROM s.plan_id
+GROUP BY sp.name
+ORDER BY sp.name;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">B.2 — Definição ao vivo de activate_purchase_for_user (confirmar antes de propor C)</span><span class="badge badge-readonly">SELECT / pg_catalog</span></div>
+      <div class="query-body"><pre>SELECT pg_get_functiondef(oid) AS definicao_atual
+FROM pg_proc
+WHERE proname = 'activate_purchase_for_user';</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">B.3 — Definição ao vivo de reconcile_pending_activations (confirmar antes de propor D)</span><span class="badge badge-readonly">SELECT / pg_catalog</span></div>
+      <div class="query-body"><pre>SELECT pg_get_functiondef(oid) AS definicao_atual
+FROM pg_proc
+WHERE proname = 'reconcile_pending_activations';</pre></div>
+    </div>
+    <div class="callout risk">
+      <strong>Portão obrigatório:</strong> se B.2/B.3 divergirem do corpo assumido nos Blocos C/D abaixo (o que foi lido de <code>20260618000001_fix_subscription_period_anchoring.sql</code>), os blocos C/D precisam ser reescritos a partir da definição real antes de qualquer <code>CREATE OR REPLACE</code> — nunca substituir por suposição.
+    </div>
+  </section>
+
+  <!-- BLOCO C -->
+  <section class="block" id="bloco-c">
+    <h2><span class="num">6</span>Bloco C — CREATE OR REPLACE FUNCTION activate_purchase_for_user (v8)</h2>
+    <p class="lead"><strong>Não executar sem aprovação.</strong> Idêntica à v7 (20260618000001) em toda a lógica de créditos, período e ledger. Única mudança: adicionado <code>UPDATE tenants</code> logo após a resolução de <code>v_plan_id</code>/atualização de <code>subscriptions</code>, replicando o padrão já usado em <code>billingService.changePlan()</code>. Trecho novo marcado com <code>-- ★ NOVO</code>.</p>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">C.1 — activate_purchase_for_user (v8) — adiciona UPDATE tenants.plan_id</span><span class="badge badge-write">CREATE OR REPLACE FUNCTION — requer aprovação explícita</span></div>
+      <div class="query-body"><pre>-- SEGURANÇA: esta função é SECURITY DEFINER e roda em produção real.
+-- NÃO EXECUTAR sem aprovação explícita da CEO (REGRAS_SEGURANCA_INCLUIAI_2_0.md, Seção 5).
+-- Rodar primeiro o Bloco B.2 para confirmar que este é o corpo real ao vivo.
+-- Diferença única frente à v7: bloco "-- ★ NOVO" logo abaixo do UPDATE/INSERT em subscriptions.
+
+CREATE OR REPLACE FUNCTION public.activate_purchase_for_user(p_purchase_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_purchase       kiwify_purchases%ROWTYPE;
+  v_user_email     text;
+  v_user_id        uuid;
+  v_tenant_id      uuid;
+  v_plan_id        uuid;
+  v_plan_credits   int         := 0;
+  v_sub_plan_name  text;
+  v_rows_updated   int;
+  v_plan_lookup    text;
+  v_ledger_type    text;
+  v_ledger_desc    text;
+  v_billing_cycle  text        := 'monthly';
+  v_period_start   timestamptz;
+  v_period_end     timestamptz;
+BEGIN
+  v_user_email := lower(trim(auth.jwt() ->> 'email'));
+  v_user_id    := auth.uid();
+
+  IF v_user_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'not_authenticated');
+  END IF;
+
+  SELECT * INTO v_purchase
+  FROM   kiwify_purchases
+  WHERE  id                 = p_purchase_id
+    AND  lower(trim(email)) = v_user_email
+    AND  status             = 'APPROVED'
+    AND  activated_at       IS NULL
+  FOR UPDATE SKIP LOCKED;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', true, 'reason', 'already_activated');
+  END IF;
+
+  IF v_purchase.product_key = 'UNKNOWN'
+     OR (v_purchase.plan_code IS NULL AND v_purchase.credits_amount = 0) THEN
+    RETURN jsonb_build_object(
+      'ok',      false,
+      'reason',  'unknown_product',
+      'message', 'Produto não reconhecido. Entre em contato com o suporte informando o número do pedido.'
+    );
+  END IF;
+
+  SELECT tenant_id INTO v_tenant_id FROM users WHERE id = v_user_id;
+
+  IF v_tenant_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'tenant_not_found');
+  END IF;
+
+  IF upper(coalesce(v_purchase.product_key, '')) LIKE '%ANNUAL%' THEN
+    v_billing_cycle := 'annual';
+  END IF;
+
+  v_period_start := COALESCE(v_purchase.paid_at, now());
+
+  IF v_purchase.paid_at IS NULL THEN
+    RAISE WARNING
+      'activate_purchase_for_user: paid_at NULL para purchase_id=%. '
+      'ANOMALIA: period_start será now() (%). '
+      'A data de início da assinatura pode estar incorreta. '
+      'Corrija kiwify_purchases.paid_at manualmente após identificar a data real.',
+      p_purchase_id, now();
+  END IF;
+
+  v_period_end := CASE v_billing_cycle
+    WHEN 'annual' THEN v_period_start + interval '12 months'
+    ELSE               v_period_start + interval '1 month'
+  END;
+
+  IF v_purchase.plan_code IS NOT NULL THEN
+
+    v_plan_lookup := CASE upper(v_purchase.plan_code)
+      WHEN 'PREMIUM' THEN 'MASTER'
+      ELSE upper(v_purchase.plan_code)
+    END;
+
+    SELECT id INTO v_plan_id
+    FROM   plans
+    WHERE  upper(name) = v_plan_lookup
+    LIMIT  1;
+
+    IF v_plan_id IS NULL THEN
+      RETURN jsonb_build_object(
+        'ok',      false,
+        'reason',  'plan_not_found',
+        'message', 'Plano "' || v_plan_lookup || '" não encontrado. Contate o suporte.'
+      );
+    END IF;
+
+    UPDATE subscriptions
+    SET    plan_id              = v_plan_id,
+           status               = 'ACTIVE',
+           current_period_start = v_period_start,
+           current_period_end   = v_period_end,
+           provider             = 'kiwify',
+           billing_cycle        = v_billing_cycle,
+           updated_at           = now()
+    WHERE  tenant_id = v_tenant_id;
+
+    GET DIAGNOSTICS v_rows_updated = ROW_COUNT;
+
+    IF v_rows_updated = 0 THEN
+      INSERT INTO subscriptions (
+        tenant_id, plan_id, status,
+        current_period_start, current_period_end,
+        provider, billing_cycle
+      ) VALUES (
+        v_tenant_id, v_plan_id, 'ACTIVE',
+        v_period_start, v_period_end,
+        'kiwify', v_billing_cycle
+      );
+    END IF;
+
+    -- ★ NOVO — mantém tenants.plan_id em sincronia com subscriptions.plan_id
+    -- na MESMA transação da função (mesmo padrão de billingService.changePlan()).
+    -- Causa raiz do achado dos 12 tenants divergentes: este UPDATE nunca existiu
+    -- nas versões anteriores desta função.
+    UPDATE tenants
+    SET    plan_id    = v_plan_id,
+           updated_at = now()
+    WHERE  id = v_tenant_id;
+
+    UPDATE profiles
+    SET    plan = v_plan_lookup
+    WHERE  id   = v_user_id;
+
+    v_plan_credits := CASE v_plan_lookup
+      WHEN 'MASTER' THEN 700
+      WHEN 'PRO'    THEN 500
+      ELSE 0
+    END;
+
+    v_ledger_type := 'monthly_grant';
+    v_ledger_desc := 'Ativação plano ' || v_plan_lookup
+                     || ' (' || v_billing_cycle || ') — pedido '
+                     || coalesce(v_purchase.provider_order_id, v_purchase.id::text);
+
+  ELSIF v_purchase.plan_code IS NULL AND v_purchase.credits_amount > 0 THEN
+
+    SELECT upper(p.name) INTO v_sub_plan_name
+    FROM   subscriptions s
+    JOIN   plans p ON p.id = s.plan_id
+    WHERE  s.tenant_id = v_tenant_id
+      AND  s.status    = 'ACTIVE'
+    LIMIT  1;
+
+    IF v_sub_plan_name IS NULL
+       OR v_sub_plan_name NOT IN ('PRO', 'MASTER', 'PREMIUM') THEN
+      RETURN jsonb_build_object(
+        'ok',      false,
+        'reason',  'credits_require_subscription',
+        'message', 'Pacotes avulsos são exclusivos para assinantes PRO ou Master ativos.'
+      );
+    END IF;
+
+    v_plan_credits := v_purchase.credits_amount;
+    v_ledger_type  := 'purchase_extra';
+    v_ledger_desc  := 'Pacote avulso ' || v_purchase.credits_amount::text
+                      || ' créditos — pedido '
+                      || coalesce(v_purchase.provider_order_id, v_purchase.id::text);
+
+  END IF;
+
+  UPDATE kiwify_purchases
+  SET    activated_at = now(),
+         tenant_id    = v_tenant_id
+  WHERE  id = p_purchase_id;
+
+  IF v_plan_credits > 0 THEN
+
+    IF v_ledger_type = 'monthly_grant' THEN
+      INSERT INTO credits_wallet (
+        tenant_id, balance,
+        last_reset_at, last_credit_grant_at, next_credit_grant_at,
+        updated_at
+      ) VALUES (
+        v_tenant_id, v_plan_credits,
+        now(), now(), now() + interval '1 month',
+        now()
+      )
+      ON CONFLICT (tenant_id) DO UPDATE
+        SET balance               = EXCLUDED.balance,
+            last_reset_at         = EXCLUDED.last_reset_at,
+            last_credit_grant_at  = EXCLUDED.last_credit_grant_at,
+            next_credit_grant_at  = EXCLUDED.next_credit_grant_at,
+            updated_at            = EXCLUDED.updated_at;
+    ELSE
+      INSERT INTO credits_wallet (tenant_id, balance, updated_at)
+      VALUES (v_tenant_id, v_plan_credits, now())
+      ON CONFLICT (tenant_id) DO UPDATE
+        SET balance    = credits_wallet.balance + EXCLUDED.balance,
+            updated_at = now();
+    END IF;
+
+    INSERT INTO credits_ledger (tenant_id, amount, type, description, source)
+    VALUES (v_tenant_id, v_plan_credits, v_ledger_type, v_ledger_desc, 'kiwify_activation');
+
+  END IF;
+
+  RETURN jsonb_build_object(
+    'ok',              true,
+    'plan',            v_purchase.plan_code,
+    'billing_cycle',   v_billing_cycle,
+    'period_start',    v_period_start,
+    'period_end',      v_period_end,
+    'credits_granted', v_plan_credits
+  );
+
+EXCEPTION WHEN OTHERS THEN
+  RETURN jsonb_build_object(
+    'ok',      false,
+    'reason',  'internal_error',
+    'message', 'Erro interno: ' || SQLERRM || ' (SQLSTATE: ' || SQLSTATE || ')'
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.activate_purchase_for_user(uuid)
+  TO anon, authenticated, service_role;</pre></div>
+    </div>
+  </section>
+
+  <!-- BLOCO D -->
+  <section class="block" id="bloco-d">
+    <h2><span class="num">7</span>Bloco D — CREATE OR REPLACE FUNCTION reconcile_pending_activations (v3)</h2>
+    <p class="lead"><strong>Não executar sem aprovação.</strong> Idêntica à v2 (20260618000001) em toda a lógica. Único acréscimo: <code>UPDATE tenants</code> dentro do loop, logo após o upsert de <code>subscriptions</code> — mesmo padrão do Bloco C.</p>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">D.1 — reconcile_pending_activations (v3) — adiciona UPDATE tenants.plan_id no loop</span><span class="badge badge-write">CREATE OR REPLACE FUNCTION — requer aprovação explícita</span></div>
+      <div class="query-body"><pre>-- SEGURANÇA: SECURITY DEFINER, roda em produção real. NÃO EXECUTAR sem aprovação.
+-- Rodar primeiro o Bloco B.3 para confirmar que este é o corpo real ao vivo.
+
+CREATE OR REPLACE FUNCTION public.reconcile_pending_activations()
+RETURNS TABLE(
+  purchase_email    text,
+  purchase_plan     text,
+  found_tenant_id   uuid,
+  result_action     text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_purchase       kiwify_purchases%ROWTYPE;
+  v_user_id        uuid;
+  v_tenant_id      uuid;
+  v_plan_id        uuid;
+  v_plan_credits   int;
+  v_plan_lookup    text;
+  v_billing_cycle  text;
+  v_period_start   timestamptz;
+  v_period_end     timestamptz;
+  v_rows           int;
+BEGIN
+  FOR v_purchase IN
+    SELECT kp.*
+    FROM   kiwify_purchases kp
+    WHERE  kp.status       = 'APPROVED'
+      AND  kp.activated_at IS NULL
+      AND  kp.plan_code    IS NOT NULL
+    ORDER  BY kp.paid_at ASC NULLS LAST
+  LOOP
+    SELECT u.id, u.tenant_id
+    INTO   v_user_id, v_tenant_id
+    FROM   users u
+    WHERE  lower(trim(u.email)) = lower(trim(v_purchase.email))
+    LIMIT  1;
+
+    IF v_tenant_id IS NULL THEN
+      purchase_email  := v_purchase.email;
+      purchase_plan   := v_purchase.plan_code;
+      found_tenant_id := NULL;
+      result_action   := 'no_account_yet';
+      RETURN NEXT;
+      CONTINUE;
+    END IF;
+
+    v_plan_lookup := CASE upper(v_purchase.plan_code)
+      WHEN 'PREMIUM' THEN 'MASTER'
+      ELSE upper(v_purchase.plan_code)
+    END;
+
+    SELECT id INTO v_plan_id
+    FROM   plans
+    WHERE  upper(name) = v_plan_lookup
+    LIMIT  1;
+
+    IF v_plan_id IS NULL THEN
+      purchase_email  := v_purchase.email;
+      purchase_plan   := v_purchase.plan_code;
+      found_tenant_id := v_tenant_id;
+      result_action   := 'plan_not_found';
+      RETURN NEXT;
+      CONTINUE;
+    END IF;
+
+    v_billing_cycle := CASE
+      WHEN upper(coalesce(v_purchase.product_key, '')) LIKE '%ANNUAL%' THEN 'annual'
+      ELSE 'monthly'
+    END;
+
+    v_period_start := COALESCE(v_purchase.paid_at, now());
+
+    IF v_purchase.paid_at IS NULL THEN
+      RAISE WARNING
+        'reconcile_pending_activations: paid_at NULL para purchase_id=% email=%. '
+        'ANOMALIA: period_start será now() (%). '
+        'Corrija kiwify_purchases.paid_at após identificar a data real.',
+        v_purchase.id, v_purchase.email, now();
+    END IF;
+
+    v_period_end := CASE v_billing_cycle
+      WHEN 'annual' THEN v_period_start + interval '12 months'
+      ELSE               v_period_start + interval '1 month'
+    END;
+
+    UPDATE subscriptions
+    SET    plan_id              = v_plan_id,
+           status               = 'ACTIVE',
+           current_period_start = v_period_start,
+           current_period_end   = v_period_end,
+           provider             = 'kiwify',
+           billing_cycle        = v_billing_cycle,
+           updated_at           = now()
+    WHERE  tenant_id = v_tenant_id;
+
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+    IF v_rows = 0 THEN
+      INSERT INTO subscriptions (
+        tenant_id, plan_id, status,
+        current_period_start, current_period_end,
+        provider, billing_cycle
+      ) VALUES (
+        v_tenant_id, v_plan_id, 'ACTIVE',
+        v_period_start, v_period_end,
+        'kiwify', v_billing_cycle
+      );
+    END IF;
+
+    -- ★ NOVO — mesma correção do Bloco C, aplicada ao caminho de reconciliação.
+    UPDATE tenants
+    SET    plan_id    = v_plan_id,
+           updated_at = now()
+    WHERE  id = v_tenant_id;
+
+    v_plan_credits := CASE v_plan_lookup
+      WHEN 'MASTER' THEN 700
+      WHEN 'PRO'    THEN 500
+      ELSE 0
+    END;
+
+    IF v_plan_credits > 0 THEN
+      INSERT INTO credits_wallet (
+        tenant_id, balance,
+        last_reset_at, last_credit_grant_at, next_credit_grant_at,
+        updated_at
+      ) VALUES (
+        v_tenant_id, v_plan_credits,
+        now(), now(), now() + interval '1 month',
+        now()
+      )
+      ON CONFLICT (tenant_id) DO UPDATE
+        SET balance               = EXCLUDED.balance,
+            last_reset_at         = EXCLUDED.last_reset_at,
+            last_credit_grant_at  = EXCLUDED.last_credit_grant_at,
+            next_credit_grant_at  = EXCLUDED.next_credit_grant_at,
+            updated_at            = EXCLUDED.updated_at;
+
+      INSERT INTO credits_ledger (tenant_id, amount, type, description, source)
+      VALUES (
+        v_tenant_id, v_plan_credits, 'monthly_grant',
+        'Reconciliação Kiwify — pedido '
+        || coalesce(v_purchase.provider_order_id, v_purchase.id::text)
+        || ' (period_start=' || v_period_start::text || ')',
+        'reconciliation'
+      );
+    END IF;
+
+    IF v_user_id IS NOT NULL THEN
+      UPDATE profiles SET plan = v_plan_lookup WHERE id = v_user_id;
+    END IF;
+
+    UPDATE kiwify_purchases
+    SET    activated_at = now(),
+           tenant_id    = v_tenant_id
+    WHERE  id = v_purchase.id;
+
+    purchase_email  := v_purchase.email;
+    purchase_plan   := v_purchase.plan_code;
+    found_tenant_id := v_tenant_id;
+    result_action   := 'activated';
+    RETURN NEXT;
+
+  END LOOP;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.reconcile_pending_activations()
+  TO service_role, authenticated;</pre></div>
+    </div>
+  </section>
+
+  <!-- BLOCO E -->
+  <section class="block" id="bloco-e">
+    <h2><span class="num">8</span>Bloco E — UPDATE de backfill dos 12 tenants divergentes</h2>
+    <p class="lead"><strong>Não executar sem aprovação.</strong> Corrige apenas <code>tenants.plan_id</code>. Não toca <code>subscriptions</code>, não toca créditos, não toca <code>profiles</code>. Duas variantes: E.1 (condição, conforme pedido) e E.2 (restrita aos 12 IDs — mais segura, recomendada).</p>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">E.1 — Backfill por condição (subscriptions.status='ACTIVE' e plan_id divergente)</span><span class="badge badge-write">UPDATE — requer aprovação explícita</span></div>
+      <div class="query-body"><pre>-- SEGURANÇA: altera dados reais de produção. NÃO EXECUTAR sem aprovação explícita.
+-- Escopo: apenas tenants.plan_id. Não altera subscriptions, créditos ou profiles.
+-- Rodar dentro de uma transação para permitir conferência antes do COMMIT.
+
+BEGIN;
+
+UPDATE public.tenants t
+SET    plan_id    = s.plan_id,
+       updated_at = now()
+FROM   public.subscriptions s
+WHERE  s.tenant_id = t.id
+  AND  s.status = 'ACTIVE'
+  AND  s.plan_id IS NOT NULL
+  AND  t.plan_id IS DISTINCT FROM s.plan_id
+RETURNING t.id AS tenant_id, t.plan_id AS novo_plan_id, t.updated_at;
+
+-- CONFERIR: o RETURNING acima deve mostrar exatamente 12 linhas,
+-- coincidindo com o snapshot do Bloco A (9 MASTER + 3 PRO).
+-- Se bater exatamente:   COMMIT;
+-- Se não bater, ou aparecer qualquer linha inesperada: ROLLBACK;</pre></div>
+    </div>
+
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">E.2 — Variante recomendada: restrita aos 12 tenant_id confirmados no Bloco A</span><span class="badge badge-write">UPDATE — requer aprovação explícita</span></div>
+      <div class="query-body"><pre>-- SEGURANÇA: mesma alteração do E.1, mas restrita à lista explícita de tenant_id
+-- retornada pelo Bloco A — elimina qualquer risco de a condição capturar um
+-- tenant a mais/a menos caso o estado do banco mude entre o diagnóstico e a execução.
+-- Substituir os UUIDs abaixo pelos 12 tenant_id reais do Bloco A antes de rodar.
+
+BEGIN;
+
+UPDATE public.tenants t
+SET    plan_id    = s.plan_id,
+       updated_at = now()
+FROM   public.subscriptions s
+WHERE  s.tenant_id = t.id
+  AND  s.status = 'ACTIVE'
+  AND  s.plan_id IS NOT NULL
+  AND  t.plan_id IS DISTINCT FROM s.plan_id
+  AND  t.id IN (
+    '&lt;tenant_id_1&gt;','&lt;tenant_id_2&gt;','&lt;tenant_id_3&gt;','&lt;tenant_id_4&gt;',
+    '&lt;tenant_id_5&gt;','&lt;tenant_id_6&gt;','&lt;tenant_id_7&gt;','&lt;tenant_id_8&gt;',
+    '&lt;tenant_id_9&gt;','&lt;tenant_id_10&gt;','&lt;tenant_id_11&gt;','&lt;tenant_id_12&gt;'
+  )
+RETURNING t.id AS tenant_id, t.plan_id AS novo_plan_id, t.updated_at;
+
+-- Confirmar 12 linhas retornadas. COMMIT; ou ROLLBACK; conforme o resultado.</pre></div>
+    </div>
+
+    <div class="callout warn">
+      <strong>Ordem recomendada:</strong> rodar Bloco A → copiar os 12 <code>tenant_id</code> retornados → usar E.2 (lista explícita) em vez de E.1 (condição aberta). E.1 fica documentado porque foi o formato pedido, mas E.2 é estritamente mais seguro para o mesmo resultado.
+    </div>
+  </section>
+
+  <!-- BLOCO F -->
+  <section class="block" id="bloco-f">
+    <h2><span class="num">9</span>Bloco F — SELECT de conferência DEPOIS</h2>
+    <p class="lead">Rodar após o <code>COMMIT</code> do Bloco E. Deve retornar <strong>zero linhas</strong>.</p>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">F.1 — Divergência remanescente (esperado: 0 linhas)</span><span class="badge badge-readonly">SELECT</span></div>
+      <div class="query-body"><pre>SELECT
+  t.id AS tenant_id,
+  t.plan_id AS tenant_plan_id,
+  s.plan_id AS subscription_plan_id,
+  s.status AS subscription_status
+FROM public.tenants t
+JOIN public.subscriptions s ON s.tenant_id = t.id
+WHERE s.status = 'ACTIVE'
+  AND s.plan_id IS NOT NULL
+  AND t.plan_id IS DISTINCT FROM s.plan_id;</pre></div>
+    </div>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">F.2 — Confirma que os 12 tenants do Bloco A agora refletem o plano correto</span><span class="badge badge-readonly">SELECT</span></div>
+      <div class="query-body"><pre>SELECT
+  t.id AS tenant_id,
+  tp.name AS tenant_plan_nome,
+  sp.name AS subscription_plan_nome,
+  (tp.name = sp.name) AS sincronizado
+FROM public.tenants t
+JOIN public.subscriptions s ON s.tenant_id = t.id
+JOIN public.plans tp ON tp.id = t.plan_id
+JOIN public.plans sp ON sp.id = s.plan_id
+WHERE t.id IN (
+    -- colar aqui os mesmos 12 tenant_id do Bloco A
+  )
+ORDER BY t.id;</pre></div>
+    </div>
+  </section>
+
+  <!-- BLOCO G -->
+  <section class="block" id="bloco-g">
+    <h2><span class="num">10</span>Bloco G — Plano de rollback</h2>
+
+    <h3>G.1 — Rollback imediato (dentro da mesma transação, antes do COMMIT)</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Se o RETURNING do Bloco E não bater com os 12 casos esperados</span><span class="badge badge-ok">Seguro — reverte tudo</span></div>
+      <div class="query-body"><pre>ROLLBACK;</pre></div>
+    </div>
+
+    <h3>G.2 — Rollback pontual (depois do COMMIT), usando o snapshot do Bloco A</h3>
+    <div class="query-block">
+      <div class="query-head"><span class="qtitle">Restaurar plan_id individual de um tenant específico, se necessário</span><span class="badge badge-write">UPDATE — só usar com o valor exato do snapshot do Bloco A</span></div>
+      <div class="query-body"><pre>-- SEGURANÇA: só executar com o valor de tenant_plan_id_atual capturado no Bloco A
+-- para o tenant_id específico. Nunca advinhar o valor anterior.
+UPDATE public.tenants
+SET    plan_id    = '&lt;valor_de_tenant_plan_id_atual_do_bloco_A&gt;',
+       updated_at = now()
+WHERE  id = '&lt;tenant_id_afetado&gt;';</pre></div>
+    </div>
+
+    <h3>G.3 — Rollback das funções (Blocos C e D)</h3>
+    <p>Se a v8/v3 causar qualquer efeito colateral inesperado em novas ativações, reverter para a versão anterior é reaplicar exatamente o corpo já existente em <code>supabase/migrations/20260618000001_fix_subscription_period_anchoring.sql</code> (v7 / v2), que não contém o bloco <code>UPDATE tenants</code>. Esse arquivo já está no repositório e serve como script de rollback pronto — não precisa ser reescrito aqui.</p>
+
+    <h3>G.4 — Critério de decisão</h3>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:40%">Situação</th><th>Ação</th></tr>
+      <tr><td>Bloco E retorna mais ou menos de 12 linhas</td><td><span class="badge badge-critico">ROLLBACK;</span> — investigar antes de tentar de novo</td></tr>
+      <tr><td>Bloco E retorna exatamente 12 linhas, batendo com o Bloco A</td><td><span class="badge badge-ok">COMMIT;</span></td></tr>
+      <tr><td>Bloco F (depois) mostra qualquer linha remanescente</td><td><span class="badge badge-alto">Investigar</span> — não repetir o backfill às cegas; conferir se é um caso novo (fora dos 12 originais) antes de agir</td></tr>
+      <tr><td>Cliente reporta problema após aplicar C/D em produção</td><td>Aplicar G.3 (reverter função) e registrar nova auditoria com o ocorrido</td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- CHECKLIST -->
+  <section class="block" id="checklist">
+    <h2><span class="num">11</span>Checklist de segurança (REGRAS_SEGURANCA_INCLUIAI_2_0.md, Seção 15)</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:55%">Pergunta</th><th>Resposta nesta etapa</th></tr>
+      <tr><td>Foi feita auditoria?</td><td><span class="badge badge-ok">Sim</span> — 08/07/2026 (hipótese) + esta proposta (confirmada pela CEO contra o banco)</td></tr>
+      <tr><td>O schema real foi confirmado?</td><td><span class="badge badge-pendente">Parcial</span> — <code>tenants.plan_id</code>/<code>updated_at</code> confirmados via migration base; Bloco B.2/B.3 fecha a confirmação das funções ao vivo</td></tr>
+      <tr><td>A alteração mexe no banco?</td><td>Sim — Blocos C, D (funções) e E (dados)</td></tr>
+      <tr><td>Existe risco de perda de dados?</td><td>Baixo — escopo restrito a <code>tenants.plan_id</code>/<code>updated_at</code>; nenhum DELETE/DROP/TRUNCATE em nenhum bloco</td></tr>
+      <tr><td>Existe backup?</td><td>Bloco A (SELECT exportável) antes de qualquer escrita</td></tr>
+      <tr><td>Existe plano de rollback?</td><td>Sim — Bloco G (transacional + pontual + reversão de função)</td></tr>
+      <tr><td>A CEO aprovou?</td><td><span class="badge badge-pendente">Pendente</span> — este documento é a proposta para essa aprovação</td></tr>
+      <tr><td>A mudança é reversível?</td><td>Sim, nos três níveis (transação, pontual, função)</td></tr>
+      <tr><td>Afeta clientes pagos?</td><td>Sim — os 12 tenants são exatamente clientes PRO/MASTER pagantes; a correção alinha o dado ao que já foi pago, não reduz nada</td></tr>
+      <tr><td>Afeta clientes Fundadores?</td><td>Não implementado ainda (sem flag de Fundador no schema atual) — fora de escopo desta correção</td></tr>
+      <tr><td>Afeta Kiwify?</td><td>Não altera <code>kiwify_purchases</code> além do que as funções já fazem hoje</td></tr>
+      <tr><td>Afeta créditos?</td><td><span class="badge badge-ok">Não</span> — nenhum bloco toca <code>credits_wallet</code>/<code>credits_ledger</code></td></tr>
+      <tr><td>Afeta alunos?</td><td>Não</td></tr>
+      <tr><td>Foi registrado em auditoria?</td><td>Sim — este documento + entrada em <code>auditorias/index.html</code></td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- METADADOS -->
+  <section class="block" id="metadados">
+    <h2><span class="num">12</span>Metadados de geração</h2>
+    <div class="metadata-grid">
+      <div><strong>Data/hora</strong>13/07/2026</div>
+      <div><strong>Responsável</strong>Karlene Pinheiro (CEO) + assistente Claude Code</div>
+      <div><strong>Achado original</strong>2026-07-08_achado-tenants-plan-id-nao-atualizado-ativacao-incluiai-2.0.html</div>
+      <div><strong>Confirmação ao vivo</strong>12 tenants (9 MASTER, 3 PRO) — informado pela CEO</div>
+      <div><strong>Arquivo-fonte das funções</strong>supabase/migrations/20260618000001_fix_subscription_period_anchoring.sql</div>
+      <div><strong>Comandos executados no banco</strong>Nenhum</div>
+      <div><strong>Correção aplicada</strong>Nenhuma — apenas proposta, pendente de aprovação e do portão do Bloco B</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Proposta Técnica de Correção · Uso interno<br>
+  Gerado em 13/07/2026 — nenhum dado ou função em produção foi alterado durante esta análise
+</div>
+
+</body>
+</html>

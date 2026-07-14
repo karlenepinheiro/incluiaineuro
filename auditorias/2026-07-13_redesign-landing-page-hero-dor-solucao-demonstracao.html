@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Redesign da Landing Page — Hero, Dor, Solução, Demonstração e Benefícios</title>
+<style>
+  :root { --petrol:#1F4E5F; --dark:#2E3A59; --gold:#C69214; --bg:#F6F4EF; --surface:#FFFFFF; --border:#E7E2D8; --text:#111827; --muted:#6B7280; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; position: relative; overflow: hidden; }
+  .header::before { content:''; position:absolute; inset:0; background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0); background-size: 24px 24px; }
+  .header-inner { position: relative; z-index: 1; max-width: 1040px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 25px; font-weight: 800; max-width: 800px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 740px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1040px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 13px; }
+  .toc li { margin-bottom: 6px; break-inside: avoid; }
+  .toc a { color: var(--petrol); text-decoration: none; font-weight: 600; }
+  .toc a:hover { text-decoration: underline; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block > p.lead { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: #FCFBF8; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-critico { background:#FEE2E2; color:#991B1B; border:1px solid #FECACA; }
+  .badge-alto { background:#FEF3C7; color:#92400E; border:1px solid #FCD34D; }
+  .badge-medio { background:#EFF6FF; color:#1D4ED8; border:1px solid #BFDBFE; }
+  .badge-ok { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .badge-confirmado { background:#ECFDF5; color:#065F46; border:1px solid #6EE7B7; }
+  .badge-pendente { background:#FFF7ED; color:#9A3412; border:1px solid #FED7AA; }
+  .badge-gap { background:#F3E8FF; color:#6B21A8; border:1px solid #E9D5FF; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color:#C69214; background:#FEF9EE; }
+  .callout.risk { border-color:#B91C1C; background:#FEF2F2; }
+  .callout.ok { border-color:#065F46; background:#ECFDF5; }
+  .callout strong { color: var(--dark); }
+  pre { background:#1E293B; color:#E2E8F0; border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:12px; font-family:Consolas,Monaco,monospace; margin:8px 0 16px; line-height:1.55; }
+  code { background:#F1EFE9; border:1px solid var(--border); border-radius:4px; padding:1px 6px; font-size:12px; font-family:Consolas,monospace; }
+  pre code { background:none; border:none; padding:0; color:inherit; }
+  .metadata-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; font-size:12.5px; }
+  .metadata-grid div strong { display:block; color:var(--dark); font-size:11px; text-transform:uppercase; letter-spacing:.4px; margin-bottom:3px; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .footer strong { color: #fff; }
+  .file-list { list-style: none; padding: 0; }
+  .file-list li { display: flex; align-items: baseline; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 12.5px; }
+  .file-list li:last-child { border-bottom: none; }
+  @media (max-width: 640px) { .header { padding: 28px 20px; } section.block { padding: 20px; } .toc ol { columns: 1; } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="kicker">Redesign Visual · Somente Frontend · Sem Alteração de Banco</div>
+    <h1>Redesign da Landing Page — Hero, Bloco de Dor, Solução, Demonstração e Benefícios</h1>
+    <p>Atualização visual e de copy da landing pública do IncluiAI (branch <code>redesign-landing-experimental</code>),
+    com novo hero, faixa de palavras em movimento, destaque circular na palavra "tempo", blocos de dor/solução/demonstração
+    com as imagens fornecidas pela CEO, bloco de benefícios, seção "para quem é" reformulada e novo CTA final com WhatsApp.
+    Nenhum arquivo de banco, migration, trigger ou regra de negócio de billing foi tocado.</p>
+    <div class="cover-badges">
+      <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">13/07/2026</span>
+      <span class="badge badge-ok">Build: passou (npm run build)</span>
+      <span class="badge" style="background:#F3E8FF; color:#6B21A8; border:1px solid #E9D5FF;">Escopo: apenas Landing Page</span>
+      <span class="badge badge-ok">Banco: não alterado</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Tipo</strong>Redesign visual e de copy (frontend only) + auditoria</div>
+    <div><strong>Gatilho</strong>Pedido direto da CEO: modernizar a landing, reforçar benefícios e aumentar conversão</div>
+    <div><strong>Banco alterado</strong>Nenhum — nenhuma tabela, trigger, função ou migration foi lida/alterada</div>
+    <div><strong>Branch</strong><code>redesign-landing-experimental</code></div>
+    <div><strong>Responsável</strong>Karlene Pinheiro (CEO)</div>
+    <div><strong>Pendência</strong>Nenhuma técnica — sujeito a revisão visual da CEO antes de merge/deploy</div>
+  </div>
+
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#escopo">1. Escopo e regra de segurança aplicada</a></li>
+      <li><a href="#diagnostico">2. Diagnóstico do estado anterior</a></li>
+      <li><a href="#imagens">3. Imagens usadas (fornecidas pela CEO)</a></li>
+      <li><a href="#decisoes">4. Decisões de design e copy</a></li>
+      <li><a href="#arquivos">5. Arquivos alterados</a></li>
+      <li><a href="#free">6. Verificação de resquícios de FREE</a></li>
+      <li><a href="#build">7. Validação de build</a></li>
+      <li><a href="#pendencias">8. O que não foi alterado / próximos passos</a></li>
+    </ol>
+  </div>
+
+  <section class="block" id="escopo">
+    <h2><span class="num">1</span> Escopo e regra de segurança aplicada</h2>
+    <p class="lead">Conforme <code>REGRAS_SEGURANCA_INCLUIAI_2_0.md</code>, esta tarefa foi tratada exclusivamente como alteração visual de frontend.</p>
+    <div class="callout ok">
+      <strong>Confirmado antes de iniciar:</strong> nenhum comando SQL foi executado; nenhuma tabela, trigger, função,
+      webhook ou regra de negócio foi lida ou alterada; nenhuma migration foi criada; nenhum dado de cliente, aluno,
+      assinatura ou crédito foi tocado. O trabalho ficou limitado a componentes React de apresentação
+      (<code>src/views/LandingPage.tsx</code> e <code>src/components/Hero.jsx</code>) e a um novo arquivo de auditoria.
+    </div>
+  </section>
+
+  <section class="block" id="diagnostico">
+    <h2><span class="num">2</span> Diagnóstico do estado anterior</h2>
+    <p>Antes de alterar qualquer arquivo, foi confirmado:</p>
+    <ul>
+      <li><code>src/views/LandingPage.tsx</code> é a landing pública real, importada em <code>App.tsx</code> (lazy load, linha 10) e renderizada quando <code>view === 'landing'</code>.</li>
+      <li><code>src/components/Hero.jsx</code> era usado apenas dentro de <code>LandingPage.tsx</code> — seguro reescrever sem quebrar outras telas.</li>
+      <li><code>PricingSection.tsx</code> já filtra o plano FREE do grid renderizado (<code>plans.filter(p =&gt; p.id !== 'free')</code>) — nenhum ajuste necessário para remover FREE visualmente do checkout.</li>
+      <li>A seção FAQ é alimentada pelo painel CEO (<code>LandingTab.tsx</code> → <code>section_key = 'faq'</code>) via <code>LandingService.getActive()</code> — mantida intacta para não quebrar a edição pelo CMS.</li>
+      <li>O campo <code>hero</code> do CMS (título/subtítulo/imagem) nunca esteve de fato conectado ao componente <code>Hero.jsx</code> anterior (ele era 100% estático) — portanto, hardcodar a nova copy do hero não reduz nenhuma funcionalidade existente do painel CEO.</li>
+      <li>Número de WhatsApp de suporte já existia centralizado em <code>src/config/contact.ts</code> (<code>waUrl()</code>) — reutilizado para os novos botões "Falar no WhatsApp", em vez de hardcodar um número novo.</li>
+    </ul>
+  </section>
+
+  <section class="block" id="imagens">
+    <h2><span class="num">3</span> Imagens usadas (fornecidas pela CEO)</h2>
+    <p class="lead">Localizadas em <code>public/images/</code> — já publicadas em builds anteriores, mapeadas ao pedido da CEO por conteúdo visual e nome de arquivo.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Arquivo</th><th>Conteúdo</th><th>Onde foi usada</th></tr></thead>
+        <tbody>
+          <tr><td><code>hero-leveza.jpg</code></td><td>Professora tranquila, sala clara, notebook — cenário positivo</td><td>Imagem principal do Hero (professora), conforme pedido</td></tr>
+          <tr><td><code>hero-dor.jpg</code></td><td>Professora sobrecarregada, sala escura, pilhas de documentos (PEI/PAEE/Caso Clínico)</td><td>Bloco de Dor, reforço visual do problema</td></tr>
+          <tr><td><code>antes-depois-incluiai.jpg</code></td><td>Comparativo "antes" (papelada física) / "depois" (tela com "Estudo de Caso" organizado)</td><td>Bloco de Demonstração / Como Funciona (mockup do produto)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      Nenhuma imagem foi gerada, editada ou substituída — as três já existiam em <code>public/images/</code> e foram apenas
+      posicionadas nas seções que combinam com seu conteúdo visual.
+    </div>
+  </section>
+
+  <section class="block" id="decisoes">
+    <h2><span class="num">4</span> Decisões de design e copy</h2>
+    <h3>Hero (src/components/Hero.jsx)</h3>
+    <ul>
+      <li>Headline exata: "Menos burocracia. Mais <strong>tempo</strong> com o aluno." — palavra "tempo" com destaque circular desenhado à mão (SVG laranja).</li>
+      <li>Subheadline, CTA primário ("Quero conhecer o IncluiAI") e CTA secundário ("Ver como funciona") conforme texto fornecido.</li>
+      <li>Imagem <code>hero-leveza.jpg</code> com moldura arredondada, sombra e leve parallax no scroll (translateY até 28px), desativado em telas &lt; 900px e quando <code>prefers-reduced-motion: reduce</code> está ativo.</li>
+      <li>Faixa de palavras em movimento (marquee) logo abaixo do hero, com a lista de termos pedida pela CEO, animação CSS pura (sem bibliotecas), pausada quando o usuário prefere menos movimento.</li>
+    </ul>
+    <h3>LandingPage.tsx — nova ordem de seções</h3>
+    <ol class="plain">
+      <li>Hero + faixa em movimento</li>
+      <li>Bloco de Dor — título/texto pedidos + imagem <code>hero-dor.jpg</code> + os 4 cards de dor já validados (reaproveitados, pois já cobriam burocracia/retrabalho/falta de tempo)</li>
+      <li>Bloco de Solução — título exato + os 5 bullets exatos pedidos pela CEO</li>
+      <li>Bloco de Demonstração — título "Veja na prática..." + imagem <code>antes-depois-incluiai.jpg</code>, combinado com o antigo bloco "Como funciona" (3 passos) para não perder essa explicação nem o link do menu/CTA "Ver como funciona"</li>
+      <li>Bloco de Benefícios — 6 cards exatamente com os rótulos pedidos (Mais rapidez, organização, clareza, produtividade, apoio à inclusão, profissionalismo)</li>
+      <li>Bloco "Para quem é" — os 7 públicos exatos pedidos pela CEO, em cards compactos</li>
+      <li>Planos (<code>PricingSection</code>, mantido sem alteração de lógica de billing)</li>
+      <li>FAQ (mantido — alimentado pelo CMS do painel CEO)</li>
+      <li>CTA final — título, texto e os 2 botões exatos pedidos ("Quero assinar agora" e "Falar no WhatsApp")</li>
+    </ol>
+    <div class="callout warn">
+      <strong>Simplificação de seções antigas:</strong> as seções "Comparativo Sem/Com IncluiAI", "O que o IncluiAI gera"
+      (3 cards de produto), "Diferenciais" (stats-strip) e "Créditos de IA" (explicador separado) foram removidas por
+      redundância — o conteúdo relevante de cada uma foi absorvido pelos novos blocos de Solução, Demonstração e
+      Benefícios, conforme instrução de simplificar seções redundantes e manter a página enxuta.
+    </div>
+  </section>
+
+  <section class="block" id="arquivos">
+    <h2><span class="num">5</span> Arquivos alterados</h2>
+    <ul class="file-list">
+      <li><code>src/components/Hero.jsx</code> — reescrito: novo headline com destaque circular, marquee, imagem da professora, parallax leve</li>
+      <li><code>src/views/LandingPage.tsx</code> — reestruturado: navbar atualizada, blocos de Dor/Solução/Demonstração/Benefícios/Para quem é, CTA final com WhatsApp, Planos e FAQ mantidos</li>
+      <li><code>auditorias/2026-07-13_redesign-landing-page-hero-dor-solucao-demonstracao.html</code> — este relatório</li>
+      <li><code>auditorias/index.html</code> — novo card adicionado ao topo do índice</li>
+    </ul>
+    <p><strong>Nenhum outro arquivo</strong> (banco, serviços, billing, autenticação, painel CEO) foi tocado.</p>
+  </section>
+
+  <section class="block" id="free">
+    <h2><span class="num">6</span> Verificação de resquícios de FREE</h2>
+    <p>Busca textual em <code>LandingPage.tsx</code> e <code>Hero.jsx</code> após a reescrita: nenhuma ocorrência visível de
+    "FREE", "Grátis" ou "Começar grátis" no JSX renderizado. O único ponto onde "FREE" ainda existe no código é o objeto
+    interno <code>plans</code> de <code>PricingSection.tsx</code> (não alterado nesta tarefa), que já é filtrado antes da
+    renderização (<code>plans.filter(p =&gt; p.id !== 'free')</code>) — não aparece na tela.</p>
+  </section>
+
+  <section class="block" id="build">
+    <h2><span class="num">7</span> Validação de build</h2>
+    <p>Comando executado: <code>npm run build</code></p>
+    <pre><code>✓ built in 22.21s
+dist/assets/LandingPage-YuwPat-z.js   56.87 kB │ gzip: 14.71 kB
+dist/images/hero-leveza.jpg
+dist/images/hero-dor.jpg
+dist/images/antes-depois-incluiai.jpg</code></pre>
+    <div class="callout ok">Build de produção concluído sem erros de TypeScript/compilação. As três imagens usadas foram confirmadas no output final (<code>dist/images/</code>).</div>
+  </section>
+
+  <section class="block" id="pendencias">
+    <h2><span class="num">8</span> O que não foi alterado / próximos passos</h2>
+    <div class="metadata-grid">
+      <div><strong>Banco de dados</strong>Não tocado</div>
+      <div><strong>Billing / Kiwify</strong>Não tocado</div>
+      <div><strong>Autenticação</strong>Não tocada</div>
+      <div><strong>Painel CEO (CMS)</strong>Não tocado — FAQ continua editável normalmente</div>
+      <div><strong>Créditos / planos</strong>Não tocados</div>
+      <div><strong>Teste visual em navegador</strong>Pendente — recomenda-se revisão da CEO em <code>npm run dev</code> antes do merge para <code>main</code></div>
+    </div>
+    <p style="margin-top:14px;">Próximo passo sugerido: revisão visual da CEO no ambiente local/preview e, se aprovado,
+    merge da branch <code>redesign-landing-experimental</code> para <code>main</code> (nenhuma ação de merge foi feita
+    automaticamente).</p>
+  </section>
+
+</div>
+
+<div class="footer">
+  Auditoria registrada conforme <strong>REGRAS_SEGURANCA_INCLUIAI_2_0.md</strong> — IncluiAI.app 2.0 · 13/07/2026
+</div>
+
+</body>
+</html>
