@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portabilidade da Sidebar — Base Oficial IncluiAI 2.0</title>
+  <style>
+    :root {
+      --petrol:  #1F4E5F;
+      --dark:    #2E3A59;
+      --gold:    #C69214;
+      --bg:      #F6F4EF;
+      --surface: #FFFFFF;
+      --border:  #E7E2D8;
+      --text:    #111827;
+      --muted:   #6B7280;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+    .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 40px 48px; }
+    .header h1 { font-size: 22px; font-weight: 800; }
+    .header p { opacity: .8; margin-top: 6px; font-size: 13px; }
+    .container { max-width: 920px; margin: 0 auto; padding: 32px 24px 64px; }
+    section { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 26px; margin-bottom: 20px; }
+    h2 { font-size: 15px; color: var(--petrol); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 12px; border-bottom: 2px solid var(--border); padding-bottom: 8px; }
+    h3 { font-size: 13px; color: var(--dark); margin: 14px 0 6px; }
+    ul { padding-left: 20px; margin-bottom: 8px; }
+    li { margin-bottom: 4px; }
+    code { background: #F3F4F6; border: 1px solid #E5E7EB; border-radius: 3px; padding: 1px 5px; font-size: 12.5px; font-family: 'Courier New', monospace; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12.5px; }
+    th { background: var(--petrol); color: #fff; text-align: left; padding: 7px 10px; font-size: 11px; text-transform: uppercase; }
+    td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:nth-child(even) td { background: #FAFAF8; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; margin: 2px 4px 2px 0; }
+    .badge-ok { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+    .badge-info { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+    .badge-warn { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+    .badge-crit { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+    .diff { background: #0F172A; color: #E2E8F0; border-radius: 8px; padding: 14px 16px; font-family: 'Courier New', monospace; font-size: 12px; overflow-x: auto; white-space: pre; margin: 8px 0; }
+    .diff .add { color: #4ADE80; }
+    .diff .rm  { color: #F87171; }
+    .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 20px 48px; font-size: 12px; text-align: center; margin-top: 40px; }
+    .footer strong { color: #fff; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Portabilidade da Sidebar (redesign + correção de largura zero) para a base moderna oficial</h1>
+  <p>26/07/2026 · integracao/incluiai-2-0-oficial · C:\Users\karle\Downloads\INCLUIAI_2_0_OFICIAL</p>
+</div>
+
+<div class="container">
+
+  <section>
+    <h2>1. Escopo e Contexto</h2>
+    <p>Bloco exclusivo de portabilidade: trazer somente o redesign/correção comportamental da Sidebar de
+    <code>INCLUIAI_PRODUCAO_PRONTO</code> (branch <code>fix/incluilab-quality-cycle-1</code>) para a worktree oficial de
+    integração <code>INCLUIAI_2_0_OFICIAL</code> (branch <code>integracao/incluiai-2-0-oficial</code>, criada a partir do
+    commit moderno <code>1b312dd</code>). Nenhum outro módulo (IncluiAI Assistente, IncluiLAB, billing, autenticação,
+    banco, Kiwify) foi tocado neste bloco.</p>
+    <div style="margin-top:10px;">
+      <span class="badge badge-info">Branch destino: integracao/incluiai-2-0-oficial</span>
+      <span class="badge badge-info">HEAD inicial: 1b312dde245ab0c774a07963faeae81af93ecd5c</span>
+      <span class="badge badge-ok">Nenhum commit/push realizado</span>
+      <span class="badge badge-ok">Banco/Supabase/Kiwify: não tocados</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Auditoria antes da escrita</h2>
+    <p><code>git status --short</code> → árvore limpa · <code>git branch --show-current</code> → <code>integracao/incluiai-2-0-oficial</code> ·
+    <code>git rev-parse HEAD</code> → <code>1b312dde245ab0c774a07963faeae81af93ecd5c</code>.</p>
+    <p>Arquivos lidos integralmente e comparados entre as duas pastas: <code>src/components/Sidebar.tsx</code>,
+    <code>src/App.tsx</code>, <code>src/index.css</code>, <code>src/components/ui/tooltip.tsx</code>.</p>
+
+    <h3>Diferenças da Sidebar</h3>
+    <table>
+      <tr><th>Aspecto</th><th>Base oficial (antes)</th><th>PRODUCAO_PRONTO (portado)</th></tr>
+      <tr><td>Largura desktop</td><td><code>w-64 lg:w-0</code> quando fechada → causa raiz do bug "sidebar some ao navegar"</td><td><code>lg:w-[288px]</code> / <code>lg:w-[72px]</code>, nunca zero</td></tr>
+      <tr><td>Recolher/expandir</td><td>Inexistente</td><td><code>isCollapsed</code> + <code>localStorage</code> (incluiai_sidebar_collapsed)</td></tr>
+      <tr><td>Rodapé</td><td>Avatar, nome, plano/label</td><td>Apenas Configurações + Sair da Conta (destacado em vermelho)</td></tr>
+      <tr><td>Cabeçalho</td><td>Badge de Plano + CreditBalanceBadge + barra de alunos</td><td>Removido — só logo e botão recolher</td></tr>
+      <tr><td>Tooltip recolhida</td><td>Não existia</td><td><code>Tooltip/TooltipTrigger/TooltipContent/TooltipProvider</code></td></tr>
+      <tr><td>Overflow horizontal</td><td>Não tratado</td><td><code>overflow-x-hidden</code> no aside e no nav</td></tr>
+      <tr><td>Mobile</td><td>Drawer via <code>isOpen</code></td><td>Drawer preservado; fecha ao navegar via <code>closeDrawerIfMobile()</code></td></tr>
+      <tr><td>Dica "mãozinha"</td><td>Não existia</td><td>Ícone <code>Hand</code> (lucide-react) + balão, some em ~5.2s (2.6s com reduced-motion), <code>localStorage</code> (incluiai_sidebar_collapse_hint_seen)</td></tr>
+      <tr><td>Dependências removidas</td><td>—</td><td><code>Badge</code>, <code>Progress</code>, <code>Separator</code>, <code>CreditBalanceBadge</code>, <code>getPlanLimits</code> não são mais usados na Sidebar</td></tr>
+    </table>
+
+    <h3>Diferenças de App.tsx</h3>
+    <p>Diff completo entre as duas pastas continha apenas 2 hunks:</p>
+    <div class="diff">@@ -965,7 +965,7 @@
+<span class="rm">-    const access = PaymentService.checkAccess(user, activeSubscription?.currentPeriodEnd ?? null);</span>  ← já correto na oficial, PRESERVADO
+<span class="add">+    const access = PaymentService.checkAccess(user);</span>  ← regressão em PRODUCAO_PRONTO, NÃO portado
+
+@@ -1719,7 +1719,7 @@
+<span class="rm">-  className="p-2 text-white/70 hover:bg-white/10 rounded-lg transition"</span>
+<span class="add">+  className="p-2 text-white/70 hover:bg-white/10 rounded-lg transition lg:hidden"</span>  ← portado</div>
+    <p>A correção moderna <code>PaymentService.checkAccess(user, activeSubscription?.currentPeriodEnd ?? null)</code> já
+    estava presente e correta na base oficial — foi expressamente <strong>preservada, sem alteração</strong>, conforme
+    instrução do bloco. O único trecho portado foi o <code>lg:hidden</code> no botão hambúrguer do header (evita exibir o
+    toggle mobile também no desktop, já que a Sidebar nova controla a própria visibilidade desktop internamente).</p>
+
+    <h3>Diferenças de index.css</h3>
+    <p>Único bloco ausente na oficial: <code>.custom-scrollbar</code> (5 regras de scrollbar fino, usadas na navegação da
+    Sidebar). Resto do arquivo idêntico — nada substituído.</p>
+
+    <h3>Diferenças de tooltip.tsx</h3>
+    <p>Oficial não envolvia <code>TooltipContent</code> em <code>TooltipPrimitive.Portal</code>. Apenas o Portal foi
+    adicionado; nenhuma outra prop/configuração alterada.</p>
+  </section>
+
+  <section>
+    <h2>3. Alterações realizadas</h2>
+    <table>
+      <tr><th>Arquivo</th><th>Tipo de alteração</th></tr>
+      <tr><td><code>src/components/Sidebar.tsx</code></td><td>Substituição integral pela versão refinada (auditada linha a linha antes de gravar: imports, viewIds, permissões PRO/PREMIUM, LockedNavItem/LockedNavItemPro, botão Sair, ausência de FREE/saldo/alunos)</td></tr>
+      <tr><td><code>src/index.css</code></td><td>Merge aditivo: bloco <code>.custom-scrollbar</code> inserido após <code>body { margin: 0; }</code></td></tr>
+      <tr><td><code>src/components/ui/tooltip.tsx</code></td><td>Adição de <code>TooltipPrimitive.Portal</code> envolvendo <code>TooltipPrimitive.Content</code></td></tr>
+      <tr><td><code>src/App.tsx</code></td><td>Uma única linha: <code>lg:hidden</code> adicionado ao botão de menu (linha ~1721). <code>checkAccess(user, activeSubscription?.currentPeriodEnd ?? null)</code> preservado intacto</td></tr>
+      <tr><td><code>REGRAS_SEGURANCA_INCLUIAI_2_0.md</code></td><td>Já existia idêntico na base oficial (herdado do commit 1b312dd) — nenhuma alteração de conteúdo necessária</td></tr>
+      <tr><td><code>auditorias/2026-07-26_port-sidebar-base-oficial.html</code></td><td>Criado (este arquivo)</td></tr>
+      <tr><td><code>auditorias/index.html</code></td><td>Atualizado — nova entrada no topo do índice</td></tr>
+    </table>
+    <p style="margin-top:10px;"><strong>Nada mais foi alterado.</strong> Dashboard, Estudo de Caso, IncluiLabView,
+    IAAssistantView, serviços, billing, subscriptions, PaymentService, Kiwify, autenticação, banco, Supabase, Edge
+    Functions, créditos, planos, migrations, .env e produção permanecem intocados nesta worktree.</p>
+  </section>
+
+  <section>
+    <h2>4. Validação técnica</h2>
+    <p><span class="badge badge-ok">npm install: ✅ concluído (524 pacotes, node_modules não existia antes)</span></p>
+    <p><span class="badge badge-ok">npm run build: ✅ passou (build de produção gerado em ~50s, sem erros)</span></p>
+    <p><span class="badge badge-warn">npx tsc --noEmit: 45 erros pré-existentes, nenhum novo</span></p>
+    <p>Todos os 45 erros de TypeScript já existiam antes desta portabilidade e estão em arquivos não relacionados à
+    Sidebar (ex.: <code>WorkflowCanvas.tsx</code>, <code>PDFGenerator.ts</code>, <code>subscriptionService.ts</code>,
+    <code>ceoService.ts</code>, <code>DashboardView.tsx</code>, <code>ReportsView.tsx</code> etc.). Nenhum erro foi
+    reportado em <code>Sidebar.tsx</code>, <code>index.css</code> ou <code>tooltip.tsx</code>. O único erro em
+    <code>App.tsx</code> (linha 900, <code>.catch</code> em <code>PostgrestFilterBuilder</code>) é anterior e não
+    relacionado à linha 1721 alterada neste bloco.</p>
+    <p><code>npm audit fix</code> <strong>não foi executado</strong>, conforme instrução explícita.</p>
+  </section>
+
+  <section>
+    <h2>5. Validação visual — limitação declarada</h2>
+    <p><span class="badge badge-crit">Checklist de 20 itens NÃO pôde ser executado nesta sessão</span></p>
+    <p>O servidor de desenvolvimento foi iniciado com sucesso (<code>vite --port 5183</code>, sem <code>.env</code> na
+    pasta oficial → app roda automaticamente em <code>DEMO_MODE</code> com <code>MOCK_USER</code>, sem tocar
+    Supabase/produção) e respondeu <code>HTTP 200</code> com o HTML esperado (título "IncluiAI - Educação Inclusiva").
+    Isso confirma que a aplicação sobe e serve a página sem crash de build.</p>
+    <p>Porém <strong>este ambiente de execução não possui uma ferramenta de navegador/captura de tela disponível</strong>,
+    portanto os 20 itens do checklist visual (sidebar expandida/recolhida, navegação entre views, recarregamento
+    mantendo estado, tooltip recolhida, dica da mãozinha na primeira visita e seu não-reaparecimento, rodapé sem
+    dados pessoais/plano/créditos, resoluções 1366×768/1920×1080/768×900/390×844, drawer mobile, ausência de overflow
+    horizontal, console sem novos erros) <strong>não foram verificados visualmente por mim</strong>. O servidor dev foi
+    encerrado ao final da checagem de conectividade.</p>
+    <p>Recomenda-se que a CEO (ou quem tiver acesso a navegador) rode <code>npm run dev</code> nesta pasta e valide
+    manualmente o checklist antes de qualquer merge/deploy.</p>
+  </section>
+
+  <section>
+    <h2>6. Confirmação de escopo de segurança</h2>
+    <ul>
+      <li>Nenhuma tabela, trigger, função ou schema do Supabase foi lido, alterado ou consultado.</li>
+      <li>Nenhum arquivo de billing, PaymentService, subscriptions, Kiwify, créditos ou planos foi alterado.</li>
+      <li>Nenhum <code>.env</code> foi criado ou modificado — a pasta oficial não possui <code>.env</code>; o app roda em DEMO_MODE automaticamente.</li>
+      <li>Nenhum commit, push, merge, cherry-pick, reset, checkout, stash, clean ou deploy foi executado.</li>
+      <li><code>INCLUIAI_PRODUCAO_PRONTO</code> e o restante de <code>INCLUIAI_RECUPERADO</code> não foram tocados neste bloco.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>7. Próximos passos sugeridos</h2>
+    <ul>
+      <li>Validação visual manual do checklist de 20 itens (item pendente, ver seção 5).</li>
+      <li>Revisão da CEO do diff final antes de qualquer commit nesta worktree.</li>
+      <li>Aguardar novo bloco autorizado para portar IncluiAI Assistente e IncluiLAB (explicitamente fora de escopo aqui).</li>
+    </ul>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Auditoria técnica de portabilidade — Sidebar → base oficial · Uso interno<br>
+  26/07/2026
+</div>
+
+</body>
+</html>

@@ -138,13 +138,47 @@
 <div class="container">
 
   <div class="info-bar">
-    <span><strong>Total de auditorias:</strong> 14</span>
-    <span><strong>Última atualização:</strong> 14/07/2026</span>
+    <span><strong>Total de auditorias:</strong> 15</span>
+    <span><strong>Última atualização:</strong> 26/07/2026</span>
     <span><strong>Convenção de nomes:</strong> <code>AAAA-MM-DD_motivo-da-auditoria.html</code></span>
     <span><a href="README.md" style="color:var(--petrol); font-weight:600;">Ver README e regras →</a></span>
   </div>
 
-  <!-- ── EXECUÇÃO BLOCOS C/D CORRIGIDOS (mais recente) ── -->
+  <!-- ── PORTABILIDADE DA SIDEBAR PARA A BASE OFICIAL (mais recente) ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">26</span>
+      JUL<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Portabilidade da Sidebar (redesign + correção de largura zero) para a base moderna oficial</div>
+      <div class="audit-meta">
+        Portado de INCLUIAI_PRODUCAO_PRONTO para a worktree oficial de integração (integracao/incluiai-2-0-oficial,
+        HEAD 1b312dd): Sidebar.tsx com recolher/expandir (288px/72px, nunca zero no desktop), localStorage, tooltip
+        quando recolhida, dica animada da mãozinha, rodapé sem plano/créditos/alunos/avatar; merge aditivo de
+        .custom-scrollbar em index.css; Portal em tooltip.tsx; apenas lg:hidden portado em App.tsx (checkAccess com
+        currentPeriodEnd, já correto na oficial, foi preservado intacto). npm install + build + tsc --noEmit
+        executados: build passou, 45 erros de TS pré-existentes (nenhum novo, nenhum nos arquivos alterados).
+        Validação visual do checklist de 20 itens NÃO realizada — sem ferramenta de navegador disponível nesta
+        sessão; pendente de checagem manual. Nenhum banco, billing, Kiwify, autenticação ou .env tocado.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">Build: ✅ Passou</span>
+        <span class="badge badge-warn">TS: 45 erros pré-existentes, nenhum novo</span>
+        <span class="badge badge-crit">Validação visual: pendente (sem navegador nesta sessão)</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Sidebar</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">UI/UX</span>
+        <span class="badge badge-ok">Banco/Billing/Kiwify: não alterados</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-07-26_port-sidebar-base-oficial.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── EXECUÇÃO BLOCOS C/D CORRIGIDOS ── -->
   <div class="audit-card">
     <div class="audit-date">
       <span class="day">14</span>
@@ -590,7 +624,7 @@
 
 <div class="footer">
   <strong>IncluiAI</strong> · Índice de Auditorias Técnicas · Uso interno<br>
-  Atualizado em: 08/07/2026 (9 auditorias)
+  Atualizado em: 26/07/2026 (15 auditorias)
 </div>
 
 </body>
