@@ -134,6 +134,8 @@ export enum UserRole {
   CEO = 'CEO'
 }
 
+export type ProfileSex = 'female' | 'male' | 'unspecified';
+
 export type ProtocolType = DocumentType;
 
 // =====================
@@ -242,6 +244,7 @@ export interface User {
   phone?: string | null;
   cpf?: string | null;
   cargo?: string | null;
+  sex?: ProfileSex | null;
   cep?: string | null;
   rua?: string | null;
   numero?: string | null;
@@ -1113,7 +1116,11 @@ export type ActivityExerciseType =
   | 'fill_blank'
   | 'matching'
   | 'drawing'
-  | 'ordering';
+  | 'ordering'
+  | 'word_search'
+  | 'crossword'
+  | 'coloring'
+  | 'table';
 
 export interface ActivityHeader {
   title: string;
@@ -1133,6 +1140,13 @@ export interface ActivityVisualAsset {
   url?: string;
   imagePrompt?: string;
   fallbackEmoji?: string;
+  /**
+   * Sprint 2B: distingue o que foi REALMENTE entregue para este asset.
+   * 'pictogram_fallback' = apoio visual simbólico (emoji/pictograma), sem imagem real gerada.
+   * 'illustration'       = ilustração real do tema pedido (requer `url` preenchido).
+   * Ausente = asset legado, sem essa distinção (tratar como pictograma).
+   */
+  deliveredAs?: 'pictogram_fallback' | 'illustration';
 }
 
 export interface ActivityBlock {
@@ -1153,6 +1167,10 @@ export interface ActivityExercise {
   answerLines: number;
   supportHint?: string;
   visualAssetId?: string;
+  /** Optional structured support for grid-based activities such as word search/crossword. */
+  grid?: string[];
+  /** Optional clues for crossword or table-style activities. */
+  clues?: string[];
 }
 
 export interface ActivityAccessibilityNotes {
@@ -1172,7 +1190,8 @@ export interface GuiaPedagogico {
 }
 
 export interface ActivitySchema {
-  schemaVersion: '1.0';
+  /** '1.0' = formato legado (Sprint 2 e anteriores). '2.0' = Activity Pipeline canônico (Sprint 2B), aditivo. */
+  schemaVersion: '1.0' | '2.0';
   header: ActivityHeader;
   blocks: ActivityBlock[];
   exercises: ActivityExercise[];
@@ -1183,6 +1202,173 @@ export interface ActivitySchema {
     note?: string;
     generatedBy?: string;
   };
+  /** Sprint 2B — presente apenas em schemaVersion '2.0'. Tipo do pedido que originou esta atividade. */
+  requestType?: CanonicalRequestType;
+  /** Sprint 2B — presente apenas quando requestType === 'avaliacao'. Cada item referencia um ActivityExercise.id real. */
+  answerKey?: ActivityAnswerKeyItem[];
+}
+
+// ============================================================================
+// PIPELINE CANÔNICO — Sprint 2B (IncluiLAB Activity Pipeline)
+// Ativado apenas quando INCLUILAB_CANONICAL_PIPELINE === true (src/config/incluilabUi.ts).
+// Escopo do Activity Pipeline: atividade | avaliacao | adaptacao.
+// NÃO cobre relatório, planejamento, ficha, texto geral, Word ou imagem geral —
+// esses seguem para Document Pipeline / Image Pipeline (ainda não implementados).
+// ============================================================================
+
+/** Tipos de pedido atendidos pelo Activity Pipeline canônico. */
+export type CanonicalRequestType = 'atividade' | 'avaliacao' | 'adaptacao';
+
+export type OriginalActivityType =
+  | 'word_search'
+  | 'crossword'
+  | 'multiple_choice'
+  | 'open_questions'
+  | 'matching'
+  | 'fill_blank'
+  | 'coloring'
+  | 'table'
+  | 'mixed'
+  | 'other';
+
+/**
+ * Distingue apoio visual simbólico de ilustração real de um tema específico.
+ * 'none'        = sem apoio visual.
+ * 'pictogram'   = apoio visual simbólico (emoji/pictograma) — já suportado hoje.
+ * 'illustration'= ilustração real de um sujeito concreto pedido pelo usuário
+ *                 (ex.: "ilustrações de caravelas"). Neste sprint NÃO há geração
+ *                 paga de imagem conectada ao pipeline canônico — ver `ActivityVisualAsset.deliveredAs`.
+ */
+export type VisualMode = 'none' | 'pictogram' | 'illustration';
+
+/** Como o visualMode foi determinado: pedido explícito do usuário ou inferência padrão do sistema. */
+export type VisualModeSource = 'user_explicit' | 'inferred_default';
+
+/** Formato final pedido pelo professor para exportação do material textual. */
+export type IncluiLabOutputFormat = 'docx' | 'pdf' | 'png' | 'unspecified';
+
+/** Preferência visual textual separada do formato final do arquivo. */
+export type IncluiLabRequestedVisualStyle = 'clean' | 'colorido' | 'preto_e_branco';
+
+/** Tamanho natural pedido para texto-base/leitura introdutória. */
+export type IncluiLabBaseTextSize = 'small' | 'medium' | 'large' | 'custom' | 'unspecified';
+
+/** Unidade usada quando o professor informou tamanho explícito do texto-base. */
+export type IncluiLabBaseTextUnit = 'characters' | 'words';
+
+/** Restrição explícita de tamanho do texto-base: alvo, intervalo, mínimo ou máximo. */
+export interface IncluiLabBaseTextConstraint {
+  unit: IncluiLabBaseTextUnit;
+  target?: number;
+  min?: number;
+  max?: number;
+}
+
+/** Fluxo semântico de saída: material textual ou visual. */
+export type IncluiLabOutputModality = 'textual' | 'visual' | 'unspecified';
+
+/** Resumo pedagógico funcional usado pelo modo canônico Adaptar-Texto. */
+export interface StudentPedagogicalContext {
+  hasContext: boolean;
+  isInsufficient: boolean;
+  firstName?: string;
+  grade?: string;
+  diagnoses: string[];
+  readingLevel?: string;
+  writingLevel?: string;
+  communication: string[];
+  attention: string[];
+  autonomy: string[];
+  commandComprehension: string[];
+  motorCoordination: string[];
+  priorKnowledge: string[];
+  barriers: string[];
+  strengths: string[];
+  interests: string[];
+  helpfulSupports: string[];
+  difficultSupports: string[];
+  responseModes: string[];
+  peiPaeeGoals: string[];
+  pedagogicalNotes: string[];
+  recentRecords: string[];
+  sourceSummary: string[];
+  insufficiencyReason?: string;
+}
+
+/** Request canônico de geração — saída do Intent Extractor, entrada do Activity Pipeline. */
+export interface CanonicalGenerationRequest {
+  requestType: CanonicalRequestType;
+  rawUserText: string;
+  topic: string;
+  discipline?: string;
+  grade?: string;
+  requestedQuestionCount?: number;
+  requiresBaseText?: boolean;
+  baseTextApproxChars?: number;
+  /** Permite exercícios complementares em adaptação quando o professor pediu atividade mista/extras explicitamente. */
+  allowSupplementaryExercises?: boolean;
+  difficulty?: string;
+  /** Contexto do aluno — sempre opcional; o Activity Pipeline funciona sem aluno selecionado. */
+  studentContext?: string;
+  /** Contexto funcional filtrado; nunca inventa campos além do texto carregado. */
+  studentPedagogicalContext?: StudentPedagogicalContext;
+  /** Tipo estrutural detectado da atividade original em adaptações; transitório, não precisa ir para o banco. */
+  originalActivityType?: OriginalActivityType | null;
+  hasAttachment: boolean;
+  visualMode: VisualMode;
+  visualModeSource: VisualModeSource;
+  outputFormat: IncluiLabOutputFormat;
+  requestedVisualStyle?: IncluiLabRequestedVisualStyle;
+  normalizedOutputFormatNotice?: string;
+  baseTextSize: IncluiLabBaseTextSize;
+  baseTextConstraint?: IncluiLabBaseTextConstraint;
+  outputModality: IncluiLabOutputModality;
+}
+
+/** Item de gabarito — `exerciseId` precisa sempre existir em `ActivitySchema.exercises`. */
+export interface ActivityAnswerKeyItem {
+  exerciseId: string;
+  answer: string;
+  explanation?: string;
+}
+
+export interface ActivityPackageMetadata {
+  schemaVersion: '2.0';
+  requestType: CanonicalRequestType;
+  generatedAt: string;
+  /** 0 = sem reparo necessário. Máximo 1 (uma única tentativa de reparo por geração). */
+  repairAttempts: number;
+  visualMode: VisualMode;
+  visualModeSource: VisualModeSource;
+  studentContextUsed: boolean;
+}
+
+export interface ActivityPackageExportSettings {
+  pageSize: 'A4';
+  visualStyle: 'fundamental' | 'infantil' | 'pb';
+  outputFormat?: IncluiLabOutputFormat;
+  requestedVisualStyle?: IncluiLabRequestedVisualStyle;
+  normalizedOutputFormatNotice?: string;
+}
+
+/**
+ * ActivityPackage — envelope que nasce de UMA ÚNICA atividade validada (`activity`).
+ * Folha do Aluno (`activity`), Guia do Professor (`teacherGuide`) e Gabarito (`answerKey`)
+ * são sempre derivados do MESMO ActivitySchema validado — nenhum dos três é aceito isoladamente.
+ *
+ * Sprint 2B.3 — regra de produto definitiva: Guia do Professor só existe para
+ * `requestType === 'adaptacao'`. Para 'atividade'/'avaliacao' gerais, `teacherGuide`
+ * é sempre `undefined` — nunca gerado automaticamente.
+ */
+export interface ActivityPackage {
+  activity: ActivitySchema;
+  /** Presente apenas quando `activity.requestType === 'adaptacao'`. */
+  teacherGuide?: GuiaPedagogico;
+  /** Obrigatório quando `activity.requestType === 'avaliacao'`. */
+  answerKey?: ActivityAnswerKeyItem[];
+  visualAssets: ActivityVisualAsset[];
+  metadata: ActivityPackageMetadata;
+  exportSettings: ActivityPackageExportSettings;
 }
 
 export function validateAtividadeJSON(obj: unknown): obj is AtividadeJSON {

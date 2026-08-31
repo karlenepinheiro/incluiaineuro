@@ -1,11 +1,13 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  Edit, Trash2, Plus, Search, Users, UserPlus, Globe,
-  Upload, AlertCircle, LayoutGrid, List, Sparkles, Eye, ChevronDown,
+  Edit, Trash2, Search, Users, UserPlus,
+  Upload, AlertCircle, LayoutGrid, List, Eye, ChevronDown,
+  FileCheck2, Clock,
 } from 'lucide-react';
-import { Student, PlanTier, getPlanLimits, type User } from '../types';
+import { Student, PlanTier, getPlanLimits, type User, type ProfileSex } from '../types';
 import { StudentCodeSearchModal } from '../components/StudentCodeSearchModal';
 import { StudentImportModal } from '../components/StudentImportModal';
+import { StudentsHeroBanner } from '../components/StudentsHeroBanner';
 import { getStudentBasicCompletionStatus } from '../services/csvImportService';
 
 // ── TEA icon (Puzzle) ─────────────────────────────────────────────────────────
@@ -70,7 +72,7 @@ export function getStudentSupportVisual(student: Student): SupportVisual {
 
 // ── Color palette ──────────────────────────────────────────────────────────────
 const C = {
-  bg:         '#F6F4EF',
+  bg:         '#F5F6F8',
   surface:    '#FFFFFF',
   text:       '#0F172A',
   textSec:    '#475569',
@@ -145,6 +147,7 @@ interface StudentsListViewProps {
   planMaxStudents?: number;
   userPlan: PlanTier;
   user?: User;
+  professorSexo?: ProfileSex | null;
   onSelect: (s: Student) => void;
   onEdit: (s: Student) => void;
   onDelete: (id: string) => void;
@@ -162,6 +165,7 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
   planMaxStudents,
   userPlan,
   user,
+  professorSexo,
   onSelect,
   onEdit,
   onDelete,
@@ -231,77 +235,64 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
   ];
 
   return (
-    <div className="min-h-screen p-6" style={{ background: C.bg }}>
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen px-4 sm:px-6 lg:px-8 pt-4 pb-6" style={{ background: C.bg }}>
+      <div className="max-w-[1600px] mx-auto">
 
-        {/* ── Header ── */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-xl font-semibold" style={{ color: C.dark }}>Meus Alunos</h1>
-            <p className="text-sm mt-0.5" style={{ color: C.textSec }}>
-              {students.length} de {maxStudents} vagas utilizadas
-            </p>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            {user && (
-              <button
-                onClick={() => setShowCodeSearch(true)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition"
-                style={{ background: '#F8FAFF', color: '#3B82F6', border: '1px solid #DBEAFE' }}
-                title="Buscar aluno de outra escola pelo código único"
+        {/* ── Hero banner ── */}
+        <StudentsHeroBanner
+          showCodeSearch={!!user}
+          onSearchCode={() => setShowCodeSearch(true)}
+          onSmartRegistration={() => setShowImportModal(true)}
+          onCreateTriagem={onCreateTriagem}
+          onCreateComLaudo={onCreateComLaudo}
+          professorSexo={professorSexo}
+        />
+
+        {/* ── Indicadores (sobrepostos ao hero) — dados reais já calculados em `counts` acima ── */}
+        <div className="relative z-10 -mt-8 sm:-mt-10 mb-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Total de alunos',     value: counts.total,      icon: Users,       color: C.petrol },
+            { label: 'Com laudo',           value: counts.laudo,      icon: FileCheck2,  color: '#059669' },
+            { label: 'Em triagem',          value: counts.triagem,    icon: Clock,       color: C.amber },
+            { label: 'Precisam de atenção', value: counts.incompleto, icon: AlertCircle, color: C.red },
+          ].map(s => (
+            <div
+              key={s.label}
+              className="rounded-2xl p-4 flex items-center gap-3 shadow-md"
+              style={{ background: C.surface, border: `1px solid ${C.border}` }}
+            >
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: s.color + '18' }}
               >
-                <Globe size={14} /> Buscar por Código
-              </button>
-            )}
-            <button
-              onClick={() => setShowImportModal(true)}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition"
-              style={{ background: '#F5F3FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}
-              title="Cadastrar vários alunos de uma vez via planilha"
-            >
-              <Sparkles size={14} /> Cadastro Inteligente ✨
-            </button>
-            <button
-              onClick={onCreateTriagem}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition"
-              style={{ background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' }}
-            >
-              <Plus size={14} /> Novo Aluno em Triagem
-            </button>
-            <button
-              onClick={onCreateComLaudo}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm text-white transition"
-              style={{ background: C.petrol, boxShadow: '0 2px 8px rgba(31,78,95,0.18)' }}
-            >
-              <Plus size={14} /> Novo Aluno com Laudo
-            </button>
-          </div>
+                <s.icon size={18} style={{ color: s.color }} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xl font-extrabold leading-none" style={{ color: C.text }}>{s.value}</p>
+                <p className="text-[11px] mt-1 truncate" style={{ color: C.textSec }}>{s.label}</p>
+              </div>
+            </div>
+          ))}
         </div>
 
-        {/* ── Progress bar ── */}
-        <div
-          className="rounded-2xl p-4 mb-5 flex items-center gap-4"
-          style={{ background: C.surface, border: `1px solid ${C.border}` }}
-        >
-          <Users size={16} style={{ color: C.petrol, flexShrink: 0, opacity: 0.7 }} />
-          <div className="flex-1">
-            <div className="flex justify-between text-xs font-medium mb-1.5" style={{ color: C.textSec }}>
-              <span>Vagas utilizadas</span>
-              <span>{students.length} / {maxStudents}</span>
-            </div>
-            <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: '#F3F4F6' }}>
-              <div
-                className="h-full rounded-full transition-all duration-700"
-                style={{
-                  width: `${usagePct}%`,
-                  background: usagePct > 80
-                    ? 'linear-gradient(90deg,#EF4444,#F43F5E)'
-                    : `linear-gradient(90deg,${C.petrol},${C.gold})`,
-                }}
-              />
-            </div>
+        {/* ── Vagas utilizadas — informação secundária, reposicionada aqui (não ocupa mais o destaque logo abaixo do hero) ── */}
+        <div className="flex items-center gap-3 mb-5 px-1">
+          <Users size={13} style={{ color: C.textMuted, flexShrink: 0 }} />
+          <span className="text-xs shrink-0" style={{ color: C.textMuted }}>
+            Vagas utilizadas: {students.length} / {maxStudents}
+          </span>
+          <div className="flex-1 max-w-[160px] h-1 rounded-full overflow-hidden" style={{ background: '#F3F4F6' }}>
+            <div
+              className="h-full rounded-full transition-all duration-700"
+              style={{
+                width: `${usagePct}%`,
+                background: usagePct > 80
+                  ? 'linear-gradient(90deg,#EF4444,#F43F5E)'
+                  : `linear-gradient(90deg,${C.petrol},${C.gold})`,
+              }}
+            />
           </div>
-          <span className="text-xs font-medium shrink-0" style={{ color: usagePct > 80 ? '#EF4444' : C.textSec }}>
+          <span className="text-xs shrink-0" style={{ color: usagePct > 80 ? '#EF4444' : C.textMuted }}>
             {Math.round(usagePct)}%
           </span>
         </div>
@@ -460,6 +451,15 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
           tenantId={user.tenant_id}
           userId={user.id}
           onClose={() => setShowImportModal(false)}
+          // Sprint "consumo no momento certo" (26/08/2026, ajuste do
+          // 26/08/2026 tarde): o Gateway confirma (commit) o crédito na mesma
+          // requisição que entrega a análise — antes de qualquer salvamento.
+          // Cancelar a revisão sem salvar NÃO estorna o crédito. O próprio
+          // modal decide QUANDO chamar isto (uma vez ao abrir a revisão, e
+          // como rede de segurança ao fechar só se ainda não tiver
+          // sincronizado) — aqui só reaproveitamos o mesmo refresh de
+          // tenantSummary já usado no caminho de importação concluída.
+          onCreditsConsumed={() => onImportStudents?.(0)}
           onImportComplete={(importedCount) => {
             setShowImportModal(false);
             onImportStudents?.(importedCount);

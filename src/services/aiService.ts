@@ -25,6 +25,7 @@ import type { StudentContext } from './studentContextService';
 import { StudentContextService } from './studentContextService';
 import { callAIGateway } from './aiGatewayService';
 import { CreditTransactionService } from './creditService';
+import { clampPromptContext, logPromptBudget } from '../utils/promptBudget';
 import {
   CanonicalStudentContextService,
   mapDocTypeToCategory,
@@ -33,6 +34,14 @@ import {
   buildStrategiesBlock,
   type CanonicalStudentContext,
 } from './canonicalStudentContext';
+
+/**
+ * Orçamento de caracteres para o BLOCO DE CONTEXTO dos prompts montados no
+ * cliente (Plano Regente, Perfil Inteligente). O restante do prompt
+ * (instrução + dados cadastrais + esqueleto JSON) fica em ~16k; o Gateway
+ * rejeita acima de 32k. 15k de contexto deixa folga segura. (auditoria M-08)
+ */
+const PROMPT_CONTEXT_BUDGET = 15_000;
 
 // @ts-ignore
 import * as mammoth from 'mammoth';
@@ -2042,6 +2051,7 @@ Retorne SOMENTE a atividade adaptada, pronta para uso, em português brasileiro.
     student: Student,
     user: User,
     versionNumber: number,
+    operationId?: string,
   ): Promise<import('./intelligentProfileService').IntelligentProfileJSON> {
     const cost = AI_CREDIT_COSTS.PERFIL_INTELIGENTE;
     if (!(await this.checkCredits(user, cost))) {
@@ -2076,6 +2086,12 @@ Retorne SOMENTE a atividade adaptada, pronta para uso, em português brasileiro.
     const pkBlock = buildPKBlock(student);
     const familyBlock = buildFamilyBlock(student);
 
+    // Orçamento de tamanho do contexto — ver PROMPT_CONTEXT_BUDGET / M-08.
+    const perfilContextRaw =
+      `${docChainBlockPerfil ? `\n${docChainBlockPerfil}` : ''}${ctxBlock}`;
+    const perfilContext = clampPromptContext(perfilContextRaw, PROMPT_CONTEXT_BUDGET);
+    logPromptBudget('perfil_inteligente', perfilContext.metrics);
+
     const prompt = `Você é especialista em educação inclusiva, documentação pedagógica escolar e atendimento educacional especializado (AEE).
 
 Sua tarefa é criar o PERFIL INTELIGENTE do aluno abaixo — uma síntese pedagógica objetiva, institucional e útil para apoiar planejamento escolar, adaptação de atividades e acompanhamento da equipe. Não escreva laudo clínico, parecer psicológico ou diagnóstico.
@@ -2097,7 +2113,7 @@ Histórico escolar: ${student.schoolHistory || missingData}
 Observações gerais: ${student.observations || missingData}
 ${pkBlock}
 ${familyBlock}
-${docChainBlockPerfil ? `\n${docChainBlockPerfil}` : ''}${ctxBlock}
+${perfilContext.text}
 
 ═══════════════════════════════════════════════════
 REGRAS OBRIGATÓRIAS
@@ -2253,6 +2269,7 @@ ESTRUTURA JSON OBRIGATÓRIA
         task: 'json', prompt,
         creditsRequired: cost,
         requestType: 'perfil_inteligente',
+        operationId,
       });
       raw = result;
       serverDebited = creditsRemaining !== undefined;
@@ -2299,6 +2316,7 @@ ESTRUTURA JSON OBRIGATÓRIA
     user: User,
     period: import('../types').ActionPlanPeriod,
     versionNumber: number,
+    operationId?: string,
   ): Promise<import('../types').ActionPlanJSON> {
     const cost = AI_CREDIT_COSTS.PLANO_ACAO;
     if (!(await this.checkCredits(user, cost))) {
@@ -2327,6 +2345,15 @@ ESTRUTURA JSON OBRIGATÓRIA
 
     const pkBlock = buildPKBlock(student);
 
+    // Orçamento de tamanho — recorta o contexto histórico por seções inteiras,
+    // do fim (menor prioridade) para o começo, para o prompt final nunca
+    // ultrapassar o limite do Gateway. (M-08)
+    const regenteContextRaw =
+      `${docChainBlockRegente ? `\n${docChainBlockRegente}` : ''}` +
+      `${ctxBlock ? `\n═══ CONTEXTO PEDAGÓGICO ADICIONAL ═══\n${ctxBlock}` : ''}`;
+    const regenteContext = clampPromptContext(regenteContextRaw, PROMPT_CONTEXT_BUDGET);
+    logPromptBudget('plano_acao', regenteContext.metrics);
+
     const periodLabel =
       period === 'semanal'   ? 'SEMANAL (próximos 5 dias letivos)'   :
       period === 'mensal'    ? 'MENSAL (próximo mês letivo)'          :
@@ -2351,7 +2378,7 @@ Dificuldades: ${difficulties || missingData}
 Estratégias que funcionam: ${strategies || missingData}
 Comunicação: ${(student.communication || []).join('; ') || missingData}
 ${pkBlock}
-${docChainBlockRegente ? `\n${docChainBlockRegente}` : ''}${ctxBlock ? `\n═══ CONTEXTO PEDAGÓGICO ADICIONAL ═══\n${ctxBlock}` : ''}
+${regenteContext.text}
 
 ═══════════════════════════════════════
 REGRAS CRÍTICAS — LEIA ANTES DE GERAR
@@ -2579,6 +2606,7 @@ IMPORTANTE: substitua os textos de exemplo por ações reais e específicas para
         task: 'json', prompt,
         creditsRequired: cost,
         requestType: 'plano_acao',
+        operationId,
       });
       raw = result;
       serverDebited = creditsRemaining !== undefined;
@@ -2610,6 +2638,7 @@ IMPORTANTE: substitua os textos de exemplo por ações reais e específicas para
     period: import('../types').AEEActionPlanPeriod,
     paeeContent: string,
     versionNumber: number,
+    operationId?: string,
   ): Promise<import('../types').AEEActionPlanJSON> {
     const cost = AI_CREDIT_COSTS.PLANO_ACAO_AEE;
     if (!(await this.checkCredits(user, cost))) {
@@ -2841,6 +2870,7 @@ IMPORTANTE: substitua os textos de exemplo por ações reais e específicas para
         task: 'json', prompt,
         creditsRequired: cost,
         requestType: 'plano_acao_aee',
+        operationId,
         // Sprint IA-9: Edge monta contexto canônico via service_role
         studentId:          student.id,
         buildContextServer: true,

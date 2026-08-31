@@ -138,13 +138,284 @@
 <div class="container">
 
   <div class="info-bar">
-    <span><strong>Total de auditorias:</strong> 15</span>
-    <span><strong>Última atualização:</strong> 26/07/2026</span>
+    <span><strong>Total de auditorias:</strong> 23</span>
+    <span><strong>Última atualização:</strong> 29/08/2026</span>
     <span><strong>Convenção de nomes:</strong> <code>AAAA-MM-DD_motivo-da-auditoria.html</code></span>
     <span><a href="README.md" style="color:var(--petrol); font-weight:600;">Ver README e regras →</a></span>
   </div>
 
-  <!-- ── PORTABILIDADE DA SIDEBAR PARA A BASE OFICIAL (mais recente) ── -->
+  <!-- ── FASE 2 · CORREÇÃO DE PARIDADE — PERFIL INTELIGENTE (mais recente) ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">29</span>
+      AGO<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Fase 2 · Correção Final — Paridade de conteúdo (tela / PDF / Word / Google Docs)</div>
+      <div class="audit-meta">
+        Divergência confirmada no Perfil Inteligente corrigida: o adaptador de Word publicava 5 campos do
+        JSON que <strong>não fazem parte do documento final</strong> (nem tela, nem PDF). Classificados:
+        <code>neuropsychologicalReport</code> e <code>learningProfile</code> = conteúdo de revisão ainda não
+        publicado no layout final; <code>nextSteps</code> = fallback condicional de Potencialidades;
+        <code>sourcesConsidered</code> e <code>changesSinceLastVersion</code> = metadados internos.
+        Adaptador reescrito = as <strong>9 seções exatas do documento final</strong>; teste de paridade com
+        <strong>valores sentinela</strong> por campo confirma que todo conteúdo final chega ao Word e nenhum
+        metadado vaza. Matriz de paridade dos 14 documentos: estrutural SIM em 10, PARCIAL em 3 (PDFs
+        dedicados pré-existentes, mesmo conteúdo); textual SIM em todos; visual pendente de teste manual.
+        Só 4 arquivos alterados. PDF, componentes de tela, banco, Gateway e prompts não tocados.
+        611/611 testes, 55 erros TS (0 novos), build OK.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">611/611 testes passando</span>
+        <span class="badge badge-ok">Metadados internos: não vazam (teste de sentinela)</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Paridade</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">Paridade visual: teste manual pendente</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-08-29_fase-2-correcao-paridade-perfil-inteligente.md" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── FASE 2 · BLOCO B — PDF/WORD/GOOGLE DOCS NOS DEMAIS DOCUMENTOS ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">29</span>
+      AGO<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Fase 2 · Bloco B — PDF, Word e Google Docs nos demais documentos</div>
+      <div class="audit-meta">
+        10 documentos padronizados: <strong>Registro de Atendimento, Matrícula (3 tipos), Perfil do Aluno,
+        Perfil Inteligente, Plano de Ação Regente, Plano de Ação AEE, Checklist Regente, Checklist Cuidadora,
+        Rotina da Cuidadora e Biblioteca</strong>. Cada um ganhou Word <code>.docx</code> real e "Abrir no
+        Google Docs" pelo mesmo Blob canônico. Onde o "PDF" era impressão de <code>innerHTML</code> (Planos
+        de Ação, Checklists) ou <code>html2canvas</code> (Biblioteca) ou inexistente (Rotina da Cuidadora) →
+        agora <strong>PDF real</strong> via <code>generateFromSections</code>. Biblioteca roteia para o
+        renderer do tipo usando a <strong>versão salva</strong> (nunca dados atuais); atividades do IncluiLAB
+        preservadas. "Perfil Cognitivo" confirmado como campo do Relatório, não documento. 596/596 testes,
+        55 erros TS (−1 bug preexistente corrigido, 0 novos), build OK. 7 <code>.docx</code> sintéticos
+        gerados e validados. Prompts, IA, banco, schema, Gateway, PDI e IncluiLAB não tocados. PDF↔Word:
+        pendente de comparação visual manual.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">596/596 testes passando</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">Teste manual: pendente</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Word / Google Docs / PDF real</span>
+        <span class="badge badge-ok">Prompts/Banco/Schema/Gateway/PDI/IncluiLAB: não alterados</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-08-29_fase-2-bloco-b-pdf-word-google-docs.md" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── FASE 2 · BLOCO A — PADRONIZAR PDF/WORD/GOOGLE DOCS NOS DEMAIS DOCUMENTOS ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">29</span>
+      AGO<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Fase 2 — Padronizar PDF, Word e Google Docs nos demais documentos (Bloco A concluído)</div>
+      <div class="audit-meta">
+        Auditoria completa dos documentos formais sem Word canônico + matriz + esclarecimento de nomenclatura
+        (Perfil Inteligente ≠ Perfil do Aluno; "Perfil Cognitivo" é campo, não documento; Relatório Técnico e
+        INSS são o mesmo fluxo). <strong>Bloco A implementado e testado</strong>: Relatório Técnico (PDF real
+        ligado no lugar da impressão de HTML + Word + Google Docs), Relatório Evolutivo, família de Fichas
+        (Escuta da Família, Observação do Regente, Análise AEE, Decisão Institucional, Acompanhamento) e QuickDoc
+        — todos com Word <code>.docx</code> real e "Abrir no Google Docs" usando o <strong>mesmo Blob canônico</strong>.
+        Componentes reutilizáveis novos: <code>exportGenericDocumentToWord</code>, adaptadores <code>documentModel/*</code>,
+        hook <code>useGoogleDocsExport</code>, <code>DocumentExportActions</code>. 575/575 testes, 0 erros TS novos
+        (56 baseline), build OK. 4 arquivos <code>.docx</code> sintéticos gerados e validados. Bloco B (Planos de
+        Ação, Perfis, Checklists, Rotina da Cuidadora, Registro, Matrícula, Biblioteca) auditado e planejado —
+        parado para revisão do Bloco A. Prompts, IA, banco, Gateway, PDI e IncluiLAB não tocados.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">575/575 testes passando</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">Teste manual: pendente (Bloco A)</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Word / Google Docs</span>
+        <span class="badge badge-ok">Prompts/Banco/Gateway/IncluiLAB: não alterados</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-08-29_fase-2-padronizar-pdf-word-google-docs-demais-documentos.md" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── EXPANSÃO GERAL DAS EXPORTAÇÕES — PDF + WORD + GOOGLE DOCS ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">29</span>
+      AGO<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Expansão Geral das Exportações — PDF + Word (.docx) + Google Docs</div>
+      <div class="audit-meta">
+        Auditoria completa de todos os documentos formais do IncluiAI e generalização da regra
+        "Baixar PDF + Baixar Word + Abrir no Google Docs + Imprimir". O piloto do PAEE foi estendido
+        para <strong>Estudo de Caso, PEI, PDI e Plano Unificado</strong> reutilizando o
+        <code>DocumentWorkspace</code> (componente já genérico) e o <strong>mesmo Blob DOCX canônico</strong>
+        de "Baixar Word" (nenhuma lógica duplicada, nenhuma IA, nenhum crédito). PDI ganhou renderer Word
+        canônico (mesmo pipeline de PEI/PAEE). Os demais documentos (Relatório Técnico, Planos de Ação,
+        Perfil Inteligente, Fichas, Checklists, Rotina da Cuidadora, Escuta da Família) ficam para a Fase 2
+        — exigem renderer Word verdadeiro. 552/552 testes, 0 erros TS novos (56 baseline), build OK.
+        Banco, Gateway, Supabase Auth, créditos e IncluiLAB não tocados.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">552/552 testes passando</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">Teste manual: pendente (4 documentos)</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Google Docs / Word</span>
+        <span class="badge badge-ok">Banco/Gateway/Auth/IncluiLAB: não alterados</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-08-29_expansao-exportacoes-pdf-word-google-docs.md" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── CHECKPOINT 4E — CORREÇÕES FUNCIONAIS DO INCLUILAB ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">18</span>
+      AGO<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Checkpoint 4E — Correções Funcionais Finais do IncluiLAB (Gabarito, Adaptação, Título, Export, Preview)</div>
+      <div class="audit-meta">
+        Corrigidos 6 problemas comprovados por teste real: Gabarito ausente em Avaliação (contrato JSON agora exige
+        gabarito quando o texto indica avaliação/prova/teste), Adaptação não preservava estrutura original
+        (detecção de tipo + regra forte no prompt + aviso honesto quando o renderer não suporta o formato),
+        título vindo do filename cru, exportação PDF/PNG reaberta com nova fonte dedicada fora da viewport
+        (desacoplada do preview/modal), preview redesenhado como card compacto + modal "Visualizar", e qualidade
+        de prompt melhorada em A4 Econômica e A4 Visual (este último com melhoria parcial — conversão arquitetural
+        completa documentada como Sprint Visual separado). 114/114 testes passando, 0 erros TS novos. Gateway,
+        banco, créditos e UI/UX paralela da CEO não tocados.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">114/114 testes passando</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">Validação real: pendente</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">IncluiLAB</span>
+        <span class="badge badge-ok">Gateway/Banco/Créditos: não alterados</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-08-18_checkpoint-4e-correcoes-funcionais-incluilab.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── SPRINT GATEWAY 1 — CHECKPOINT 4B VALIDAÇÃO FUNCIONAL ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">17</span>
+      AGO<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Sprint Gateway 1 — Checkpoint 4B: Validação Funcional da Etapa 4 (ambiente investigado, testes NOT TESTED)</div>
+      <div class="audit-meta">
+        Investigação somente-leitura confirmou que existe apenas <strong>1 projeto Supabase</strong> vinculado à conta
+        (<code>incluiai</code>) e que é produção — não há staging/dev. Por regra do checkpoint, nenhum deploy nem
+        chamada real foi feita: os 13 testes funcionais pedidos (TEXT, JSON, IMAGE, créditos, IncluiLAB, auditoria,
+        auth/tenant, contrato) ficam <code>NOT TESTED</code>, com roteiro completo (via app real e via <code>curl</code>)
+        pronto para execução por quem tiver autorização de operar em produção. <strong>Achado à parte, reportado por
+        transparência:</strong> <code>OPENAI_API_KEY</code> já existe como secret no projeto — apenas o nome foi
+        constatado (<code>supabase secrets list</code>, sem valores), nada foi lido, usado ou chamado.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-readonly">Somente leitura — nenhum deploy, nenhuma chamada real</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">Sem staging — só produção</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">ai-gateway</span>
+        <span class="badge badge-pendente">Status: roteiro pronto, aguardando execução autorizada</span>
+        <span class="badge badge-ok">Banco/Frontend/OpenAI: não tocados</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-08-17_sprint-gateway-1-checkpoint-4b-validacao-funcional.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── SPRINT GATEWAY 1 — ETAPA 4 GEMINIPROVIDER CONECTADO ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">17</span>
+      AGO<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Sprint Gateway 1 — Etapa 4: Gemini/Vertex Conectado ao Router via AIProvider</div>
+      <div class="audit-meta">
+        <code>index.ts</code> passou a resolver o provider via Router (<code>_router.ts</code>) e chamar a interface
+        <code>AIProvider</code> através de um adapter fino novo (<code>_geminiProvider.ts</code>) que só encapsula
+        <code>_vertex.ts</code> — <strong><code>_vertex.ts</code>, <code>_audit.ts</code> e <code>_credits.ts</code>
+        com 0 linhas alteradas</strong> (confirmado via <code>git diff --stat</code>). Único provider registrado:
+        <code>gemini</code>; resolução do provider acontece ANTES da reserva de créditos, para falhar sem custo em
+        caso de configuração inválida. Validação estática (<code>tsc --strict</code>) sem erros novos. <strong>Teste
+        funcional real (chamada de verdade ao Gemini/Vertex) NÃO foi executado</strong> — sem Deno CLI nem Docker
+        disponíveis neste ambiente para rodar a Edge Function de verdade; documentado como pendência explícita.
+        Nenhum deploy realizado. Nenhum banco, frontend ou regra pedagógica alterados.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">Diff mínimo comprovado</span>
+        <span class="badge" style="background:#FEE2E2; color:#991B1B; border:1px solid #FECACA;">Teste funcional: pendente</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">ai-gateway</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">GeminiProvider</span>
+        <span class="badge badge-ok">Banco/Frontend: não alterados</span>
+        <span class="badge badge-pendente">Status: aprovação p/ produção NÃO concedida ainda</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-08-17_sprint-gateway-1-etapa-4-geminiprovider-conectado.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── SPRINT GATEWAY 1 — AUDITORIA + ETAPA 3 ROUTER MULTI-PROVIDER ── -->
+  <div class="audit-card">
+    <div class="audit-date">
+      <span class="day">17</span>
+      AGO<br>2026
+    </div>
+    <div class="audit-body">
+      <div class="audit-title">Sprint Gateway 1 — Auditoria (Etapas 1-2) e Preparação do Router Multi-Provider (Etapa 3)</div>
+      <div class="audit-meta">
+        Auditoria completa do <code>ai-gateway</code> (Supabase Edge Function) antes de qualquer alteração: confirmado
+        que o roteamento hoje é 100% hardcoded em Gemini (texto/JSON) + Vertex AI Imagen (imagem), sem nenhuma
+        variável de decisão de provider. Código OpenAI real encontrado (<code>api/openai-generate-activity-image.ts</code>,
+        Vercel) porém órfão — sem nenhum caller ativo no app, explicando o consumo zerado observado no painel OpenAI.
+        Autorizada pela CEO a Etapa 3: criação de <code>_types.ts</code> (interface <code>AIProvider</code>) e
+        <code>_router.ts</code> (seleção de provider por <code>AI_ROUTER_MODE</code>, defaults = comportamento atual),
+        ambos aditivos e <strong>não conectados</strong> a <code>index.ts</code> — produção segue 100% Gemini/Imagen,
+        sem nenhuma alteração de banco, frontend, regras pedagógicas ou outras Edge Functions.
+      </div>
+      <div class="audit-tags">
+        <span class="badge badge-ok">Produção: comportamento inalterado</span>
+        <span class="badge badge-ok">Banco: não alterado</span>
+        <span class="badge badge-ok">Frontend: não alterado</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">ai-gateway</span>
+        <span class="badge" style="background:#F0F9FF; color:#075985; border:1px solid #BAE6FD;">Multi-Provider</span>
+        <span class="badge badge-pendente">Status: Etapa 3 concluída, aguardando autorização p/ Etapa 4</span>
+      </div>
+    </div>
+    <div class="audit-action">
+      <a href="2026-08-17_sprint-gateway-1-etapa-3-router-multiprovider.html" target="_blank">
+        Abrir relatório →
+      </a>
+    </div>
+  </div>
+
+  <!-- ── PORTABILIDADE DA SIDEBAR PARA A BASE OFICIAL ── -->
   <div class="audit-card">
     <div class="audit-date">
       <span class="day">26</span>
@@ -624,7 +895,7 @@
 
 <div class="footer">
   <strong>IncluiAI</strong> · Índice de Auditorias Técnicas · Uso interno<br>
-  Atualizado em: 26/07/2026 (15 auditorias)
+  Atualizado em: 18/08/2026 (19 auditorias)
 </div>
 
 </body>

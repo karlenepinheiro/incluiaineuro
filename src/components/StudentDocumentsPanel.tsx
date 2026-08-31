@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { DocumentService, PedagocicalDocument } from '../services/documentService';
-import { exportDocumentToPDF } from '../utils/pdfExport';
-import { FileText, Printer, Edit2, Trash2, Loader2, Sparkles } from 'lucide-react';
+import { FileText, Edit2, Trash2, Loader2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { DocButton, DocIconButton } from './ui/DocButton';
+import { BibliotecaExportRow } from './fichas/BibliotecaExportRow';
 
 interface StudentDocumentsPanelProps {
   student: any;
@@ -42,16 +42,6 @@ export const StudentDocumentsPanel: React.FC<StudentDocumentsPanelProps> = ({ st
     }
   };
 
-  const handleExportPDF = async (doc: PedagocicalDocument) => {
-    const loadingToast = toast.loading('Montando PDF...');
-    try {
-      await exportDocumentToPDF(doc, student, school);
-      toast.success('PDF baixado com sucesso!', { id: loadingToast });
-    } catch (error) {
-      toast.error('Falha na renderização do PDF.', { id: loadingToast });
-    }
-  };
-
   if (loading) {
     return <div className="p-8 flex justify-center text-gray-400"><Loader2 className="animate-spin" /></div>;
   }
@@ -78,39 +68,39 @@ export const StudentDocumentsPanel: React.FC<StudentDocumentsPanelProps> = ({ st
       ) : (
         <div className="grid gap-4">
           {documents.map((doc) => (
-            <div key={doc.id} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-gray-50 hover:bg-blue-50/30 transition">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-blue-100 text-[#1F4E5F] flex items-center justify-center">
-                  <FileText size={18} />
+            <div key={doc.id} className="p-4 rounded-xl border border-gray-100 bg-gray-50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 text-[#1F4E5F] flex items-center justify-center">
+                    <FileText size={18} />
+                  </div>
+                  <div>
+                    <p className="font-bold text-sm text-gray-800 uppercase">{doc.doc_type || doc.type}</p>
+                    <p className="text-xs text-gray-500">
+                      Gerado em {new Date(doc.created_at).toLocaleDateString('pt-BR')} • {doc.status === 'DRAFT' ? 'Rascunho' : 'Finalizado'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-bold text-sm text-gray-800 uppercase">{doc.doc_type || doc.type}</p>
-                  <p className="text-xs text-gray-500">
-                    Gerado em {new Date(doc.created_at).toLocaleDateString('pt-BR')} • {doc.status === 'DRAFT' ? 'Rascunho' : 'Finalizado'}
-                  </p>
+
+                <div className="flex items-center gap-1">
+                  <DocIconButton
+                    variant="ghost"
+                    icon={<Edit2 size={15}/>}
+                    label="Editar Documento"
+                    onClick={() => toast('Função de edição visual será aberta aqui (JSON Editor)')}
+                  />
+                  <DocIconButton
+                    variant="destructive"
+                    icon={<Trash2 size={15}/>}
+                    label="Excluir Documento"
+                    onClick={() => handleDelete(doc.id)}
+                  />
                 </div>
               </div>
 
-              <div className="flex items-center gap-1">
-                <DocIconButton
-                  variant="ghost"
-                  icon={<Edit2 size={15}/>}
-                  label="Editar Documento"
-                  onClick={() => toast('Função de edição visual será aberta aqui (JSON Editor)')}
-                />
-                <DocIconButton
-                  variant="outline"
-                  icon={<Printer size={15}/>}
-                  label="Baixar PDF Oficial"
-                  onClick={() => handleExportPDF(doc)}
-                />
-                <div className="w-px h-5 bg-gray-200 mx-0.5" />
-                <DocIconButton
-                  variant="destructive"
-                  icon={<Trash2 size={15}/>}
-                  label="Excluir Documento"
-                  onClick={() => handleDelete(doc.id)}
-                />
+              {/* [FASE 2 · BLOCO B] Exportação da versão salva: PDF + Word (.docx) + Google Docs */}
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <BibliotecaExportRow item={doc as any} student={student} school={school} />
               </div>
             </div>
           ))}

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Checkpoint 4E — Correções Funcionais do IncluiLAB</title>
+<style>
+  :root {
+    --petrol:  #1F4E5F; --dark: #2E3A59; --gold: #C69214; --bg: #F6F4EF;
+    --surface: #FFFFFF; --border: #E7E2D8; --text: #111827; --muted: #6B7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; }
+  .header-inner { max-width: 1000px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 26px; font-weight: 800; max-width: 780px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 720px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1000px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-ok { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-pendente { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+  .badge-info { background: #F0F9FF; color: #075985; border: 1px solid #BAE6FD; }
+  .badge-critico { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color: #C69214; background: #FEF9EE; }
+  .callout.ok { border-color: #059669; background: #F0FDF4; }
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="header"><div class="header-inner">
+  <div class="kicker">Correção Funcional · IncluiLAB</div>
+  <h1>Checkpoint 4E — Correções Funcionais Finais do IncluiLAB</h1>
+  <p>Gabarito em Avaliação, preservação de tipo original em adaptação, título não vindo do filename, exportação PDF/PNG com fonte dedicada fora de tela, preview compacto em card + modal, e melhoria de qualidade nos prompts de A4 Econômica e A4 Visual. Gateway e banco não tocados.</p>
+  <div class="cover-badges">
+    <span class="badge badge-info">18/08/2026</span>
+    <span class="badge badge-ok">Testes: 114/114 passando</span>
+    <span class="badge badge-ok">tsc: 45 erros pré-existentes, 0 novos</span>
+    <span class="badge badge-pendente">Validação visual/funcional real: pendente</span>
+  </div>
+</div></div>
+<div class="container">
+  <div class="info-bar">
+    <div><strong>Escopo</strong>IncluiLAB (frontend) — <code>src/views/IncluiLabView.tsx</code> e <code>src/services/incluilab/intentExtractor.ts</code></div>
+    <div><strong>Gateway</strong>Não alterado</div>
+    <div><strong>Banco</strong>Não alterado</div>
+    <div><strong>Créditos</strong>Não alterado — só auditado</div>
+    <div><strong>UI/UX paralela da CEO</strong>Não tocada</div>
+  </div>
+
+  <section class="block">
+    <h2><span class="num">1</span>Resumo das correções</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Problema</th><th>Causa raiz</th><th>Correção</th><th style="width:130px">Status</th></tr>
+      <tr><td>Avaliação sem Gabarito</td><td>Nenhum modo legado tinha campo de gabarito no contrato JSON</td><td>Detecção de intenção de avaliação (reaproveita <code>AVALIACAO_KEYWORDS</code>) + campo <code>gabarito</code> obrigatório no contrato + nova aba/renderer</td><td><span class="badge badge-pendente">Implementado — aguardando teste real</span></td></tr>
+      <tr><td>Adaptação não preserva estrutura</td><td>Prompt de adaptação não sabia o tipo do material original</td><td><code>detectOriginalActivityType</code> (heurística sobre a análise Gemini Vision) + regra forte de preservação no prompt + aviso honesto quando o renderer não suporta o tipo</td><td><span class="badge badge-pendente">Implementado — aguardando teste real</span></td></tr>
+      <tr><td>Título = nome do arquivo</td><td>Fallback de título era <code>Atividade Adaptada: ${'{'}file.name{'}'}</code> literal</td><td><code>deriveAdaptedFallbackTitle</code>: título explícito da análise → primeira linha semântica → só então filename sanitizado</td><td><span class="badge badge-pendente">Implementado — aguardando teste real</span></td></tr>
+      <tr><td>PDF/PNG não baixam (reaberto)</td><td>Suspeita: preview compacto da Etapa 4D envolveu o ref exportado num wrapper <code>overflow:hidden</code>+<code>maxHeight</code></td><td>Fonte de exportação DEDICADA, sempre montada fora da viewport (<code>position:fixed;left:-10000px</code>), nunca afetada por preview/modal</td><td><span class="badge badge-pendente">Implementado — aguardando teste real</span></td></tr>
+      <tr><td>Preview grande</td><td>Solução da Etapa 4D (recolher com botão) ainda mostrava a folha quase inteira</td><td>Card compacto (thumbnail + ações) substitui a prévia grande; "Visualizar" abre modal dedicado (Dialog já usado no projeto)</td><td><span class="badge badge-pendente">Implementado — aguardando teste real</span></td></tr>
+      <tr><td>A4 Visual com qualidade ruim</td><td>Prompt pede a Imagen desenhar 3-5 questões completas com texto — limitação estrutural do modelo de imagem</td><td>Reduzido para 2-3 questões curtas, instrução anti-erro de ortografia, qualidade pedagógica reforçada no texto-fonte; conversão completa para JSON+renderer documentada como Sprint Visual separado</td><td><span class="badge badge-pendente">Melhoria parcial — arquitetura completa não implementada (ver Seção 5)</span></td></tr>
+      <tr><td>A4 Econômica — qualidade do prompt</td><td>Prompt sem instruções de progressão/diversidade/contextualização</td><td>Bloco de qualidade pedagógica adicionado (série, progressão, diversidade de formatos, contextualização, anti-BNCC-inventado)</td><td><span class="badge badge-pendente">Implementado — aguardando teste real</span></td></tr>
+    </table></div>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">2</span>Testes automatizados</h2>
+    <p><strong>114/114 testes passando</strong> (109 pré-existentes + regressões da Etapa 4D/4E ajustadas + 15 novos testes do Checkpoint 4E). Dois testes pré-existentes (<code>incluiLabViewIllustrationNotice.test.ts</code>, <code>incluiLabViewReopenAndGabarito.test.ts</code>) foram ATUALIZADOS — não revertidos — porque testavam texto-fonte exato de uma implementação que este checkpoint mudou deliberadamente (ex.: refs de exportação renomeados de <code>folhaAlunoRef</code> para <code>exportFolhaRef</code> dedicados). A intenção original de cada teste foi preservada.</p>
+    <p><code>tsc --noEmit</code>: 45 erros — mesmo baseline documentado desde 26/07/2026 — zero novos atribuíveis a <code>IncluiLabView.tsx</code>.</p>
+    <div class="callout warn">
+      <strong>Limite honesto:</strong> como nas etapas anteriores deste Sprint, não há Deno CLI/Docker/browser neste ambiente para rodar o app de verdade. Os testes automatizados verificam presença e estrutura do código-fonte (e, onde a lógica é pura e pequena o bastante, comportamento real de funções isoladas duplicadas no teste) — não substituem o teste visual/funcional real no navegador.
+    </div>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">3</span>Gabarito — rastreamento ponta a ponta</h2>
+    <ol class="plain">
+      <li>Seleção do modo → texto livre do professor (sem campo estruturado de "tipo" no modo legado).</li>
+      <li><code>topicRequestsAvaliacao(topic)</code> reaproveita <code>AVALIACAO_KEYWORDS</code> já exportado de <code>intentExtractor.ts</code> — sem duplicar a lista.</li>
+      <li>Quando true, <code>buildPremiumActivityPrompt</code> adiciona ao contrato JSON um campo <code>"gabarito"</code> array, com instrução de obrigatoriedade.</li>
+      <li><code>generateA4Economica</code> faz <code>JSON.parse</code> best-effort do resultado e extrai <code>legacyAnswerKey</code> — sem fabricar nada se ausente/malformado (ao contrário do bug antigo do Guia).</li>
+      <li><code>hasGabarito</code> passa a reconhecer tanto <code>activityPackage.answerKey</code> (canônico) quanto <code>legacyAnswerKey</code> (legado).</li>
+      <li>Novo componente <code>LegacyAnswerKeyView</code> renderiza o gabarito legado (não reaproveita <code>AnswerKeyRenderer</code> porque este exige <code>ActivitySchema.exercises</code> com <code>id</code> estável — o contrato legado só tem <code>number</code>).</li>
+    </ol>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">4</span>Exportação PDF/PNG — nova arquitetura</h2>
+    <p>Causa suspeita (não 100% confirmável sem debug ao vivo): o preview compacto introduzido na Etapa 4D envolveu o elemento exportado num wrapper <code>overflow:hidden</code> + <code>maxHeight</code> — reintroduzindo o tipo de instabilidade estrutural (ancestral com clipping) já suspeito na causa original.</p>
+    <p><strong>Correção estrutural (não outro ajuste de timing):</strong> três refs de exportação dedicados (<code>exportFolhaRef</code>/<code>exportGuiaRef</code>/<code>exportGabaritoRef</code>), sempre montados num container <code>position:fixed; left:-10000px</code> — nunca <code>display:none</code> (que o html2canvas não consegue capturar), nunca dentro do card compacto nem do modal. O mesmo <code>result</code> alimenta as duas cópias via as funções compartilhadas <code>renderFolhaStage</code>/<code>renderGuiaStage</code>/<code>renderGabaritoStage</code> — nenhum conteúdo pedagógico duplicado ou divergente.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">5</span>A4 Visual — decisão de arquitetura</h2>
+    <p>Confirmado por auditoria de prompt: o fluxo atual pede à Vertex Imagen para desenhar a folha inteira com texto de questões. Isso é uma limitação estrutural do modelo de imagem, não um problema de redação de prompt.</p>
+    <p><strong>Implementado nesta etapa:</strong> redução de "3 a 5 questões" para "2 a 3 questões curtas", instrução explícita anti-erro-de-ortografia, e o mesmo bloco de qualidade pedagógica da A4 Econômica adicionado ao prompt de texto-fonte (<code>buildGuiaEConteudoPrompt</code>).</p>
+    <p><strong>Não implementado nesta etapa (delta documentado, não "gambiarra"):</strong> a conversão completa para <code>Gemini JSON → ActivityA4Premium (renderer) → Imagen só para ilustração pequena</code>, que exigiria mudar qual conteúdo é primário na aba "Folha do Aluno" para os 4 modos Visual/Premium/Adaptar-Visual/Adaptar-Premium — risco real de regressão sem ambiente de teste visual disponível. <strong>Recomenda-se um "Sprint Visual" dedicado</strong>, com acesso a teste real, para essa mudança maior.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">6</span>Custos — sem alteração</h2>
+    <p>Nenhuma chamada de IA nova foi adicionada; nenhuma chamada existente foi removida. As mudanças desta etapa são: (a) parsing client-side adicional do JSON já retornado (gabarito, tipo original) — sem custo de IA; (b) texto de prompt mais rico — mesmo número de chamadas, sem afetar <code>creditsRequired</code>. <code>_credits.ts</code> e RPCs não tocados.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">7</span>Rollback</h2>
+    <p>Todas as mudanças estão isoladas a <code>src/views/IncluiLabView.tsx</code> (funções/blocos específicos, documentados no relatório de chat) e <code>src/services/incluilab/intentExtractor.ts</code> (uma linha: <code>export</code> em <code>AVALIACAO_KEYWORDS</code>). Reversível por função, sem dependência entre si. Nenhum banco, Gateway ou credit RPC envolvido — rollback é puramente reverter os trechos de código.</p>
+  </section>
+</div>
+<div class="footer"><strong>IncluiAI</strong> · Sprint Gateway 1 / IncluiLAB · Auditoria técnica de uso interno</div>
+</body>
+</html>

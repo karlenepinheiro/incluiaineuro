@@ -8,7 +8,26 @@
  * Princípio: dado ausente → bloco omitido (nunca gera seção vazia).
  */
 
-import type { CanonicalData } from './_contextBuilder.ts';
+// Estrutura idêntica ao `CanonicalData` exportado por `_contextBuilder.ts`,
+// definida localmente para não acoplar este formatador ao módulo que usa
+// import remoto do supabase-js (mantém a análise estática/testes limpos).
+// MANTER EM SINCRONIA com _contextBuilder.ts.
+interface CanonicalData {
+  student: any;
+  profile: any | null;
+  history: {
+    tenant_appointments: any[];
+    student_timeline: any[];
+    observation_forms: any[];
+    medical_reports: any[];
+  };
+  attached_documents: any[];
+  saved_documents: any[];
+  saved_action_plans: any[];
+  saved_aee_action_plans: any[];
+  saved_intelligent_profile: any | null;
+  generated_activities: any[];
+}
 
 // ─── Tipos de documento relevantes por targetDocType ─────────────────────────
 
@@ -69,8 +88,11 @@ function buildCognitiveBlock(profiles: any[]): string {
   ];
 
   const lines: string[] = [];
+  // A avaliação de Perfil Cognitivo usa escala 1–5 (clamp em
+  // persistenceService.StudentProfileService.save). Nunca apresente como /10 —
+  // isso subestima sistematicamente o aluno para o modelo. (auditoria 30/08/2026)
   scores.forEach((s, i) => {
-    if (s != null) lines.push(`  - ${COG_DIMS[i]}: ${s}/10`);
+    if (s != null) lines.push(`  - ${COG_DIMS[i]}: ${s}/5`);
   });
   if (lines.length === 0) return '';
 

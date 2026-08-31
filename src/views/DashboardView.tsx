@@ -3,15 +3,16 @@ import {
   Users, FileText, Zap, CheckCircle2, Clock, ArrowRight,
   ChevronLeft, ChevronRight, MapPin, User, Sparkles,
   BarChart3, AlertTriangle, TrendingUp, Star, ShieldCheck, Activity,
-  Bell, PieChart, Brain, Sun, Moon, Leaf,
+  Bell, PieChart, Brain, Sun, Moon, Sunrise, Sunset, GraduationCap,
 } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { Student, Protocol, Appointment } from '../types';
+import { Student, Protocol, Appointment, type ProfileSex } from '../types';
 import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
 import { PaymentService } from '../services/paymentService';
 import { PlanTier } from '../types';
 import { NumberTicker } from '@/src/components/magicui/number-ticker';
 import { supabase, DEMO_MODE } from '../services/supabase';
+import { resolveHeroCharacterAsset } from '../config/heroCharacterAssets';
 
 // ─── Diagnosis normalizer ────────────────────────────────────────────────────
 function normalizeDiagnosis(value: unknown): string {
@@ -39,7 +40,7 @@ function normalizeDiagnosis(value: unknown): string {
 // ─── Design tokens ──────────────────────────────────────────────────────────
 
 const C = {
-  bg:        '#F7F5EF',
+  bg:        '#F5F6F8',
   surface:   '#FFFFFF',
   text:      '#0F2A3D',
   textSec:   '#64748B',
@@ -77,23 +78,36 @@ interface DashboardViewProps {
   onNavigate?: (view: string) => void;
   userId?: string;
   schoolName?: string;
+  /**
+   * Sexo do assinante/professor, para escolher a personagem do hero
+   * (professora/professor/neutra). Campo AINDA NÃO EXISTE no cadastro do
+   * usuário hoje — nenhum chamador precisa passar isso ainda. Quando
+   * `undefined`, a personagem neutra é exibida (fallback seguro).
+   */
+  professorSexo?: ProfileSex | null;
 }
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
 
 function clamp(n: number, a = 0, b = 100) { return Math.max(a, Math.min(b, n)); }
 
-type Period = 'morning' | 'afternoon' | 'night';
+type Period = 'morning' | 'afternoon' | 'sunset' | 'night';
 
 interface PeriodTheme {
   period: Period;
   greeting: string;
   emoji: string;
   Icon: React.ElementType;
+  /** Fundo do hero — mais escuro à esquerda (onde o texto fica) por contraste, abrindo para o tom atmosférico à direita. */
   gradient: string;
   glow: string;
   accent: string;
   shadow: string;
+  /** Cor do "sol"/"lua" decorativo e das nuvens/estrelas deste período. */
+  orb: string;
+  cloud: string;
+  /** true à noite — liga a camada de estrelas. */
+  showStars: boolean;
 }
 
 function getGreetingPeriod(date = new Date()): PeriodTheme {
@@ -101,33 +115,114 @@ function getGreetingPeriod(date = new Date()): PeriodTheme {
   if (h >= 5 && h < 12) return {
     period: 'morning',
     greeting: 'Bom dia',
-    emoji: '☀️',
-    Icon: Sun,
-    gradient: 'linear-gradient(135deg, #78350F 0%, #C2410C 48%, #1C1917 100%)',
-    glow: '#FCD34D',
-    accent: '#F59E0B',
-    shadow: 'rgba(194,65,12,0.28)',
+    emoji: '🌅',
+    Icon: Sunrise,
+    gradient: 'linear-gradient(120deg, #12303D 0%, #1F4E5F 30%, #4A7C93 60%, #F3B88F 86%, #FDE4C4 100%)',
+    glow: '#FCD9A8',
+    accent: '#F0A868',
+    shadow: 'rgba(31,78,95,0.28)',
+    orb: '#FFE3B0',
+    cloud: 'rgba(255,255,255,0.55)',
+    showStars: false,
   };
-  if (h >= 12 && h < 18) return {
+  if (h >= 12 && h < 17) return {
     period: 'afternoon',
     greeting: 'Boa tarde',
-    emoji: '🌿',
-    Icon: Leaf,
-    gradient: 'linear-gradient(135deg, #064E3B 0%, #0D9488 48%, #1F2937 100%)',
-    glow: '#6EE7B7',
-    accent: '#10B981',
-    shadow: 'rgba(13,148,136,0.25)',
+    emoji: '☀️',
+    Icon: Sun,
+    gradient: 'linear-gradient(120deg, #0B3A52 0%, #146B8C 32%, #2E9CB8 58%, #F5B942 88%, #FFDA6B 100%)',
+    glow: '#FFE18A',
+    accent: '#F5B942',
+    shadow: 'rgba(20,107,140,0.28)',
+    orb: '#FFDD7A',
+    cloud: 'rgba(255,255,255,0.45)',
+    showStars: false,
+  };
+  if (h >= 17 && h < 19) return {
+    period: 'sunset',
+    greeting: 'Boa tarde',
+    emoji: '🌇',
+    Icon: Sunset,
+    gradient: 'linear-gradient(120deg, #12213D 0%, #2A2A63 26%, #8B3A62 55%, #E0703F 82%, #F4A24D 100%)',
+    glow: '#F2A15A',
+    accent: '#E0703F',
+    shadow: 'rgba(139,58,98,0.30)',
+    orb: '#F4A24D',
+    cloud: 'rgba(255,214,180,0.35)',
+    showStars: false,
   };
   return {
     period: 'night',
     greeting: 'Boa noite',
     emoji: '🌙',
     Icon: Moon,
-    gradient: 'linear-gradient(135deg, #1F4E5F 0%, #163748 50%, #2E3A59 100%)',
+    gradient: 'linear-gradient(120deg, #0B1730 0%, #16213E 32%, #1F2A52 58%, #2E1F52 84%, #1C1033 100%)',
     glow: '#93C5FD',
-    accent: '#60A5FA',
-    shadow: 'rgba(31,78,95,0.22)',
+    accent: '#818CF8',
+    shadow: 'rgba(22,33,62,0.35)',
+    orb: '#E6EBFF',
+    cloud: 'rgba(147,197,253,0.18)',
+    showStars: true,
   };
+}
+
+// ─── Estrelas do céu noturno ────────────────────────────────────────────────
+// 3 camadas de profundidade: pequenas/discretas ao fundo, médias claramente
+// visíveis, e 2-3 de destaque com halo suave. Ciclos lentos e variados
+// (4–8s) — nunca piscada rápida/estroboscópica.
+interface NightStar { top: string; left: string; size: number; opacity: [number, number]; duration: number; delay: number; halo?: boolean }
+const NIGHT_STARS: NightStar[] = [
+  // pequenas — discretas ao fundo
+  { top: '8%',  left: '52%', size: 1.5, opacity: [0.10, 0.35], duration: 5.5, delay: 0.2 },
+  { top: '18%', left: '62%', size: 1.5, opacity: [0.08, 0.30], duration: 7,   delay: 1.4 },
+  { top: '28%', left: '55%', size: 1.5, opacity: [0.10, 0.40], duration: 4,   delay: 0.8 },
+  { top: '6%',  left: '70%', size: 2,   opacity: [0.12, 0.38], duration: 8,   delay: 2.2 },
+  { top: '36%', left: '64%', size: 1.5, opacity: [0.08, 0.32], duration: 6.2, delay: 1.0 },
+  // médias — claramente visíveis
+  { top: '14%', left: '80%', size: 2.5, opacity: [0.20, 0.60], duration: 5.5, delay: 0.5 },
+  { top: '26%', left: '88%', size: 2.5, opacity: [0.18, 0.55], duration: 7,   delay: 1.8 },
+  { top: '40%', left: '78%', size: 2.5, opacity: [0.15, 0.50], duration: 4,   delay: 2.6 },
+  { top: '10%', left: '92%', size: 2.5, opacity: [0.20, 0.58], duration: 8,   delay: 0.3 },
+  { top: '34%', left: '90%', size: 2,   opacity: [0.15, 0.48], duration: 6.2, delay: 1.6 },
+  // destaque — brilho mais forte + halo suave
+  { top: '20%', left: '74%', size: 3.5, opacity: [0.35, 0.95], duration: 5.5, delay: 0,   halo: true },
+  { top: '12%', left: '86%', size: 3.5, opacity: [0.30, 0.90], duration: 7,   delay: 2.0, halo: true },
+  { top: '32%', left: '82%', size: 3,   opacity: [0.30, 0.88], duration: 8,   delay: 1.1, halo: true },
+];
+
+// ─── Hero character (personagem premium à direita do hero) ────────────────────
+// Asset ainda não existe no projeto (ver src/config/heroCharacterAssets.ts).
+// Cai graciosamente para um placeholder discreto caso o arquivo não exista.
+function HeroCharacter({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
+
+  return (
+    <div
+      className="hidden sm:flex absolute bottom-0 right-4 md:right-8 lg:right-12 items-end justify-center pointer-events-none select-none w-[130px] h-[160px] md:w-[160px] md:h-[190px] lg:w-[190px] lg:h-[220px]"
+    >
+      {!failed ? (
+        <img
+          src={src}
+          alt=""
+          aria-hidden="true"
+          loading="lazy"
+          decoding="async"
+          width={160}
+          height={190}
+          onError={() => setFailed(true)}
+          className="w-full h-full object-contain object-bottom drop-shadow-2xl"
+        />
+      ) : (
+        <div
+          className="rounded-full flex items-center justify-center mb-2"
+          style={{ width: 108, height: 108, background: 'rgba(255,255,255,0.08)', border: '1px dashed rgba(255,255,255,0.25)' }}
+        >
+          <GraduationCap aria-hidden="true" size={44} className="text-white/50" />
+        </div>
+      )}
+    </div>
+  );
 }
 
 function fmtDateBR(iso?: string | null) {
@@ -406,8 +501,11 @@ function DonutChart({
           <path key={i} d={describeArc(arc.startAngle, arc.sweepAngle)}
             fill="none" stroke={arc.color} strokeWidth={stroke} strokeLinecap="round" />
         ))}
-        <text x={cx} y={cy - 6} textAnchor="middle" fontSize={18} fontWeight={800} fill={C.dark}>{total}</text>
-        <text x={cx} y={cy + 10} textAnchor="middle" fontSize={9} fill={C.textSec}>{centerLabel}</text>
+        {/* Número central é parte da leitura do gráfico (universo da distribuição),
+            não um novo KPI — peso visual reduzido para não competir com os
+            4 KPIs principais do topo. */}
+        <text x={cx} y={cy - 5} textAnchor="middle" fontSize={15} fontWeight={700} fill={C.textSec}>{total}</text>
+        <text x={cx} y={cy + 10} textAnchor="middle" fontSize={8.5} fill={C.textSec}>{centerLabel}</text>
       </svg>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
         {data.map(d => (
@@ -542,7 +640,7 @@ function CompactStudentPanel({
 }) {
   return (
     <div className="rounded-2xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
-      <div className="grid grid-cols-4 sm:grid-cols-7 divide-x divide-y sm:divide-y-0" style={{ borderColor: C.border }}>
+      <div className="grid grid-cols-3 sm:grid-cols-6 divide-x divide-y sm:divide-y-0" style={{ borderColor: C.border }}>
         {items.map((item, i) => (
           <button
             key={i}
@@ -580,6 +678,7 @@ export function DashboardView({
   onNavigate,
   userId,
   schoolName,
+  professorSexo,
 }: DashboardViewProps) {
 
   // ── Access notifications ────────────────────────────────────────────────────
@@ -747,6 +846,8 @@ export function DashboardView({
   const PeriodIcon     = period.Icon;
   const prefersReduced = useReducedMotion();
   const safeName       = (userName ?? '').trim() || 'Professora';
+  // Personagem do hero a partir do sexo explicitamente cadastrado no perfil.
+  const heroCharacterSrc = resolveHeroCharacterAsset(professorSexo);
   const resetBR      = fmtDateBR(creditsResetAt);
   const isUnlimited  = maxStudents >= 9999;
   const isFree       = planName === 'FREE';
@@ -826,7 +927,7 @@ export function DashboardView({
   }, [kpis.drafts, studentStatusKpis.triagem, students.length, protocols.length, appointments?.length]);
 
   return (
-    <div className="min-h-screen p-5 md:p-7 space-y-5" style={{ background: C.bg }}>
+    <div className="min-h-screen px-3 sm:px-4 lg:px-6 pt-3 md:pt-4 pb-6 space-y-5" style={{ background: C.bg }}>
 
       {/* ── School warning ───────────────────────────────────────────────── */}
       {!schoolName?.trim() && (
@@ -890,19 +991,72 @@ export function DashboardView({
           transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut', delay: 3 }}
         />
 
-        {/* Period icon — decorative watermark */}
+        {/* Nuvens — 2 camadas, drift horizontal muito lento, tom varia por período */}
         <motion.div
-          className="absolute top-5 right-5 pointer-events-none select-none"
+          aria-hidden="true"
+          className="pointer-events-none absolute top-8 right-1/4 w-40 h-14 rounded-full blur-2xl hidden sm:block"
+          style={{ background: period.cloud }}
+          animate={prefersReduced ? { opacity: 0.6 } : { x: [0, 40, 0], opacity: [0.5, 0.8, 0.5] }}
+          transition={{ duration: 46, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          aria-hidden="true"
+          className="pointer-events-none absolute top-20 right-1/3 w-28 h-10 rounded-full blur-2xl hidden md:block"
+          style={{ background: period.cloud }}
+          animate={prefersReduced ? { opacity: 0.4 } : { x: [0, -30, 0], opacity: [0.3, 0.55, 0.3] }}
+          transition={{ duration: 58, repeat: Infinity, ease: 'easeInOut', delay: 4 }}
+        />
+
+        {/* Estrelas — só à noite. 3 camadas de profundidade (pequenas discretas,
+            médias visíveis, destaque com halo), ciclos lentos e variados
+            (4–8s) para uma sensação premium de céu, sem piscar rápido. */}
+        {period.showStars && NIGHT_STARS.map((s, i) => (
+          <React.Fragment key={i}>
+            {s.halo && (
+              <motion.span
+                aria-hidden="true"
+                className="pointer-events-none absolute rounded-full hidden sm:block blur-sm"
+                style={{ top: s.top, left: s.left, width: s.size * 5, height: s.size * 5, background: '#ffffff', transform: 'translate(-38%,-38%)' }}
+                animate={prefersReduced
+                  ? { opacity: (s.opacity[0] + s.opacity[1]) / 2 * 0.4 }
+                  : { opacity: [s.opacity[0] * 0.3, s.opacity[1] * 0.4, s.opacity[0] * 0.3] }}
+                transition={{ duration: s.duration, repeat: Infinity, ease: 'easeInOut', delay: s.delay }}
+              />
+            )}
+            <motion.span
+              aria-hidden="true"
+              className="pointer-events-none absolute rounded-full hidden sm:block"
+              style={{ top: s.top, left: s.left, width: s.size, height: s.size, background: '#ffffff' }}
+              animate={prefersReduced
+                ? { opacity: (s.opacity[0] + s.opacity[1]) / 2 }
+                : { opacity: [s.opacity[0], s.opacity[1], s.opacity[0]] }}
+              transition={{ duration: s.duration, repeat: Infinity, ease: 'easeInOut', delay: s.delay }}
+            />
+          </React.Fragment>
+        ))}
+
+        {/* Sol/lua — halo que "surge" na entrada e depois flutua/pulsa muito devagar */}
+        <motion.div
+          aria-hidden="true"
+          className="pointer-events-none absolute top-6 right-6 md:top-8 md:right-10"
+          initial={{ opacity: 0, scale: 0.6 }}
           animate={prefersReduced
-            ? { opacity: 0.08 }
-            : { opacity: [0.07, 0.13, 0.07], rotate: [0, 6, -4, 0] }}
-          transition={{ duration: 11, repeat: Infinity, ease: 'easeInOut', delay: 1.5 }}
+            ? { opacity: 1, scale: 1 }
+            : { opacity: 1, scale: 1, y: [0, -6, 0] }}
+          transition={prefersReduced
+            ? { duration: 0.6, ease: 'easeOut' }
+            : { opacity: { duration: 0.9, ease: 'easeOut' }, scale: { duration: 0.9, ease: 'easeOut' }, y: { duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 0.9 } }}
         >
-          <PeriodIcon size={68} color="#ffffff" />
+          <div
+            className="rounded-full flex items-center justify-center"
+            style={{ width: 56, height: 56, background: `radial-gradient(circle, ${period.orb} 0%, ${period.orb}55 55%, transparent 75%)` }}
+          >
+            <PeriodIcon size={26} color="#ffffff" />
+          </div>
         </motion.div>
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center gap-6">
-          <div className="flex-1">
+          <div className="flex-1 sm:max-w-[70%] md:max-w-[62%] lg:max-w-[58%]">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-[11px] font-bold px-3 py-1 rounded-full inline-flex items-center gap-1"
                 style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)' }}>
@@ -941,22 +1095,15 @@ export function DashboardView({
                 Ver documentos
               </button>
             </div>
-          </div>
 
-          <div className="flex md:flex-col gap-3 md:gap-2 flex-wrap">
-            {[
-              { label: 'Alunos',      value: students.length, color: '#6EE7B7' },
-              { label: 'Documentos',  value: kpis.total,      color: '#93C5FD' },
-              { label: 'Finalizados', value: kpis.finals,     color: '#FCD34D' },
-            ].map(s => (
-              <div key={s.label} className="rounded-2xl px-4 py-3 flex items-center gap-3"
-                style={{ background: 'rgba(255,255,255,0.08)', minWidth: 120 }}>
-                <span className="text-xl font-extrabold" style={{ color: s.color }}>{s.value}</span>
-                <span className="text-xs" style={{ color: 'rgba(255,255,255,0.55)' }}>{s.label}</span>
-              </div>
-            ))}
+            {/* Os números (Alunos, Documentos, Créditos, Plano) já aparecem nos
+                4 KPIs principais logo abaixo — removidos daqui para evitar
+                repetição da mesma leitura duas vezes seguidas. */}
           </div>
         </div>
+
+        {/* ── Personagem ── */}
+        <HeroCharacter src={heroCharacterSrc} />
       </motion.div>
 
       {/* ── 4 Stat Cards ────────────────────────────────────────────────── */}
@@ -1001,10 +1148,11 @@ export function DashboardView({
             Ver todos →
           </button>
         </div>
+        {/* Total geral já é o KPI principal "Alunos cadastrados" acima — aqui
+            mostramos apenas a composição/status, sem repetir o total. */}
         <CompactStudentPanel
           onNavigate={onNavigate}
           items={[
-            { label: 'Total',             value: students.length,                    color: C.dark,    nav: 'students'  },
             { label: 'Completo',          value: studentStatusKpis.completo,         color: C.emerald, nav: 'students'  },
             { label: 'Incompleto',        value: studentStatusKpis.incompleto,       color: C.amber,   nav: 'students'  },
             { label: 'Em triagem',        value: studentStatusKpis.triagem,          color: C.violet,  nav: 'triagem'   },
@@ -1089,12 +1237,13 @@ export function DashboardView({
         </div>
       </div>
 
-      {/* ── Documentos Gerados (compact) ─────────────────────────────────── */}
+      {/* ── Documentos por Tipo (compact) ────────────────────────────────── */}
+      {/* Total geral já é o KPI principal "Documentos gerados" acima — aqui
+          mostramos apenas a distribuição por tipo, sem repetir o total. */}
       <div className="rounded-2xl p-5" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
         <div className="flex items-center gap-3 mb-4">
           <FileText size={14} style={{ color: C.violet }} />
-          <h3 className="text-sm font-bold" style={{ color: C.dark }}>Documentos Gerados</h3>
-          <span className="text-[11px]" style={{ color: C.textSec }}>{kpis.finals} finalizados · {kpis.drafts} rascunhos</span>
+          <h3 className="text-sm font-bold" style={{ color: C.dark }}>Documentos por Tipo</h3>
           <div className="flex-1" />
           <div className="hidden sm:block">
             <Sparkline values={monthlyProduction} color={C.violet} />

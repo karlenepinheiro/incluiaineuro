@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fase 1 — Cadastro Inteligente: Correções Controladas</title>
+<style>
+  :root {
+    --petrol:  #1F4E5F; --dark: #2E3A59; --gold: #C69214; --bg: #F6F4EF;
+    --surface: #FFFFFF; --border: #E7E2D8; --text: #111827; --muted: #6B7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; }
+  .header-inner { max-width: 1040px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 26px; font-weight: 800; max-width: 800px; }
+  .header p { opacity: .85; margin-top: 10px; font-size: 13px; max-width: 760px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1040px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-ok { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-pendente { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+  .badge-info { background: #F0F9FF; color: #075985; border: 1px solid #BAE6FD; }
+  .badge-critico { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .badge-parcial { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+  .badge-nver { background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color: #C69214; background: #FEF9EE; }
+  .callout.ok { border-color: #059669; background: #F0FDF4; }
+  .callout.crit { border-color: #DC2626; background: #FEF2F2; }
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px 16px; border-radius: 8px; overflow-x: auto; font-size: 12px; margin: 8px 0 14px; }
+  .checklist td:first-child { font-weight: 600; width: 62%; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="header"><div class="header-inner">
+  <div class="kicker">Implementação controlada · Fase 1</div>
+  <h1>Cadastro Inteligente — Correções da Fase 1</h1>
+  <p>Objetivo corrigido: extrair dados de <strong>cadastro inicial</strong> (não perfil clínico completo) a partir de ficha/matrícula/anamnese, com cadastro incompleto aceito como resultado normal. Escopo estritamente limitado ao modal "Importar Alunos" e ao serviço de importação por documento — Gateway, banco, RLS, prompts de outros módulos e IncluiLAB não foram tocados.</p>
+  <div class="cover-badges">
+    <span class="badge badge-ok">25/08/2026</span>
+    <span class="badge badge-ok">332/332 testes passando</span>
+    <span class="badge badge-ok">Build: sucesso</span>
+    <span class="badge badge-ok">tsc: 56 erros pré-existentes, 0 novos</span>
+    <span class="badge badge-pendente">Validação manual no navegador com ficha real: pendente</span>
+  </div>
+</div></div>
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Escopo alterado</strong><code>src/components/StudentImportModal.tsx</code>, <code>src/services/studentDocumentImportService.ts</code></div>
+    <div><strong>Testes novos</strong><code>src/services/__tests__/studentDocumentImportService.test.ts</code> (30 casos)</div>
+    <div><strong>Gateway</strong>Não alterado</div>
+    <div><strong>Banco / migrations / RLS</strong>Não alterados</div>
+    <div><strong>Créditos comerciais</strong>3 / 5 preservados — só o controle de reserva foi corrigido</div>
+    <div><strong>IncluiLAB / PAEE / PEI / Sidebar / DocumentWorkspace</strong>Não tocados</div>
+  </div>
+
+  <!-- 1/2/3 — Campos reais e cadastro incompleto -->
+  <section class="block">
+    <h2><span class="num">1</span>Campos reais do cadastro, mapeamento e obrigatoriedade</h2>
+    <p>Inspecionados: <code>src/components/StudentForm.tsx</code> (cadastro manual), <code>src/services/databaseService.ts</code> (<code>saveStudent</code>, whitelist <code>REAL_COLUMNS</code>), <code>supabase/schema_v24_import_fields.sql</code> (constraint de <code>registration_status</code>). Nenhum arquivo de banco foi alterado — apenas lido.</p>
+    <p><strong>Único campo realmente obrigatório para criar um aluno: o nome.</strong> A validação de <code>StudentForm.tsx</code> só bloqueia por falta de nome (<code>"Preencha o campo obrigatório: Nome do aluno."</code>); o restante dos campos (nascimento, série, responsável, telefone, diagnóstico, CID etc.) é opcional a nível de aplicação. Isso confirma e sustenta a definição de produto desta fase: cadastro incompleto é o resultado esperado.</p>
+    <div class="table-wrap"><table>
+      <tr><th>Campo extraído pela IA</th><th>Coluna real do cadastro</th><th>Normalização</th><th>Obrigatório?</th><th>Se ausente</th></tr>
+      <tr><td><code>name</code></td><td><code>full_name</code></td><td><code>trim()</code></td><td><strong>Sim</strong></td><td>Aluno não é salvo — revisão pede preenchimento manual, IA nunca inventa (ver Seção 9)</td></tr>
+      <tr><td><code>birthDate</code></td><td><code>birth_date</code></td><td>Repasse direto (YYYY-MM-DD)</td><td>Não</td><td>Fica vazio</td></tr>
+      <tr><td><code>gender</code></td><td><code>gender</code></td><td>M/F/OTHER</td><td>Não</td><td>Fica vazio</td></tr>
+      <tr><td><code>schoolName</code></td><td><code>school_name</code></td><td>—</td><td>Não</td><td>Fica vazio</td></tr>
+      <tr><td><code>grade</code></td><td><code>school_year</code></td><td>—</td><td>Não (usado para calcular <code>registration_status</code>)</td><td>Fica vazio; contribui para status "incomplete"</td></tr>
+      <tr><td><code>shift</code></td><td><code>shift</code></td><td>—</td><td>Não</td><td>Fica vazio</td></tr>
+      <tr><td><code>regentTeacher</code> / <code>aeeTeacher</code> / <code>coordinator</code></td><td><code>teacher_name</code> / <code>aee_teacher</code> / <code>coordinator</code></td><td>—</td><td>Não</td><td>Fica vazio</td></tr>
+      <tr><td><code>guardianName</code> / <code>guardianPhone</code> / <code>guardianEmail</code></td><td><code>guardian_name</code> / <code>guardian_phone</code> / <code>guardian_email</code></td><td>—</td><td>Não (nome+telefone usados para calcular status)</td><td>Fica vazio; contribui para status "incomplete"</td></tr>
+      <tr><td><code>diagnosis[]</code></td><td><code>primary_diagnosis</code> + <code>secondary_diagnoses[]</code></td><td>1º item vira principal, resto secundário</td><td><strong>Não — complementar/opcional por definição de produto</strong></td><td>Fica vazio; nunca bloqueia o cadastro</td></tr>
+      <tr><td><code>cid</code></td><td><code>cid_codes[]</code></td><td><code>toUpperCase()</code>, vira array</td><td>Não — complementar</td><td>Fica vazio</td></tr>
+      <tr><td><code>supportLevel</code></td><td><code>support_level</code></td><td>—</td><td>Não</td><td>Fica vazio</td></tr>
+      <tr><td><code>medication</code></td><td><code>medical_notes</code> (texto livre)</td><td>—</td><td>Não</td><td>Fica vazio</td></tr>
+      <tr><td><code>abilities[]</code> / <code>difficulties[]</code> / <code>strategies[]</code> / <code>communication[]</code></td><td><code>skills[]</code> / <code>student_difficulties[]</code> / <code>student_strategies[]</code> / <code>communication[]</code></td><td>Array direto</td><td>Não</td><td>Fica vazio</td></tr>
+      <tr><td><code>schoolHistory</code> / <code>familyContext</code></td><td><code>school_history</code> / <code>family_context</code></td><td>—</td><td>Não</td><td>Fica vazio</td></tr>
+      <tr><td><code>observations</code> + <code>recommendations</code></td><td><code>observations</code> (mesclados — ver Seção 9)</td><td><code>mergeObservationsWithRecommendations()</code></td><td>Não</td><td>Fica vazio</td></tr>
+      <tr><td>(gerado pelo serviço)</td><td><code>import_source='ai_converter'</code>, <code>registration_status</code>, <code>is_pre_registered</code>, <code>is_active=true</code>, <code>tipo_aluno='com_laudo'</code></td><td>Calculado — <code>complete</code> se nome+responsável+telefone+série presentes, senão <code>incomplete</code></td><td>Sempre preenchido</td><td>—</td></tr>
+    </table></div>
+    <p><strong>Cadastro incompleto:</strong> confirmado que <code>registration_status</code> já aceita <code>'incomplete'</code> (constraint em <code>schema_v24_import_fields.sql</code>) e que o fluxo já marcava assim antes desta fase — não foi necessária nenhuma migration. O que mudou é que agora a extração e a revisão <em>toleram</em> e <em>comunicam</em> essa incompletude explicitamente (avisos, banners), em vez de tratá-la como uma falha.</p>
+    <p>Nenhuma coluna nova foi criada. Nenhuma migration foi escrita ou executada.</p>
+  </section>
+
+  <!-- 5. Correção do MIME -->
+  <section class="block">
+    <h2><span class="num">2</span>Correção do MIME das imagens (P0 da auditoria)</h2>
+    <p>Arquivo: <code>src/services/studentDocumentImportService.ts</code>. Nenhuma linha do Gateway, <code>_vertex.ts</code>, provider ou autenticação foi tocada.</p>
+    <h3>Antes</h3>
+    <pre>reader.onload  = () => resolve((reader.result as string).split(',')[1]); // descarta "data:image/png;base64,"</pre>
+    <h3>Depois</h3>
+    <pre>reader.onload  = () => resolve(reader.result as string); // mantém o data URL completo
+
+// e, antes de enviar, o mimetype é revalidado e reconstruído explicitamente —
+// não confia cegamente no que o FileReader/navegador adivinhou:
+const mimeType = resolveAcceptedImageMimeType(file);      // 'image/jpeg' | 'image/png' | 'image/webp' | null
+if (!mimeType) throw new Error('Este arquivo utiliza um formato de imagem não suportado...');
+const rawDataUrl = await fileToBase64(file);
+imageBase64 = rebuildDataUrlWithMimeType(rawDataUrl, mimeType);</pre>
+    <p><code>resolveAcceptedImageMimeType</code> usa <code>file.type</code> como fonte primária e só recorre à extensão quando o navegador não informa um tipo — e rejeita (não adivinha) quando a extensão e o <code>type</code> real se contradizem (ex.: um arquivo com <code>type: 'application/pdf'</code> renomeado para <code>.png</code>). Nenhuma conversão de bytes é feita — apenas o rótulo enviado ao Gemini passa a corresponder ao formato real, exatamente como já funcionava em <code>ChecklistUploadModal.tsx</code> (que serviu de referência, sem ser alterado).</p>
+    <p>A validação agora acontece assim que a professora seleciona a imagem (não só na hora de processar), então um formato incompatível é rejeitado imediatamente com uma mensagem clara.</p>
+  </section>
+
+  <!-- 7. Múltiplas páginas -->
+  <section class="block">
+    <h2><span class="num">3</span>Documentos escaneados e múltiplas páginas</h2>
+    <p><strong>Verificação feita antes de implementar (conforme exigido):</strong> o AI Gateway atual aceita um único <code>imageBase64</code> por chamada — tanto no contrato do frontend (<code>aiGatewayService.ts</code>, campo <code>imageBase64?: string</code>) quanto no provider (<code>_geminiProvider.ts</code> → <code>generateGeminiJSON(prompt, imageBase64)</code>, singular). <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span></p>
+    <p><strong>Decisão tomada, conforme instruído:</strong> a leitura visual multipágina real <strong>não foi implementada</strong> — exigiria alterar o Gateway/provider para aceitar múltiplas imagens por chamada, o que está fora do escopo autorizado desta fase. Em vez disso, foi implementado o aviso explícito exigido: quando um PDF escaneado tem mais de 1 página, a tela de revisão mostra —</p>
+    <div class="callout">"Seu documento possui <em>N</em> páginas. Nesta versão, foi analisada apenas a primeira página."</div>
+    <p>Esse texto é gerado por <code>buildPageDisclosureMessage(totalPages, pagesAnalyzed)</code>, calculado a partir de <code>pdf.numPages</code> (já lido durante a própria renderização da página, sem custo adicional) — testado em <code>studentDocumentImportService.test.ts</code>.</p>
+    <p>Registrado para fase futura (requer autorização própria, por alterar Gateway/provider/possivelmente custo): suportar 2–3 páginas na leitura visual.</p>
+  </section>
+
+  <!-- 8. PDF digital / documentos longos -->
+  <section class="block">
+    <h2><span class="num">4</span>PDF digital e documentos longos</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Limite</th><th>Antes</th><th>Depois</th><th>Por quê é seguro</th></tr>
+      <tr><td>Páginas de PDF digital lidas</td><td>5</td><td><strong>12</strong> (<code>MAX_PDF_TEXT_PAGES</code>)</td><td>Extração é local (pdfjs no navegador), sem custo de IA — ampliar não afeta Gateway nem cobrança</td></tr>
+      <tr><td>Caracteres enviados ao prompt</td><td>8.000</td><td><strong>20.000</strong> (<code>MAX_DOCUMENT_TEXT_CHARS</code>)</td><td>Prompt total (texto fixo + documento) fica ~22.000 caracteres — bem abaixo do limite de 32.000 do Gateway (<code>ai-gateway/index.ts</code>), que não foi alterado</td></tr>
+    </table></div>
+    <p>Quando o documento excede esses limites, a professora agora vê, na tela de revisão:</p>
+    <div class="callout warn">"Este arquivo é extenso. Parte do conteúdo não foi analisada pela IA."</div>
+    <p>E, quando o PDF tem mais páginas do que as analisadas, o mesmo aviso de páginas da Seção 3 aparece. Nenhuma promessa de leitura integral é feita quando ela não ocorre.</p>
+  </section>
+
+  <!-- 9. .doc -->
+  <section class="block">
+    <h2><span class="num">5</span>Word antigo (.doc)</h2>
+    <p>Continua não suportado — <code>mammoth</code> lê apenas OOXML (.docx); nenhum conversor foi instalado (nenhuma dependência nova foi adicionada). O que mudou é a honestidade da mensagem: um arquivo <code>.doc</code> agora é detectado explicitamente e recebe uma orientação específica, em vez de cair na mensagem genérica de formato não suportado:</p>
+    <div class="callout warn">"Arquivos Word antigos (.doc) precisam ser convertidos para .docx ou PDF."</div>
+    <p>A interface também deixou de anunciar "Word" de forma genérica — agora especifica "Word (.docx)" nos textos de formato aceito.</p>
+  </section>
+
+  <!-- 11. Recomendações -->
+  <section class="block">
+    <h2><span class="num">6</span>Campo "Recomendações"</h2>
+    <p>Não existe (e não foi criada) nenhuma coluna dedicada a "recomendações" no cadastro. Seguindo a instrução — mapear para um campo real equivalente quando existir — o conteúdo passou a ser mesclado, de forma explícita e rotulada, dentro do campo real <strong>"Observações Pedagógicas" (<code>observations</code>)</strong>, via a função pura <code>mergeObservationsWithRecommendations()</code>:</p>
+    <pre>Aluno participativo em sala.
+
+Recomendações do documento: sentar próximo à lousa.</pre>
+    <p>A professora continua vendo e editando "Recomendações" como um campo separado na revisão (nada foi removido da UI), agora com uma legenda explícita: <em>"Será salvo junto com as Observações Pedagógicas."</em> — nenhum campo com aparência de persistência é mais descartado silenciosamente.</p>
+  </section>
+
+  <!-- 12. Créditos -->
+  <section class="block">
+    <h2><span class="num">7</span>Proteção dos créditos — vazamento de reserva corrigido</h2>
+    <p>Achado da auditoria: quando o AI Gateway já reservava o crédito (modo <code>deferCommit</code>) e a IA respondia com sucesso, mas o <em>frontend</em> decidia rejeitar o resultado depois (JSON inválido, nenhum aluno identificado, confiança muito baixa), o <code>reservationId</code> era descartado dentro do <code>throw new Error(...)</code> — ninguém no frontend sabia o ID para liberar a reserva.</p>
+    <h3>Correção</h3>
+    <p>Nova classe <code>DocumentImportRejection extends Error</code>, com um campo público <code>reservationId: string | null</code>. Todo ponto de rejeição que acontece <strong>depois</strong> de uma chamada bem-sucedida ao Gateway agora lança esse erro carregando o <code>reservationId</code> da resposta:</p>
+    <pre>throw new DocumentImportRejection(
+  'A imagem está ilegível ou com qualidade insuficiente...',
+  response.reservationId ?? null,
+);</pre>
+    <p>No modal, o <code>catch</code> de <code>runAIProcessing</code> agora verifica esse campo e, se presente, chama a rotina de liberação já existente e testada (<code>releaseReservation()</code> → <code>CreditTransactionService.atomicReleaseReservedCredits</code>) antes de mostrar o erro:</p>
+    <pre>const leftoverReservationId = err?.reservationId ?? null;
+if (leftoverReservationId) {
+  pendingReservationRef.current = leftoverReservationId;
+  await releaseReservation();
+} else {
+  pendingReservationRef.current = null; // Gateway já liberou automaticamente (erro de provider)
+}</pre>
+    <p>Como isso só dispara quando a chamada ao Gateway teve sucesso (o caso em que o próprio Gateway já libera automaticamente é mutuamente exclusivo — ele só libera quando o <em>provider</em> falha), não há risco de <strong>liberação duplicada</strong>. A função <code>releaseReservation()</code> já zera a referência antes de chamar a RPC, evitando também <strong>chamada dupla</strong> se o usuário fechar o modal logo em seguida.</p>
+    <p><strong>Casos cobertos pela correção (com teste automatizado):</strong> análise falha (JSON inválido) → reserva liberada com ID preservado; nenhum aluno identificado → idem; baixa confiança na leitura visual → idem (mesmo padrão, código análogo em <code>mapVisualDocumentToStudentPayload</code>). <strong>Cancelamento com o app ainda aberto</strong> já era coberto (fechar modal, trocar de modo, desmontar componente) e foi preservado sem alteração.</p>
+    <p><strong>Valores comerciais preservados:</strong> 3 créditos (PDF/Word com texto) e 5 créditos (imagem/PDF escaneado) — nenhuma constante de custo foi alterada (<code>src/config/aiCosts.ts</code> não foi tocado).</p>
+    <h3>Limitação que depende de banco/cron — não implementada nesta fase (conforme instruído)</h3>
+    <p class="callout crit">Se a professora fechar a aba do navegador (crash, F5 forçado) <em>depois</em> que a IA processou com sucesso mas <em>antes</em> de clicar em "Cancelar" ou confirmar, o <code>useEffect</code> de cleanup do React pode não executar de forma confiável, e o crédito reservado pode continuar debitado sem devolução — não existe rotina de expiração automática (cron/RPC) no banco, e criar uma está fora do escopo autorizado desta fase (não foi criada nenhuma migration, tabela ou cron). Corrigidos apenas os casos controláveis com o aplicativo aberto, como instruído.</p>
+  </section>
+
+  <!-- 13. Mensagens -->
+  <section class="block">
+    <h2><span class="num">8</span>Mensagens e clareza visual</h2>
+    <p>Sem redesign — apenas textos. Principais mudanças de copy em <code>StudentImportModal.tsx</code>:</p>
+    <ul>
+      <li>Caixa de instrução do modo IA reescrita para deixar claro o objetivo de cadastro inicial e a possibilidade de complementar depois.</li>
+      <li>Etapas da animação de IA renomeadas para refletir "cadastro", não "ficha pedagógica": <em>Lendo o documento → Identificando os dados do aluno → Comparando com os campos do cadastro → Organizando para revisão → Preparando confirmação</em>.</li>
+      <li>Formatos anunciados agora dizem exatamente "Word (.docx)" em vez de "Word" genérico.</li>
+      <li>Nova mensagem ao concluir a importação: <em>"Cadastro criado. Você poderá complementar as informações e anexar laudos ou relatórios no perfil do aluno."</em></li>
+      <li>Novos avisos: nome não encontrado (revisão pede preenchimento manual), formato não suportado, .doc antigo, páginas não analisadas, conteúdo truncado — todos com a redação sugerida na autorização.</li>
+    </ul>
+  </section>
+
+  <!-- 14. Identidade/duplicidade -->
+  <section class="block">
+    <h2><span class="num">9</span>Identidade e duplicidade</h2>
+    <p>O mecanismo já existente (<code>findDuplicateCandidates</code>, comparação normalizada de nome contra <code>existingStudents</code>, com aviso e confirmação explícita antes de criar mesmo assim) foi <strong>preservado sem alteração</strong> — nenhuma linha dessa lógica foi tocada. Melhorias de deduplicação (comparação por data de nascimento, código único, etc.) ficam registradas para fase futura, como instruído.</p>
+  </section>
+
+  <!-- 15. RLS -->
+  <section class="block">
+    <h2><span class="num">10</span>Privacidade e RLS — apenas leitura, nada alterado</h2>
+    <p>Conforme instruído: nenhuma migration, nenhuma alteração de política RLS, nenhuma inspeção invasiva de produção. O achado da auditoria de 25/08 permanece como estava: a tabela <code>ai_outputs</code> não tem política RLS declarada em <code>schema_additions.sql</code>, diferente de <code>ai_requests</code>. <span class="badge badge-nver">Não foi possível confirmar exploração real (depende de GRANTs de produção)</span> — a correção estrutural continua separada, aguardando autorização própria.</p>
+  </section>
+
+  <!-- 4/12/13/14. Arquivos, testes, suíte, build -->
+  <section class="block">
+    <h2><span class="num">11</span>Arquivos alterados</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Arquivo</th><th>Natureza da mudança</th></tr>
+      <tr><td><code>src/services/studentDocumentImportService.ts</code></td><td>Correção de MIME, limites ampliados com avisos, prompt reescrito (objetivo de cadastro), reserva de crédito sem vazamento, nome ausente não descarta mais o documento, merge de Recomendações→Observações</td></tr>
+      <tr><td><code>src/components/StudentImportModal.tsx</code></td><td>Validação de imagem na seleção, mensagem específica para .doc, banners de página/truncamento/nome ausente, textos revisados, reset de estado consistente</td></tr>
+      <tr><td><code>src/services/__tests__/studentDocumentImportService.test.ts</code> (novo)</td><td>30 testes automatizados cobrindo as correções acima</td></tr>
+    </table></div>
+    <p>Nenhum outro arquivo foi alterado — confirmado por <code>git diff --stat</code> (ver Seção 15 desta seção e checklist final).</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">12</span>Evidências dos testes com fixtures sintéticas</h2>
+    <p>30 testes novos, 100% com dados fictícios (nenhum dado real de aluno). Nenhum provider real foi chamado — <code>callAIGateway</code> e <code>databaseService.saveStudent</code> são mockados com <code>vi.mock</code>.</p>
+    <div class="table-wrap"><table>
+      <tr><th>Cobertura</th><th>Casos do pedido cobertos</th></tr>
+      <tr><td><code>resolveAcceptedImageMimeType</code> (7 testes)</td><td>CASO 3 (PNG), CASO 4 (JPEG), CASO 5 (WEBP), MIME ausente, arquivo incompatível, .doc rejeitado</td></tr>
+      <tr><td><code>rebuildDataUrlWithMimeType</code> (2 testes)</td><td>Garantia de que o payload final preserva o mimetype correto</td></tr>
+      <tr><td><code>buildPageDisclosureMessage</code> (3 testes)</td><td>CASO 6 (aviso quando página não analisada)</td></tr>
+      <tr><td><code>normalizeImportedStudentFromDocument</code> (3 testes)</td><td>CASO 8 (nome ausente não é inventado, fica sinalizado)</td></tr>
+      <tr><td><code>mergeObservationsWithRecommendations</code> (4 testes)</td><td>CASO 15 (Recomendações não descartadas)</td></tr>
+      <tr><td><code>mapDocumentTextToStudentPayload</code> (9 testes)</td><td>CASO 1/2 (ficha identificada), CASO 7 (cadastro incompleto aceito), CASO 8 (nome ausente), CASO 10/11 (erro controlado + <code>reservationId</code> preservado), CASO 14 (documento extenso truncado)</td></tr>
+      <tr><td><code>saveStudentsFromDocx</code> (3 testes)</td><td>CASO 15 (merge), CASO 8 (nome ausente não vira cadastro inválido), CASO 7 (cadastro incompleto salvo)</td></tr>
+    </table></div>
+    <p><strong>Limitação honesta de ambiente</strong> (documentada no topo do próprio arquivo de teste): o ambiente de teste deste projeto roda em Node puro (<code>environment: 'node'</code> em <code>vitest.config.ts</code>, não alterado), sem jsdom. <code>mapVisualDocumentToStudentPayload</code> no ramo de imagem real (<code>fileToBase64</code> via <code>FileReader</code>) e a renderização de PDF em <code>&lt;canvas&gt;</code> (<code>renderPdfFirstPageToBase64</code>) dependem de APIs de navegador indisponíveis nesse ambiente — <span class="badge badge-nver">exigem verificação manual no navegador com arquivos sintéticos (CASO 3/4/5/6/13 end-to-end)</span> antes de considerar a Fase 1 validada em uso real. Isso não é uma lacuna nova desta fase — nenhum teste cobria esses caminhos antes dela também.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">13</span>Resultado da suíte e do build</h2>
+    <p><strong>Suíte completa:</strong> <code>npx vitest run</code> → <span class="badge badge-ok">29 arquivos, 332 testes, 332 passando</span> (302 pré-existentes + 30 novos). Nenhuma regressão.</p>
+    <p><strong>tsc --noEmit:</strong> 56 erros — todos pré-existentes em arquivos não relacionados a esta fase (WorkflowCanvas, DashboardView, IncluiLabView, PDFGenerator, ceoService, etc., já presentes antes desta sessão). Os 2 erros dentro de <code>studentDocumentImportService.ts</code> (um sobre o tipo <code>TextItem</code> do pdfjs-dist, outro sobre a assinatura de <code>page.render()</code>) já existiam <strong>nas mesmas linhas, inalteradas</strong>, antes desta fase — confirmado por comparação linha a linha com o conteúdo anterior. <span class="badge badge-ok">Zero erros novos atribuíveis à Fase 1</span>.</p>
+    <p><strong>Build:</strong> <code>npx vite build</code> → <span class="badge badge-ok">sucesso</span> (~1m49s). O aviso de chunk grande (<code>aiGatewayService</code> > 500kB) é pré-existente (inclui pdfjs-dist/mammoth já empacotados antes desta fase) e não é uma regressão desta mudança.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">14</span>Áreas preservadas (confirmado por <code>git diff --stat</code>)</h2>
+    <p>Nenhuma linha alterada em: Gateway (<code>supabase/functions/ai-gateway/*</code>), banco/migrations/RLS, <code>_vertex.ts</code>, provider padrão, configuração global de IA, prompts de Estudo de Caso/PAEE/PEI/PDI/Plano Unificado/IncluiLAB, Sidebar, DocumentWorkspace, PDFGenerator, wordExportService, autenticação, planos/regras comerciais, cadastro manual (<code>StudentForm.tsx</code>, só lido para mapear campos), e o modo CSV do próprio modal (<code>csvImportService.ts</code> e todo o branch <code>importMode === 'csv'</code> em <code>StudentImportModal.tsx</code> — confirmado por <code>git diff</code> filtrado, nenhuma linha de CSV aparece na mudança).</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">15</span>Procedimento de rollback</h2>
+    <p>Rollback trivial e isolado — reverter apenas 2 arquivos de código, sem efeito em banco ou Gateway:</p>
+    <pre>git checkout -- src/services/studentDocumentImportService.ts src/components/StudentImportModal.tsx
+rm src/services/__tests__/studentDocumentImportService.test.ts</pre>
+    <p>Como nenhuma migration foi criada e nenhum crédito real foi alterado, o rollback não deixa nenhum resíduo em banco, créditos ou Gateway.</p>
+  </section>
+
+  <!-- Checklist final -->
+  <section class="block">
+    <h2><span class="num">✓</span>Checklist de encerramento</h2>
+    <div class="table-wrap"><table class="checklist">
+      <tr><td>FICHA/ANAMNESE IDENTIFICADA</td><td><span class="badge badge-ok">SIM</span> (por código/teste; validação manual com arquivo real pendente)</td></tr>
+      <tr><td>CAMPOS REAIS DO CADASTRO MAPEADOS</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>CADASTRO INCOMPLETO PERMITIDO</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>DADOS AUSENTES NÃO INVENTADOS</td><td><span class="badge badge-ok">SIM</span> (regra explícita no prompt + <code>needsReview</code>; comportamento real do modelo em produção não testado nesta fase)</td></tr>
+      <tr><td>REVISÃO ANTES DA CRIAÇÃO</td><td><span class="badge badge-ok">SIM</span> (preservado, não alterado)</td></tr>
+      <tr><td>PNG COM MIME CORRETO</td><td><span class="badge badge-ok">SIM</span> (testado)</td></tr>
+      <tr><td>JPEG COM MIME CORRETO</td><td><span class="badge badge-ok">SIM</span> (testado, sem regressão)</td></tr>
+      <tr><td>WEBP COM MIME CORRETO OU REJEIÇÃO CLARA</td><td><span class="badge badge-ok">SIM</span> (testado)</td></tr>
+      <tr><td>PDF DIGITAL LIDO</td><td><span class="badge badge-ok">SIM</span> (até 12 páginas / 20.000 caracteres, com aviso se exceder)</td></tr>
+      <tr><td>PDF ESCANEADO LIDO</td><td><span class="badge badge-parcial">PARCIAL</span> (1ª página, com aviso explícito quando há mais)</td></tr>
+      <tr><td>MÚLTIPLAS PÁGINAS</td><td><span class="badge badge-info">AVISO</span> (leitura real de múltiplas páginas escaneadas = DEPENDÊNCIA EXTERNA do Gateway, não implementada nesta fase)</td></tr>
+      <tr><td>DOCUMENTO LONGO COM AVISO</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>DOCX FUNCIONAL</td><td><span class="badge badge-ok">SIM</span> (preservado)</td></tr>
+      <tr><td>DOC ANTIGO COM ORIENTAÇÃO CLARA</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>RECOMENDAÇÕES SEM DESCARTE SILENCIOSO</td><td><span class="badge badge-ok">SIM</span> (mesclado em Observações)</td></tr>
+      <tr><td>RESERVA LIBERADA EM FALHA</td><td><span class="badge badge-ok">SIM</span> (incluindo o caso de baixa confiança/JSON inválido pós-sucesso do Gateway — corrigido e testado)</td></tr>
+      <tr><td>CRÉDITOS COMERCIAIS PRESERVADOS</td><td><span class="badge badge-ok">SIM</span> (3 / 5 créditos inalterados)</td></tr>
+      <tr><td>CSV PRESERVADO</td><td><span class="badge badge-ok">SIM</span> (nenhuma linha do modo CSV alterada)</td></tr>
+      <tr><td>LAUDOS E RELATÓRIOS MANTIDOS PARA ETAPA POSTERIOR</td><td><span class="badge badge-ok">SIM</span> (mensagem explícita adicionada ao concluir)</td></tr>
+      <tr><td>GATEWAY ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>BANCO ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>INCLUILAB ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>DOCUMENTWORKSPACE ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>TESTES</td><td><strong>PASS</strong> (332/332)</td></tr>
+      <tr><td>BUILD</td><td><strong>PASS</strong></td></tr>
+      <tr><td>APTO PARA TESTE MANUAL COM FICHA REAL</td><td><span class="badge badge-ok">SIM</span></td></tr>
+    </table></div>
+  </section>
+
+  <div class="callout ok" style="margin-top: 8px;">
+    <strong>Fim da Fase 1.</strong> Correções aplicadas exatamente dentro dos limites autorizados. O caso de aceitação principal (ficha do Evandro: dados de cadastro identificados, diagnóstico ausente não bloqueia, revisão antes de confirmar, cadastro incompleto criado, nenhum crédito preso em falha) está implementado e coberto por teste automatizado onde o ambiente permite — falta apenas a validação manual no navegador com um arquivo real, que exige uma sessão interativa fora do alcance desta execução. Aguardando sua validação antes de qualquer nova fase.
+  </div>
+
+</div>
+<div class="footer">IncluiAI · Fase 1 — Cadastro Inteligente / Importar Aluno por Documento com IA · 25/08/2026</div>
+</body>
+</html>

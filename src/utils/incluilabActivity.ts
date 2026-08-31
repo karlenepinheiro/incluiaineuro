@@ -234,6 +234,10 @@ function questionKindFromLegacy(type: ActivityExercise['type']): string {
     matching: 'match',
     drawing: 'coloring',
     ordering: 'steps',
+    word_search: 'table',
+    crossword: 'table',
+    coloring: 'coloring',
+    table: 'table',
   };
   return map[type] ?? 'short_answer';
 }

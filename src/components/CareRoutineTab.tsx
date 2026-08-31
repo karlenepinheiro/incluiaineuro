@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Student, User as UserType } from '../types';
 import { CareRoutineService, CareSection, CareField, FieldType } from '../services/careRoutineService';
+import { CareRoutineExportRow } from './fichas/CareRoutineExportRow';
 
 // ─── Modelos de seção ─────────────────────────────────────────────────────────
 
@@ -1098,6 +1099,14 @@ export const CareRoutineTab: React.FC<CareRoutineTabProps> = ({ student, user })
           {sections.length > 0 && !saving && !saved && (
             <span className="text-xs text-gray-400">Lembre-se de salvar as alterações</span>
           )}
+        </div>
+      )}
+
+      {/* [FASE 2 · BLOCO B] Exportação (antes inexistente): PDF real + Word (.docx) + Google Docs */}
+      {!loading && sections.length > 0 && (
+        <div className="rounded-xl border border-gray-200 bg-white p-3">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500 mb-2">Exportar Rotina da Cuidadora</p>
+          <CareRoutineExportRow sections={sections} student={student} user={user} school={user?.schoolConfigs?.[0] ?? null} />
         </div>
       )}
 

@@ -1,10 +1,13 @@
 // Sprint 5B — QuickDocModal
 // Geração rápida de documentos complementares a partir da ficha do aluno.
 // Tipos suportados: encaminhamento_redes | convite_reuniao | termo_desligamento
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { X, Download, Loader2, CheckCircle2, AlertCircle, FileText, Send, LogOut } from 'lucide-react';
 import { Student, User, SchoolConfig } from '../types';
 import { PDFGenerator } from '../services/PDFGenerator';
+import { DocumentExportActions } from './document-workspace/DocumentExportActions';
+import { useFormalDocumentExport } from './document-workspace/useFormalDocumentExport';
+import { quickDocToSections, quickDocTitle } from '../services/documentModel/quickDoc';
 
 const C = {
   petrol:  '#1F4E5F',
@@ -65,6 +68,7 @@ export const QuickDocModal: React.FC<QuickDocModalProps> = ({
   const today = new Date().toISOString().split('T')[0];
   const [generating, setGenerating] = useState(false);
   const [blob, setBlob] = useState<Blob | null>(null);
+  const [docCode, setDocCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({
     // Encaminhamento
@@ -94,7 +98,8 @@ export const QuickDocModal: React.FC<QuickDocModalProps> = ({
     setGenerating(true);
     setError(null);
     try {
-      const auditCode = makeDocId(docType, student.name);
+      const auditCode = docCode ?? makeDocId(docType, student.name);
+      setDocCode(auditCode);
       const result = await PDFGenerator.generate({
         docType,
         student,
@@ -116,6 +121,23 @@ export const QuickDocModal: React.FC<QuickDocModalProps> = ({
     const filename = `${docType}_${student.name.replace(/\s+/g, '_')}.pdf`;
     PDFGenerator.download(blob, filename);
   };
+
+  // [FASE 2] Word (.docx) real + Abrir no Google Docs — mesmo Blob canônico.
+  const getSections = useCallback(
+    () => quickDocToSections(docType, fields, { studentName: student.name, schoolName: school?.schoolName }),
+    [docType, fields, student.name, school?.schoolName],
+  );
+  const exportActions = useFormalDocumentExport({
+    docLabel: meta.title,
+    title: quickDocTitle(docType),
+    student,
+    user,
+    school: school ?? null,
+    auditCode: docCode,
+    getSections,
+    onDownloadPdf: handleDownload,
+    isolationKey: `quickdoc:${docType}:${student.id}`,
+  });
 
   // ── Form por tipo ─────────────────────────────────────────────────────────
   const renderForm = () => {
@@ -301,21 +323,14 @@ export const QuickDocModal: React.FC<QuickDocModalProps> = ({
 
           {/* Sucesso */}
           {blob && !error && (
-            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 9, padding: '12px 16px', marginTop: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <CheckCircle2 size={16} color={C.green} style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: 13, color: '#166534', fontWeight: 600, flex: 1 }}>
-                Documento gerado com sucesso!
-              </span>
-              <button
-                onClick={handleDownload}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
-                  borderRadius: 8, border: 'none', background: C.petrol,
-                  color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer',
-                }}
-              >
-                <Download size={13} /> Baixar PDF
-              </button>
+            <div style={{ background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 9, padding: '12px 16px', marginTop: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                <CheckCircle2 size={16} color={C.green} style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: '#166534', fontWeight: 600 }}>
+                  Documento gerado com sucesso!
+                </span>
+              </div>
+              <DocumentExportActions {...exportActions} />
             </div>
           )}
         </div>

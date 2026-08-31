@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Consumo de Créditos no Momento Certo</title>
+<style>
+  :root { --petrol:#1F4E5F; --dark:#2E3A59; --gold:#C69214; --bg:#F6F4EF; --surface:#FFFFFF; --border:#E7E2D8; --text:#111827; --muted:#6B7280; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; }
+  .header-inner { max-width: 1060px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 26px; font-weight: 800; max-width: 820px; }
+  .header p { opacity: .85; margin-top: 10px; font-size: 13px; max-width: 780px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1060px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h4 { font-size: 12.5px; color: var(--petrol); margin: 14px 0 6px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-ok { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-critico { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .badge-nver { background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; }
+  .badge-info { background: #F0F9FF; color: #075985; border: 1px solid #BAE6FD; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.crit { border-color: #DC2626; background: #FEF2F2; }
+  .callout.ok { border-color: #059669; background: #F0FDF4; }
+  .callout.warn { border-color: #C69214; background: #FEF9EE; }
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px 16px; border-radius: 8px; overflow-x: auto; font-size: 12px; margin: 8px 0 14px; }
+  .checklist td:first-child { font-weight: 600; width: 62%; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="header"><div class="header-inner">
+  <div class="kicker">Prioridade financeira · Correção estrutural</div>
+  <h1>Cadastro Inteligente — Consumo de Créditos no Momento Certo</h1>
+  <p>O crédito agora é confirmado atomicamente pelo próprio AI Gateway, no exato instante em que uma resposta utilizável da IA é entregue para revisão — não mais quando o aluno é salvo. Cancelar, fechar o modal ou trocar de arquivo depois desse ponto não devolve o valor. Nenhuma janela de falha entre a resposta do provider e a cobrança.</p>
+  <div class="cover-badges">
+    <span class="badge badge-ok">26/08/2026</span>
+    <span class="badge badge-ok">363/363 testes · build OK</span>
+    <span class="badge badge-info">Gateway alterado — mudança mínima e aditiva, escopo autorizado</span>
+    <span class="badge badge-critico">Banco/migration: NÃO alterado</span>
+  </div>
+</div></div>
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Arquivos de código</strong><code>ai-gateway/index.ts</code>, <code>ai-gateway/_usability.ts</code> (novo), <code>aiGatewayService.ts</code>, <code>studentDocumentImportService.ts</code>, <code>StudentImportModal.tsx</code></div>
+    <div><strong>Testes novos</strong>22 (12 para a regra de negócio pura + 10 nos fluxos de importação)</div>
+    <div><strong>Banco/migration/RLS</strong>Não tocados</div>
+    <div><strong>Preços</strong>3 / 5 créditos preservados — só o momento da cobrança mudou</div>
+  </div>
+
+  <!-- 1. Causa -->
+  <section class="block">
+    <h2><span class="num">1</span>Causa do problema financeiro</h2>
+    <p><span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span> — a arquitetura da Fase 1 usava <code>deferCommit: true</code>: o Gateway reservava o crédito, chamava o provider, e devolvia um <code>reservationId</code> para o <strong>frontend</strong> decidir depois quando confirmar (<code>commit</code>) ou liberar (<code>release</code>). O frontend só chamava <code>commit</code> dentro de <code>handleDocxSave</code> — ou seja, <strong>só quando o aluno era salvo</strong>. Se a professora cancelasse depois de ver a revisão (a IA já tinha sido chamada e paga ao provider), o modal chamava <code>release</code> — devolvendo um crédito que já correspondia a uma chamada real e paga ao Gemini.</p>
+    <p>Isso permitia exatamente o abuso descrito: analisar repetidamente, ver o resultado, cancelar sempre — custo real recorrente para o IncluiAI, consumo interno zero.</p>
+  </section>
+
+  <!-- Fluxo anterior x novo -->
+  <section class="block">
+    <h2><span class="num">2/3</span>Fluxo anterior vs. fluxo novo</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Etapa</th><th>Antes (Fase 1)</th><th>Agora</th></tr>
+      <tr><td>Clicar "Processar com IA"</td><td>Gateway reserva com <code>deferCommit:true</code></td><td>Gateway reserva normalmente (sem deferCommit)</td></tr>
+      <tr><td>Provider responde com sucesso</td><td>Reserva fica <code>'reserved'</code> — <strong>nada é decidido ainda</strong></td><td>Gateway roda <code>checkResultUsability()</code> na MESMA requisição; se utilizável, <strong>confirma (commit) imediatamente</strong>, atomicamente, antes de responder ao navegador</td></tr>
+      <tr><td>Resposta chega ao frontend</td><td>Frontend guarda <code>reservationId</code> num <code>ref</code>, aguardando decisão futura</td><td>Frontend só recebe o draft já pronto — <strong>não há mais nada para gerenciar</strong>: o dinheiro já está resolvido</td></tr>
+      <tr><td>Professora cancela / fecha / troca de arquivo</td><td>Chamava <code>release</code> — <strong>devolvia o crédito</strong> (bug)</td><td>Não existe mais nenhuma chamada de crédito aqui — o valor já foi cobrado, ponto final</td></tr>
+      <tr><td>Professora salva o aluno</td><td>Chamava <code>commit</code> — só agora o crédito era realmente cobrado</td><td>Apenas persiste os dados — nenhuma chamada de crédito</td></tr>
+    </table></div>
+  </section>
+
+  <!-- 4/5/6. Pontos exatos -->
+  <section class="block">
+    <h2><span class="num">4</span>Ponto exato de reserva, commit e release</h2>
+    <p>Todos os três acontecem <strong>dentro da mesma invocação</strong> da Edge Function <code>ai-gateway</code>, na mesma requisição HTTP que a professora dispara ao clicar "Processar com IA" — não há mais uma segunda chamada do frontend em nenhum dos três casos:</p>
+    <ul>
+      <li><strong>Reserva:</strong> <code>reserveCredits()</code>, logo após resolver o provider e antes de chamá-lo (comportamento já existente, inalterado).</li>
+      <li><strong>Commit:</strong> logo após <code>validateAndRepair(result)</code> (JSON validado) — se <code>checkResultUsability(parsedDocument, usabilityCheck)</code> retornar <code>{usable: true}</code>, cai no caminho de commit imediato <em>já existente</em> no Gateway para chamadas sem <code>deferCommit</code> (o mesmo usado por todo o resto do produto) — <strong>nenhuma lógica de commit nova foi escrita</strong>, só passou a ser alcançada por este fluxo.</li>
+      <li><strong>Release:</strong> se <code>checkResultUsability</code> retornar <code>{usable: false}</code>, um <code>throw</code> intencional (<code>UNUSABLE_RESULT</code>) reaproveita o mesmo bloco <code>catch</code> que já liberava a reserva em falha de provider — <strong>nenhuma lógica de release nova foi escrita</strong> aqui também.</li>
+    </ul>
+    <p><strong>Por que isso fecha a janela de falha:</strong> como as três etapas ocorrem sequencialmente dentro de uma única execução server-side da Edge Function, nenhuma queda de conexão, fechamento de aba, F5 ou callback perdido no navegador pode interromper o meio do caminho — o resultado financeiro é decidido e persistido no banco <em>antes</em> da resposta HTTP sequer começar a ser enviada de volta ao navegador.</p>
+    <h4>Por que o Gateway precisou ser alterado (e não dava para resolver só no frontend)</h4>
+    <p>Uma solução "só visual" no frontend (ex.: chamar <code>commit</code> assim que a resposta chegasse, antes de mostrar a revisão) ainda deixaria uma janela real: entre "provider respondeu com sucesso" e "o navegador recebe a resposta e consegue disparar uma <em>segunda</em> chamada de <code>commit</code>", uma queda de rede ou fechamento de aba deixaria a reserva permanentemente pendurada — exatamente o cenário D do pedido. Só o Gateway, rodando no servidor como parte da mesma requisição, elimina essa janela por completo.</p>
+  </section>
+
+  <!-- Mudança exata no Gateway -->
+  <section class="block">
+    <h2><span class="num">2 (Gateway)</span>Alteração no Gateway — mínima, aditiva, escopo autorizado</h2>
+    <p>Novo campo opcional em <code>GatewayPayload</code>: <code>usabilityCheck?: { arrayField, minAverageConfidence?, confidenceField? }</code>. Quando ausente (todo o resto do produto), <strong>zero mudança de comportamento</strong>. Quando presente (só nas 2 chamadas desta feature), o Gateway checa o array indicado antes de decidir commit/release:</p>
+    <pre>// Nova função pura, sem Deno/imports remotos — testada isoladamente:
+export function checkResultUsability(parsedDocument, config) {
+  if (!config) return { usable: true };               // resto do produto: inalterado
+  const arr = parsedDocument?.[config.arrayField];
+  if (!Array.isArray(arr) || arr.length === 0)
+    return { usable: false, reason: 'EMPTY_RESULT' };  // "nenhum draft pôde ser produzido"
+  if (config.minAverageConfidence != null && config.confidenceField) {
+    const avg = /* média do campo de confiança nos itens do array */;
+    if (avg < config.minAverageConfidence)
+      return { usable: false, reason: 'LOW_CONFIDENCE' }; // imagem ilegível
+  }
+  return { usable: true };
+}</pre>
+    <p>Em <code>index.ts</code>: <code>const usability = checkResultUsability(parsedDocument, usabilityCheck); if (!usability.usable) throw new Error('UNUSABLE_RESULT: ...');</code> — reaproveitando o <code>catch</code> e o <code>friendlyError()</code> já existentes. <strong>Nada mais foi tocado</strong>: roteamento Gemini/OpenAI, Gemini default, prompts, modelos, payload de imagem, geração de imagem e todos os outros <code>requestType</code> permanecem byte-a-byte como estavam (nenhum deles passa <code>usabilityCheck</code>, logo caem sempre no <code>if (!config) return {usable:true}</code>).</p>
+  </section>
+
+  <!-- 3. Definição de resposta utilizável -->
+  <section class="block">
+    <h2><span class="num">3</span>"Resposta utilizável" — implementado exatamente como definido</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Caso</th><th>Cobra?</th><th>Onde é decidido</th></tr>
+      <tr><td>JSON válido com array "students" não vazio (mesmo com campos vazios, sem nome, cadastro incompleto)</td><td><span class="badge badge-ok">SIM</span></td><td>Gateway — <code>checkResultUsability</code></td></tr>
+      <tr><td>Provider retornou erro, timeout, resposta vazia</td><td><span class="badge badge-critico">NÃO</span></td><td>Gateway — catch já existente (inalterado)</td></tr>
+      <tr><td>JSON impossível de interpretar</td><td><span class="badge badge-critico">NÃO</span></td><td>Gateway — <code>validateAndRepair</code> já existente (inalterado)</td></tr>
+      <tr><td>"students": [] (nenhum draft possível)</td><td><span class="badge badge-critico">NÃO</span></td><td>Gateway — <code>checkResultUsability</code> (novo)</td></tr>
+      <tr><td>Imagem: confiança média < 0.25 (baixa confiança que impede revisão)</td><td><span class="badge badge-critico">NÃO</span></td><td>Gateway — <code>checkResultUsability</code> (novo)</td></tr>
+      <tr><td>Arquivo rejeitado antes da chamada (MIME inválido, .doc, texto vazio no Word)</td><td><span class="badge badge-critico">NÃO</span></td><td>Frontend — nunca chega a reservar</td></tr>
+      <tr><td>Saldo insuficiente</td><td><span class="badge badge-critico">NÃO</span></td><td>Gateway — <code>reserveCredits</code> já existente (inalterado)</td></tr>
+    </table></div>
+  </section>
+
+  <!-- 7. Idempotência / duplo clique -->
+  <section class="block">
+    <h2><span class="num">7</span>Duplo clique e idempotência</h2>
+    <ul>
+      <li><strong>Duplo clique:</strong> <code>isProcessingRef</code> (um <code>useRef</code> booleano, checado e setado <em>sincronamente</em> antes de qualquer <code>await</code>) bloqueia uma segunda chamada de <code>runAIProcessing</code> enquanto a primeira ainda está em andamento — mais robusto que um <code>useState</code> (que só atualiza no próximo render).</li>
+      <li><strong>Operation ID:</strong> cada chamada de análise agora envia um <code>operationId</code> próprio (<code>crypto.randomUUID()</code>), gerado uma vez por tentativa — testado.</li>
+      <li><strong>Idempotência no banco:</strong> <span class="badge badge-ok">CONFIRMADO POR CÓDIGO (leitura, não alterado)</span> — as RPCs <code>atomic_reserve_credits</code>/<code>atomic_commit_reserved_credits</code>/<code>atomic_release_reserved_credits</code> (migration <code>20260520000002</code>, não tocada) já checam <code>operation_id</code> antes de processar e retornam o resultado já registrado se a operação já existir (<code>idempotent: true</code>) — infraestrutura pré-existente, sólida, reaproveitada.</li>
+      <li><strong>Commit repetido:</strong> as RPCs de commit/release verificam <code>status = 'reserved'</code> antes de agir — uma reserva já <code>'committed'</code> ou <code>'released'</code> rejeita uma segunda tentativa em vez de processar de novo.</li>
+      <li><strong>Retry de resposta:</strong> o frontend não implementa retry automático (nenhum wrapper de retry em <code>aiGatewayService.ts</code>) — não há hoje um mecanismo que reenvie a mesma requisição sozinho. Se um vier a ser adicionado no futuro reaproveitando o mesmo <code>operationId</code>, a idempotência do banco já o protege.</li>
+    </ul>
+  </section>
+
+  <!-- 8. Fechamento e queda -->
+  <section class="block">
+    <h2><span class="num">8</span>Fechamento e queda de conexão — cenário a cenário</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Cenário</th><th>Resultado</th></tr>
+      <tr><td>A. Fechar o modal antes de clicar em Processar</td><td><span class="badge badge-ok">Zero reserva, zero consumo</span> — nenhuma chamada de crédito acontece antes do clique</td></tr>
+      <tr><td>B. Fechar o modal durante a análise (provider ainda não respondeu)</td><td>O fetch do navegador é abortado, mas a <strong>Edge Function já invocada continua executando no servidor</strong> (não depende da conexão do cliente) — completa reserve→provider→commit/release normalmente, do jeito correto</td></tr>
+      <tr><td>C. Internet cai antes do provider responder</td><td><span class="badge badge-ok">Libera</span> — erro no <code>callProvider</code>, catch existente já libera a reserva</td></tr>
+      <tr><td>D. Internet cai depois que o provider respondeu</td><td><span class="badge badge-ok">Resolvido</span> — commit/release já aconteceu <em>dentro</em> da Edge Function, antes da resposta HTTP ser montada; a queda de conexão do navegador não influencia mais o resultado financeiro</td></tr>
+      <tr><td>E. Página recarregada</td><td>Se o reload ocorrer <em>depois</em> do commit (análise entregue), o crédito já foi cobrado — <span class="badge badge-nver">limitação honesta</span>: o rascunho da revisão em si não é persistido no banco nesta fase, então a professora precisaria reprocessar (nova cobrança) para ver os dados de novo. Isso não é um problema financeiro — o IncluiAI recebeu corretamente pelo uso já feito — é uma limitação de continuidade de UX, fora do escopo desta correção (persistir o rascunho exigiria uma tabela nova, não autorizada agora).</td></tr>
+    </table></div>
+  </section>
+
+  <!-- 5/6. Mensagens -->
+  <section class="block">
+    <h2><span class="num">5/6</span>Mensagens implementadas</h2>
+    <ul>
+      <li>Antes de processar: <em>"A análise deste documento consumirá {3 ou 5} créditos quando os dados forem disponibilizados para revisão."</em></li>
+      <li>Botão: <em>"Processar com IA — {3 ou 5} créditos"</em> (inalterado).</li>
+      <li>Ao abrir a revisão: <em>"Análise concluída — {N} crédito(s) utilizado(s)."</em> — discreto, no topo da tela de revisão.</li>
+      <li>Em falha: <em>"Não conseguimos analisar este documento. Nenhum crédito foi consumido."</em> (ou a mensagem específica do Gateway, quando já menciona créditos — nunca duplicada). Saldo insuficiente ganhou mensagem própria e mais clara: <em>"Saldo de créditos insuficiente para esta análise."</em></li>
+      <li>Cancelar depois da revisão: nenhum novo alerta (a cobrança já foi informada antes do processamento, como pedido).</li>
+      <li>Reprocessamento: não existe hoje um botão dedicado "tentar novamente"/"reanalisar" dentro da tela de revisão — a única forma de gerar uma nova análise é "← Trocar arquivo" → tela de upload → painel de custo → "Processar com IA" de novo. Esse fluxo <strong>já</strong> exige passar pela mensagem de custo e por um clique explícito antes de qualquer nova cobrança — satisfaz a exigência de confirmação sem precisar de uma tela nova.</li>
+    </ul>
+  </section>
+
+  <!-- 9. Reservas antigas -->
+  <section class="block">
+    <h2><span class="num">13</span>Auditoria somente leitura de reservas antigas</h2>
+    <p><span class="badge badge-nver">NÃO EXECUTADA</span> — este ambiente de trabalho não tem conexão com o banco de produção (sem sessão/credenciais Supabase). Nenhuma tentativa de conexão foi feita. Segue a consulta sugerida, 100% somente leitura, para ser rodada por quem tiver acesso (Supabase Studio ou script autorizado):</p>
+    <pre>select
+  id as reservation_id,
+  tenant_id,
+  status,
+  amount,
+  metadata->>'request_type' as request_type,
+  metadata->>'task' as task,
+  created_at,
+  expires_at,
+  now() - created_at as age
+from public.credit_reservations
+where status = 'reserved'
+  and metadata->>'request_type' in ('document_import', 'document_import_visual')
+order by created_at asc;</pre>
+    <p>Não expõe nome/e-mail de usuário nem qualquer dado de aluno (não faz join com <code>users</code>/<code>tenants</code>, ao contrário da view <code>v_credit_reservations</code>). Reservas encontradas por essa consulta seriam candidatas a limpeza manual (nunca automática) — decisão e execução ficam para quem tiver acesso ao banco, com autorização própria.</p>
+  </section>
+
+  <!-- Testes -->
+  <section class="block">
+    <h2><span class="num">10</span>Testes</h2>
+    <p><strong>22 testes novos:</strong></p>
+    <ul>
+      <li><code>src/__tests__/aiGatewayUsability.test.ts</code> (12 testes, execução real — sem stubs de Deno, função pura): array vazio → não utilizável; campo ausente/tipo errado → não utilizável; confiança abaixo/igual/acima do limite; nome ausente não afeta usabilidade (cadastro incompleto continua "utilizável"); itens sem campo de confiança tratados corretamente; sem <code>usabilityCheck</code> configurado → sempre utilizável (garante zero impacto no resto do produto).</li>
+      <li><code>studentDocumentImportService.test.ts</code> (10 testes novos/reescritos): envia <code>usabilityCheck</code> correto (texto: só array; imagem: array + confiança 0.25); NÃO envia mais <code>deferCommit</code>; envia <code>operationId</code> único por chamada; falha do Gateway propaga sem <code>reservationId</code> para gerenciar; casos já existentes (DOCX completo, sem nome, cadastro incompleto, truncamento, contagem de páginas) continuam passando sem alteração de comportamento.</li>
+    </ul>
+    <p>Casos do pedido cobertos por teste real: seleção de arquivo não consome (estrutural — nenhuma chamada de rede antes do clique), contagem de páginas não consome (idem, Fase 1), array vazio/baixa confiança não consomem (<code>_usability</code>), draft utilizável/incompleto/sem nome consome (<code>studentDocumentImportService</code>), CSV inalterado (nenhuma linha do modo CSV tocada — confirmado por diff).</p>
+    <p><span class="badge badge-nver">NÃO testado com sessão/banco reais</span>: duplo clique end-to-end, idempotência da RPC no banco real, e o teste integrado com o provider Gemini de produção — exigem navegador + Supabase de produção, indisponíveis neste ambiente. A cobertura aqui é de lógica (mocks) e da regra de negócio pura, não de execução ponta a ponta real.</p>
+    <p><strong>Suíte completa:</strong> <code>npx vitest run</code> → <span class="badge badge-ok">31 arquivos, 363 testes, 363 passando</span>. <strong>tsc --noEmit:</strong> 56 erros, todos pré-existentes (mesmos de sempre), zero novos nos arquivos tocados. <strong>Build:</strong> sucesso.</p>
+  </section>
+
+  <!-- Limitações -->
+  <section class="block">
+    <h2><span class="num">14</span>Limitações honestas</h2>
+    <ul>
+      <li>Rascunho da revisão não é persistido no banco — um reload após o commit "perde" a revisão já paga (ver cenário E). Resolver isso persistiria o draft numa tabela nova — fora do escopo autorizado agora.</li>
+      <li>Auditoria de reservas antigas não executada (sem acesso a banco de produção) — consulta pronta entregue na Seção 13.</li>
+      <li>Teste integrado real com Gemini de produção não realizado — apenas mocks e lógica pura.</li>
+      <li>Não existe hoje um botão dedicado de "reanalisar" dentro da revisão — a confirmação de reprocessamento acontece via o fluxo já existente de "Trocar arquivo".</li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">15</span>Áreas preservadas</h2>
+    <p>Roteamento Gemini/OpenAI, Gemini default, prompts, modelos, payload de imagem, geração de imagem (Vertex Imagen), todos os outros <code>requestType</code>, preços (3/5 créditos), CSV, IncluiLAB, DocumentWorkspace, PDF, Word, autenticação, planos — nenhum tocado. Confirmado por <code>git diff --stat</code>: só 4 arquivos de código mudaram + 1 arquivo novo (<code>_usability.ts</code>).</p>
+  </section>
+
+  <!-- Roteiro de teste manual -->
+  <section class="block">
+    <h2><span class="num">11</span>Roteiro de validação manual</h2>
+    <ol class="plain">
+      <li>Anote o saldo de créditos atual.</li>
+      <li>Selecione um PNG de teste e clique "Processar com IA" (deve mostrar "...consumirá 5 créditos...").</li>
+      <li>Quando a revisão abrir, confira: (a) o texto "Análise concluída — 5 créditos utilizados" aparece; (b) o saldo real já caiu 5 (confira em Configurações/Créditos).</li>
+      <li>Clique "Cancelar" sem salvar.</li>
+      <li>Confira que o saldo <strong>continua</strong> 5 a menos (não voltou) — este é o comportamento correto agora.</li>
+      <li>Repita com um DOCX completo — confira débito de 3 ao abrir a revisão (não ao salvar).</li>
+      <li>Desta vez, clique "Confirmar e salvar".</li>
+      <li>Confira que o saldo não caiu de novo (o aluno é salvo sem custo adicional).</li>
+      <li>Tente um arquivo inválido (ex.: .heic renomeado para .png, ou um .doc antigo).</li>
+      <li>Confira que nenhum débito ocorre — o saldo permanece inalterado desde antes da tentativa.</li>
+    </ol>
+  </section>
+
+  <!-- Checklist -->
+  <section class="block">
+    <h2><span class="num">✓</span>Checklist de encerramento</h2>
+    <div class="table-wrap"><table class="checklist">
+      <tr><td>CUSTO DA IA E CRÉDITO INTERNO ALINHADOS</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>SELEÇÃO DE ARQUIVO NÃO CONSOME</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>CONTAGEM DE PÁGINAS NÃO CONSOME</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>ANÁLISE BEM-SUCEDIDA CONSOME</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>CANCELAR APÓS ANÁLISE NÃO DEVOLVE</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>FALHA DO PROVIDER NÃO CONSOME</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>SALVAR ALUNO NÃO COBRA NOVAMENTE</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>DUPLO CLIQUE PROTEGIDO</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>COMMIT IDEMPOTENTE</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>RESERVA ABANDONADA TRATADA</td><td><span class="badge badge-ok">SIM</span> (nos cenários A-D; cenário E é limitação de UX, não financeira — ver Seção 14)</td></tr>
+      <tr><td>PNG</td><td><strong>5 CRÉDITOS</strong></td></tr>
+      <tr><td>PDF ESCANEADO</td><td><strong>5 CRÉDITOS</strong></td></tr>
+      <tr><td>DOCX/PDF TEXTUAL</td><td><strong>3 CRÉDITOS</strong></td></tr>
+      <tr><td>CSV ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>GOOGLE DOCS ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>BANCO ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>GATEWAY ALTERADO</td><td><strong>SIM</strong> — mudança mínima e aditiva, exatamente no escopo autorizado (usabilityCheck)</td></tr>
+      <tr><td>INCLUILAB ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>TESTES</td><td><strong>PASS</strong> (363/363)</td></tr>
+      <tr><td>BUILD</td><td><strong>PASS</strong></td></tr>
+    </table></div>
+  </section>
+
+  <div class="callout ok"><strong>Fim desta correção.</strong> Nenhum deploy foi feito. Aguardando seu teste manual (roteiro na Seção 11) antes de qualquer novo passo.</div>
+</div>
+<div class="footer">IncluiAI · Consumo de Créditos no Momento Certo · 26/08/2026</div>
+</body>
+</html>

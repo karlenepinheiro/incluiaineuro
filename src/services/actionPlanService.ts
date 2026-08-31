@@ -8,7 +8,7 @@
  */
 
 import { supabase } from './supabase';
-import { ActionPlanJSON, ActionPlanRecord, ActionPlanPeriod } from '../types';
+import { ActionPlanJSON, ActionPlanRecord, ActionPlanPeriod, ActionPlanBlock } from '../types';
 
 // Mapeamento frontend (pt-BR) → banco (en)
 const PERIOD_TO_DB: Record<ActionPlanPeriod, string> = {
@@ -48,10 +48,37 @@ const SELECT_COLS = `
 
 // ─── Mapeamento row → ActionPlanRecord ──────────────────────────────────────
 
-function rowToRecord(row: any): ActionPlanRecord {
-  const period: ActionPlanPeriod = DB_TO_PERIOD[row.plan_type] ?? 'mensal';
+/**
+ * Reidrata um `ActionPlanBlock` a partir de um valor persistido em `content_json`.
+ * Aceita tanto o formato antigo (só o array de items) quanto o novo ({ title, items }).
+ * Retorna `undefined` quando não houver dado — assim os blocos opcionais continuam
+ * opcionais para a UI (`if (plan.focusPlan)`), sem virar bloco vazio fantasma.
+ */
+function hydrateBlock(raw: any, fallbackTitle: string): ActionPlanBlock | undefined {
+  if (raw == null) return undefined;
+  const items = Array.isArray(raw) ? raw : Array.isArray(raw.items) ? raw.items : [];
+  const title = (!Array.isArray(raw) && typeof raw.title === 'string' && raw.title.trim())
+    ? raw.title
+    : fallbackTitle;
+  if (items.length === 0) return undefined;
+  return { title, items };
+}
 
-  // Reconstrói ActionPlanJSON a partir das colunas estruturadas da tabela
+/** Serializa um `ActionPlanBlock` para `content_json` preservando título e items. */
+function serializeBlock(block: ActionPlanBlock | undefined): { title: string; items: any[] } | undefined {
+  if (!block) return undefined;
+  const items = Array.isArray(block.items) ? block.items : [];
+  if (items.length === 0) return undefined;
+  return { title: block.title ?? '', items };
+}
+
+export function rowToRecord(row: any): ActionPlanRecord {
+  const period: ActionPlanPeriod = DB_TO_PERIOD[row.plan_type] ?? 'mensal';
+  const cj = row.content_json ?? {};
+
+  // Reconstrói ActionPlanJSON a partir das colunas estruturadas da tabela.
+  // Blocos obrigatórios (compat. com planos antigos): sempre presentes.
+  // Blocos/campos enriquecidos: só quando houver dado persistido.
   const planJson: ActionPlanJSON = {
     period,
     generatedAt:        row.generated_at ?? row.created_at,
@@ -59,13 +86,39 @@ function rowToRecord(row: any): ActionPlanRecord {
     generatedByName:    row.generated_by_name ?? '',
     registrationNumber: row.register_code ?? '',
     version:            row.version_number ?? 1,
-    beforeClass:        { title: 'Antes da Aula',                           items: row.content_json?.before_class           ?? [] },
-    duringClass:        { title: 'Durante a Aula',                          items: row.content_json?.during_class            ?? [] },
-    activitiesStrategies: { title: 'Atividades e Estratégias',              items: row.content_json?.activities_strategies   ?? [] },
-    assessment:         { title: 'Avaliação',                               items: row.content_json?.assessment               ?? [] },
-    attentionObservations: { title: 'Atenção e Observações',                items: row.content_json?.attention_observations   ?? [] },
-    communicationTeam:  { title: 'Comunicação com AEE / Coordenação / Família', items: row.content_json?.communication       ?? [] },
+    beforeClass:        { title: 'Antes da Aula',                           items: cj.before_class           ?? [] },
+    duringClass:        { title: 'Durante a Aula',                          items: cj.during_class            ?? [] },
+    activitiesStrategies: { title: 'Atividades e Estratégias',              items: cj.activities_strategies   ?? [] },
+    assessment:         { title: 'Avaliação',                               items: cj.assessment               ?? [] },
+    attentionObservations: { title: 'Atenção e Observações',                items: cj.attention_observations   ?? [] },
+    communicationTeam:  { title: 'Comunicação com AEE / Coordenação / Família', items: cj.communication       ?? [] },
   };
+
+  // Campos enriquecidos (opcionais) — reidratados apenas quando existirem.
+  if (typeof cj.practical_objective === 'string' && cj.practical_objective.trim()) {
+    planJson.practicalObjective = cj.practical_objective;
+  }
+  if (typeof cj.next_step === 'string' && cj.next_step.trim()) {
+    planJson.nextStep = cj.next_step;
+  }
+  const focusPlan          = hydrateBlock(cj.focus_plan,          'Foco do Plano');
+  const mainBarrier        = hydrateBlock(cj.main_barrier,        'Barreira Principal em Sala');
+  const suggestedGames     = hydrateBlock(cj.suggested_games,     'Jogos Sugeridos');
+  const suggestedVideos    = hydrateBlock(cj.suggested_videos,    'Vídeos Sugeridos');
+  const suggestedMaterials = hydrateBlock(cj.suggested_materials, 'Materiais Sugeridos');
+  const suggestedDynamics  = hydrateBlock(cj.suggested_dynamics,  'Dinâmicas Sugeridas');
+  const adaptations        = hydrateBlock(cj.adaptations,         'Adaptações da Atividade');
+  const evidenceRecording  = hydrateBlock(cj.evidence_recording,  'Como Registrar Evidências');
+  const studentResponse    = hydrateBlock(cj.student_response,    'Resposta do Aluno');
+  if (focusPlan)          planJson.focusPlan          = focusPlan;
+  if (mainBarrier)        planJson.mainBarrier        = mainBarrier;
+  if (suggestedGames)     planJson.suggestedGames     = suggestedGames;
+  if (suggestedVideos)    planJson.suggestedVideos    = suggestedVideos;
+  if (suggestedMaterials) planJson.suggestedMaterials = suggestedMaterials;
+  if (suggestedDynamics)  planJson.suggestedDynamics  = suggestedDynamics;
+  if (adaptations)        planJson.adaptations        = adaptations;
+  if (evidenceRecording)  planJson.evidenceRecording  = evidenceRecording;
+  if (studentResponse)    planJson.studentResponse    = studentResponse;
 
   return {
     id:         row.id,
@@ -78,8 +131,8 @@ function rowToRecord(row: any): ActionPlanRecord {
 
 // ─── Mapeamento ActionPlanJSON → content_json (estrutura do banco) ───────────
 
-function planJsonToContentJson(plan: ActionPlanJSON) {
-  return {
+export function planJsonToContentJson(plan: ActionPlanJSON) {
+  const cj: Record<string, any> = {
     before_class:            plan.beforeClass?.items          ?? [],
     during_class:            plan.duringClass?.items          ?? [],
     activities_strategies:   plan.activitiesStrategies?.items ?? [],
@@ -87,6 +140,33 @@ function planJsonToContentJson(plan: ActionPlanJSON) {
     attention_observations:  plan.attentionObservations?.items ?? [],
     communication:           plan.communicationTeam?.items    ?? [],
   };
+
+  // Campos enriquecidos — persistidos quando presentes (a coluna content_json é
+  // jsonb livre; nenhuma migration é necessária). Blocos vazios são omitidos
+  // para manter o JSON enxuto e não recriar blocos fantasmas na reabertura.
+  if (typeof plan.practicalObjective === 'string' && plan.practicalObjective.trim()) {
+    cj.practical_objective = plan.practicalObjective.trim();
+  }
+  if (typeof plan.nextStep === 'string' && plan.nextStep.trim()) {
+    cj.next_step = plan.nextStep.trim();
+  }
+  const enriched: Array<[string, ActionPlanBlock | undefined]> = [
+    ['focus_plan',          plan.focusPlan],
+    ['main_barrier',        plan.mainBarrier],
+    ['suggested_games',     plan.suggestedGames],
+    ['suggested_videos',    plan.suggestedVideos],
+    ['suggested_materials', plan.suggestedMaterials],
+    ['suggested_dynamics',  plan.suggestedDynamics],
+    ['adaptations',         plan.adaptations],
+    ['evidence_recording',  plan.evidenceRecording],
+    ['student_response',    plan.studentResponse],
+  ];
+  for (const [key, block] of enriched) {
+    const serialized = serializeBlock(block);
+    if (serialized) cj[key] = serialized;
+  }
+
+  return cj;
 }
 
 // ─── Service ─────────────────────────────────────────────────────────────────

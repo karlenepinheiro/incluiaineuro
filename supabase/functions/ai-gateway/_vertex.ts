@@ -7,12 +7,7 @@
  * Nenhuma credencial trafega para o browser.
  */
 
-// ─── Tipos internos ───────────────────────────────────────────────────────────
-
-interface GeminiPart {
-  text?: string;
-  inlineData?: { mimeType: string; data: string };
-}
+import { buildGeminiMultiImageParts, type GeminiPart } from './_multiPageParts.ts';
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
 
@@ -68,19 +63,35 @@ export async function generateGeminiText(
   return text;
 }
 
-export async function generateGeminiJSON(prompt: string, imageBase64?: string): Promise<string> {
+/**
+ * Leitura multipágina (27/08/2026): `images`, quando presente, tem
+ * precedência sobre `imageBase64` — várias páginas do MESMO documento viram
+ * várias partes `inlineData` na MESMA requisição multimodal (Gemini já
+ * suporta múltiplas partes de imagem por `contents[0].parts`; nada no lado
+ * do provider precisava mudar de arquitetura, só compor mais partes). Cada
+ * página só recebe o rótulo textual "Página N" quando há mais de uma — com
+ * uma única imagem (`imageBase64` ou `images` de tamanho 1), o payload
+ * enviado ao Gemini é BYTE A BYTE idêntico ao de antes desta mudança.
+ *
+ * `pageNumbers` (correção de 27/08/2026, achado da validação de numeração):
+ * quando informado, cada parte é rotulada com o número REAL da página no
+ * documento original — evita renumerar como "Página 1, Página 2..." um
+ * conjunto de imagens do qual páginas do meio (ex.: em branco) foram
+ * removidas. Ausente → mesmo fallback por posição de antes. Ver
+ * _multiPageParts.ts (testado isoladamente).
+ */
+export async function generateGeminiJSON(
+  prompt: string,
+  imageBase64?: string,
+  images?: string[],
+  pageNumbers?: number[],
+): Promise<string> {
   const apiKey = Deno.env.get('GEMINI_API_KEY');
   if (!apiKey) throw new Error('CONFIG_GEMINI');
 
   const url = `${GEMINI_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
-  const parts: GeminiPart[] = [{ text: prompt }];
-
-  if (imageBase64) {
-    const mimeMatch = imageBase64.match(/^data:([^;]+);base64,/);
-    const mimeType  = mimeMatch?.[1] || 'image/jpeg';
-    const data      = imageBase64.includes(',') ? imageBase64.split(',')[1] : imageBase64;
-    parts.push({ inlineData: { mimeType, data } });
-  }
+  const allImages = images && images.length > 0 ? images : (imageBase64 ? [imageBase64] : []);
+  const parts: GeminiPart[] = [{ text: prompt }, ...buildGeminiMultiImageParts(allImages, pageNumbers)];
 
   // Tenta com responseMimeType primeiro; cai em modo texto puro se falhar
   for (const jsonMode of [true, false]) {

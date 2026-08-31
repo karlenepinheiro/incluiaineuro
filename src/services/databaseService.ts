@@ -7,6 +7,7 @@ import {
   resolvePlanTier,
   formatPlanDisplayName,
   normalizeSociofamilyData,
+  type ProfileSex,
   type Protocol,
   type Student,
   type TenantSummary,
@@ -138,6 +139,20 @@ function emptyToNull(value: unknown) {
     return trimmed.length > 0 ? trimmed : null;
   }
   return value ?? null;
+}
+
+function isMissingSexColumnError(error: any): boolean {
+  const message = String(error?.message ?? error?.details ?? '').toLowerCase();
+  return (
+    (error?.code === '42703' || error?.code === 'PGRST204') &&
+    message.includes('sex')
+  );
+}
+
+function normalizeProfileSex(value: unknown): ProfileSex {
+  if (value === 'female' || value === 'feminino') return 'female';
+  if (value === 'male' || value === 'masculino') return 'male';
+  return 'unspecified';
 }
 
 function textFromMaybeArray(value: unknown): string | null {
@@ -381,20 +396,24 @@ export const databaseService = {
   async getUserProfile(userId?: UUID): Promise<User | null> {
     const uid = userId ?? (await requireAuthUserId());
 
-    // Colunas REAIS confirmadas pelo schema (CSVs exportados do Supabase).
-    const PROFILE_COLS = 'id, tenant_id, nome, full_name, email, role, is_super_admin, is_active, phone, cpf, cargo, profile_photo_url, cep, rua, numero, complemento, bairro, cidade, estado, display_name, professional_signature, doc_phone, created_at, must_change_password, password_changed_at';
+    // `sex` é opcional até a migration proposta ser aplicada; se a coluna não
+    // existir no ambiente, refazemos a leitura sem ela para não quebrar login.
+    const PROFILE_COLS = 'id, tenant_id, nome, full_name, email, role, is_super_admin, is_active, phone, cpf, cargo, sex, profile_photo_url, cep, rua, numero, complemento, bairro, cidade, estado, display_name, professional_signature, doc_phone, created_at, must_change_password, password_changed_at';
     let { data: userRow, error: userErr } = await supabase
       .from('users')
       .select(PROFILE_COLS)
       .eq('id', uid)
       .maybeSingle();
 
-    // Fallback: se 'nome' não existir no ambiente (código 42703 = column not found),
-    // refaz a query sem ela — full_name será usado como name.
-    if (userErr?.code === '42703') {
+    // Fallback: se 'nome' ou 'sex' não existir no ambiente, refaz a query sem a
+    // coluna ausente. full_name será usado como name; sex vira unspecified.
+    if (userErr?.code === '42703' || isMissingSexColumnError(userErr)) {
+      const fallbackCols = PROFILE_COLS
+        .replace('nome, ', '')
+        .replace('sex, ', '');
       const fallback = await supabase
         .from('users')
-        .select(PROFILE_COLS.replace('nome, ', ''))
+        .select(fallbackCols)
         .eq('id', uid)
         .maybeSingle();
       userErr = fallback.error;
@@ -468,6 +487,7 @@ export const databaseService = {
       phone:                  (userRow as any).phone                  ?? null,
       cpf:                    (userRow as any).cpf                    ?? null,
       cargo:                  (userRow as any).cargo                  ?? null,
+      sex:                    normalizeProfileSex((userRow as any).sex),
       profilePhoto:           (userRow as any).profile_photo_url      ?? undefined,
       cep:                    (userRow as any).cep                    ?? null,
       rua:                    (userRow as any).rua                    ?? null,
@@ -975,6 +995,7 @@ export const databaseService = {
     phone?: string;
     cpf?: string;
     cargo?: string;
+    sex?: ProfileSex | string | null;
     profilePhotoUrl?: string;
     cep?: string;
     rua?: string;
@@ -993,6 +1014,7 @@ export const databaseService = {
     if (patch.phone                !== undefined) safe.phone                  = patch.phone;
     if (patch.cpf                  !== undefined) safe.cpf                    = patch.cpf;
     if (patch.cargo                !== undefined) safe.cargo                  = patch.cargo;
+    if (patch.sex                  !== undefined) safe.sex                    = normalizeProfileSex(patch.sex);
     if (patch.profilePhotoUrl      !== undefined) safe.profile_photo_url      = patch.profilePhotoUrl;
     if (patch.cep                  !== undefined) safe.cep                    = patch.cep;
     if (patch.rua                  !== undefined) safe.rua                    = patch.rua;
@@ -1004,15 +1026,32 @@ export const databaseService = {
     if (patch.displayName          !== undefined) safe.display_name           = patch.displayName;
     if (patch.professionalSignature !== undefined) safe.professional_signature = patch.professionalSignature;
     if (patch.docPhone             !== undefined) safe.doc_phone              = patch.docPhone;
-    if (Object.keys(safe).length === 0) return;
-    const { data, error } = await supabase
+    if (Object.keys(safe).length === 0) return { sexPersisted: undefined };
+    const requestedSex = patch.sex !== undefined;
+    let { data, error } = await supabase
       .from('users')
       .update(safe)
       .eq('id', userId)
       .select('id')
       .single();
+    if (error && requestedSex && isMissingSexColumnError(error)) {
+      const fallbackSafe = { ...safe };
+      delete fallbackSafe.sex;
+      if (Object.keys(fallbackSafe).length === 0) return { sexPersisted: false };
+
+      const fallback = await supabase
+        .from('users')
+        .update(fallbackSafe)
+        .eq('id', userId)
+        .select('id')
+        .single();
+      data = fallback.data;
+      error = fallback.error;
+      if (!error && data) return { sexPersisted: false };
+    }
     if (error) throw error;
     if (!data) throw new Error('Perfil não encontrado. Nenhuma alteração foi salva.');
+    return { sexPersisted: requestedSex ? true : undefined };
   },
 
   /**

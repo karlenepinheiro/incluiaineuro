@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sprint Gateway 1 — Etapa 4: GeminiProvider Conectado ao Router</title>
+<style>
+  :root {
+    --petrol:  #1F4E5F;
+    --dark:    #2E3A59;
+    --gold:    #C69214;
+    --bg:      #F6F4EF;
+    --surface: #FFFFFF;
+    --border:  #E7E2D8;
+    --text:    #111827;
+    --muted:   #6B7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; position: relative; overflow: hidden; }
+  .header::before { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0); background-size: 24px 24px; }
+  .header-inner { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 26px; font-weight: 800; max-width: 780px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 720px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1000px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 13px; }
+  .toc li { margin-bottom: 6px; break-inside: avoid; }
+  .toc a { color: var(--petrol); text-decoration: none; font-weight: 600; }
+  .toc a:hover { text-decoration: underline; }
+
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block > p.lead { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: #FCFBF8; }
+  .table-wrap { overflow-x: auto; }
+
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-critico  { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .badge-alto     { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+  .badge-medio    { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+  .badge-baixo    { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-ok       { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-info     { background: #F0F9FF; color: #075985; border: 1px solid #BAE6FD; }
+  .badge-gold     { background: #FEF7E8; color: #92660A; border: 1px solid #F3D999; }
+  .badge-pendente { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+  .badge-readonly { background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; }
+
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color: #C69214; background: #FEF9EE; }
+  .callout.risk { border-color: #B91C1C; background: #FEF2F2; }
+  .callout.ok   { border-color: #059669; background: #F0FDF4; }
+  .callout strong { color: var(--dark); }
+
+  .checklist { list-style: none; padding-left: 0; }
+  .checklist li { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist .box { flex-shrink: 0; width: 18px; height: 18px; border: 2px solid var(--petrol); border-radius: 4px; margin-top: 1px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; color: var(--petrol); }
+  .checklist .phase-tag { font-size: 10px; color: var(--muted); font-weight: 700; text-transform: uppercase; margin-left: auto; padding-top: 2px; white-space: nowrap; }
+
+  .metadata-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 14px; font-size: 12.5px; }
+  .metadata-grid div strong { display: block; color: var(--dark); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 3px; }
+
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+  pre { background: #1F2430; color: #E5E9F0; border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 11px; font-family: Consolas, monospace; margin: 10px 0 16px; line-height: 1.5; }
+  pre .del { color: #FCA5A5; }
+  pre .add { color: #86EFAC; }
+
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .footer strong { color: #fff; }
+
+  @media (max-width: 640px) {
+    .header { padding: 28px 20px; }
+    section.block { padding: 20px; }
+    .toc ol { columns: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="kicker">Auditoria Técnica · Integração de IA</div>
+    <h1>Sprint Gateway 1 — Etapa 4: Gemini/Vertex Conectado ao Router via AIProvider</h1>
+    <p><code>index.ts</code> passa a resolver o provider através do Router (<code>_router.ts</code>) e chamar a interface <code>AIProvider</code> (<code>_types.ts</code>), implementada por um adapter fino (<code>_geminiProvider.ts</code>) que só encapsula <code>_vertex.ts</code> — sem reescrevê-lo. Único provider registrado: <code>gemini</code>. Nenhuma chamada OpenAI. Validação funcional real (chamadas reais à API) permanece pendente por ausência de ambiente seguro de execução nesta sessão — detalhado na Seção 8.</p>
+    <div class="cover-badges">
+      <span class="badge badge-info">17/08/2026</span>
+      <span class="badge badge-ok">Estático: revisado e verificado</span>
+      <span class="badge badge-pendente">Funcional: pendente (sem Deno CLI / Docker neste ambiente)</span>
+      <span class="badge badge-critico">NÃO deployado — só no working tree</span>
+      <span class="badge badge-ok">Banco/Frontend: não alterados</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Tipo</strong>Implementação incremental (infraestrutura de IA) + auditoria</div>
+    <div><strong>Escopo</strong><code>supabase/functions/ai-gateway/</code> exclusivamente</div>
+    <div><strong>Arquivos criados</strong>1 (<code>_geminiProvider.ts</code>)</div>
+    <div><strong>Arquivos modificados</strong>2 (<code>index.ts</code>, <code>_router.ts</code>)</div>
+    <div><strong>Arquivos intocados</strong><code>_vertex.ts</code>, <code>_audit.ts</code>, <code>_credits.ts</code>, <code>_contextBuilder.ts</code>, <code>_contextFormatter.ts</code>, <code>_aiUtils.ts</code></div>
+    <div><strong>Deploy</strong>Nenhum — mudança existe só no working tree local</div>
+    <div><strong>Próxima ação</strong>Validação funcional real por quem tiver ambiente com Docker/Deno CLI e Supabase linkado, OU autorização para tentar em ambiente controlado</div>
+  </div>
+
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#escopo">Escopo</a></li>
+      <li><a href="#resumo">Resumo executivo</a></li>
+      <li><a href="#arquitetura">Arquitetura — antes e depois</a></li>
+      <li><a href="#geminiprovider">GeminiProvider — como foi implementado</a></li>
+      <li><a href="#diff">Diff conceitual de <code>index.ts</code></a></li>
+      <li><a href="#router">Configuração/default do Router</a></li>
+      <li><a href="#estaticos">Testes estáticos executados</a></li>
+      <li><a href="#funcionais">Testes funcionais — status real</a></li>
+      <li><a href="#regressao">Não regressão dos componentes ao redor</a></li>
+      <li><a href="#riscos">Riscos e pendências</a></li>
+      <li><a href="#rollback">Rollback operacional e de código</a></li>
+      <li><a href="#checklist">Checklist</a></li>
+      <li><a href="#veredito">Veredito</a></li>
+      <li><a href="#metadados">Metadados de geração</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. ESCOPO -->
+  <section class="block" id="escopo">
+    <h2><span class="num">1</span>Escopo</h2>
+    <p><strong>Objetivo único autorizado:</strong> colocar o Gemini/Vertex atual atrás da abstração <code>AIProvider</code> e do Router, preservando integralmente o comportamento atual. Sem OpenAI, sem fallback, sem alteração de regra de negócio, frontend ou banco.</p>
+    <p><strong>O que foi feito:</strong> criação de <code>_geminiProvider.ts</code> (adapter fino de <code>_vertex.ts</code>); pequeno ajuste de comentários/mensagem de erro em <code>_router.ts</code> (nenhuma mudança de lógica); conexão de <code>index.ts</code> ao Router — resolução de provider antes da reserva de créditos e reescrita do bloco <code>aiCall</code> para usar <code>provider.generateText/generateJSON/generateImage</code> em vez de chamar <code>_vertex.ts</code> diretamente.</p>
+    <div class="callout risk">
+      <strong>Limitação honesta desta sessão:</strong> não há Deno CLI nem Docker disponíveis neste ambiente — logo, não há como rodar <code>deno check</code>, <code>deno test</code> ou <code>supabase functions serve</code> localmente, nem uma chave real de Gemini para testar uma chamada de fato. A Etapa 4 foi concluída no nível estático (código implementado, revisado, com diff mínimo comprovado); a validação funcional real (chamada de verdade ao Gemini/Vertex) está PENDENTE — ver Seção 8.
+    </div>
+  </section>
+
+  <!-- 2. RESUMO EXECUTIVO -->
+  <section class="block" id="resumo">
+    <h2><span class="num">2</span>Resumo executivo</h2>
+    <ol class="plain">
+      <li><strong>Delta mínimo e cirúrgico.</strong> <code>index.ts</code> mudou em 3 pontos: (a) troca de import direto de <code>_vertex.ts</code> por import do Router/Provider; (b) registry de providers montado uma vez, em escopo de módulo; (c) resolução do provider antes da reserva de créditos + reescrita do corpo de <code>aiCall</code>. Tudo mais no arquivo — autenticação, tenant, contexto canônico, reserva/commit/release de créditos, auditoria, persistência de documento, formato de resposta — permanece byte-a-byte idêntico (comprovado pelo diff completo na Seção 5).</li>
+      <li><strong><code>_vertex.ts</code> não foi tocado.</strong> Confirmado via <code>git diff --stat</code>: zero linhas alteradas. O adapter <code>_geminiProvider.ts</code> só chama as três funções existentes e empacota o retorno.</li>
+      <li><strong><code>_audit.ts</code> e <code>_credits.ts</code> não foram tocados.</strong> Nenhuma mudança estrutural de auditoria ou de créditos nesta etapa, conforme instruído.</li>
+      <li><strong>Configuração inválida falha cedo e sem custo.</strong> A resolução do provider acontece antes de qualquer <code>reserveCredits</code>; se <code>AI_ROUTER_MODE</code> apontar para um provider não registrado (hoje, qualquer coisa além de <code>'gemini'</code> — inclusive <code>'openai'</code>, que ainda não tem adapter), o Gateway retorna erro 500 claro, sem reservar créditos. Configuração ausente ou desconhecida (valor não reconhecido) já cai em <code>'gemini'</code> dentro de <code>_router.ts</code>, herdado da Etapa 3.</li>
+      <li><strong>Validação estática completa; validação funcional real pendente.</strong> <code>tsc --noEmit --strict</code> não aponta nenhum erro novo introduzido por esta etapa (só os erros pré-existentes de checar código Deno com compilador não-Deno, presentes também em arquivos que não toquei). Não foi possível, porém, provar em runtime real que uma chamada de texto/JSON/imagem chega ao Gemini/Imagen e retorna corretamente — ver Seção 8 para o motivo e as opções.</li>
+    </ol>
+  </section>
+
+  <!-- 3. ARQUITETURA -->
+  <section class="block" id="arquitetura">
+    <h2><span class="num">3</span>Arquitetura — antes e depois</h2>
+    <h3>Antes (pré-Sprint)</h3>
+    <pre>index.ts
+  → generateGeminiText()     (import direto de _vertex.ts)
+  → generateGeminiJSON()     (import direto de _vertex.ts)
+  → generateVertexImage()    (import direto de _vertex.ts)</pre>
+    <h3>Depois (Etapa 4)</h3>
+    <pre>index.ts
+  → getRouterConfig()                    (_router.ts — lê AI_ROUTER_MODE, default 'gemini')
+  → selectPrimaryProvider(registry, ...)  (_router.ts — resolve o AIProvider; hoje só 'gemini' existe)
+  → provider.generateText/generateJSON/generateImage()  (_geminiProvider.ts — implementa AIProvider)
+      → generateGeminiText() / generateGeminiJSON() / generateVertexImage()  (_vertex.ts — INTOCADO)</pre>
+    <p>O Router, nesta etapa, só encaminha para o provider Google/Gemini — exatamente como autorizado. Nenhuma ramificação para OpenAI existe ainda no <code>providerRegistry</code>.</p>
+  </section>
+
+  <!-- 4. GEMINIPROVIDER -->
+  <section class="block" id="geminiprovider">
+    <h2><span class="num">4</span>GeminiProvider — como foi implementado</h2>
+    <p><code>supabase/functions/ai-gateway/_geminiProvider.ts</code> (arquivo novo) exporta <code>createGeminiProvider(): AIProvider</code>, um objeto com três métodos que chamam exatamente as funções já existentes em <code>_vertex.ts</code> e empacotam o retorno (hoje uma <code>string</code> crua) no formato estruturado exigido pela interface <code>AIProvider</code> definida na Etapa 3:</p>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:24%">Método</th><th>Implementação</th></tr>
+      <tr><td><code>generateText(input)</code></td><td><code>await generateGeminiText(input.prompt, input.imageBase64)</code> → <code>{ text, provider:'gemini', model:'gemini-2.5-flash' }</code></td></tr>
+      <tr><td><code>generateJSON(input)</code></td><td><code>await generateGeminiJSON(input.prompt, input.imageBase64)</code> → mesmo formato acima</td></tr>
+      <tr><td><code>generateImage(input)</code></td><td><code>await generateVertexImage(input.prompt)</code> → <code>{ base64DataUrl, provider:'gemini', model:'imagen-4.0' }</code></td></tr>
+    </table>
+    </div>
+    <p><strong>Sem try/catch dentro do adapter</strong> — qualquer erro lançado por <code>_vertex.ts</code> (<code>CONFIG_GEMINI</code>, <code>CONFIG_VERTEX_IMAGE</code>, <code>"Gemini {status}: ..."</code>, <code>"Imagen {model} {status}: ..."</code>) propaga sem modificação até o mesmo bloco <code>catch</code> de <code>index.ts</code> que já existia — <code>friendlyError()</code> continua reconhecendo essas strings normalmente.</p>
+    <p>Os nomes de modelo (<code>'gemini-2.5-flash'</code>, <code>'imagen-4.0'</code>) foram <strong>duplicados</strong> como constantes locais em vez de exportados de <code>_vertex.ts</code>, de propósito — para manter <code>_vertex.ts</code> com zero linhas alteradas. Eles só populam o campo <code>model</code> do resultado estruturado (hoje não usado por ninguém — ver Seção 9) e não influenciam qual modelo é de fato chamado, isso continua 100% decidido dentro de <code>_vertex.ts</code>.</p>
+  </section>
+
+  <!-- 5. DIFF -->
+  <section class="block" id="diff">
+    <h2><span class="num">5</span>Diff conceitual de <code>index.ts</code></h2>
+    <p class="lead">Extraído de <code>git diff</code> real — os três únicos pontos de mudança no arquivo inteiro.</p>
+    <h3>1. Imports</h3>
+    <pre><span class="del">- import { generateGeminiText, generateGeminiJSON, generateVertexImage } from './_vertex.ts';</span>
+<span class="add">+ import { getRouterConfig, selectPrimaryProvider, type ProviderRegistry } from './_router.ts';
++ import { createGeminiProvider } from './_geminiProvider.ts';
++ import type { AIProvider, ProviderTask } from './_types.ts';</span></pre>
+    <h3>2. Registry (novo, em escopo de módulo, ao lado do JWKS já existente)</h3>
+    <pre><span class="add">+ const providerRegistry: ProviderRegistry = {
++   gemini: createGeminiProvider(),
++ };</span></pre>
+    <h3>3. Resolução do provider (novo, antes de <code>reserveCredits</code>)</h3>
+    <pre><span class="add">+ const routerConfig = getRouterConfig();
++ const providerTask: ProviderTask = task === 'document' ? 'json' : task;
++ let provider: AIProvider;
++ try {
++   provider = selectPrimaryProvider(providerRegistry, routerConfig, providerTask, requestType);
++ } catch (e: unknown) {
++   console.error('[ai-gateway] Router: falha ao resolver provider:', (e as Error)?.message);
++   return jsonError('Configuracao de IA invalida no momento. Contate o suporte.', 500);
++ }</span></pre>
+    <h3>4. Corpo de <code>aiCall</code></h3>
+    <pre><span class="del">  if (task === 'image') {
+-   return await generateVertexImage(finalPrompt.trim());
+  }
+  const img = ...
+  if (task === 'json' || task === 'document') {
+-   return await generateGeminiJSON(finalPrompt.trim(), img);
+  }
+- return await generateGeminiText(finalPrompt.trim(), img);</span>
+<span class="add">  if (task === 'image') {
++   const imageResult = await provider.generateImage({ prompt: finalPrompt.trim() });
++   return imageResult.base64DataUrl;
+  }
+  const imgInput = ...
+  if (task === 'json' || task === 'document') {
++   const jsonResult = await provider.generateJSON({ prompt: finalPrompt.trim(), imageBase64: imgInput });
++   return jsonResult.text;
+  }
++ const textResult = await provider.generateText({ prompt: finalPrompt.trim(), imageBase64: imgInput });
++ return textResult.text;</span></pre>
+    <p><strong>Todo o resto do arquivo</strong> — auth JWT, resolução de tenant, validação de payload, construção de contexto canônico, <code>reserveCredits</code>/<code>commitReservedCredits</code>/<code>releaseReservedCredits</code>, <code>validateAndRepair</code>, <code>createAuditRecord</code>/<code>completeAuditRecord</code>, persistência de <code>documents</code>, montagem da resposta final e <code>friendlyError()</code> — permanece linha por linha idêntico ao estado anterior a esta etapa.</p>
+  </section>
+
+  <!-- 6. ROUTER CONFIG -->
+  <section class="block" id="router">
+    <h2><span class="num">6</span>Configuração/default do Router nesta etapa</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:26%">Caso</th><th>Comportamento</th><th style="width:120px">Resultado</th></tr>
+      <tr><td><code>AI_ROUTER_MODE</code> ausente</td><td><code>readModeEnv</code> retorna o default <code>'gemini'</code> (<code>_router.ts</code>, herdado da Etapa 3, sem alteração de lógica nesta etapa)</td><td><span class="badge badge-ok">Gemini</span></td></tr>
+      <tr><td><code>AI_ROUTER_MODE=gemini</code></td><td>Valor reconhecido, usado diretamente</td><td><span class="badge badge-ok">Gemini</span></td></tr>
+      <tr><td><code>AI_GOOGLE_ENABLED=true</code> (ou ausente/default)</td><td>Lido por <code>getRouterConfig()</code>, mas ainda não usado por <code>selectPrimaryProvider()</code> nesta etapa (reservado para gating fino em etapa futura) — não impede nem altera a seleção de <code>'gemini'</code></td><td><span class="badge badge-ok">Gemini</span></td></tr>
+      <tr><td><code>AI_ROUTER_MODE</code> com valor não reconhecido (ex: <code>"xyz"</code>)</td><td><code>readModeEnv</code> só aceita <code>'openai'</code> ou <code>'gemini'</code> — qualquer outro valor cai no default <code>'gemini'</code> antes mesmo de chegar em <code>selectPrimaryProvider()</code></td><td><span class="badge badge-ok">Gemini (seguro)</span></td></tr>
+      <tr><td><code>AI_ROUTER_MODE=openai</code> (valor válido, mas provider não registrado nesta etapa)</td><td><code>selectPrimaryProvider()</code> lança erro explícito; <code>index.ts</code> captura ANTES de reservar créditos e retorna 500 claro, sem custo</td><td><span class="badge badge-critico">Erro claro, sem custo</span></td></tr>
+    </table>
+    </div>
+    <div class="callout ok">
+      <strong>Decisão de design registrada:</strong> "configuração inválida" (string não reconhecida) e "provider válido mas ainda não implementado" (<code>openai</code> nesta etapa) são tratados de forma diferente, de propósito. O primeiro caso já era resolvido na Etapa 3 (normaliza para <code>'gemini'</code>, nunca deixa a variável derrubar o Gateway). O segundo caso é uma configuração explícita e válida para uma capacidade que ainda não existe — falhar alto e claro, sem custo de crédito, é mais seguro do que silenciosamente reverter para Gemini sem avisar quem configurou.
+    </div>
+  </section>
+
+  <!-- 7. TESTES ESTÁTICOS -->
+  <section class="block" id="estaticos">
+    <h2><span class="num">7</span>Testes estáticos executados</h2>
+    <ul>
+      <li><code>git diff --stat</code> em <code>_vertex.ts</code>, <code>_audit.ts</code>, <code>_credits.ts</code>, <code>_contextBuilder.ts</code>, <code>_contextFormatter.ts</code>, <code>_aiUtils.ts</code> → <strong>0 linhas alteradas</strong> em todos.</li>
+      <li><code>git status --porcelain</code> restrito a <code>supabase/functions/ai-gateway/</code> → confirma exatamente 1 arquivo modificado (<code>index.ts</code>) e os arquivos novos esperados (<code>_geminiProvider.ts</code> novo; <code>_router.ts</code> e <code>_types.ts</code> já existiam desde a Etapa 3, agora com pequenos ajustes de comentário/mensagem em <code>_router.ts</code>).</li>
+      <li><code>tsc --noEmit --target es2022 --module esnext --moduleResolution bundler --strict --allowImportingTsExtensions</code> rodado sobre <code>_types.ts</code>, <code>_router.ts</code>, <code>_geminiProvider.ts</code> e <code>index.ts</code> juntos. Resultado: nenhum erro novo atribuível a esta etapa — os únicos erros reportados são <code>Cannot find name 'Deno'</code> (global do runtime Deno, ausente por definição fora dele — mesmo padrão já presente em <code>_vertex.ts</code>, que eu não toquei) e <code>Cannot find module 'https://esm.sh/...'</code> (import remoto, resolvido só pelo runtime Deno) — ambas categorias pré-existentes em arquivos não tocados nesta etapa, confirmando que nada de novo quebrou a tipagem.</li>
+    </ul>
+  </section>
+
+  <!-- 8. FUNCIONAIS -->
+  <section class="block" id="funcionais">
+    <h2><span class="num">8</span>Testes funcionais — status real (⚠️ pendente)</h2>
+    <div class="callout risk">
+      <strong>Nenhum teste funcional real foi executado nesta sessão.</strong> Investiguei três caminhos possíveis, todos indisponíveis neste ambiente:
+    </div>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:22%">Caminho investigado</th><th>Resultado da checagem</th></tr>
+      <tr><td><code>deno check</code> / <code>deno test</code></td><td><code>deno --version</code> → comando não encontrado. Sem CLI Deno instalada.</td></tr>
+      <tr><td><code>supabase functions serve</code> (precisa do runtime Edge em Docker)</td><td>Supabase CLI está instalada (<code>v2.84.10</code>), mas <code>docker --version</code> → comando não encontrado. Sem Docker, não há como subir o Edge Runtime local.</td></tr>
+      <tr><td>Deploy para um projeto Supabase real/staging + chamada via <code>curl</code> com JWT real</td><td>Fora de escopo por instrução explícita ("Não fazer deploy irreversível" / "não deployar sem confirmar rollback"), e mesmo que autorizado, exigiria uma chave real do Gemini e um JWT/tenant/saldo de créditos reais — nenhum dos dois está disponível ou deve ser manuseado nesta sessão.</td></tr>
+    </table>
+    </div>
+    <p>Seguindo a instrução da própria Etapa 4 (Seção 10): <em>"Se não houver nenhum meio seguro disponível para executar a Edge Function real: implemente apenas a parte estática possível, PARE, e informe claramente que a validação funcional continua pendente."</em> — é exatamente isso que está sendo feito aqui.</p>
+    <h3>O que falta para fechar esta lacuna (nenhuma ação minha necessária além de aguardar)</h3>
+    <ol class="plain">
+      <li>Alguém com Docker Desktop instalado roda <code>supabase functions serve ai-gateway</code> localmente (com <code>GEMINI_API_KEY</code> real como secret local) e dispara requisições de teste (texto/JSON/imagem) via <code>curl</code>/Postman com um JWT válido de um usuário de teste com créditos.</li>
+      <li>Ou: deploy controlado para um projeto Supabase de <strong>staging/dev</strong> (nunca produção diretamente) seguido de chamadas de teste equivalentes.</li>
+      <li>Em qualquer um dos dois casos, comparar a resposta com o comportamento "congelado" documentado na auditoria da Etapa 1 (mesmo formato de <code>result</code>/<code>creditsRemaining</code>/<code>auditId</code>, mesmo comportamento de erro).</li>
+    </ol>
+  </section>
+
+  <!-- 9. NÃO REGRESSÃO -->
+  <section class="block" id="regressao">
+    <h2><span class="num">9</span>Não regressão dos componentes ao redor (verificação estática via diff)</h2>
+    <p class="lead">Sem execução real disponível, a evidência aqui é o diff completo do arquivo (Seção 5): tudo que não aparece nos 4 hunks alterados é garantidamente idêntico byte-a-byte ao estado pré-Etapa-4.</p>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:30%">Componente</th><th style="width:140px">Evidência</th></tr>
+      <tr><td>Autenticação (JWT/JWKS)</td><td><span class="badge badge-ok">Inalterado (fora dos hunks)</span></td></tr>
+      <tr><td>Resolução de tenant</td><td><span class="badge badge-ok">Inalterado</span></td></tr>
+      <tr><td>Reserva de créditos</td><td><span class="badge badge-ok">Inalterado — <code>_credits.ts</code> com 0 diff</span></td></tr>
+      <tr><td>Commit de créditos</td><td><span class="badge badge-ok">Inalterado</span></td></tr>
+      <tr><td>Release de créditos em erro</td><td><span class="badge badge-ok">Inalterado</span></td></tr>
+      <tr><td>Construção de contexto canônico</td><td><span class="badge badge-ok">Inalterado — <code>_contextBuilder.ts</code>/<code>_contextFormatter.ts</code> com 0 diff</span></td></tr>
+      <tr><td><code>validateAndRepair</code></td><td><span class="badge badge-ok">Inalterado — <code>_aiUtils.ts</code> com 0 diff</span></td></tr>
+      <tr><td>Criação/conclusão de auditoria</td><td><span class="badge badge-ok">Inalterado — <code>_audit.ts</code> com 0 diff</span></td></tr>
+      <tr><td>Persistência de <code>documents</code></td><td><span class="badge badge-ok">Inalterado</span></td></tr>
+      <tr><td>Formato final da resposta ao frontend</td><td><span class="badge badge-ok">Inalterado</span></td></tr>
+    </table>
+    </div>
+    <div class="callout warn">
+      Esta é verificação <strong>estática</strong> (leitura de diff), não execução real. Continua valendo a pendência da Seção 8: só um teste funcional real prova que o comportamento em runtime é de fato idêntico.
+    </div>
+  </section>
+
+  <!-- 10. RISCOS -->
+  <section class="block" id="riscos">
+    <h2><span class="num">10</span>Riscos e pendências</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:26%">Item</th><th>Descrição</th><th style="width:110px">Severidade</th></tr>
+      <tr><td>Validação funcional real não executada</td><td>Ver Seção 8 — bloqueia aprovação para produção neste momento.</td><td><span class="badge badge-critico">Bloqueante p/ produção</span></td></tr>
+      <tr><td>Testes de regressão do IncluiLAB (Atividade geral/Avaliação/Adaptada, com/sem aluno)</td><td>Dependem de rodar o app real contra um <code>ai-gateway</code> real — mesma limitação de ambiente da Seção 8. Não executados.</td><td><span class="badge badge-critico">Bloqueante p/ produção</span></td></tr>
+      <tr><td>Teste de <code>task==='image'</code> chegando ao Vertex Imagen</td><td>Mesma limitação — não executado com chamada real.</td><td><span class="badge badge-alto">Pendente</span></td></tr>
+      <tr><td>Duplicação de nomes de modelo</td><td><code>_geminiProvider.ts</code> duplica <code>'gemini-2.5-flash'</code>/<code>'imagen-4.0'</code>, já hardcoded em <code>_vertex.ts</code> e <code>_audit.ts::modelForTask</code>. Puramente cosmético (3 lugares com a mesma string) — não causa bug, mas é uma pequena dívida técnica a observar em etapa futura de consolidação.</td><td><span class="badge badge-baixo">Baixa</span></td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 11. ROLLBACK -->
+  <section class="block" id="rollback">
+    <h2><span class="num">11</span>Rollback operacional e de código</h2>
+    <h3>Rollback operacional (se já estivesse em produção)</h3>
+    <div class="callout ok">
+      Definir (ou manter ausente) <code>AI_ROUTER_MODE=gemini</code> como secret do projeto Supabase. Nenhuma outra ação necessária — é o próprio default do sistema. Não exige redeploy imediato de emergência: a leitura da env var acontece a cada requisição via <code>Deno.env.get</code>.
+    </div>
+    <h3>Rollback de código (reverter a Etapa 4 por completo)</h3>
+    <ol class="plain">
+      <li>Reverter <code>index.ts</code> para o estado anterior a esta etapa — restaura os 3 imports diretos de <code>_vertex.ts</code> e o corpo original de <code>aiCall</code> (equivalente a <code>git checkout</code> do arquivo antes deste commit/etapa).</li>
+      <li>Apagar <code>supabase/functions/ai-gateway/_geminiProvider.ts</code>.</li>
+      <li><code>_router.ts</code> e <code>_types.ts</code> podem continuar existindo sem efeito — voltam ao estado "desconectado" da Etapa 3 automaticamente, já que nada mais os importaria.</li>
+      <li><code>_vertex.ts</code>, <code>_audit.ts</code>, <code>_credits.ts</code> e demais arquivos auxiliares não precisam de nenhuma ação — nunca foram alterados.</li>
+    </ol>
+    <p>Como nada foi deployado (ver Seção 1/info-bar), o rollback de código nesta fase é, na prática, apenas descartar o working tree local — nenhum ambiente real precisa ser revertido.</p>
+  </section>
+
+  <!-- 12. CHECKLIST -->
+  <section class="block" id="checklist">
+    <h2><span class="num">12</span>Checklist</h2>
+    <ul class="checklist">
+      <li><span class="box">✓</span> <code>_vertex.ts</code> preservado (0 linhas alteradas) <span class="phase-tag">Confirmado</span></li>
+      <li><span class="box">✓</span> <code>_audit.ts</code> preservado (0 linhas alteradas) <span class="phase-tag">Confirmado</span></li>
+      <li><span class="box">✓</span> <code>_credits.ts</code> preservado (0 linhas alteradas) <span class="phase-tag">Confirmado</span></li>
+      <li><span class="box">✓</span> Contrato de <code>callAIGateway()</code> e formato de resposta inalterados <span class="phase-tag">Confirmado</span></li>
+      <li><span class="box">✓</span> Nenhuma alteração de banco, frontend ou regra pedagógica <span class="phase-tag">Confirmado</span></li>
+      <li><span class="box">✓</span> Default do Router = Gemini; OpenAI não participa do fluxo <span class="phase-tag">Confirmado</span></li>
+      <li><span class="box">✓</span> Configuração inválida não derruba o Gateway silenciosamente <span class="phase-tag">Confirmado (estático)</span></li>
+      <li><span class="box">✓</span> Validação estática (<code>tsc --strict</code>) sem erros novos <span class="phase-tag">Concluído</span></li>
+      <li><span class="box"> </span> Teste funcional real (texto/JSON/imagem) <span class="phase-tag">Pendente</span></li>
+      <li><span class="box"> </span> Regressão manual do IncluiLAB <span class="phase-tag">Pendente</span></li>
+      <li><span class="box"> </span> Deploy para ambiente de staging <span class="phase-tag">Não realizado nesta etapa</span></li>
+    </ul>
+  </section>
+
+  <!-- 13. VEREDITO -->
+  <section class="block" id="veredito">
+    <h2><span class="num">13</span>Veredito</h2>
+    <div class="callout risk">
+      <strong>ETAPA 4 APROVADA PARA PRODUÇÃO: NÃO (ainda).</strong> O código está implementado corretamente, com delta mínimo comprovado e verificado estaticamente, mas a própria Etapa 4 exige teste funcional real antes de aprovação — e este ambiente não oferece nenhum meio seguro de executá-lo (sem Deno CLI, sem Docker, sem chave real de Gemini, sem deploy autorizado a ambiente real). A aprovação para produção depende de alguém com ambiente adequado rodar os testes funcionais descritos na Seção 8 e confirmar equivalência com o comportamento congelado na Etapa 1.
+    </div>
+  </section>
+
+  <!-- 14. METADADOS -->
+  <section class="block" id="metadados">
+    <h2><span class="num">14</span>Metadados de geração</h2>
+    <div class="metadata-grid">
+      <div><strong>Data</strong>17/08/2026</div>
+      <div><strong>Sprint</strong>Gateway 1 — Multi-Provider (OpenAI + Gemini)</div>
+      <div><strong>Etapa</strong>4 — GeminiProvider conectado ao Router</div>
+      <div><strong>Responsável</strong>Karlene Pinheiro (CEO) + assistente</div>
+      <div><strong>Arquivos de código criados</strong>1 (<code>_geminiProvider.ts</code>)</div>
+      <div><strong>Arquivos de código modificados</strong>2 (<code>index.ts</code>, <code>_router.ts</code>)</div>
+      <div><strong>Banco de dados</strong>Não tocado</div>
+      <div><strong>Frontend</strong>Não tocado</div>
+      <div><strong>Deploy</strong>Nenhum realizado nesta sessão</div>
+      <div><strong>Confirmação</strong>Nenhum arquivo funcional fora do escopo do Gateway foi alterado</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Sprint Gateway 1 · Auditoria técnica de uso interno
+</div>
+
+</body>
+</html>

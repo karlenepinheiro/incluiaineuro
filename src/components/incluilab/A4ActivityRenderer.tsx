@@ -8,7 +8,6 @@ import {
   HelpCircle,
   Lightbulb,
   ListChecks,
-  Package,
   Sparkles,
   Target,
 } from 'lucide-react';
@@ -93,7 +92,7 @@ const lineClamp = (lines: number): React.CSSProperties => ({
 });
 
 function shortText(text: string | undefined, max = 118): string {
-  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  const clean = sanitizeMarkdownText(text).replace(/\s+/g, ' ').trim();
   if (clean.length <= max) return clean;
   const sentence = clean.match(/^.{20,}?[.!?](\s|$)/)?.[0]?.trim();
   if (sentence && sentence.length <= max) return sentence;
@@ -110,6 +109,10 @@ function labelForExercise(type: ActivityExercise['type']): string {
     matching: 'Ligue as colunas',
     drawing: 'Desenhe',
     ordering: 'Coloque em ordem',
+    word_search: 'Caça-palavras',
+    crossword: 'Cruzadinha',
+    coloring: 'Colorir',
+    table: 'Complete a tabela',
   };
   return labels[type] ?? 'Responda';
 }
@@ -123,7 +126,7 @@ function hashIndex(text: string, max: number): number {
 function cleanImagePlaceholders(text: string): { clean: string; subjects: string[] } {
   const pattern = /\[IMAGEM\s*(?:DO|DA|DE|DOS|DAS|DUM|DUMA)?\s*([^\]]+)\]/gi;
   const subjects: string[] = [];
-  const clean = text
+  const clean = sanitizeMarkdownText(text)
     .replace(pattern, (_m, subject: string) => { subjects.push(subject.trim()); return ''; })
     .replace(/\s{2,}/g, ' ')
     .trim();
@@ -330,11 +333,165 @@ function OptionGrid({ options }: { options: string[] }) {
   );
 }
 
+export function sanitizeMarkdownText(text: string | undefined): string {
+  return String(text ?? '')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/(^|\s)#{1,6}\s+([A-Za-zÀ-ÿ])/g, '$1$2')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\*\*([^*\n]*[A-Za-zÀ-ÿ][^*\n]*)\*\*/g, '$1')
+    .replace(/__([^_\n]*[A-Za-zÀ-ÿ][^\n_]*)__/g, '$1')
+    .replace(/(^|[\s([{"'“])\*([^*\n]*[A-Za-zÀ-ÿ][^*\n]*)\*(?=$|[\s)\].,;:!?"'”}])/g, '$1$2')
+    .replace(/(^|[\s([{"'“])_([^_\n]*[A-Za-zÀ-ÿ][^_\n]*)_(?=$|[\s)\].,;:!?"'”}])/g, '$1$2')
+    .replace(/\*\*+/g, '')
+    .replace(/__+/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function normalizeGridRows(rows: string[] | undefined, fallbackWords: string[]): string[] {
+  const cleanRows = (rows || [])
+    .map(row => row.replace(/\s+/g, '').toUpperCase())
+    .filter(Boolean)
+    .slice(0, 12);
+  if (cleanRows.length) return cleanRows;
+
+  const letters = (fallbackWords.join('').replace(/[^A-Za-zÀ-ÿ]/g, '') || 'INCLUILABATIVIDADE')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+  return Array.from({ length: 8 }).map((_, rowIndex) =>
+    Array.from({ length: 10 }).map((__, colIndex) => {
+      const index = (rowIndex * 10 + colIndex) % letters.length;
+      return letters[index] || 'A';
+    }).join(''),
+  );
+}
+
+function LetterGrid({ rows }: { rows: string[] }) {
+  const maxColumns = Math.max(1, ...rows.map(row => row.length));
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: `repeat(${maxColumns}, 1fr)`,
+      gap: 3,
+      marginTop: 9,
+      maxWidth: 280,
+    }}>
+      {rows.flatMap((row, rowIndex) =>
+        Array.from({ length: maxColumns }).map((_, colIndex) => (
+          <span key={`${rowIndex}-${colIndex}`} style={{
+            width: 20,
+            height: 20,
+            border: `1px solid ${C.border}`,
+            borderRadius: 4,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 10,
+            fontWeight: 900,
+            color: C.text,
+            background: '#fff',
+          }}>
+            {row[colIndex] || ''}
+          </span>
+        )),
+      )}
+    </div>
+  );
+}
+
+function WordBank({ words }: { words: string[] }) {
+  if (!words.length) return null;
+  return (
+    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 8 }}>
+      {words.slice(0, 12).map((word, index) => (
+        <span key={`${word}-${index}`} style={{
+          padding: '4px 7px',
+          borderRadius: 999,
+          background: C.accentLight,
+          color: C.petrol,
+          border: `1px solid ${C.petrol}25`,
+          fontSize: 10,
+          fontWeight: 850,
+        }}>
+          {shortText(word, 18)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ── Answer area (per exercise type) ─────────────────────────────────────────
 
 function AnswerArea({ exercise }: { exercise: ActivityExercise }) {
   if (exercise.type === 'multiple_choice') {
     return null; // options shown by OptionGrid above
+  }
+
+  if (exercise.type === 'word_search') {
+    const words = exercise.options.filter(Boolean);
+    return (
+      <div style={{ marginTop: 8 }}>
+        <LetterGrid rows={normalizeGridRows(exercise.grid, words)} />
+        <WordBank words={words} />
+      </div>
+    );
+  }
+
+  if (exercise.type === 'crossword') {
+    const words = exercise.options.filter(Boolean);
+    const clues = (exercise.clues?.length ? exercise.clues : words).filter(Boolean);
+    return (
+      <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'start' }}>
+        <LetterGrid rows={normalizeGridRows(exercise.grid, words)} />
+        <div style={{ display: 'grid', gap: 5 }}>
+          {clues.slice(0, 6).map((clue, index) => (
+            <div key={`${clue}-${index}`} style={{ fontSize: 10.5, lineHeight: 1.35, color: C.text }}>
+              <strong>{index + 1}.</strong> {shortText(clue, 56)}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (exercise.type === 'coloring') {
+    return (
+      <div style={{ marginTop: 8 }}>
+        <div style={{
+          height: 112,
+          border: `1.5px dashed ${C.border}`,
+          borderRadius: 8,
+          background: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: C.muted,
+          fontSize: 10,
+          fontWeight: 800,
+        }}>
+          Espaço para colorir
+        </div>
+      </div>
+    );
+  }
+
+  if (exercise.type === 'table') {
+    const rows = (exercise.options.length ? exercise.options : ['Linha 1', 'Linha 2', 'Linha 3']).slice(0, 5);
+    return (
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, fontSize: 11 }}>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={`${row}-${index}`}>
+              <td style={{ border: `1px solid ${C.border}`, padding: '6px 8px', width: '45%', fontWeight: 750 }}>{shortText(row, 42)}</td>
+              <td style={{ border: `1px solid ${C.border}`, padding: '6px 8px', height: 28 }} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
   }
 
   if (exercise.type === 'drawing') {
@@ -430,6 +587,53 @@ function SupportHint({ text }: { text?: string }) {
       <span style={lineClamp(2)}>{shortText(text, 96)}</span>
     </div>
   );
+}
+
+function IntroTextSection({ blocks }: { blocks: ActivityBlock[] }) {
+  const block = blocks.find(b =>
+    (b.type === 'instructions' || b.type === 'practice')
+    && /texto|leitura|introdu/i.test(`${b.id} ${b.title}`)
+    && b.content?.trim(),
+  );
+  if (!block?.content) return null;
+  const parts = splitTextForStudent(sanitizeMarkdownText(block.content));
+  return (
+    <section className="incluilab-avoid-break" style={{
+      border: `1px solid ${C.border}`,
+      borderLeft: `4px solid ${C.green}`,
+      borderRadius: 6,
+      background: '#FFFFFF',
+      padding: '10px 12px',
+      display: 'grid',
+      gap: 6,
+    }}>
+      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 900, color: C.text }}>
+        {shortText(block.title || 'Texto introdutório', 80)}
+      </h2>
+      {parts.map((part, index) => (
+        <p key={index} style={{ margin: 0, fontSize: 12.5, lineHeight: 1.55, color: C.text, whiteSpace: 'pre-wrap' }}>
+          {parts.length > 1 ? `Texto ${index + 1}: ` : ''}{part}
+        </p>
+      ))}
+    </section>
+  );
+}
+
+function splitTextForStudent(text: string): string[] {
+  if (text.length < 900) return [text];
+  const sentences = text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
+  const chunks: string[] = [];
+  let current = '';
+  for (const sentence of sentences.length ? sentences : [text]) {
+    if (current && `${current} ${sentence}`.length > 620) {
+      chunks.push(current);
+      current = sentence;
+    } else {
+      current = current ? `${current} ${sentence}` : sentence;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.slice(0, 4);
 }
 
 // ── Worksheet block (exercise + visual) ──────────────────────────────────────
@@ -537,6 +741,63 @@ function AccessibilityStrip({ activity }: { activity: ActivitySchema }) {
   );
 }
 
+function StudentPartBreak({ part }: { part: 1 | 2 }) {
+  const title = part === 1 ? 'Parte 1' : 'Parte 2';
+  const subtitle = part === 1
+    ? 'Faça as questões 1 a 5. Depois, faça uma pausa curta.'
+    : 'Continue com as questões 6 a 10.';
+  return (
+    <section className="incluilab-avoid-break" style={{
+      border: `1px solid ${C.petrol}25`,
+      borderLeft: `4px solid ${C.petrol}`,
+      borderRadius: 6,
+      background: C.accentLight,
+      padding: '8px 12px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 9,
+    }}>
+      <span style={{
+        width: 28,
+        height: 28,
+        borderRadius: 999,
+        background: C.petrol,
+        color: '#fff',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontWeight: 900,
+        fontSize: 12,
+        flexShrink: 0,
+      }}>{part}</span>
+      <div>
+        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 900, color: C.text }}>{title}</h2>
+        <p style={{ margin: '2px 0 0', fontSize: 11.5, color: C.petrol, fontWeight: 750 }}>{subtitle}</p>
+      </div>
+    </section>
+  );
+}
+
+function PauseNotice() {
+  return (
+    <section className="incluilab-avoid-break" style={{
+      border: `1px dashed ${C.gold}`,
+      borderRadius: 6,
+      background: C.softGold,
+      padding: '8px 12px',
+      color: '#7C5A06',
+      fontSize: 12,
+      fontWeight: 800,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+    }}>
+      <Clock size={14} />
+      Pausa curta: confira a Parte 1, respire e continue quando estiver pronto.
+    </section>
+  );
+}
+
 // ── Guia Pedagógico ───────────────────────────────────────────────────────────
 
 function GuideSection({
@@ -566,7 +827,7 @@ function GuideSection({
         </h3>
       </div>
       <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 5 }}>
-        {items.slice(0, 6).map((item, i) => (
+        {items.slice(0, 5).map((item, i) => (
           <li key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
             <span style={{
               width: 18, height: 18, borderRadius: 5, flexShrink: 0, marginTop: 1,
@@ -574,7 +835,7 @@ function GuideSection({
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>{i + 1}</span>
             <span style={{ fontSize: 12, lineHeight: 1.45, color: '#20263A', fontWeight: 600 }}>
-              {shortText(item, 140)}
+              {shortText(item, 118)}
             </span>
           </li>
         ))}
@@ -583,9 +844,39 @@ function GuideSection({
   );
 }
 
+function compactList(values: string[], maxItems: number, maxChars: number): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const clean = shortText(value, maxChars);
+    const key = clean.toLowerCase();
+    if (!clean || seen.has(key)) continue;
+    seen.add(key);
+    result.push(clean);
+    if (result.length >= maxItems) break;
+  }
+  return result;
+}
+
+function splitGuideSteps(text: string): string[] {
+  return sanitizeMarkdownText(text)
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map(item => item.replace(/^•\s*/, '').replace(/^\d+\.\s*/, '').trim())
+    .filter(Boolean);
+}
+
 const PedagogicalGuide: React.FC<{ guide: GuiaPedagogico; activityTitle: string; printId: string }> = ({
   guide, activityTitle, printId,
 }) => {
+  const objective = compactList([guide.objetivo_da_aula], 1, 170);
+  const adaptations = compactList(guide.adaptacoes_inclusivas, 5, 118);
+  const steps = compactList(splitGuideSteps(guide.metodologia_adaptada), 5, 118);
+  const supports = compactList(guide.dicas_de_mediacao, 4, 118);
+  const observations = compactList(guide.criterios_de_avaliacao, 4, 118);
+  const retry = [
+    'Se houver dificuldade, retome um exemplo e reduza uma etapa de cada vez.',
+    'Para ampliar, mantenha o objetivo e aumente a autonomia gradualmente.',
+  ];
   return (
     <div id={printId} data-incluilab-pdf-page="true" style={{ ...pageStyle }}>
       {/* Header institucional */}
@@ -639,7 +930,7 @@ const PedagogicalGuide: React.FC<{ guide: GuiaPedagogico; activityTitle: string;
               <h3 style={{ margin: 0, fontSize: 10, fontWeight: 900, color: C.petrol, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Objetivo da Aula</h3>
             </div>
             <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, fontWeight: 750, color: '#20263A', ...lineClamp(3) }}>
-              {guide.objetivo_da_aula}
+                {objective[0]}
             </p>
           </section>
           {guide.tempo_estimado && (
@@ -656,54 +947,47 @@ const PedagogicalGuide: React.FC<{ guide: GuiaPedagogico; activityTitle: string;
           )}
         </div>
 
-        {/* Metodologia */}
-        <section style={{
-          background: C.softGreen, border: `1px solid ${C.green}25`, borderRadius: 14, padding: '12px 14px',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-            <div style={{ width: 24, height: 24, borderRadius: 8, background: `${C.green}18`, color: C.green, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <BookOpen size={13} />
-            </div>
-            <h3 style={{ margin: 0, fontSize: 10, fontWeight: 900, color: C.green, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Metodologia Adaptada</h3>
-          </div>
-          <p style={{ margin: 0, fontSize: 12, lineHeight: 1.6, fontWeight: 650, color: '#20263A' }}>
-            {shortText(guide.metodologia_adaptada, 280)}
-          </p>
-        </section>
+        <GuideSection
+          icon={<BookOpen size={12} />}
+          title="Como aplicar"
+          items={steps}
+          tone={C.softGreen}
+          color={C.green}
+        />
 
         {/* Grid: dicas + critérios */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <GuideSection
             icon={<Lightbulb size={12} />}
-            title="Dicas de Mediação"
-            items={guide.dicas_de_mediacao}
+            title="Apoios e respostas"
+            items={supports}
             tone={C.softGold}
             color="#92700A"
           />
           <GuideSection
             icon={<CheckCircle size={12} />}
-            title="Critérios de Avaliação"
-            items={guide.criterios_de_avaliacao}
+            title="O que observar"
+            items={observations}
             tone={C.softGreen}
             color={C.green}
           />
         </div>
 
-        {/* Grid: materiais + adaptações */}
+        {/* Grid: adaptações + nova tentativa */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <GuideSection
-            icon={<Package size={12} />}
-            title="Materiais Necessários"
-            items={guide.materiais_necessarios}
-            tone={C.softLilac}
-            color="#6D28D9"
-          />
-          <GuideSection
             icon={<Accessibility size={12} />}
-            title="Adaptações Inclusivas"
-            items={guide.adaptacoes_inclusivas}
+            title="Adaptações aplicadas"
+            items={adaptations}
             tone={C.softMint}
             color="#047857"
+          />
+          <GuideSection
+            icon={<HelpCircle size={12} />}
+            title="Ampliação ou tentativa"
+            items={retry}
+            tone={C.softLilac}
+            color="#6D28D9"
           />
         </div>
       </main>
@@ -793,9 +1077,17 @@ function deriveEmoji(text: string): string {
   return '⭐';
 }
 
-function repairActivity(activity: ActivitySchema): ActivitySchema {
-  // 1. Student worksheet must stay compact and printable.
-  let exercises = activity.exercises.slice(0, 5).map(ex => ({
+// Exportado (Sprint 2B.3, item 1) para permitir teste unitário direto do
+// comportamento de truncamento — sem precisar renderizar o componente inteiro.
+export function repairActivity(activity: ActivitySchema): ActivitySchema {
+  // Sprint 2B.3 (Auditoria 2B.2-A): o teto de 5 exercícios era aplicado sempre,
+  // incondicionalmente — e truncava silenciosamente atividades do Activity
+  // Pipeline canônico (schemaVersion '2.0') já validadas/cobradas com mais itens.
+  // Resultados canônicos renderizam TODOS os exercises validados; o teto de 5
+  // continua valendo apenas para o formato legado ('1.0'), cuja IA nunca gera
+  // mais que ~6 itens de qualquer forma (ver prompts legados).
+  const isCanonical = activity.schemaVersion === '2.0';
+  let exercises = (isCanonical ? activity.exercises : activity.exercises.slice(0, 5)).map(ex => ({
     ...ex,
     answerLines: Math.min(Math.max(ex.answerLines || 3, 2), ex.type === 'drawing' ? 1 : 4),
   }));
@@ -970,15 +1262,24 @@ export const A4ActivityRenderer: React.FC<A4ActivityRendererProps> = ({
         </div>
 
         {/* Exercises */}
+        <IntroTextSection blocks={activity.blocks} />
         <section style={{ display: 'grid', gap: 8 }}>
+          {activity.exercises.length >= 8 && <StudentPartBreak part={1} />}
           {activity.exercises.map((exercise, index) => (
-            <WorksheetBlock
-              key={exercise.id}
-              exercise={exercise}
-              index={index}
-              asset={findAssetForExercise(activity, exercise, index)}
-              block={findBlockForExercise(activity, exercise, index)}
-            />
+            <React.Fragment key={exercise.id}>
+              {index === 5 && activity.exercises.length >= 8 && (
+                <>
+                  <PauseNotice />
+                  <StudentPartBreak part={2} />
+                </>
+              )}
+              <WorksheetBlock
+                exercise={exercise}
+                index={index}
+                asset={findAssetForExercise(activity, exercise, index)}
+                block={findBlockForExercise(activity, exercise, index)}
+              />
+            </React.Fragment>
           ))}
         </section>
 

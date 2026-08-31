@@ -17,6 +17,7 @@ import { AIService, getModelsForContext } from '../services/aiService';
 import { CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { generateRelatorioAluno, type RelatorioResultado, type ReportMode } from '../services/reportService';
 import { RelatorioPreview } from '../components/RelatorioPreview';
+import { EvolutionExportRow } from '../components/fichas/EvolutionExportRow';
 
 const CRITERIA = [
   { name: "Comunicação Expressiva", desc: "Expressão verbal, gestual ou alternativa." },
@@ -545,11 +546,21 @@ ${observation ? `\nObservação atual do relatório:\n${observation}` : ''}
           <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><BarChart3 className="text-brand-600"/> Relatório Evolutivo</h2>
           <p className="text-gray-500 text-sm">Avalie critérios, adicione evidências e gere PDF auditável.</p>
         </div>
-        {!showRelatorio && (
-          <div className="flex gap-2">
-            <button onClick={() => window.print()} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-bold flex gap-2 items-center"><Printer size={16}/> Imprimir</button>
-            <button onClick={handleExportPDF} className="px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg text-sm font-bold flex gap-2 items-center"><Download size={16}/> PDF</button>
-          </div>
+        {!showRelatorio && selectedStudent && (
+          <EvolutionExportRow
+            student={selectedStudent}
+            user={currentUser}
+            school={currentUser?.schoolConfigs?.[0] ?? null}
+            scores={scores}
+            observation={observation}
+            criteria={CRITERIA}
+            customFields={customFields}
+            history={selectedStudent.evolutions || []}
+            auditCode={auditCode || null}
+            isolationKey={`evolucao:${selectedStudentId}:${selectedHistoryId ?? 'novo'}`}
+            onDownloadPdf={handleExportPDF}
+            onPrint={() => window.print()}
+          />
         )}
       </div>
 

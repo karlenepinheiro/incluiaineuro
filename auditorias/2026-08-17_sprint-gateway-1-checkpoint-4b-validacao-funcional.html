@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sprint Gateway 1 — Checkpoint 4B: Validação Funcional</title>
+<style>
+  :root {
+    --petrol:  #1F4E5F;
+    --dark:    #2E3A59;
+    --gold:    #C69214;
+    --bg:      #F6F4EF;
+    --surface: #FFFFFF;
+    --border:  #E7E2D8;
+    --text:    #111827;
+    --muted:   #6B7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; position: relative; overflow: hidden; }
+  .header::before { content: ''; position: absolute; inset: 0; background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0); background-size: 24px 24px; }
+  .header-inner { position: relative; z-index: 1; max-width: 1000px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 26px; font-weight: 800; max-width: 780px; }
+  .header p { opacity: .8; margin-top: 10px; font-size: 13px; max-width: 720px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1000px; margin: 0 auto; padding: 32px 24px 80px; }
+
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .toc h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 12px; }
+  .toc ol { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 13px; }
+  .toc li { margin-bottom: 6px; break-inside: avoid; }
+  .toc a { color: var(--petrol); text-decoration: none; font-weight: 600; }
+  .toc a:hover { text-decoration: underline; }
+
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block > p.lead { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  tr:hover td { background: #FCFBF8; }
+  .table-wrap { overflow-x: auto; }
+
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-critico  { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .badge-alto     { background: #FEF3C7; color: #92400E; border: 1px solid #FCD34D; }
+  .badge-medio    { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+  .badge-baixo    { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-ok       { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-info     { background: #F0F9FF; color: #075985; border: 1px solid #BAE6FD; }
+  .badge-pendente { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+  .badge-nottested{ background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; }
+
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color: #C69214; background: #FEF9EE; }
+  .callout.risk { border-color: #B91C1C; background: #FEF2F2; }
+  .callout.ok   { border-color: #059669; background: #F0FDF4; }
+  .callout strong { color: var(--dark); }
+
+  .checklist { list-style: none; padding-left: 0; }
+  .checklist li { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .checklist li:last-child { border-bottom: none; }
+  .checklist .box { flex-shrink: 0; width: 18px; height: 18px; border: 2px solid var(--petrol); border-radius: 4px; margin-top: 1px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; color: var(--petrol); }
+  .checklist .phase-tag { font-size: 10px; color: var(--muted); font-weight: 700; text-transform: uppercase; margin-left: auto; padding-top: 2px; white-space: nowrap; }
+
+  .metadata-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 14px; font-size: 12.5px; }
+  .metadata-grid div strong { display: block; color: var(--dark); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 3px; }
+
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+  pre { background: #1F2430; color: #E5E9F0; border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 11px; font-family: Consolas, monospace; margin: 10px 0 16px; line-height: 1.5; }
+
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .footer strong { color: #fff; }
+
+  @media (max-width: 640px) {
+    .header { padding: 28px 20px; }
+    section.block { padding: 20px; }
+    .toc ol { columns: 1; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <div class="kicker">Auditoria Técnica · Validação de Ambiente</div>
+    <h1>Sprint Gateway 1 — Checkpoint 4B: Validação Funcional da Etapa 4</h1>
+    <p>Investigação (somente leitura) do ambiente disponível para testar o novo caminho <code>callAIGateway() → ai-gateway → Router → GeminiProvider → Gemini/Imagen</code>. Conclusão: existe apenas UM projeto Supabase, e é produção — não há staging/dev. Por regra explícita deste checkpoint, nenhum deploy foi feito e nenhuma chamada real foi executada. Este documento entrega o roteiro completo para quem tiver autorização de rodar os testes em produção.</p>
+    <div class="cover-badges">
+      <span class="badge badge-info">17/08/2026</span>
+      <span class="badge badge-critico">Ambiente: só produção (1 projeto Supabase)</span>
+      <span class="badge badge-ok">Deploy: NÃO realizado</span>
+      <span class="badge badge-ok">Banco/Frontend/OpenAI: não tocados</span>
+      <span class="badge badge-pendente">Validação funcional: NOT TESTED (roteiro pronto)</span>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Tipo</strong>Investigação de ambiente + preparação de roteiro de teste</div>
+    <div><strong>Escopo</strong>Somente leitura — nenhum código, banco ou secret alterado</div>
+    <div><strong>Projeto Supabase encontrado</strong>1 (único) — <code>incluiai</code></div>
+    <div><strong>Staging/dev separado</strong>Não existe</div>
+    <div><strong>Deploy realizado</strong>Nenhum</div>
+    <div><strong>Achado crítico</strong><code>OPENAI_API_KEY</code> já existe como secret em produção (ver Seção 3)</div>
+  </div>
+
+  <div class="toc">
+    <h2>Sumário</h2>
+    <ol>
+      <li><a href="#escopo">Escopo</a></li>
+      <li><a href="#ambiente">Ambiente encontrado</a></li>
+      <li><a href="#achado">Achado crítico — OPENAI_API_KEY já existe</a></li>
+      <li><a href="#regra">Aplicação da regra "sem staging = sem deploy automático"</a></li>
+      <li><a href="#roteiro">Roteiro de validação pronto para execução autorizada</a></li>
+      <li><a href="#resultados">Resultados dos testes (status real)</a></li>
+      <li><a href="#rollback">Rollback</a></li>
+      <li><a href="#veredito">Veredito</a></li>
+      <li><a href="#metadados">Metadados de geração</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. ESCOPO -->
+  <section class="block" id="escopo">
+    <h2><span class="num">1</span>Escopo</h2>
+    <p>Investigar, apenas em modo leitura, se o projeto já possui infraestrutura segura (staging/dev) para validar funcionalmente a Etapa 4 sem expor produção a risco. Preparar roteiro de teste. Não fazer deploy nem executar chamadas reais sem confirmar que existe um ambiente seguro, ou sem autorização explícita para operar diretamente em produção sabendo do risco.</p>
+  </section>
+
+  <!-- 2. AMBIENTE -->
+  <section class="block" id="ambiente">
+    <h2><span class="num">2</span>Ambiente encontrado</h2>
+    <div class="table-wrap">
+    <table>
+      <tr><th style="width:32%">Pergunta</th><th>Resposta</th></tr>
+      <tr><td>Projetos Supabase vinculados a este CLI/conta</td><td><code>supabase projects list</code> (somente leitura) retorna exatamente <strong>1 projeto</strong>: nome <code>incluiai</code>, região East US (North Virginia), criado em 14/02/2026, já vinculado (LINKED) localmente via <code>supabase/.temp/project-ref</code>.</td></tr>
+      <tr><td>Existe projeto separado de staging/dev?</td><td><strong>Não.</strong> A listagem da conta mostra um único projeto.</td></tr>
+      <tr><td>Existe apenas produção?</td><td><strong>Sim.</strong> Reforçado por: (a) <code>REGRAS_SEGURANCA_INCLUIAI_2_0.md</code> trata "o banco" como singular, com clientes reais, compras e assinaturas ativas; (b) auditorias anteriores no histórico do projeto (<code>auditorias/2026-07-14_*</code>) já se referem a este mesmo projeto explicitamente como "produção real" ao rodar <code>supabase db query --linked</code>.</td></tr>
+      <tr><td>Método de deploy documentado</td><td>Comentário em <code>supabase/functions/kiwify-webhook/index.ts</code>: <code>supabase functions deploy kiwify-webhook --no-verify-jwt</code>. Nenhuma menção, em nenhum <code>.md</code> do projeto, a múltiplos ambientes (staging/preview) para Edge Functions.</td></tr>
+      <tr><td>CI/CD automatizado</td><td>Nenhum workflow encontrado em <code>.github/workflows/</code> (pasta não existe). Deploy é manual via CLI.</td></tr>
+      <tr><td>Docker / Deno local</td><td>Confirmado ausentes nesta sessão (já registrado no Checkpoint da Etapa 4) — sem <code>supabase functions serve</code> local possível.</td></tr>
+      <tr><td>Secrets configurados hoje neste projeto (nomes apenas — ver Seção 3)</td><td><code>supabase secrets list</code> (somente nomes/digest, nenhum valor lido ou exibido) — 13 secrets, listados na Seção 3.</td></tr>
+    </table>
+    </div>
+    <div class="callout risk">
+      <strong>Conclusão da investigação:</strong> não existe ambiente de staging/dev seguro. O único projeto Supabase do IncluiAI é produção, com dados reais de clientes. Qualquer deploy ou chamada real do <code>ai-gateway</code> hoje aconteceria diretamente em produção.
+    </div>
+  </section>
+
+  <!-- 3. ACHADO CRÍTICO -->
+  <section class="block" id="achado">
+    <h2><span class="num">3</span>Achado crítico — <code>OPENAI_API_KEY</code> já existe em produção</h2>
+    <p><code>supabase secrets list --project-ref hvjczfncppaodebopbvd</code> (comando oficial, somente leitura, mostra apenas nome + digest hash — nunca o valor do secret) retornou:</p>
+    <div class="table-wrap">
+    <table>
+      <tr><th>Secret (nome apenas)</th><th>Observação</th></tr>
+      <tr><td><code>GEMINI_API_KEY</code></td><td>Esperado — usado por <code>_vertex.ts</code>.</td></tr>
+      <tr><td><code>GOOGLE_LOCATION</code></td><td>Esperado — usado por <code>_vertex.ts</code>.</td></tr>
+      <tr><td><code>GOOGLE_PROJECT_ID</code></td><td>Esperado — usado por <code>_vertex.ts</code>.</td></tr>
+      <tr><td><code>GOOGLE_SERVICE_ACCOUNT_JSON</code></td><td>Esperado — usado por <code>_vertex.ts</code>.</td></tr>
+      <tr><td><code>KIWIFY_WEBHOOK_SECRET</code></td><td>Esperado — usado por <code>kiwify-webhook</code>.</td></tr>
+      <tr><td><code>OPENAI_API_KEY</code></td><td><strong>NÃO esperado neste momento do Sprint.</strong> A autorização da Etapa 3 tratava este secret como "a ser criado" para as etapas futuras (5+). Ele já existe hoje. Não sei se foi criado antes deste Sprint (possível resíduo de uma integração anterior/planejada) ou se foi provisionado após a autorização. <strong>Não usei, não li o valor, não fiz nenhuma chamada com ele</strong> — o registry do Router (Etapa 4) só contém <code>'gemini'</code>, e este checkpoint proíbe explicitamente qualquer uso de OpenAI.</td></tr>
+      <tr><td><code>SUPABASE_ANON_KEY</code>, <code>SUPABASE_DB_URL</code>, <code>SUPABASE_JWKS</code>, <code>SUPABASE_PUBLISHABLE_KEYS</code>, <code>SUPABASE_SECRET_KEYS</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>SUPABASE_URL</code></td><td>Parte deles é auto-provisionada pela própria plataforma Supabase para toda Edge Function (comportamento padrão da plataforma, não uma configuração manual do projeto).</td></tr>
+    </table>
+    </div>
+    <div class="callout warn">
+      <strong>Ação recomendada:</strong> confirmar com a CEO se este <code>OPENAI_API_KEY</code> é intencional (ex: criado preventivamente) ou se precisa de revisão/rotação antes da Etapa 5. Nenhuma ação foi tomada sobre ele nesta sessão — é só um registro de nome de secret encontrado, reportado por transparência.
+    </div>
+  </section>
+
+  <!-- 4. REGRA -->
+  <section class="block" id="regra">
+    <h2><span class="num">4</span>Aplicação da regra "sem staging = sem deploy automático"</h2>
+    <p>Por instrução explícita deste checkpoint ("Se NÃO existir staging/dev seguro: NÃO faça deploy em produção automaticamente"), e confirmado que não existe staging/dev, este agente:</p>
+    <ul>
+      <li><strong>Não executou</strong> <code>supabase functions deploy ai-gateway</code>.</li>
+      <li><strong>Não fez</strong> nenhuma chamada HTTP real ao endpoint de produção do <code>ai-gateway</code>.</li>
+      <li><strong>Não gerou</strong> nem usou nenhum JWT/token de usuário real.</li>
+      <li><strong>Preparou o roteiro completo</strong> (Seção 5) para que alguém com autorização explícita execute os testes cientes de que o alvo é produção.</li>
+    </ul>
+  </section>
+
+  <!-- 5. ROTEIRO -->
+  <section class="block" id="roteiro">
+    <h2><span class="num">5</span>Roteiro de validação pronto para execução autorizada</h2>
+    <div class="callout risk">
+      <strong>Atenção:</strong> o passo 0 (deploy) já coloca o código da Etapa 4 servindo tráfego real de produção — não é um "ambiente de teste" isolado, é o próprio sistema live. Recomendo executar em horário de baixo uso e com alguém acompanhando o Supabase Studio (aba Logs/Table Editor) durante os primeiros minutos.
+    </div>
+    <h3>Passo 0 — Deploy (só quando autorizado)</h3>
+    <pre>supabase functions deploy ai-gateway --project-ref hvjczfncppaodebopbvd</pre>
+    <p>Não requer <code>AI_ROUTER_MODE</code> nem nenhum novo secret — o default já é <code>'gemini'</code>.</p>
+
+    <h3>Opção A (recomendada) — via app real, logado como conta de teste/interna</h3>
+    <ol class="plain">
+      <li>Fazer login no app com uma conta de teste/interna (não cliente real), com saldo de créditos.</li>
+      <li><strong>TEXT / ACTIVITY_GENERAL:</strong> gerar uma Atividade Geral no IncluiLAB (modo "A4 Econômica") sem anexar aluno → confirmar atividade gerada, quantidade respeitada, SEM Guia do Professor.</li>
+      <li><strong>ASSESSMENT:</strong> gerar uma Avaliação → confirmar Folha + Gabarito, SEM Guia do Professor automático.</li>
+      <li><strong>ACTIVITY_ADAPTED / WITH_STUDENT:</strong> usar o modo "Adaptar" com um aluno de teste selecionado → confirmar atividade adaptada + Guia do Professor, e que o contexto do aluno foi usado.</li>
+      <li><strong>WITHOUT_STUDENT:</strong> repetir uma geração sem selecionar aluno → confirmar que funciona normalmente.</li>
+      <li><strong>IMAGE:</strong> usar "A4 Visual" ou "Premium Ilustrada" → confirmar imagem válida renderizada (isso ainda é Vertex Imagen, apesar do rótulo dizer "OpenAI" na UI — comportamento já mapeado na auditoria original).</li>
+      <li><strong>JSON:</strong> gerar um Estudo de Caso, PEI ou PAEE para um aluno de teste → confirmar documento estruturado válido.</li>
+      <li><strong>CREDITS_SUCCESS:</strong> anotar o saldo de créditos antes e depois de uma geração bem-sucedida → confirmar débito correto e nenhuma reserva pendente (Supabase Studio → tabela <code>credits_wallet</code>/<code>credits_ledger</code>, somente leitura).</li>
+      <li><strong>AUDIT:</strong> no Supabase Studio (Table Editor, somente leitura), conferir que cada geração acima criou uma linha em <code>ai_requests</code> com <code>status='success'</code> e uma linha correspondente em <code>ai_outputs</code>.</li>
+      <li><strong>AUTH_TENANT / GATEWAY_CONTRACT:</strong> confirmar, pela aba Network do navegador, que a resposta de <code>ai-gateway</code> tem exatamente os campos já esperados (<code>result</code>, <code>creditsRemaining</code>, <code>auditId</code>, etc.) e que nenhuma chamada retornou 401/403 inesperado.</li>
+    </ol>
+
+    <h3>Opção B (técnica, complementar) — <code>curl</code> direto, para isolar TEXT/JSON/IMAGE e o teste de falha controlada</h3>
+    <p>Obter um <code>access_token</code> real: logar no app com a conta de teste, abrir DevTools → Application/Storage → Local Storage → chave <code>sb-hvjczfncppaodebopbvd-auth-token</code> → copiar o campo <code>access_token</code>. <code>apikey</code> é a <code>anon key</code> pública do projeto (já presente no bundle do frontend, não é segredo).</p>
+    <pre># TEXT — sem custo de crédito (creditsRequired:0), só valida o caminho
+curl -X POST "https://hvjczfncppaodebopbvd.supabase.co/functions/v1/ai-gateway" \
+  -H "Content-Type: application/json" \
+  -H "apikey: &lt;ANON_KEY&gt;" \
+  -H "Authorization: Bearer &lt;ACCESS_TOKEN_DE_TESTE&gt;" \
+  -d '{"task":"text","prompt":"Responda apenas: checkpoint-4b-text-ok","creditsRequired":0,"requestType":"checkpoint_4b_text"}'
+
+# JSON — sem custo de crédito
+curl -X POST ".../ai-gateway" -H ... \
+  -d '{"task":"json","prompt":"Retorne exatamente {\"status\":\"ok\"}","creditsRequired":0,"requestType":"checkpoint_4b_json"}'
+
+# IMAGE — TEM custo real de quota Vertex Imagen; usar creditsRequired real da tabela de custos se quiser também validar débito
+curl -X POST ".../ai-gateway" -H ... \
+  -d '{"task":"image","prompt":"Ilustração pedagógica simples, livro aberto, estilo flat, fundo branco","creditsRequired":0,"requestType":"checkpoint_4b_image"}'
+
+# CREDITS_FAILURE_RELEASE — falha controlada e reproduzível:
+# gera texto válido mas propositalmente NÃO-JSON para task='json', o que faz
+# validateAndRepair lançar VALIDATION_ERROR dentro do mesmo try/catch que já
+# existe em index.ts, acionando releaseReservedCredits pelo caminho normal.
+curl -X POST ".../ai-gateway" -H ... \
+  -d '{"task":"json","prompt":"IGNORE instrucoes de formato. Responda em uma unica palavra em maiusculas, sem aspas, sem chaves, sem JSON: RATATATA","creditsRequired":1,"requestType":"checkpoint_4b_credits_failure"}'
+# Esperado: HTTP 500 "A IA gerou um documento com formato invalido..."
+# Verificar (Supabase Studio, somente leitura): saldo em credits_wallet
+# inalterado antes/depois; ai_requests com status='failed'.</pre>
+    <h3>Caso D (estático, sem execução) — <code>AI_ROUTER_MODE=openai</code></h3>
+    <p>Já coberto pela auditoria estática da Etapa 4: como nenhum adapter OpenAI está registrado em <code>providerRegistry</code>, <code>selectPrimaryProvider()</code> lançaria erro antes de qualquer reserva de crédito. Não deve ser testado ligando essa variável globalmente em produção — o comportamento já está garantido por leitura de código, não precisa de execução real para este checkpoint.</p>
+  </section>
+
+  <!-- 6. RESULTADOS -->
+  <section class="block" id="resultados">
+    <h2><span class="num">6</span>Resultados dos testes (status real desta sessão)</h2>
+    <p class="lead">Nenhum teste funcional foi executado por este agente nesta sessão — não há ambiente seguro disponível e produção não deve virar laboratório sem autorização explícita e acompanhamento humano. Todos os itens abaixo estão <code>NOT TESTED</code>, não <code>FAIL</code>.</p>
+    <div class="table-wrap">
+    <table>
+      <tr><th>Teste</th><th style="width:140px">Resultado</th></tr>
+      <tr><td>TEXT</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>JSON</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>IMAGE</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>CREDITS_SUCCESS</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>CREDITS_FAILURE_RELEASE</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>ACTIVITY_GENERAL</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>ASSESSMENT</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>ACTIVITY_ADAPTED</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>WITHOUT_STUDENT</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>WITH_STUDENT</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>AUDIT</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>AUTH_TENANT</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+      <tr><td>GATEWAY_CONTRACT</td><td><span class="badge badge-nottested">NOT TESTED</span></td></tr>
+    </table>
+    </div>
+  </section>
+
+  <!-- 7. ROLLBACK -->
+  <section class="block" id="rollback">
+    <h2><span class="num">7</span>Rollback</h2>
+    <p><strong>Operacional:</strong> Gemini continua sendo o default seguro do Router — não depender de nenhuma variável nova. Se, após um deploy futuro, algo se comportar mal, definir <code>AI_ROUTER_MODE=gemini</code> explicitamente como secret não muda nada (já é o comportamento atual), então o rollback real seria reverter o deploy da função para a revisão anterior (<code>supabase functions deploy ai-gateway</code> a partir do commit anterior à Etapa 4).</p>
+    <p><strong>De código:</strong> inalterado desde o checkpoint da Etapa 4 — reverter <code>index.ts</code>, apagar <code>_geminiProvider.ts</code>, deixar <code>_router.ts</code>/<code>_types.ts</code> desconectados. <code>_vertex.ts</code>/<code>_audit.ts</code>/<code>_credits.ts</code> nunca foram tocados.</p>
+    <p>Como nenhum deploy foi feito nesta sessão, não há nada em produção para reverter agora.</p>
+  </section>
+
+  <!-- 8. VEREDITO -->
+  <section class="block" id="veredito">
+    <h2><span class="num">8</span>Veredito</h2>
+    <div class="callout risk">
+      <strong>ETAPA 4 FUNCIONALMENTE VALIDADA: NÃO.</strong> <strong>ETAPA 4 APROVADA PARA PRODUÇÃO: NÃO.</strong> <strong>ETAPA 5 LIBERADA: NÃO.</strong> Bloqueio: não existe ambiente de staging, e este checkpoint proíbe explicitamente deploy/execução automática em produção "só para ver se funciona". O roteiro completo (Seção 5) está pronto para execução por alguém com autorização de operar em produção — a validação funcional real depende dessa execução humana, não de mais trabalho deste agente neste ambiente.
+    </div>
+  </section>
+
+  <!-- 9. METADADOS -->
+  <section class="block" id="metadados">
+    <h2><span class="num">9</span>Metadados de geração</h2>
+    <div class="metadata-grid">
+      <div><strong>Data</strong>17/08/2026</div>
+      <div><strong>Sprint</strong>Gateway 1 — Multi-Provider (OpenAI + Gemini)</div>
+      <div><strong>Etapa</strong>Checkpoint 4B — validação funcional (investigação de ambiente)</div>
+      <div><strong>Responsável</strong>Karlene Pinheiro (CEO) + assistente</div>
+      <div><strong>Comandos executados</strong><code>supabase projects list</code>, <code>supabase secrets list</code> (ambos somente leitura, nomes/metadados apenas)</div>
+      <div><strong>Deploy realizado</strong>Nenhum</div>
+      <div><strong>Banco de dados</strong>Não tocado</div>
+      <div><strong>Frontend</strong>Não tocado</div>
+      <div><strong>OpenAI</strong>Não chamada — achado de secret já existente reportado, sem uso</div>
+    </div>
+  </section>
+
+</div>
+
+<div class="footer">
+  <strong>IncluiAI</strong> · Sprint Gateway 1 · Auditoria técnica de uso interno
+</div>
+
+</body>
+</html>

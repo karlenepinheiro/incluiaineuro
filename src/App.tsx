@@ -63,6 +63,7 @@ import { checkPurchaseByEmail, activatePurchaseForUser } from './services/purcha
 import { ActivationView } from './components/ActivationView';
 import { BrandLogo } from './components/BrandLogo';
 import { supabase, DEMO_MODE } from './services/supabase';
+import { clearGoogleDriveSession } from './services/googleDriveExportService';
 import { databaseService, DuplicateStudentError } from './services/databaseService';
 import { ServiceRecordService, AppointmentService } from './services/persistenceService';
 import { NotificationsPanel } from './components/NotificationsPanel';
@@ -487,6 +488,11 @@ const App: React.FC = () => {
   const [generating, setGenerating] = useState(false);
   const [currentProtocol, setCurrentProtocol] = useState<Protocol | null>(null);
   const [activeDocumentType, setActiveDocumentType] = useState<DocumentType>(DocumentType.PEI);
+  // Espelha showFormalWorkspace (DocumentBuilder) — usado apenas para liberar a
+  // largura do wrapper do documento formal quando o novo workspace está ativo
+  // (Estudo de Caso, PEI, PAEE, PDI, Plano Unificado). Falso por padrão:
+  // preserva max-w-4xl para todo o resto do sistema.
+  const [isPaeeWorkspaceActive, setIsPaeeWorkspaceActive] = useState(false);
   const [aiGenerationStatus, setAiGenerationStatus] = useState<AIResultStatus | null>(null);
   const [aiGenerationWarning, setAiGenerationWarning] = useState<string | null>(null);
 
@@ -866,11 +872,11 @@ const App: React.FC = () => {
   };
 
   // --- Cadastro ---
-  const handleRegister = async (name: string, email: string, pass: string, phone: string, cpf: string) => {
+  const handleRegister = async (name: string, email: string, pass: string, phone: string, cpf: string, sex: User['sex'] = 'unspecified') => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password: pass,
-      options: { data: { full_name: name } },
+      options: { data: { full_name: name, sex } },
     });
     if (error) throw error;
 
@@ -892,12 +898,19 @@ const App: React.FC = () => {
       throw new Error('Perfil em processamento. Aguarde alguns segundos e faça login.');
     }
 
-    // Salva phone/cpf na tabela users (após trigger ter criado a linha)
-    if (phone || cpf) {
-      await supabase.from('users').update({
+    // Salva phone/cpf/sex na tabela users (após trigger ter criado a linha).
+    if (phone || cpf || sex) {
+      const updateResult = await databaseService.updateUserProfile(userId, {
         phone: phone || null,
         cpf:   cpf   || null,
-      }).eq('id', userId).catch(() => {/* não bloqueia cadastro */});
+        sex:   sex ?? 'unspecified',
+      }).catch(() => null);
+      profile = {
+        ...profile,
+        phone: phone || profile.phone,
+        cpf: cpf || profile.cpf,
+        ...(updateResult?.sexPersisted !== false ? { sex: sex ?? 'unspecified' } : {}),
+      };
     }
 
     await _loadAfterAuth(profile);
@@ -950,6 +963,10 @@ const App: React.FC = () => {
 
   const handleLogout = async () => {
     try { if (!DEMO_MODE) await supabase.auth.signOut(); } catch {}
+    // Integração "Abrir no Google Docs" (27/08/2026): o access token vive só
+    // em memória — precisa ser limpo explicitamente no logout para nunca ser
+    // reaproveitado por outra professora que use o mesmo navegador depois.
+    clearGoogleDriveSession();
     setIsAuthenticated(false);
     window.history.replaceState({}, '', '/');
     setView('landing');
@@ -1815,6 +1832,7 @@ const App: React.FC = () => {
                 userId={user.id}
                 onNavigate={handleSetView}
                 schoolName={user.schoolConfigs?.[0]?.schoolName}
+                professorSexo={user.sex}
               />
             )}
 
@@ -1857,6 +1875,12 @@ const App: React.FC = () => {
                 serviceRecords={serviceRecords.filter(r => r.studentId === viewingStudent.id)}
                 appointments={appointments}
                 onAddServiceRecord={() => {}}
+                onAddAppointment={apt => {
+                  setAppointments(prev => [apt, ...prev]);
+                  AppointmentService.save(apt, user.id).catch(e =>
+                    console.error('[Appointment] save error:', e)
+                  );
+                }}
                 onRefreshProtocols={async () => {
                   try {
                     const fresh = await databaseService.getProtocols(user.id);
@@ -1924,6 +1948,7 @@ const App: React.FC = () => {
                   planMaxStudents={planMaxStudents}
                   userPlan={user.plan}
                   user={user}
+                  professorSexo={user.sex}
                   onSelect={handleSelectStudent}
                   onEdit={s => setEditingStudent(s)}
                   onDelete={deleteStudent}
@@ -1960,7 +1985,12 @@ const App: React.FC = () => {
               ))}
 
             {isDocView && (
-              <div className="max-w-4xl mx-auto">
+              // Largura liberada (w-full) somente quando o DocumentWorkspace está de
+              // fato ativo (flag ligada + documento formal com Word canônico + modo de
+              // visualização — mesma condição de showFormalWorkspace em DocumentBuilder,
+              // espelhada via onWorkspaceActiveChange). Qualquer outro caso mantém
+              // exatamente max-w-4xl mx-auto, como antes desta fase.
+              <div className={isPaeeWorkspaceActive ? 'w-full' : 'max-w-4xl mx-auto'}>
                 <DocumentBuilder
                   type={activeDocumentType}
                   initialStudent={viewingStudent}
@@ -1982,6 +2012,7 @@ const App: React.FC = () => {
                   isGenerating={generating}
                   aiStatus={aiGenerationStatus ?? undefined}
                   aiWarning={aiGenerationWarning ?? undefined}
+                  onWorkspaceActiveChange={setIsPaeeWorkspaceActive}
                 />
               </div>
             )}
@@ -2136,8 +2167,8 @@ const App: React.FC = () => {
         </React.Suspense>
       )}
 
-      {/* WhatsApp Float Button — persistente em todas as telas autenticadas */}
-      <WhatsAppFloatButton />
+      {/* WhatsApp Float Button — somente no Dashboard principal autenticado */}
+      {view === 'dashboard' && <WhatsAppFloatButton />}
 
       {/* Toast inline — substitui alert() para eventos de vínculo e erros de aluno */}
       {toastMsg && (

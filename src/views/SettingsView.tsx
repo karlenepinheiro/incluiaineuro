@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, UserRole, resolvePlanTier, PLAN_LIMITS, formatPlanDisplayName, formatStudentLimit } from '../types';
+import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, UserRole, resolvePlanTier, PLAN_LIMITS, formatPlanDisplayName, formatStudentLimit, type ProfileSex } from '../types';
 import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
 import { Plus, Trash2, School, User as UserIcon, CreditCard, Star, Settings, Sparkles, AlertTriangle, ShoppingCart, Upload, Building2, MapPin, Phone, Hash, FileText, AlertCircle, ChevronDown, RefreshCw, ExternalLink, Search, CheckCircle, Lock, Eye, EyeOff, Shield, Info, Briefcase } from 'lucide-react';
 import { fetchSchoolByINEP, validateINEPCode, type INEPFetchError } from '../services/inepService';
@@ -47,6 +47,12 @@ const DEFAULT_ADDONS: AddOnProduct[] = [
     quantity: 900,
     kind: 'AI_CREDITS',
   },
+];
+
+const SEX_OPTIONS: Array<{ value: ProfileSex; label: string }> = [
+  { value: 'female', label: 'Feminino' },
+  { value: 'male', label: 'Masculino' },
+  { value: 'unspecified', label: 'Prefiro não informar' },
 ];
 
 // ─── Helpers de máscara ───────────────────────────────────────────────────────
@@ -106,6 +112,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
   const [phone, setPhone] = useState<string>(maskPhone(user.phone ?? ''));
   const [cpf, setCpf] = useState<string>(maskCPF(user.cpf ?? ''));
   const [cargo, setCargo] = useState<string>((user as any).cargo ?? '');
+  const [sex, setSex] = useState<ProfileSex>(user.sex ?? 'unspecified');
 
   // ─── Endereço pessoal ────────────────────────────────────────────────────────
   const [cep, setCep] = useState<string>(maskCEP((user as any).cep ?? ''));
@@ -140,7 +147,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
 
   // ─── Estado do save de perfil ────────────────────────────────────────────────
   const [profileBusy, setProfileBusy] = useState(false);
-  const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [profileMsg, setProfileMsg] = useState<{ type: 'success' | 'warning' | 'error'; text: string } | null>(null);
 
   // ─── Último acesso (auth) ────────────────────────────────────────────────────
   const [lastSignIn, setLastSignIn] = useState<string | null>(null);
@@ -156,11 +163,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
     setProfileBusy(true);
     setProfileMsg(null);
     try {
-      await databaseService.updateUserProfile(user.id, {
+      const result = await databaseService.updateUserProfile(user.id, {
         name,
         phone: phone.replace(/\D/g, '') ? phone : '',
         cpf: cpf.replace(/\D/g, '') ? cpf : '',
         cargo,
+        sex,
         profilePhotoUrl: profilePhoto ?? '',
         cep: cep.replace(/\D/g, '') ? cep : '',
         rua, numero, complemento, bairro, cidade, estado,
@@ -169,13 +177,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
       });
       onUpdateUser({
         ...user, name, phone, cpf,
-        cargo, profilePhoto,
+        cargo, sex, profilePhoto,
         cep, rua, numero, complemento, bairro, cidade, estado,
         display_name: displayName,
         professional_signature: professionalSignature,
         doc_phone: docPhone,
       } as any);
-      setProfileMsg({ type: 'success', text: 'Dados salvos com sucesso!' });
+      setProfileMsg(
+        result?.sexPersisted === false
+          ? { type: 'warning', text: 'Dados salvos. O campo sexo fica persistente após aplicar a migration do banco.' }
+          : { type: 'success', text: 'Dados salvos com sucesso!' }
+      );
     } catch (e: any) {
       setProfileMsg({ type: 'error', text: e?.message || 'Erro ao salvar dados.' });
     } finally {
@@ -612,6 +624,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                     />
                   </div>
                   <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Sexo</label>
+                    <select
+                      value={sex}
+                      onChange={e => setSex(e.target.value as ProfileSex)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white"
+                    >
+                      {SEX_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs font-bold text-gray-500 uppercase">E-mail</span>
                       <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full">
@@ -851,7 +875,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
 
           {/* ── Botão salvar (cards 1, 3 e 4) ────────────────────────────── */}
           {profileMsg && (
-            <div className={`p-3 rounded-xl text-sm flex items-center gap-2 ${profileMsg.type === 'success' ? 'bg-green-50 border border-green-200 text-green-700' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+            <div className={`p-3 rounded-xl text-sm flex items-center gap-2 ${
+              profileMsg.type === 'success'
+                ? 'bg-green-50 border border-green-200 text-green-700'
+                : profileMsg.type === 'warning'
+                  ? 'bg-amber-50 border border-amber-200 text-amber-700'
+                  : 'bg-red-50 border border-red-200 text-red-700'
+            }`}>
               {profileMsg.type === 'success' ? <CheckCircle size={14} /> : <AlertCircle size={14} />}
               {profileMsg.text}
             </div>

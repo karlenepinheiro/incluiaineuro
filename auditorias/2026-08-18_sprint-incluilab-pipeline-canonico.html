@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Sprint IncluiLAB - Pipeline canonico</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 32px; color: #111827; line-height: 1.5; }
+    h1, h2 { color: #1F4E5F; }
+    code { background: #F3F4F6; padding: 2px 4px; border-radius: 4px; }
+    .ok { color: #166534; font-weight: 700; }
+    .warn { color: #92400E; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <h1>Sprint IncluiLAB - Pipeline canonico</h1>
+  <p><strong>Data:</strong> 2026-08-18</p>
+  <p><strong>Escopo:</strong> migracao controlada de A4 Economica, Avaliacao e Adaptar Texto para o pipeline canonico existente, mantendo Visual/Premium no legado.</p>
+
+  <h2>Resultado</h2>
+  <ul>
+    <li class="ok">A4 Economica, Avaliacao e Adaptar Texto roteados por flags segmentadas.</li>
+    <li class="ok">Pipeline canonico ampliado para preservar estruturas como caca-palavras, cruzadinha, colorir e tabela.</li>
+    <li class="ok">Avaliacao passou a usar requestType explicito, folha do aluno e gabarito.</li>
+    <li class="ok">Adaptacao textual passou a enviar tipo original detectado e a validar preservacao estrutural.</li>
+    <li class="ok">Renderer A4 canonico passou a renderizar os novos tipos estruturais sem truncar no caminho canonico.</li>
+  </ul>
+
+  <h2>Limites respeitados</h2>
+  <ul>
+    <li>Nenhuma migration, SQL, Supabase rule ou schema de banco foi alterado por esta sprint.</li>
+    <li>Nenhum arquivo do AI Gateway foi editado por esta sprint.</li>
+    <li>Nenhuma integracao OpenAI/Gateway foi implementada nesta sprint.</li>
+    <li>Autosave, Biblioteca, preview e exportacao existentes foram preservados.</li>
+  </ul>
+
+  <h2>Rollback</h2>
+  <p>Para desativar a migracao textual, alterar <code>src/config/incluilabPipeline.ts</code> e definir como <code>false</code> os modos <code>a4_economica</code>, <code>avaliacao</code> e <code>adaptar_economico</code> em <code>INCLUILAB_CANONICAL_PIPELINE_BY_MODE</code>.</p>
+
+  <h2>Validacao</h2>
+  <ul>
+    <li class="ok"><code>npm test -- --reporter=dot</code>: 13 arquivos, 124 testes aprovados.</li>
+    <li class="ok"><code>npm run build</code>: build concluido com sucesso; somente avisos existentes de chunks/dynamic import.</li>
+  </ul>
+
+  <h2>Observacao</h2>
+  <p class="warn">A arvore de trabalho ja continha alteracoes paralelas e arquivos nao rastreados antes/fora desta sprint, incluindo areas de Gateway e UI. Eles foram tratados como fora de escopo e nao foram revertidos.</p>
+</body>
+</html>

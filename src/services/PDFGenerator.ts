@@ -819,68 +819,170 @@ function isHtmlContent(s: string): boolean {
   return /<[a-z][\s\S]*>/i.test(s);
 }
 
+/**
+ * [FASE 1b] O RichTextEditor (src/components/RichTextEditor.tsx) persiste o
+ * alinhamento escolhido pelo professor como atributo `data-align="..."` —
+ * nunca como `style="text-align:..."` (seu sanitizador recria os elementos do
+ * zero e descarta o style original). Esta função antes só verificava `style`,
+ * por isso o alinhamento "justificado" (e também centralizado/direita)
+ * nunca chegava ao PDF, mesmo aparecendo corretamente no editor. Corrigida
+ * para checar `data-align` primeiro (mesma prioridade usada por
+ * getSafeAlignment em RichTextEditor.tsx), com o `style` mantido como
+ * fallback para eventual HTML externo/importado.
+ *
+ * Extraída para escopo de módulo (e exportada) apenas para permitir teste
+ * unitário sem depender de DOMParser/jsdom — aceita qualquer objeto com
+ * `getAttribute`, não precisa ser um Element real do DOM.
+ */
+export function resolveRichTextAlign(
+  el: { getAttribute(name: string): string | null },
+): 'left' | 'center' | 'right' | 'justify' {
+  const dataAlign = (el.getAttribute('data-align') || '').toLowerCase();
+  if (dataAlign === 'center' || dataAlign === 'right' || dataAlign === 'justify') return dataAlign as any;
+  const m = (el.getAttribute('style') || '').match(/text-align\s*:\s*(\w+)/);
+  if (m) { const v = m[1].toLowerCase(); if (v === 'center' || v === 'right' || v === 'justify') return v as any; }
+  return 'left';
+}
+
 type RichBlockType = 'p' | 'h1' | 'h2' | 'ul-li' | 'ol-li';
-interface RichBlock {
-  type: RichBlockType;
+
+/**
+ * [Correção — negrito/itálico/sublinhado no PDF]
+ * Um "run" é um trecho de texto contíguo com um único conjunto de estilos.
+ * Antes, um bloco (parágrafo/item de lista) só guardava UMA string de texto
+ * mais um booleano "bold"/"italic" para o BLOCO INTEIRO, calculado por uma
+ * heurística de "estilo dominante" (>40% dos caracteres em negrito). Isso
+ * fazia com que uma única palavra em negrito dentro de uma frase maior nunca
+ * aparecesse em negrito no PDF (não passava dos 40%), e sublinhado nunca era
+ * sequer lido. Agora cada bloco guarda a sequência real de runs (na ordem em
+ * que aparecem no HTML), permitindo estilos mistos dentro do mesmo parágrafo.
+ */
+export interface InlineRun {
+  /** Texto do run, ou o marcador especial '\n' para uma quebra de linha (<br>). */
   text: string;
   bold: boolean;
   italic: boolean;
+  underline: boolean;
+}
+
+interface RichBlock {
+  type: RichBlockType;
+  runs: InlineRun[];
   align: 'left' | 'center' | 'right' | 'justify';
   listIdx?: number;
+}
+
+/**
+ * Remove marcações markdown literais (**negrito**, __sublinhado__, *itálico*,
+ * _itálico_) que eventualmente sobrevivam como texto puro dentro de um nó de
+ * texto (ex.: conteúdo gerado por IA fora do RichTextEditor). Mesma lógica
+ * de char-level já usada em normalizePdfText, aplicada por run em vez de ao
+ * bloco inteiro — não deve ser confundida com data-align (atributo, não
+ * texto) nem afeta as tags reais <strong>/<em>/<u>, que já chegam como
+ * atributos bold/italic/underline do próprio run.
+ */
+export function normalizeInlineRunText(value: string): string {
+  return value
+    .replace(/\*\*([^\n*]*[A-Za-zÀ-ÿ][^\n*]*)\*\*/g, '$1')
+    .replace(/__([^\n_]*[A-Za-zÀ-ÿ][^\n_]*)__/g, '$1')
+    .replace(/(^|[\s([{"'“])\*([^*\n]*[A-Za-zÀ-ÿ][^*\n]*)\*(?=$|[\s)\].,;:!?'"”}])/g, '$1$2')
+    .replace(/(^|[\s([{"'“])_([^_\n]*[A-Za-zÀ-ÿ][^_\n]*)_(?=$|[\s)\].,;:!?'"”}])/g, '$1$2')
+    .replace(/\*\*+/g, '')
+    .replace(/__+/g, '')
+    .replace(/\*+(?=[A-Za-zÀ-ÿ])/g, '')
+    .replace(/(?<=[A-Za-zÀ-ÿ0-9.,;:!?])\*+/g, '')
+    .replace(/_+(?=[A-Za-zÀ-ÿ])/g, '')
+    .replace(/(?<=[A-Za-zÀ-ÿ0-9.,;:!?])_+/g, '');
+}
+
+/** Percorre os filhos de um elemento de bloco (p/h1/h2/li) coletando runs com o estilo herdado. */
+function collectInlineRuns(
+  node: Node,
+  bold: boolean,
+  italic: boolean,
+  underline: boolean,
+  out: InlineRun[],
+): void {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const raw = (node.textContent ?? '').replace(/\s+/g, ' ');
+    if (raw) out.push({ text: normalizeInlineRunText(raw), bold, italic, underline });
+    return;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return;
+  const el = node as Element;
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'br') { out.push({ text: '\n', bold: false, italic: false, underline: false }); return; }
+  const b = bold || tag === 'strong' || tag === 'b';
+  const i = italic || tag === 'em' || tag === 'i';
+  const u = underline || tag === 'u';
+  el.childNodes.forEach(c => collectInlineRuns(c, b, i, u, out));
+}
+
+/** Remove espaço em branco nas pontas da sequência de runs (equivalente ao antigo `.trim()` do texto do bloco). */
+export function trimRunsEdges(runs: InlineRun[]): InlineRun[] {
+  const trimmed = runs.slice();
+  while (trimmed.length && trimmed[0].text !== '\n' && trimmed[0].text.trim() === '') trimmed.shift();
+  while (trimmed.length && trimmed[trimmed.length - 1].text !== '\n' && trimmed[trimmed.length - 1].text.trim() === '') trimmed.pop();
+  if (trimmed.length && trimmed[0].text !== '\n') {
+    trimmed[0] = { ...trimmed[0], text: trimmed[0].text.replace(/^\s+/, '') };
+  }
+  const lastIdx = trimmed.length - 1;
+  if (lastIdx >= 0 && trimmed[lastIdx].text !== '\n') {
+    trimmed[lastIdx] = { ...trimmed[lastIdx], text: trimmed[lastIdx].text.replace(/\s+$/, '') };
+  }
+  return trimmed;
 }
 
 function parseRichHtml(html: string): RichBlock[] {
   if (!html.includes('<')) {
     return normalizePdfText(html).split(/\n+/).map(t => t.trim()).filter(Boolean)
-      .map(text => ({ type: 'p' as RichBlockType, text, bold: false, italic: false, align: 'left' as const }));
+      .map(text => ({
+        type: 'p' as RichBlockType,
+        runs: [{ text, bold: false, italic: false, underline: false }],
+        align: 'left' as const,
+      }));
   }
   const d = new DOMParser().parseFromString(html, 'text/html');
   const blocks: RichBlock[] = [];
 
-  const dominantStyle = (el: Element): { bold: boolean; italic: boolean } => {
-    const allText = el.textContent || '';
-    if (!allText.trim()) return { bold: false, italic: false };
-    let boldChars = 0, italicChars = 0;
-    const countStyles = (node: Node) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        let anc = node.parentElement;
-        let isB = false, isI = false;
-        while (anc && anc !== el) {
-          const t = anc.tagName.toLowerCase();
-          if (t === 'strong' || t === 'b') isB = true;
-          if (t === 'em' || t === 'i') isI = true;
-          anc = anc.parentElement;
-        }
-        const len = (node.textContent || '').length;
-        if (isB) boldChars += len;
-        if (isI) italicChars += len;
-      }
-      node.childNodes.forEach(countStyles);
-    };
-    countStyles(el);
-    const total = allText.length;
-    return { bold: boldChars / total > 0.4, italic: italicChars / total > 0.4 };
-  };
+  // [Correção — seção some no PDF quando o campo não tem <p>/<div> no topo]
+  // O RichTextEditor (sanitize()/normalizeMarkdownToHtml()) só envolve em <p>
+  // conteúdo cujo texto de origem já era um bloco (div/section/article) ou
+  // continha HTML. Texto puro (ex.: gerado pela IA, ou digitado antes do
+  // usuário apertar Enter) vira texto solto + <br> + <strong>/<em>/<u>
+  // diretamente sob o body — nunca embrulhado em <p>. Abaixo, `processNode`
+  // só cria um bloco para p/div/li/h1/h2; texto e elementos inline soltos no
+  // topo caem no early-return de nó não-ELEMENT ou são recursados sem nunca
+  // virar um RichBlock, então o campo inteiro desaparecia do PDF mesmo tendo
+  // conteúdo real (o Word não tem esse problema — sua conversão HTML→DOCX não
+  // depende de um wrapper de bloco). Aqui agrupamos qualquer sequência de nós
+  // soltos no topo do body em um <p> sintético antes de processar, para que
+  // esse texto passe a virar um bloco normal — sem alterar em nada o
+  // comportamento já existente para HTML que já vem com blocos.
+  const BLOCK_LEVEL_TAGS = new Set(['p', 'div', 'ul', 'ol', 'li', 'h1', 'h2']);
+  const isBlockNode = (n: Node): boolean =>
+    n.nodeType === Node.ELEMENT_NODE && BLOCK_LEVEL_TAGS.has((n as Element).tagName.toLowerCase());
+  let loose = d.body.firstChild;
+  while (loose) {
+    if (isBlockNode(loose)) { loose = loose.nextSibling; continue; }
+    const wrapper = d.createElement('p');
+    d.body.insertBefore(wrapper, loose);
+    let cursor: Node | null = loose;
+    while (cursor && !isBlockNode(cursor)) {
+      const after: Node | null = cursor.nextSibling;
+      wrapper.appendChild(cursor);
+      cursor = after;
+    }
+    loose = cursor;
+  }
 
-  const alignOf = (el: Element): 'left' | 'center' | 'right' | 'justify' => {
-    const m = (el.getAttribute('style') || '').match(/text-align\s*:\s*(\w+)/);
-    if (m) { const v = m[1].toLowerCase(); if (v === 'center' || v === 'right' || v === 'justify') return v as any; }
-    return 'left';
-  };
+  const alignOf = resolveRichTextAlign;
 
-  const textFromHtmlNode = (node: Node): string => {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
-    if (node.nodeType !== Node.ELEMENT_NODE) return '';
-    const el = node as Element;
-    const tag = el.tagName.toLowerCase();
-    if (tag === 'br') return '\n';
-    const children = Array.from(el.childNodes).map(textFromHtmlNode).join('');
-    if (tag === 'li') return `${children.trim()}\n`;
-    return children;
+  const runsOf = (el: Element): InlineRun[] => {
+    const raw: InlineRun[] = [];
+    collectInlineRuns(el, false, false, false, raw);
+    return trimRunsEdges(raw);
   };
-
-  const textOf = (el: Element): string =>
-    normalizePdfText(textFromHtmlNode(el)).replace(/\s+/g, ' ').trim();
 
   const processNode = (node: Node, listType?: 'ul' | 'ol', listIdx?: { n: number }): void => {
     if (node.nodeType !== Node.ELEMENT_NODE) return;
@@ -889,51 +991,154 @@ function parseRichHtml(html: string): RichBlock[] {
     if (tag === 'ul') { const idx = { n: 0 }; el.childNodes.forEach(c => processNode(c, 'ul', idx)); return; }
     if (tag === 'ol') { const idx = { n: 0 }; el.childNodes.forEach(c => processNode(c, 'ol', idx)); return; }
     if (tag === 'li') {
-      const text = textOf(el);
-      if (!text) return;
-      const { bold, italic } = dominantStyle(el);
-      if (listType === 'ol' && listIdx) { listIdx.n++; blocks.push({ type: 'ol-li', text, bold, italic, align: alignOf(el), listIdx: listIdx.n }); }
-      else { blocks.push({ type: 'ul-li', text, bold, italic, align: alignOf(el) }); }
+      const runs = runsOf(el);
+      if (!runs.length) return;
+      if (listType === 'ol' && listIdx) { listIdx.n++; blocks.push({ type: 'ol-li', runs, align: alignOf(el), listIdx: listIdx.n }); }
+      else { blocks.push({ type: 'ul-li', runs, align: alignOf(el) }); }
       return;
     }
-    if (tag === 'h1') { const text = textOf(el); if (text) blocks.push({ type: 'h1', text, bold: true, italic: false, align: alignOf(el) }); return; }
-    if (tag === 'h2') { const text = textOf(el); if (text) blocks.push({ type: 'h2', text, bold: true, italic: false, align: alignOf(el) }); return; }
+    if (tag === 'h1' || tag === 'h2') {
+      // Títulos permanecem sempre em negrito, nunca em itálico — mesmo
+      // comportamento de antes desta correção; sublinhado (se presente) é
+      // preservado, pois nunca foi tratado de forma especial para títulos.
+      const runs = runsOf(el).map(r => ({ ...r, bold: true, italic: false }));
+      if (runs.length) blocks.push({ type: tag as RichBlockType, runs, align: alignOf(el) });
+      return;
+    }
     if (tag === 'p' || tag === 'div') {
       if (el.querySelector('ul, ol')) { el.childNodes.forEach(c => processNode(c, listType, listIdx)); return; }
-      const text = textOf(el);
-      if (!text) return;
-      const { bold, italic } = dominantStyle(el);
-      blocks.push({ type: 'p', text, bold, italic, align: alignOf(el) });
+      const runs = runsOf(el);
+      if (!runs.length) return;
+      blocks.push({ type: 'p', runs, align: alignOf(el) });
       return;
     }
     el.childNodes.forEach(c => processNode(c, listType, listIdx));
   };
 
   d.body.childNodes.forEach(node => processNode(node));
-  return blocks.filter(b => b.text.trim().length > 0);
+  return blocks.filter(b => b.runs.some(r => r.text.trim().length > 0));
 }
 
-function drawJustifiedTextLine(doc: any, line: string, x: number, y: number, maxW: number): void {
-  const words = normalizePdfText(line).split(/\s+/).filter(Boolean);
-  if (words.length <= 2) {
-    doc.text(line, x, y);
-    return;
+/** Uma "palavra" já posicionável numa linha — resultado do quebra-linha (wrap) dos runs de um bloco. */
+export interface LineWord {
+  text: string;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+}
+
+export function fontVariantOf(w: { bold: boolean; italic: boolean }): 'normal' | 'bold' | 'italic' | 'bolditalic' {
+  return w.bold && w.italic ? 'bolditalic' : w.bold ? 'bold' : w.italic ? 'italic' : 'normal';
+}
+
+/**
+ * Quebra os runs de um bloco em linhas que cabem em `maxW`, respeitando o
+ * estilo (negrito/itálico) de cada palavra na hora de medir sua largura —
+ * uma palavra em negrito é mais larga que a mesma palavra em texto normal,
+ * então a quebra de linha precisa levar isso em conta (diferente de usar
+ * `doc.splitTextToSize` numa única string sem estilo).
+ */
+export function wrapRunsToLines(doc: any, runs: InlineRun[], family: string, fontSize: number, maxW: number): LineWord[][] {
+  const lines: LineWord[][] = [];
+  let current: LineWord[] = [];
+  let currentWidth = 0;
+
+  doc.setFont(family, 'normal');
+  doc.setFontSize(fontSize);
+  const spaceWidth = doc.getTextWidth(' ') || fontSize * 0.28;
+
+  const widthOf = (w: LineWord): number => {
+    try { doc.setFont(family, fontVariantOf(w)); } catch { doc.setFont(family, 'normal'); }
+    doc.setFontSize(fontSize);
+    return doc.getTextWidth(w.text);
+  };
+
+  const pushLine = (): void => { lines.push(current); current = []; currentWidth = 0; };
+
+  for (const run of runs) {
+    if (run.text === '\n') { pushLine(); continue; }
+    const words = run.text.split(/\s+/).filter(Boolean);
+    for (const text of words) {
+      const word: LineWord = { text, bold: run.bold, italic: run.italic, underline: run.underline };
+      const w = widthOf(word);
+      const extra = current.length ? spaceWidth : 0;
+      if (current.length && currentWidth + extra + w > maxW) {
+        pushLine();
+        current.push(word);
+        currentWidth = w;
+      } else {
+        current.push(word);
+        currentWidth += extra + w;
+      }
+    }
+  }
+  if (current.length || lines.length === 0) lines.push(current);
+  return lines;
+}
+
+/**
+ * Desenha uma linha já quebrada (`LineWord[]`), aplicando a fonte/estilo real
+ * de cada palavra e, quando `underline` é verdadeiro, um traço manual sob o
+ * trecho exato daquela palavra (jsPDF não tem sublinhado nativo). Suporta
+ * alinhamento à esquerda/centro/direita/justificado — a justificação usa a
+ * mesma guarda de "espaçamento não pode ficar exagerado" que já existia
+ * (drawJustifiedTextLine), agora operando sobre a largura real de cada
+ * palavra em seu próprio estilo.
+ */
+export function renderStyledLine(
+  doc: any,
+  words: LineWord[],
+  lx: number,
+  y: number,
+  effW: number,
+  align: 'left' | 'center' | 'right' | 'justify',
+  isLastLine: boolean,
+  family: string,
+  fontSize: number,
+): void {
+  if (!words.length) return;
+
+  doc.setFont(family, 'normal');
+  doc.setFontSize(fontSize);
+  const spaceWidth = doc.getTextWidth(' ') || fontSize * 0.28;
+
+  const widthOf = (w: LineWord): number => {
+    try { doc.setFont(family, fontVariantOf(w)); } catch { doc.setFont(family, 'normal'); }
+    doc.setFontSize(fontSize);
+    return doc.getTextWidth(w.text);
+  };
+  const widths = words.map(widthOf);
+  const totalWordsWidth = widths.reduce((s, w) => s + w, 0);
+  const naturalWidth = totalWordsWidth + spaceWidth * (words.length - 1);
+
+  let startX = lx;
+  let gap = spaceWidth;
+  if (align === 'center') {
+    startX = lx + Math.max(0, (effW - naturalWidth) / 2);
+  } else if (align === 'right') {
+    startX = lx + Math.max(0, effW - naturalWidth);
+  } else if (align === 'justify' && !isLastLine && words.length > 2) {
+    const computedGap = (effW - totalWordsWidth) / (words.length - 1);
+    // Mesma guarda de antes: se o espaçamento necessário for extremo demais
+    // (linha muito curta em relação à largura), não força — evita
+    // "espaçamento exagerado" entre palavras.
+    if (Number.isFinite(computedGap) && computedGap >= spaceWidth * 0.6 && computedGap <= spaceWidth * 3.2) {
+      gap = computedGap;
+    }
   }
 
-  const widths = words.map(word => doc.getTextWidth(word));
-  const wordsW = widths.reduce((sum, width) => sum + width, 0);
-  const spaceW = doc.getTextWidth(' ');
-  const gap = (maxW - wordsW) / (words.length - 1);
-
-  if (!Number.isFinite(gap) || gap < spaceW * 0.6 || gap > spaceW * 3.2) {
-    doc.text(line, x, y);
-    return;
-  }
-
-  let cursorX = x;
-  words.forEach((word, index) => {
-    doc.text(word, cursorX, y);
-    cursorX += widths[index] + gap;
+  let cx = startX;
+  const underlineOffset = fontSize * 0.09;
+  const underlineWidth = Math.max(0.15, fontSize * 0.035);
+  words.forEach((w, idx) => {
+    try { doc.setFont(family, fontVariantOf(w)); } catch { doc.setFont(family, 'normal'); }
+    doc.setFontSize(fontSize);
+    doc.text(w.text, cx, y);
+    if (w.underline && widths[idx] > 0) {
+      doc.setLineWidth(underlineWidth);
+      doc.line(cx, y + underlineOffset, cx + widths[idx], y + underlineOffset);
+    }
+    cx += widths[idx] + gap;
   });
 }
 
@@ -1215,39 +1420,38 @@ function renderRichTextPdf(
 
   for (const block of parseRichHtml(html)) {
     const isHeading = block.type === 'h1' || block.type === 'h2';
+    const isList = block.type === 'ul-li' || block.type === 'ol-li';
     const fontSize = isHeading ? baseFontSize + (block.type === 'h1' ? 2.5 : 1) : baseFontSize;
-    const variant = block.bold && block.italic ? 'bolditalic' : block.bold ? 'bold' : block.italic ? 'italic' : 'normal';
     const lineH = isHeading ? Math.max(fontSize * 0.55 + 1, lineHeightOverride ?? LINE_H) : (lineHeightOverride ?? LINE_H);
-    const indent = (block.type === 'ul-li' || block.type === 'ol-li') ? 4 : 0;
+    const indent = isList ? 4 : 0;
     const prefix = block.type === 'ul-li' ? '• ' : block.type === 'ol-li' ? `${block.listIdx}. ` : '';
     const effW = maxW - indent;
+    // A justificação, como antes, só se aplica a parágrafos comuns (não a
+    // listas nem títulos) — preserva exatamente o comportamento anterior.
+    const canJustify = block.type === 'p';
 
-    const applyBlockFont = (): void => {
-      try { doc.setFont(family, variant); } catch { doc.setFont(family, 'normal'); }
-      doc.setFontSize(fontSize);
-      sc(doc, DARK);
-    };
-    applyBlockFont();
+    // O marcador de lista ("•" ou "1.") entra como um run sintético no início
+    // — igual ao comportamento anterior de colar o prefixo ao texto antes de
+    // quebrar linha — para que sua largura seja considerada na primeira linha.
+    const runsForWrap: InlineRun[] = prefix
+      ? [{ text: prefix.trim(), bold: false, italic: false, underline: false }, ...block.runs]
+      : block.runs;
 
-    const cleanBlockText = normalizePdfText(block.text);
-    const lines: string[] = doc.splitTextToSize(prefix + cleanBlockText, effW);
+    const lines = wrapRunsToLines(doc, runsForWrap, family, fontSize, effW);
     const firstChunkLines = isHeading ? 1 : Math.min(lines.length, 4);
     chkPage(firstChunkLines * lineH + 2);
-    applyBlockFont();
+    sc(doc, DARK);
+    sd(doc, DARK);
 
     for (let i = 0; i < lines.length; i++) {
-      if (y > bot - 4) { y = onNewPage(); applyBlockFont(); }
-      const lx = x + indent + (i > 0 && (block.type === 'ul-li' || block.type === 'ol-li') ? prefix.length * 2 : 0);
+      if (y > bot - 4) { y = onNewPage(); sc(doc, DARK); sd(doc, DARK); }
+      const lx = x + indent + (i > 0 && isList ? prefix.length * 2 : 0);
       const isLastLine = i === lines.length - 1;
-      if (block.align === 'center') {
-        doc.text(lines[i], lx + effW / 2, y, { align: 'center' });
-      } else if (block.align === 'right') {
-        doc.text(lines[i], lx + effW, y, { align: 'right' });
-      } else if (block.align === 'justify' && !isLastLine && block.type === 'p') {
-        drawJustifiedTextLine(doc, lines[i], lx, y, effW);
-      } else {
-        doc.text(lines[i], lx, y);
-      }
+      renderStyledLine(
+        doc, lines[i], lx, y, effW,
+        canJustify ? block.align : (block.align === 'justify' ? 'left' : block.align),
+        isLastLine, family, fontSize,
+      );
       y += lineH;
     }
     y += isHeading ? 2 : 1.5;

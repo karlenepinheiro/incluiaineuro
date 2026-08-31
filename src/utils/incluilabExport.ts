@@ -156,8 +156,22 @@ function applyPdfCloneStyles(doc: Document): void {
   });
 }
 
+// Sprint 2B.3 (item 10, Auditoria 2B.2-G): aguarda as fontes carregarem antes de
+// capturar — texto ainda com fonte de fallback no momento da captura pode medir
+// larguras diferentes das que o usuário vê na tela, deslocando o layout renderizado.
+async function waitForFonts(): Promise<void> {
+  const fonts = (document as unknown as { fonts?: { ready?: Promise<unknown> } }).fonts;
+  if (!fonts?.ready) return;
+  try {
+    await fonts.ready;
+  } catch {
+    // Best-effort — nunca bloqueia a exportação por causa disso.
+  }
+}
+
 async function renderElement(element: HTMLElement, scale: number): Promise<HTMLCanvasElement> {
   const { default: html2canvas } = await import('html2canvas');
+  await waitForFonts();
   const rect = element.getBoundingClientRect();
 
   return html2canvas(element, {
@@ -166,8 +180,14 @@ async function renderElement(element: HTMLElement, scale: number): Promise<HTMLC
     allowTaint: false,
     backgroundColor: '#ffffff',
     logging: false,
-    windowWidth: Math.ceil(Math.max(document.documentElement.scrollWidth, rect.width)),
-    windowHeight: Math.ceil(Math.max(document.documentElement.scrollHeight, rect.height)),
+    // Sprint 2B.3 (item 10): dimensões baseadas SOMENTE no próprio elemento —
+    // antes usava document.documentElement.scrollWidth/scrollHeight (o documento
+    // inteiro, incluindo sidebar/toolbar sticky), o que fazia o html2canvas
+    // relayoutar o clone numa "janela virtual" muito maior que a área realmente
+    // visível, deslocando/distorcendo o conteúdo capturado em relação ao que
+    // aparece na tela.
+    windowWidth: Math.ceil(rect.width),
+    windowHeight: Math.ceil(rect.height),
     onclone: applyPdfCloneStyles,
   });
 }

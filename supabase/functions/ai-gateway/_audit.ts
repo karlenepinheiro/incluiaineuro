@@ -17,6 +17,8 @@
  */
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { modelForProviderTask } from './_modelConfig.ts';
+import type { AIProviderName, ProviderTask } from './_types.ts';
 
 // ─── Criação do registro ──────────────────────────────────────────────────────
 
@@ -102,9 +104,9 @@ export async function completeAuditRecord(
 
 // ─── Helper: modelo por task ──────────────────────────────────────────────────
 
-export function modelForTask(task: string): string {
-  if (task === 'image') return 'imagen-4.0';
-  return 'gemini-2.5-flash';
+export function modelForTask(task: string, provider: AIProviderName = 'gemini'): string {
+  const providerTask: ProviderTask = task === 'image' ? 'image' : task === 'text' ? 'text' : 'json';
+  return modelForProviderTask(provider, providerTask);
 }
 
 // ─── Helper: tipo de output por task ─────────────────────────────────────────

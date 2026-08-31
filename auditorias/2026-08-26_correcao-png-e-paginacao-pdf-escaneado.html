@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Correção PNG e Paginação PDF Escaneado</title>
+<style>
+  :root { --petrol:#1F4E5F; --dark:#2E3A59; --gold:#C69214; --bg:#F6F4EF; --surface:#FFFFFF; --border:#E7E2D8; --text:#111827; --muted:#6B7280; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; }
+  .header-inner { max-width: 1040px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 26px; font-weight: 800; max-width: 800px; }
+  .header p { opacity: .85; margin-top: 10px; font-size: 13px; max-width: 760px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1040px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h4 { font-size: 12.5px; color: var(--petrol); margin: 14px 0 6px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-ok { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-critico { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .badge-nver { background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.crit { border-color: #DC2626; background: #FEF2F2; }
+  .callout.ok { border-color: #059669; background: #F0FDF4; }
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px 16px; border-radius: 8px; overflow-x: auto; font-size: 12px; margin: 8px 0 14px; }
+  .checklist td:first-child { font-weight: 600; width: 62%; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="header"><div class="header-inner">
+  <div class="kicker">Correção de bug real · Teste manual</div>
+  <h1>Cadastro Inteligente — Correção do PNG e da Paginação do PDF Escaneado</h1>
+  <p>Achados de um teste manual real (Teste 1 DOCX: PASS · Teste 2 PNG: FAIL · Teste 4 sem nome: PASS · Teste 5 PDF 2 páginas: PARCIAL). Causa raiz do PNG identificada com precisão no código do próprio Gateway (sem precisar alterá-lo) e corrigida; contagem real de páginas do PDF agora chega à interface.</p>
+  <div class="cover-badges">
+    <span class="badge badge-ok">26/08/2026</span>
+    <span class="badge badge-ok">Causa raiz confirmada por código — sem ambiguidade</span>
+    <span class="badge badge-ok">349/349 testes · build OK</span>
+    <span class="badge badge-critico">Gateway/banco não tocados — bug era só no frontend</span>
+  </div>
+</div></div>
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Sessão</strong>Recuperada após 2ª queda de conexão — nada perdido (ver Seção 0)</div>
+    <div><strong>Arquivo alterado</strong><code>src/services/studentDocumentImportService.ts</code></div>
+    <div><strong>Arquivo alterado</strong><code>src/components/StudentImportModal.tsx</code></div>
+    <div><strong>Gateway/Edge Function/Banco</strong>Não tocados — o bug era 100% no frontend</div>
+  </div>
+
+  <section class="block">
+    <h2><span class="num">0</span>Recuperação da sessão</h2>
+    <p><code>git status</code>/<code>git diff --stat</code> confirmaram, antes de qualquer nova alteração: todo o trabalho da Fase 1 (Cadastro Inteligente) e da Fase 2 (prévia A4/Google Docs, relatório em <code>2026-08-26_fase-2-preview-a4-tablet-e-plano-google-docs.html</code>) estava intacto em disco — mesmos arquivos, mesma contagem de linhas alteradas de antes da queda. Nada foi revertido, nenhum comando destrutivo foi usado. Nenhum arquivo estava parcialmente escrito ou com erro de sintaxe (confirmado por <code>tsc --noEmit</code> e pela suíte de testes completa, ambos limpos antes de iniciar esta correção). O ponto de retomada era: nenhuma linha desta correção específica (PNG/PDF) havia sido escrita ainda — a tarefa começou do zero, mas sobre uma base 100% preservada.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">1</span>Causa exata do erro do PNG</h2>
+    <p class="callout crit"><strong>Achado confirmado por código, sem ambiguidade:</strong> em <code>studentDocumentImportService.ts</code>, a função <code>mapVisualDocumentToStudentPayload</code> (usada tanto para imagem quanto para PDF escaneado) enviava ao AI Gateway:</p>
+    <pre>callAIGateway({ task: 'image', prompt, imageBase64, ... })</pre>
+    <p>No AI Gateway (<code>ai-gateway/index.ts</code>, <strong>não alterado</strong>), <code>task: 'image'</code> significa "GERAR uma imagem" — rotea para <code>provider.generateImage({ prompt })</code>, que no provider Gemini (<code>_geminiProvider.ts</code>) chama <code>generateVertexImage(prompt)</code>, ou seja, <strong>Vertex Imagen (texto→imagem)</strong>. Essa função <strong>nem recebe <code>imageBase64</code> como parâmetro</strong> — a imagem enviada pela professora era descartada antes mesmo de chegar ao provider.</p>
+    <p>A mensagem "Serviço de imagem IA não configurado. Contate o suporte." vem de <code>friendlyError()</code> em <code>index.ts</code>, disparada quando o erro bruto contém <code>CONFIG_VERTEX_IMAGE</code> — lançado por <code>_vertex.ts</code> quando a credencial de Vertex Imagen (<code>GOOGLE_SERVICE_ACCOUNT_JSON</code>) não está configurada/válida para aquela chamada. Ou seja: o sistema estava tentando <strong>gerar uma imagem a partir do prompt de instruções de extração</strong> (um texto absurdo para o Imagen desenhar), em vez de <strong>analisar visualmente</strong> a ficha enviada.</p>
+    <h4>Por que isso nunca tinha sido pego antes</h4>
+    <p>A auditoria original (25/08) e a Fase 1 corrigiram o <em>mimetype</em> da imagem (Seção H daquele relatório) — um bug real, mas anterior a este na cadeia. Como o mimetype nunca chegava a importar (a chamada já ia pelo caminho errado de geração de imagem, que ignora <code>imageBase64</code> completamente), o bug de roteamento <code>task:'image'</code> só ficou visível agora, no primeiro teste manual real ponta a ponta.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">2</span>Correção — sem tocar Gateway, provider ou secrets</h2>
+    <p>A rota correta para análise multimodal (imagem→JSON) <strong>já existe</strong> no mesmo Gateway, sem precisar de nenhuma alteração: <code>task:'json'</code> + <code>imageBase64</code> chega a <code>provider.generateJSON({ prompt, imageBase64 })</code>, que no Gemini repassa a imagem como <code>inlineData</code> — exatamente o caminho que <code>mapDocumentTextToStudentPayload</code> (a extração de texto, que já funcionava — Teste 1 e Teste 4 PASS) já usa.</p>
+    <pre>// Antes (errado — rota de GERAÇÃO de imagem, ignora imageBase64):
+callAIGateway({ task: 'image', prompt, imageBase64, ... })
+
+// Depois (correto — mesma rota multimodal já usada e comprovada pela extração de texto):
+callAIGateway({ task: 'json', prompt, imageBase64, ... })</pre>
+    <p><strong>Uma única linha alterada</strong> em <code>studentDocumentImportService.ts</code>. Verificado que a validação server-side genérica (<code>validateAndRepair</code>, em <code>_aiUtils.ts</code>, não alterada) só faz limpeza de markdown + <code>JSON.parse</code> — sem schema fixo — logo não interfere no formato <code>{"students":[...]}</code> usado por esta função, do mesmo jeito que já não interfere na extração de texto.</p>
+    <p><strong>Isso corrige o mesmo bug tanto para imagem (PNG/JPG/WEBP) quanto para PDF escaneado</strong> — ambos passam pela mesma função <code>mapVisualDocumentToStudentPayload</code>.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">3</span>Gemini multimodal, não Imagen</h2>
+    <p><span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span> — com <code>task:'json'</code>, o Gateway usa <code>provider.generateJSON</code>, nunca <code>provider.generateImage</code> (Imagen). O Gemini multimodal (<code>gemini-2.5-flash</code>, o mesmo modelo de texto, com suporte nativo a imagem via <code>inlineData</code>) é quem processa a leitura visual — não há mais nenhuma dependência de Vertex Imagen nesta função.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">4</span>MIME real preservado</h2>
+    <p>Sem mudanças aqui — a correção do mimetype feita na Fase 1 (<code>resolveAcceptedImageMimeType</code> + <code>rebuildDataUrlWithMimeType</code>) continua ativa e agora, com o roteamento corrigido, <strong>realmente importa</strong>: o <code>imageBase64</code> chega ao Gemini com o mimetype certo (<code>image/png</code>, <code>image/jpeg</code> ou <code>image/webp</code>, conforme o arquivo real). Testado novamente nesta correção (3 novos testes: PNG, WEBP, e confirmação de que <code>task</code> nunca é <code>'image'</code>).</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">5</span>Ciclo da reserva de créditos — verificado, nenhuma mudança necessária</h2>
+    <p>Rastreado ponta a ponta: quando o provider falha (como acontecia com <code>CONFIG_VERTEX_IMAGE</code>), o próprio <code>ai-gateway/index.ts</code> (código não alterado, já existente) libera a reserva automaticamente <em>antes</em> de responder com erro ao frontend — e a resposta de erro não inclui <code>reservationId</code> nenhum. No frontend, <code>callAIGateway</code> lança um <code>Error</code> comum (sem campo <code>reservationId</code>); o <code>catch</code> de <code>runAIProcessing</code> (Fase 1) já trata isso corretamente: como não há <code>reservationId</code> a recuperar, apenas zera a referência local, sem tentar liberar de novo (evitando liberação duplicada). <span class="badge badge-ok">Confirmado por leitura de código — nenhuma alteração precisou ser feita neste ciclo.</span></p>
+    <p>Fechar o modal, trocar de arquivo ou clicar em "Tentar" de novo não acumula reservas — cada tentativa gera uma nova reserva independente (via <code>operationId</code> único por chamada) e cada falha (de provider ou de validação) já libera a sua própria, como testado na Fase 1.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">6</span>Contagem real de páginas do PDF escaneado</h2>
+    <p><span class="badge badge-critico">Achado confirmado por código:</span> a Fase 1 já calculava <code>pdf.numPages</code> localmente (via pdfjs, sem custo de IA) dentro de <code>extractTextFromPdf</code> — mas, no ramo específico de PDF <em>escaneado</em> (quando nenhum texto é encontrado), esse número era descartado em <code>StudentImportModal.tsx</code>: <code>pendingPdfPageInfo</code> nunca era preenchido nesse ramo, e a interface caía na mensagem genérica e estática "Apenas a primeira página será processada", mesmo sabendo (client-side, sem custo) que o documento tinha 2 páginas.</p>
+    <h4>Correção</h4>
+    <ul>
+      <li><code>pendingPdfPageInfo</code> agora é preenchido também no ramo de PDF escaneado, com o <code>totalPages</code> real já calculado.</li>
+      <li>Nova função <code>buildScannedPdfPreProcessingNotice(totalPages)</code>, usada no painel de confirmação de créditos (<strong>antes</strong> do processamento, sem custo):
+        <ul>
+          <li>Mais de 1 página: <em>"Seu documento possui {N} páginas. Nesta versão, foi analisada apenas a primeira."</em></li>
+          <li>Exatamente 1 página: <em>"PDF escaneado detectado. A única página do documento será analisada por leitura visual."</em></li>
+          <li>Contagem desconhecida (PDF corrompido/protegido, quando nem o pdfjs consegue abrir para contar): mensagem honesta informando que a contagem não pôde ser determinada.</li>
+        </ul>
+      </li>
+      <li>A revisão (pós-processamento) já mostrava o aviso dinâmico corretamente para PDF escaneado (a função <code>mapVisualDocumentToStudentPayload</code> já calcula <code>pageInfo</code> a partir do mesmo <code>pdf.numPages</code>, internamente, na renderização da 1ª página) — não precisou de correção, só a mensagem <em>antes</em> do processamento estava quebrada.</li>
+    </ul>
+    <p>Nenhuma página adicional é renderizada ou enviada — a limitação de analisar somente a primeira página continua a mesma da Fase 1 (mudar isso exigiria alterar o Gateway para aceitar múltiplas imagens por chamada, fora do escopo autorizado, já documentado no relatório da Fase 2).</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">7</span>Testes e build</h2>
+    <ul>
+      <li><strong>10 testes novos</strong>: <code>mapVisualDocumentToStudentPayload</code> envia <code>task:'json'</code> (nunca <code>'image'</code>) — regressão direta deste bug; PNG e WEBP chegam com mimetype correto no payload; caminho feliz preserva <code>reservationId</code>; confiança baixa rejeita preservando <code>reservationId</code>; formato não suportado é rejeitado <em>antes</em> de qualquer chamada ao Gateway (nenhuma reserva criada); 4 testes para <code>buildScannedPdfPreProcessingNotice</code> (1 página, N páginas, contagem desconhecida, nunca retorna null).</li>
+      <li>Para exercitar o ramo de imagem sem navegador real, foi adicionado um stub mínimo de <code>FileReader</code> só no arquivo de teste (mesmo princípio já usado para <code>DOMMatrix</code>/pdfjs na Fase 1) — sem instalar jsdom nem qualquer dependência nova.</li>
+      <li><strong>Suíte completa:</strong> <code>npx vitest run</code> → <span class="badge badge-ok">30 arquivos, 349 testes, 349 passando</span> (339 anteriores + 10 novos). Nenhuma regressão.</li>
+      <li><strong>tsc --noEmit:</strong> 56 erros, todos pré-existentes e inalterados (mesmos de antes desta correção); zero novos nos arquivos tocados.</li>
+      <li><strong>Build:</strong> <code>npx vite build</code> → sucesso.</li>
+      <li><span class="badge badge-nver">Teste integrado real (Gemini/Gateway de produção) NÃO executado</span> — este ambiente não tem sessão autenticada nem credenciais de produção. A correção foi validada por: (a) leitura completa do código do Gateway confirmando a rota <code>task:'json'</code> já funciona (é a mesma usada pela extração de texto, que já passou no Teste 1 e Teste 4 reais), e (b) testes automatizados com mocks. <strong>Não declaro o provider real como testado</strong> — só o teste manual da professora (Teste 2/5 refeitos) confirma isso de fato.</li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">8</span>Áreas preservadas</h2>
+    <p>Nenhuma linha alterada em: Gateway/Edge Functions, <code>_vertex.ts</code>, providers, banco, migrations, RLS, secrets, IncluiLAB, DocumentWorkspace, PDFGenerator, wordExportService, modo CSV. Teste 1 (DOCX completo) e Teste 4 (documento sem nome) continuam cobertos pelos mesmos testes da Fase 1, que continuam passando sem alteração.</p>
+  </section>
+
+  <!-- Checklist final -->
+  <section class="block">
+    <h2><span class="num">✓</span>Checklist de encerramento</h2>
+    <div class="table-wrap"><table class="checklist">
+      <tr><td>SESSÃO RECUPERADA SEM PERDA</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>ALTERAÇÕES ANTERIORES PRESERVADAS</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>TESTE 1 DOCX PRESERVADO</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>CAUSA DO ERRO DO PNG IDENTIFICADA</td><td><span class="badge badge-ok">SIM</span> — <code>task:'image'</code> roteava para geração de imagem (Vertex Imagen), não para análise visual</td></tr>
+      <tr><td>TESTE 2 PNG CORRIGIDO</td><td><span class="badge badge-ok">SIM (por código/teste)</span> — aguardando confirmação no seu novo teste manual</td></tr>
+      <tr><td>PNG USA GEMINI MULTIMODAL</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>PNG NÃO DEPENDE DE IMAGEN</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>MIME REAL PRESERVADO</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>ERRO VISUAL LIBERA RESERVA</td><td><span class="badge badge-ok">SIM</span> (já garantido pelo Gateway existente, verificado, não alterado)</td></tr>
+      <tr><td>CRÉDITOS PRESERVADOS NA FALHA</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>PDF DETECTA PAGECOUNT REAL</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>PDF DE DUAS PÁGINAS MOSTRA "2 PÁGINAS"</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>SOMENTE PRIMEIRA PÁGINA ANALISADA</td><td><strong>SIM</strong></td></tr>
+      <tr><td>TESTE 4 SEM NOME PRESERVADO</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>GATEWAY ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>BANCO ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>INCLUILAB ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>TESTES</td><td><strong>PASS</strong> (349/349)</td></tr>
+      <tr><td>BUILD</td><td><strong>PASS</strong></td></tr>
+    </table></div>
+  </section>
+
+  <div class="callout ok"><strong>Fim desta correção.</strong> Aguardando seu novo teste manual (Teste 2 PNG, Teste 3 documento incompleto, Teste 5 PDF de 2 páginas) antes de qualquer novo passo. Nenhum deploy foi feito.</div>
+</div>
+<div class="footer">IncluiAI · Correção PNG e Paginação PDF Escaneado · 26/08/2026</div>
+</body>
+</html>

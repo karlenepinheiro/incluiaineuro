@@ -13,6 +13,7 @@ import { callAIGateway } from '../services/aiGatewayService';
 import { AI_CREDIT_COSTS } from '../config/aiCosts';
 import { DEMO_MODE } from '../services/supabase';
 import { generateDocumentCode } from '../utils/documentCodes';
+import { ChecklistExportRow } from './fichas/ChecklistExportRow';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -684,13 +685,6 @@ REGRAS IMPORTANTES:
         </button>
 
         <button
-          onClick={handlePrint}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm border border-[#1F4E5F]/30 text-[#1F4E5F] hover:bg-[#F6F4EF] transition"
-        >
-          <Printer size={14} /> Imprimir / PDF
-        </button>
-
-        <button
           onClick={() => printRegenteEnem(student, school)}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm border border-[#C69214]/50 hover:bg-[#FFFBEB] transition"
           style={{ color: '#92610A' }}
@@ -706,6 +700,17 @@ REGRAS IMPORTANTES:
           </div>
         )}
       </div>
+
+      {/* [FASE 2 · BLOCO B] Documento final: PDF real + Word (.docx) + Google Docs + Imprimir */}
+      <ChecklistExportRow
+        variant="regente"
+        data={data}
+        student={student}
+        user={user}
+        school={school}
+        auditCode={savedCode ?? data.auditCode ?? null}
+        onPrint={handlePrint}
+      />
 
       {/* Parecer gerado */}
       {data.parecer && (

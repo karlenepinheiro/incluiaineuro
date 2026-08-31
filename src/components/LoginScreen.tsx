@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { BrandLogo } from './BrandLogo';
 import { checkPurchaseByEmail } from '../services/purchaseActivationService';
 import { waUrl } from '../config/contact';
+import type { ProfileSex } from '../types';
 
 // ── Máscaras e validação ────────────────────────────────────────────────────
 
@@ -52,7 +53,7 @@ const WA_CADASTRO_MSG =
 
 export interface AuthScreenProps {
   onLogin: (email: string, pass: string) => Promise<void>;
-  onRegister: (name: string, email: string, pass: string, phone: string, cpf: string) => Promise<void>;
+  onRegister: (name: string, email: string, pass: string, phone: string, cpf: string, sex: ProfileSex) => Promise<void>;
   /** Mantido para compatibilidade com App.tsx — não exposto na interface. */
   onGoogleLogin?: () => Promise<void>;
   onGuest?: () => void;
@@ -75,6 +76,7 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
   const [email, setEmail]           = useState('');
   const [phone, setPhone]           = useState('');
   const [cpf, setCpf]               = useState('');
+  const [sex, setSex]               = useState<ProfileSex>('unspecified');
   const [pass, setPass]             = useState('');
   const [confirmPass, setConfirmPass] = useState('');
   const [showPass, setShowPass]     = useState(false);
@@ -89,13 +91,13 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
   const [showPurchaseModal, setShowPurchaseModal]   = useState(false);
   const [purchaseModalType, setPurchaseModalType]   = useState<'not_found' | 'network_error'>('not_found');
   const [pendingFormData, setPendingFormData]       = useState<{
-    name: string; email: string; pass: string; phone: string; cpf: string;
+    name: string; email: string; pass: string; phone: string; cpf: string; sex: ProfileSex;
   } | null>(null);
 
   const emailRef = useRef<HTMLInputElement>(null);
 
   const resetFields = () => {
-    setName(''); setEmail(''); setPhone(''); setCpf('');
+    setName(''); setEmail(''); setPhone(''); setCpf(''); setSex('unspecified');
     setPass(''); setConfirmPass(''); setError(''); setSuccess('');
     setPendingPurchase(null); setPendingFormData(null);
     setShowPurchaseModal(false);
@@ -162,6 +164,7 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
           pass,
           phone: phone.trim(),
           cpf:   cpf.replace(/\D/g, ''),
+          sex,
         };
 
         // ── PASSO 1: verificar compra aprovada (BLOQUEANTE) ─────────────────
@@ -195,7 +198,7 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
 
         // ── PASSO 2: compra confirmada — criar conta ────────────────────────
         setLoadingPhase('creating');
-        await onRegister(formData.name, formData.email, formData.pass, formData.phone, formData.cpf);
+        await onRegister(formData.name, formData.email, formData.pass, formData.phone, formData.cpf, formData.sex);
         setSuccess('Conta criada! Verifique seu e-mail se necessário.');
       }
     } catch (err: any) {
@@ -508,6 +511,22 @@ export const LoginScreen: React.FC<AuthScreenProps> = ({
                         <p className="mt-1 text-[11px]" style={{ color: '#94A3B8' }}>
                           Seus dados são protegidos conforme a LGPD
                         </p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold mb-1.5" style={{ color: '#2E3A59' }}>
+                          Sexo
+                        </label>
+                        <select
+                          value={sex}
+                          onChange={e => setSex(e.target.value as ProfileSex)}
+                          className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none transition-all"
+                          style={inputStyle}
+                        >
+                          <option value="female">Feminino</option>
+                          <option value="male">Masculino</option>
+                          <option value="unspecified">Prefiro não informar</option>
+                        </select>
                       </div>
                     </motion.div>
                   )}

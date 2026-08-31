@@ -1,7 +1,8 @@
 // IncluiLabView.tsx — IncluiLAB v5.0 Studio
 // Layout: Studio centralizado estilo Claude/Gemini — sem bolhas de chat
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -11,9 +12,13 @@ import {
   Trash2, BookMarked, FileImage, Type, Paperclip,
   RefreshCw, User as UserIcon, ChevronDown, ChevronRight,
   Clock, Star, Layers, Target, Package, ListOrdered,
-  Lightbulb, GraduationCap, AlertCircle,
+  Lightbulb, GraduationCap, AlertCircle, SlidersHorizontal,
+  PlusCircle,
 } from 'lucide-react';
-import { User, Student, ActivitySchema, ActivityVisualAsset } from '../types';
+import { User, Student, ActivitySchema, ActivityVisualAsset, ActivityPackage, OriginalActivityType, IncluiLabOutputFormat } from '../types';
+import { INCLUILAB_NEW_UI } from '../config/incluilabUi';
+import { isIncluiLabCanonicalModeEnabled } from '../config/incluilabPipeline';
+import { AVALIACAO_KEYWORDS } from '../services/incluilab/intentExtractor';
 import { AIService, friendlyAIError, cleanJsonString } from '../services/aiService';
 import { callAIGateway } from '../services/aiGatewayService';
 import { CreditTransactionService } from '../services/creditService';
@@ -22,8 +27,15 @@ import { StudentContextService } from '../services/studentContextService';
 import { GeneratedActivityService } from '../services/persistenceService';
 import { WorkflowCanvas as AtivaIACanvas } from '../components/ativaIA/WorkflowCanvas';
 import { A4ActivityRenderer } from '../components/incluilab/A4ActivityRenderer';
+import { AnswerKeyRenderer } from '../components/incluilab/AnswerKeyRenderer';
 import { ActivityA4Premium, ActivityVisualStyle } from '../components/incluilab/ActivityA4Premium';
 import { exportAsPDF, exportAsPNG } from '../utils/incluilabExport';
+import {
+  buildIncluiLabWordFilename,
+  downloadWordDocument,
+  exportIncluiLabActivityToWord,
+} from '../services/wordExportService';
+import { Dialog, DialogContent, DialogTitle } from '../components/ui/dialog';
 import {
   getStoredContentJson,
   IncluiLabActivityContent,
@@ -32,9 +44,20 @@ import {
 } from '../utils/incluilabActivity';
 import {
   isActivitySchemaValidationError,
-  validateActivitySchema,
 } from '../utils/validateActivitySchema';
 import { CreditBalanceBadge } from '../components/CreditBalanceBadge';
+// Sprint 2B — Activity Pipeline canônico (atrás da flag INCLUILAB_CANONICAL_PIPELINE, desligada por padrão).
+// Não substitui o fluxo legado acima — apenas usado quando a flag está ligada. Ver src/config/incluilabUi.ts.
+import { extractCanonicalIntent } from '../services/incluilab/intentExtractor';
+import {
+  buildTeacherGuideMarkdown,
+  runCanonicalActivityPipeline,
+} from '../services/incluilab/canonicalActivityPipeline';
+import {
+  buildActivityPackageFromStoredRow,
+  buildCanonicalActivityStorageContent,
+  parseStoredActivityFromPayload,
+} from '../services/incluilab/activityPackageStorage';
 
 // ─── Paleta ───────────────────────────────────────────────────────────────────
 const C = {
@@ -54,6 +77,7 @@ const C = {
 // ─── Modos de geração ─────────────────────────────────────────────────────────
 type GenerationMode =
   | 'a4_economica'
+  | 'avaliacao'
   | 'a4_visual'
   | 'a4_premium'
   | 'adaptar_economico'
@@ -70,15 +94,16 @@ interface ModeConfig {
 }
 
 const MODES_CRIAR: ModeConfig[] = [
-  { id: 'a4_economica', label: 'A4 Econômica',     desc: 'Guia pedagógico + folha estruturada (pictogramas internos)',       maxCost: INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA,  icon: FileText,  requiresFile: false },
-  { id: 'a4_visual',    label: 'A4 Visual',         desc: 'Guia pedagógico (texto) + folha A4 como imagem premium (OpenAI)', maxCost: INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX, icon: Sparkles,  requiresFile: false },
-  { id: 'a4_premium',   label: 'Premium Ilustrada', desc: 'Guia pedagógico + worksheet A4 premium retrato HD (OpenAI)',      maxCost: INCLUILAB_ACTIVITY_COSTS.A4_PREMIUM,    icon: FileImage, requiresFile: false },
+  { id: 'a4_economica', label: 'A4 Econômica',     desc: 'Folha estruturada com validação canônica',                         maxCost: INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA,  icon: FileText,  requiresFile: false },
+  { id: 'avaliacao',    label: 'Avaliação',        desc: 'Folha do aluno + gabarito obrigatório',                            maxCost: INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA,  icon: CheckCircle, requiresFile: false },
+  { id: 'a4_visual',    label: 'A4 Visual',         desc: 'Guia pedagógico (texto) + folha A4 como imagem via Imagen',       maxCost: INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX, icon: Sparkles,  requiresFile: false },
+  { id: 'a4_premium',   label: 'Premium Ilustrada', desc: 'Guia pedagógico + worksheet A4 premium retrato HD via Imagen',    maxCost: INCLUILAB_ACTIVITY_COSTS.A4_PREMIUM,    icon: FileImage, requiresFile: false },
 ];
 
 const MODES_ADAPTAR: ModeConfig[] = [
   { id: 'adaptar_economico', label: 'Adaptar — Texto',   desc: 'Analisa imagem + reconstrói como A4 estruturado (Gemini)',        maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO,  icon: Layers,    requiresFile: true },
-  { id: 'adaptar_visual',    label: 'Adaptar — Visual',  desc: 'Analisa + guia pedagógico + reconstrói folha A4 imagem (OpenAI)', maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX, icon: Sparkles,  requiresFile: true },
-  { id: 'adaptar_premium',   label: 'Adaptar — Premium', desc: 'Analisa + guia pedagógico + worksheet A4 premium HD (OpenAI)',    maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_PREMIUM,   icon: FileImage, requiresFile: true },
+  { id: 'adaptar_visual',    label: 'Adaptar — Visual',  desc: 'Analisa + guia pedagógico + folha A4 imagem via Imagen',          maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX, icon: Sparkles,  requiresFile: true },
+  { id: 'adaptar_premium',   label: 'Adaptar — Premium', desc: 'Analisa + guia pedagógico + worksheet A4 premium HD via Imagen',  maxCost: INCLUILAB_ACTIVITY_COSTS.ADAPTAR_PREMIUM,   icon: FileImage, requiresFile: true },
 ];
 
 const ALL_MODES: ModeConfig[] = [...MODES_CRIAR, ...MODES_ADAPTAR];
@@ -132,12 +157,49 @@ interface GeneratedResult {
   creditsUsed:  number;
   mode:         GenerationMode;
   savedId?:     string;
+  /** Sprint 2B — presente apenas quando o resultado veio do Activity Pipeline canônico (schemaVersion 2.0). */
+  activityPackage?: ActivityPackage;
+  outputFormat?: IncluiLabOutputFormat;
+  outputFormatNotice?: string;
+  /** Checkpoint 4E — gabarito do pipeline legado, quando requestType=avaliacao (ver buildPremiumActivityPrompt). */
+  legacyAnswerKey?: IncluiLabAnswerKeyItem[];
+  /** Checkpoint 4E — tipo estrutural detectado do material original, só em modos de adaptação. */
+  originalActivityType?: OriginalActivityType | null;
+}
+
+interface PendingFormatRequest {
+  mode: GenerationMode;
+  topic: string;
+  inputText: string;
+  file: AttachedFile | null;
+}
+
+/** Checkpoint 4E — item Gabarito. Correlaciona por número de questão (não por id — o
+ *  contrato legado de sections/items não tem id estável, só `number`). */
+export interface IncluiLabAnswerKeyItem {
+  numero: number;
+  resposta: string;
+  explicacao?: string;
 }
 
 type LabState = 'idle' | 'generating' | 'result';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 10); }
+
+function outputFormatLabel(format?: IncluiLabOutputFormat): string {
+  if (format === 'docx') return 'Word';
+  if (format === 'pdf') return 'PDF';
+  if (format === 'png') return 'Imagem';
+  return 'Não informado';
+}
+
+function outputFormatButtonLabel(format?: IncluiLabOutputFormat): string {
+  if (format === 'docx') return 'Baixar Word';
+  if (format === 'pdf') return 'Baixar PDF';
+  if (format === 'png') return 'Baixar PNG';
+  return 'Baixar PDF';
+}
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -268,15 +330,6 @@ function activitySchemaErrorMessage(err: unknown): string {
   return `Erro: ${friendlyAIError(err)}`;
 }
 
-function parseStoredActivity(content?: string | null): ActivitySchema | null {
-  if (!content?.trim()) return null;
-  try {
-    return validateActivitySchema(content);
-  } catch {
-    return null;
-  }
-}
-
 function createLegacyActivity(title: string, content: string): ActivitySchema {
   const lines = content
     .split('\n')
@@ -379,10 +432,137 @@ function extractGuiaText(parsedJson: any, topic: string): string {
   return buildFallbackGuide(topic);
 }
 
+// ─── Checkpoint 4E — Preservação do tipo original em adaptações ──────────────
+//
+// Item "Adaptação não preserva o material original": antes, o prompt de
+// adaptação não sabia (nem perguntava) que TIPO de atividade foi enviado —
+// só recebia o texto extraído da análise de imagem, então o modelo recriava
+// livremente como uma lista de perguntas genéricas, mesmo quando o original
+// era um caça-palavras, cruzadinha, etc.
+//
+// Heurística de melhor esforço: procura pistas textuais na análise já feita
+// pelo Gemini Vision (buildAdaptImagePrompt) — não é um classificador visual
+// dedicado, é best-effort a partir da descrição em texto do que foi enviado.
+export type { OriginalActivityType } from '../types';
+
+export const ORIGINAL_ACTIVITY_TYPE_LABELS: Record<OriginalActivityType, string> = {
+  word_search:     'caça-palavras',
+  crossword:       'cruzadinha',
+  multiple_choice: 'questões objetivas (múltipla escolha)',
+  open_questions:  'questões discursivas',
+  matching:        'ligar colunas / associação',
+  fill_blank:      'completar lacunas',
+  coloring:        'atividade de colorir',
+  table:           'tabela',
+  mixed:           'atividade mista',
+  other:           'outro formato',
+};
+
+// Tipos que o contrato atual consegue renderizar sem converter para perguntas
+// genéricas. word_search/crossword têm suporte mínimo no renderer canônico
+// (grade/banco de palavras/pistas); Visual/Premium seguem legados.
+const RENDERER_SUPPORTED_ORIGINAL_TYPES: ReadonlySet<OriginalActivityType> = new Set([
+  'word_search', 'crossword', 'multiple_choice', 'open_questions', 'matching', 'fill_blank', 'coloring', 'table', 'mixed',
+]);
+
+export function rendererSupportsOriginalType(type: OriginalActivityType | null): boolean {
+  return type !== null && RENDERER_SUPPORTED_ORIGINAL_TYPES.has(type);
+}
+
+export function detectOriginalActivityType(analysisText: string): OriginalActivityType | null {
+  const t = (analysisText || '').toLowerCase();
+  if (!t.trim()) return null;
+  if (/ca[çc]a[\s-]?palavras/.test(t)) return 'word_search';
+  if (/cruzadinha|palavras\s+cruzadas/.test(t)) return 'crossword';
+  if (/colorir|pintar|atividade\s+de\s+colorir/.test(t)) return 'coloring';
+  if (/tabela|quadro\s+de\s+respostas|complete\s+a\s+tabela|preencha\s+a\s+tabela/.test(t)) return 'table';
+  if (/complet[ae]r?\s+(a\s+)?lacuna|preench[ae]r?\s+(a\s+)?lacuna|lacunas?/.test(t)) return 'fill_blank';
+  if (/liga[çc][ãa]o\s+de\s+colunas|ligar\s+(as\s+)?colunas|associa[çc][ãa]o|coluna\s*a.*coluna\s*b/.test(t)) return 'matching';
+  if (/m[uú]ltipla\s+escolha|alternativas?\b|assinale\s+a\s+(alternativa|op[çc][ãa]o)/.test(t)) return 'multiple_choice';
+  if (/discursiv|resposta\s+livre|responda\s+com\s+suas\s+palavras|pergunta\s+aberta/.test(t)) return 'open_questions';
+  return null;
+}
+
+// ─── Checkpoint 4E — Gabarito do pipeline legado (Avaliação) ─────────────────
+// Componente próprio, estilo consistente com AnswerKeyRenderer.tsx, mas
+// trabalhando direto com IncluiLabAnswerKeyItem[] (contrato sections/items,
+// sem id estável — só `number`). Não reaproveita AnswerKeyRenderer porque
+// aquele exige ActivitySchema/exercises do pipeline canônico.
+const LegacyAnswerKeyView: React.FC<{ items: IncluiLabAnswerKeyItem[]; title: string }> = ({ items, title }) => (
+  <div
+    data-incluilab-pdf-page="true"
+    style={{
+      width: 794, minHeight: 1123, maxWidth: 794, boxSizing: 'border-box',
+      background: '#fff', borderRadius: 12, padding: '40px 44px',
+      boxShadow: '0 4px 24px rgba(0,0,0,0.10)', fontFamily: "'Segoe UI', Arial, sans-serif",
+      overflowWrap: 'break-word', wordBreak: 'break-word', overflowX: 'hidden',
+    }}
+  >
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28, paddingBottom: 18, borderBottom: '2px solid #D0D8DC' }}>
+      <div style={{ width: 42, height: 42, borderRadius: 11, background: '#F4FBF7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <CheckCircle size={20} color="#16A34A" />
+      </div>
+      <div style={{ minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 10, color: '#667085', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          IncluiLAB · Uso exclusivo do professor
+        </p>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#20263A', overflowWrap: 'break-word' }}>
+          Gabarito — {title || 'Atividade'}
+        </h2>
+      </div>
+    </div>
+    <ol style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {items.sort((a, b) => a.numero - b.numero).map(item => (
+        <li key={item.numero} style={{ border: '1px solid #D0D8DC', borderRadius: 10, padding: '12px 16px' }}>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: '#1F4E5F' }}>Questão {item.numero}</p>
+          <p style={{ margin: '4px 0 0', fontSize: 13.5, color: '#20263A' }}>{item.resposta}</p>
+          {item.explicacao && (
+            <p style={{ margin: '6px 0 0', fontSize: 12, color: '#667085', fontStyle: 'italic' }}>{item.explicacao}</p>
+          )}
+        </li>
+      ))}
+    </ol>
+  </div>
+);
+
+// Checkpoint 4E — item "Título vindo do filename": ordem de prioridade pedida:
+// (1) título identificado dentro do próprio material, (2) título semântico do
+// conteúdo, (3) tema principal, (4) só em último caso, filename sanitizado.
+// O JSON schema (buildPremiumActivityPrompt) já pede "title" ao modelo — isso
+// cobre (1)/(2)/(3) quando o modelo responde bem. Esta função só decide o
+// FALLBACK (quando normalizeIncluiLabActivity não recebe um title utilizável).
+export function deriveAdaptedFallbackTitle(analysisText: string, fileName: string): string {
+  const explicit = (analysisText || '').match(/t[íi]tulo\s*[:\-]\s*([^\n]{4,90})/i);
+  if (explicit) {
+    const candidate = explicit[1].trim().replace(/["'*_#]/g, '').trim();
+    if (candidate.length >= 4) return candidate;
+  }
+  const firstLine = (analysisText || '')
+    .split('\n')
+    .map(l => l.replace(/^[-*#\s]+/, '').trim())
+    .find(l => l.length >= 6 && l.length <= 90 && !/^t[íi]tulo\s*[:\-]/i.test(l));
+  if (firstLine) return firstLine;
+  return sanitizeFileNameForTitle(fileName);
+}
+
+function sanitizeFileNameForTitle(fileName: string): string {
+  const withoutExt = (fileName || '').replace(/\.[a-zA-Z0-9]{2,5}$/, '');
+  const spaced = withoutExt.replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!spaced) return 'Atividade Adaptada';
+  return spaced.replace(/\b\w/g, c => c.toUpperCase());
+}
+
 // ─── Prompts ──────────────────────────────────────────────────────────────────
 
 const IMAGE_STYLE_PROMPT = 'imagem pequena educativa para apoiar atividade escolar, fundo branco, cores suaves, traco limpo, sem texto na imagem';
-const A4_WORKSHEET_STYLE_PROMPT = 'Gerar imagem A4 vertical de atividade escolar brasileira, fundo branco, estilo worksheet didatico premium, titulo grande no topo, cabecalho Nome/Data/Turma, questoes em quadros separados, imagens pequenas e educativas, bordas finas, poucas cores, texto legivel, linhas para resposta, sem poluicao visual, sem texto cortado, sem sobreposicao, sem repetir numeracao, no maximo 5 questoes, aparencia de material pronto para imprimir e vender';
+// Checkpoint 4E — item "A4 Visual com qualidade ruim": reduzido de "no maximo 5
+// questoes" para "no maximo 2 a 3 questoes curtas" — modelos de imagem (Imagen)
+// nao sao confiaveis para renderizar grandes quantidades de texto pedagogico
+// com ortografia correta; menos texto pedido reduz (nao elimina) o risco de
+// erro. A correção arquitetural completa (texto vindo 100% do modelo textual +
+// renderer do IncluiAI, Imagen só para ilustração) fica documentada como
+// proposta de Sprint Visual — ver relatório do Checkpoint 4E.
+const A4_WORKSHEET_STYLE_PROMPT = 'Gerar imagem A4 vertical de atividade escolar brasileira, fundo branco, estilo worksheet didatico premium, titulo grande no topo, cabecalho Nome/Data/Turma, questoes em quadros separados, imagens pequenas e educativas, bordas finas, poucas cores, texto legivel, linhas para resposta, sem poluicao visual, sem texto cortado, sem sobreposicao, sem repetir numeracao, no maximo 2 a 3 questoes curtas (priorize ilustracao ao texto), aparencia de material pronto para imprimir e vender';
 
 function buildImageActivityPrompt(topic: string, studentCtx: string): string {
   const studentHint = studentCtx
@@ -484,20 +664,108 @@ Regras pedagogicas:
 - Nao retorne texto livre fora do JSON.`;
 }
 
-function buildPremiumActivityPrompt(topic: string, studentCtx: string): string {
+// Checkpoint 4D — item "Quantidade": buildPremiumActivityPrompt tinha um limite
+// FIXO ("3 a 6 questoes no maximo") independente do que o professor pedisse no
+// campo de tema. Se o professor digitasse "10 questoes sobre fracoes", o prompt
+// simplesmente ignorava esse número e mandava o modelo gerar no máximo 6 —
+// a causa raiz do relato "quantidade solicitada não é respeitada" para este modo
+// (correção completa e definitiva de quantidade — com validação/reparo pós-
+// geração — já existe no pipeline canônico via intentExtractor/validateAgainstRequest;
+// aqui aplicamos apenas a correção mínima possível sem religar essa arquitetura).
+// Reconhece variações comuns: "5 questões", "10 exercicios", "3 perguntas".
+export function extractRequestedQuestionCount(topic: string): number | null {
+  const match = topic.match(/\b(\d{1,2})\s*(question|questõe|questoe|quest[aã]o|exerc[ií]cio|pergunta)/i);
+  if (!match) return null;
+  const n = parseInt(match[1], 10);
+  if (!Number.isFinite(n) || n < 1) return null;
+  // Limite de segurança pedagógica/visual para uma folha A4 — não deixa o
+  // professor pedir, por exemplo, 80 questões e estourar o layout de impressão.
+  return Math.min(n, 15);
+}
+
+// Checkpoint 4E — item "Avaliação sem Gabarito": reaproveita a MESMA lista de
+// palavras-chave já usada e testada no pipeline canônico (intentExtractor.ts),
+// em vez de reinventar uma segunda heurística.
+function topicRequestsAvaliacao(topic: string): boolean {
+  const lower = topic.toLowerCase();
+  return AVALIACAO_KEYWORDS.some(k => lower.includes(k));
+}
+
+export interface BuildActivityPromptOptions {
+  /** Inclui o campo guia_pedagogico no contrato (A4 Visual/Premium usam; A4 Econômica não). */
+  includeGuia?: boolean;
+  /**
+   * Tipo estrutural do material original, quando esta é uma ADAPTAÇÃO (Checkpoint 4E,
+   * item "Adaptação não preserva estrutura"). Quando presente, o prompt exige
+   * preservar esse formato em vez de recriar como lista genérica de questões.
+   */
+  originalActivityType?: OriginalActivityType | null;
+}
+
+function buildPremiumActivityPrompt(topic: string, studentCtx: string, options: BuildActivityPromptOptions = {}): string {
   const studentBlock = studentCtx
     ? `\n\nCONTEXTO DO ALUNO:\n${studentCtx}\n\nCrie especificamente para este aluno.`
     : '';
+  const requestedCount = extractRequestedQuestionCount(topic);
+  const quantityRule = requestedCount
+    ? `Use EXATAMENTE ${requestedCount} questoes — nem mais, nem menos. O professor pediu explicitamente esta quantidade.`
+    : 'Use 3 a 6 questoes no maximo, com enunciados curtos.';
+
+  // Checkpoint 4E — item "Avaliação sem Gabarito": quando o texto livre indica
+  // avaliação/prova/teste, o contrato PASSA A EXIGIR um campo "gabarito" —
+  // sem isso, requestType=avaliacao nunca produzia resposta correta alguma
+  // (o schema de A4 Econômica nunca teve esse campo, em nenhum modo).
+  const isAvaliacao = topicRequestsAvaliacao(topic);
+  const gabaritoContractField = isAvaliacao
+    ? `,
+  "gabarito": [
+    { "numero": 1, "resposta": "Resposta correta ou criterio objetivo de correcao", "explicacao": "Justificativa breve, opcional" }
+  ]`
+    : '';
+  const gabaritoRule = isAvaliacao
+    ? '\n- Isto e uma AVALIACAO: o campo "gabarito" e OBRIGATORIO e deve conter exatamente um item por numero de questao gerada, com a resposta correta (ou criterio objetivo de correcao para questoes discursivas). Nao deixe "gabarito" vazio nem incompleto.'
+    : '';
+
+  // Checkpoint 4E — item "Autosave que já funciona": campo opcional, não muda
+  // o contrato quando includeGuia=false (A4 Econômica continua exatamente igual).
+  const guiaContractField = options.includeGuia
+    ? `,
+  "guia_pedagogico": "Texto markdown curto com Objetivo da Aula, Metodologia, Dicas de Mediacao, Criterios de Avaliacao"`
+    : '';
+  const guiaRule = options.includeGuia
+    ? ''
+    : '\n- Nao gerar texto corrido longo, metodologia, BNCC ou guia do professor na folha.';
+
+  // Checkpoint 4E — item "Adaptação não preserva estrutura": regra forte,
+  // no texto exato pedido, só entra quando há um tipo original identificado.
+  const preserveStructureRule = options.originalActivityType && options.originalActivityType !== 'other'
+    ? `\n\nREGRA FUNDAMENTAL DE ADAPTACAO — O MATERIAL ORIGINAL E DO TIPO "${ORIGINAL_ACTIVITY_TYPE_LABELS[options.originalActivityType]}":
+Preserve o formato e a natureza pedagogica da atividade original. Nao transforme um caca-palavras, cruzadinha, atividade de ligar, completar, colorir ou outro formato especifico em uma lista generica de perguntas, salvo se houver impossibilidade pedagogica explicita. Adapte dificuldade, linguagem, quantidade, suporte visual e organizacao MANTENDO a estrutura central do tipo "${ORIGINAL_ACTIVITY_TYPE_LABELS[options.originalActivityType]}". Use o "kind" de questao mais proximo disponivel no contrato (match para ligar/associar, fill_blank para completar lacunas, coloring para colorir) em vez de converter tudo para multiple_choice/short_answer.`
+    : '';
+
+  // Checkpoint 4E — item "Prompt A4 Econômica pobre" (qualidade pedagógica).
+  // Bloco aplicado a TODOS os modos que usam este builder (Econômica, Visual,
+  // Premium e as 3 variantes de Adaptar) — não duplicado por modo.
+  const qualityBlock = `
+Qualidade pedagogica obrigatoria:
+- Considere serie/ano, disciplina e tema informados para calibrar vocabulario e complexidade.
+- De progressao: comece mais simples e aumente a dificuldade ao longo das questoes.
+- Varie os formatos quando fizer sentido para o tema (objetiva, discursiva curta, completar, associacao, interpretacao, situacao-problema, aplicacao pratica) — sem obrigar todos os formatos em todo tema; o formato precisa ser coerente com o conteudo e a serie.
+- Use exemplos concretos e contextualizados (situacoes do cotidiano do aluno), nao apenas definicoes abstratas.
+- Priorize clareza, coerencia e intencionalidade pedagogica — mais texto nao e melhor atividade.
+- Nao repita a mesma pergunta ou o mesmo exemplo de formas diferentes.
+- Se houver referencia a habilidade BNCC no contexto do aluno, pode citar; caso contrario, NUNCA invente codigo BNCC.
+- Portugues do Brasil, formal e adequado a faixa etaria.`;
 
   return `Voce e especialista em educacao inclusiva e design de atividades escolares para impressao.${studentBlock}
 
-Crie uma atividade visual em folha escolar A4 sobre: "${topic}".
+Crie uma atividade visual em folha escolar A4 sobre: "${topic}".${preserveStructureRule}
 
 RETORNE APENAS JSON valido. Nao use Markdown. Nao escreva texto antes ou depois do JSON.
 
 Use exatamente este contrato:
 {
-  "title": "Titulo grande e claro",
+  "title": "Titulo grande e claro, especifico do conteudo — nunca copie nome de arquivo",
   "subtitle": "Subtitulo curto opcional",
   "subject": "Disciplina",
   "grade": "Ano/Serie",
@@ -536,29 +804,34 @@ Use exatamente este contrato:
     "border": "discreet",
     "illustrations": "small_colored",
     "density": "balanced"
-  }
+  }${guiaContractField}${gabaritoContractField}
 }
 
 Tipos validos de sections: text | info_box | vocabulary | questions | match | fill_blank | coloring | table | steps.
 Tipos validos de question.kind: multiple_choice | short_answer | fill_blank | match | coloring | table | steps.
-
+${qualityBlock}
 Regras obrigatorias:
 - Folha escolar A4, fundo branco, titulo grande e campos Nome/Turma/Data.
 - Atividade visual para impressao, com questoes em quadros.
 - Texto revisado, linguagem adequada ao ano/serie e frases curtas.
-- Elementos ilustrativos pequenos apenas quando ajudam; pouca poluicao visual.
-- Nao gerar texto corrido longo, metodologia, BNCC ou guia do professor na folha.
+- Elementos ilustrativos pequenos apenas quando ajudam; pouca poluicao visual.${guiaRule}${gabaritoRule}
 - Nao repetir numeracao; use numbers apenas sequenciais.
-- Use 3 a 6 questoes no maximo, com enunciados curtos.
+- ${quantityRule}
 - Quando usar table, match, fill_blank, coloring ou steps, preencha os campos necessarios para renderizacao.
 - Retorne somente JSON.`;
 }
 
-function buildPremiumAdaptActivityPrompt(analysis: string, studentCtx: string, extraInstructions: string): string {
+function buildPremiumAdaptActivityPrompt(
+  analysis: string,
+  studentCtx: string,
+  extraInstructions: string,
+  originalActivityType?: OriginalActivityType | null,
+): string {
   const extra = extraInstructions ? `\n\nINSTRUCAO EXTRA DO PROFESSOR:\n${extraInstructions}` : '';
   return buildPremiumActivityPrompt(
     `Adaptar a atividade original mantendo o objetivo pedagogico. Conteudo extraido: ${analysis.slice(0, 1200)}${extra}`,
     studentCtx,
+    { includeGuia: true, originalActivityType },
   );
 }
 
@@ -710,14 +983,21 @@ Tema: ${topic}${gradeStr}${adaptStr}
 
 Retorne APENAS JSON válido, sem Markdown, sem texto antes ou depois:
 {
-  "titulo_atividade": "Título curto e atraente da atividade",
+  "titulo_atividade": "Título curto e atraente da atividade — especifico do conteudo, nunca generico",
   "guia_pedagogico": "# Guia do Professor\\n\\n## Objetivo da Aula\\n[Objetivo claro em uma frase]\\n\\n## Metodologia Adaptada\\n[Como aplicar com adaptações inclusivas]\\n\\n## Tempo Estimado\\n[X minutos]\\n\\n## Materiais Necessários\\n- Material 1\\n- Material 2\\n\\n## Dicas de Mediação\\n- Dica 1\\n- Dica 2\\n\\n## Critérios de Avaliação\\n- Critério observável 1\\n- Critério observável 2\\n\\n## Adaptações Inclusivas\\n- Adaptação 1\\n- Adaptação 2\\n\\n## Alinhamento BNCC\\n- **Componente curricular:** [componente]\\n- **Ano/Série:** [ano]\\n- **Código BNCC:** [código ou 'Sugerido — validar com o professor']\\n- **Habilidade:** [descrição da habilidade]\\n- **Objetivo de aprendizagem:** [objetivo]\\n- **Adaptação inclusiva:** [como a atividade adapta a habilidade]\\n\\n## Observações para o Professor\\n[Orientações adicionais]",
-  "descricao_folha": "Folha do aluno em A4 escolar limpo. CABECALHO: Nome, Data, Turma. TITULO: [titulo grande]. TEXTO CURTO: [uma instrucao breve, se necessario]. QUESTAO 1: [comando curto]; opcoes se houver; espaco para resposta. QUESTAO 2: [comando curto]. QUESTAO 3: [comando curto]. [3 a 5 questoes no maximo, cada uma em quadro proprio; sem guia do professor, sem metodologia, sem materiais]"
+  "descricao_folha": "Folha do aluno em A4 escolar limpo. CABECALHO: Nome, Data, Turma. TITULO: [titulo grande]. TEXTO CURTO: [uma instrucao breve, se necessario]. QUESTAO 1: [comando curto]; opcoes se houver; espaco para resposta. QUESTAO 2: [comando curto]. QUESTAO 3: [comando curto]. [no maximo 2 a 3 questoes curtas — o restante do espaco da folha e ilustrativo/decorativo, nao textual; cada questao em quadro proprio; sem guia do professor, sem metodologia, sem materiais]"
 }
+
+Qualidade pedagogica obrigatoria (Checkpoint 4E — mesmo padrão da A4 Econômica):
+- Considere serie/ano e tema para calibrar vocabulario e complexidade.
+- Priorize clareza e intencionalidade pedagogica — mais texto nao e melhor atividade.
+- Use exemplos concretos e contextualizados quando fizer sentido para o tema.
+- Se houver referencia a habilidade BNCC no contexto do aluno, pode citar; caso contrario, NUNCA invente codigo BNCC (use "Sugerido — validar com o professor").
+- Portugues do Brasil, formal e adequado a faixa etaria.
 
 Regras:
 - guia_pedagogico: texto markdown completo com todas as 9 seções (incluindo Alinhamento BNCC). Linguagem para o professor.
-- descricao_folha: texto descritivo (max. 220 palavras) que guiara geracao da imagem A4. 3 a 5 questoes no maximo. Portugues correto.
+- descricao_folha: texto descritivo (max. 150 palavras) que guiara geracao da imagem A4. NO MAXIMO 2 a 3 questoes curtas — texto extenso dentro de uma imagem gerada por IA tende a sair com erros de ortografia; prefira poucas questoes bem definidas e mais espaco para ilustracao. Portugues correto.
 - A folha do aluno deve ser limpa, branca, com quadros simples, bordas discretas, poucas cores e imagens pequenas apenas quando ajudam.
 - Nao incluir objetivo longo, metodologia, materiais, BNCC, observacoes do professor ou explicacoes pedagogicas na descricao_folha.
 - No Alinhamento BNCC do guia_pedagogico: nunca inventar codigo — usar "Sugerido — validar com o professor" quando nao houver certeza.
@@ -752,12 +1032,14 @@ ${analysisText.slice(0, 1200)}
 
 Retorne APENAS JSON válido, sem Markdown, sem texto antes ou depois:
 {
-  "titulo_atividade": "Título curto da atividade adaptada",
+  "titulo_atividade": "Título curto da atividade adaptada — especifico do conteudo, NUNCA copie nome de arquivo",
   "guia_pedagogico": "# Guia do Professor\\n\\n## Objetivo da Aula\\n[Objetivo preservado e adaptado]\\n\\n## Metodologia Adaptada\\n[Como aplicar]\\n\\n## Tempo Estimado\\n[X minutos]\\n\\n## Materiais Necessários\\n- Material 1\\n\\n## Dicas de Mediação\\n- Dica 1\\n\\n## Critérios de Avaliação\\n- Critério 1\\n\\n## Adaptações Inclusivas\\n- Adaptação 1\\n\\n## Alinhamento BNCC\\n- **Componente curricular:** [componente]\\n- **Ano/Série:** [ano]\\n- **Código BNCC:** [código ou 'Sugerido — validar com o professor']\\n- **Habilidade:** [descrição]\\n- **Objetivo de aprendizagem:** [objetivo]\\n- **Adaptação inclusiva:** [como adapta a habilidade]\\n\\n## Observações para o Professor\\n[Orientações]",
-  "descricao_folha": "Folha do aluno em A4 escolar limpo. CABECALHO: Nome, Data, Turma. TITULO: [titulo grande]. TEXTO CURTO: [uma instrucao breve, se necessario]. QUESTAO 1: [comando curto adaptado]; opcoes se houver; espaco para resposta. QUESTAO 2: [comando curto]. QUESTAO 3: [comando curto]. [3 a 5 questoes no maximo, cada uma em quadro proprio; sem guia do professor, sem metodologia, sem materiais]"
+  "descricao_folha": "Folha do aluno em A4 escolar limpo. CABECALHO: Nome, Data, Turma. TITULO: [titulo grande]. TEXTO CURTO: [uma instrucao breve, se necessario]. QUESTAO 1: [comando curto adaptado]; opcoes se houver; espaco para resposta. QUESTAO 2: [comando curto]. [no maximo 2 a 3 questoes curtas — priorize ilustracao/decoracao ao texto; cada questao em quadro proprio; sem guia do professor, sem metodologia, sem materiais]"
 }
 
-Regras: descricao_folha max. 220 palavras. Preserve o objetivo pedagogico original. Folha branca, limpa, com quadros simples, poucas cores e imagens pequenas apenas quando ajudam. Nao inclua guia do professor, metodologia, materiais ou explicacoes pedagogicas na folha do aluno. No Alinhamento BNCC: nunca inventar codigo — usar "Sugerido — validar com o professor" quando nao houver certeza. Portugues correto. Apenas JSON.`;
+REGRA FUNDAMENTAL DE ADAPTACAO: preserve o formato e a natureza pedagogica da atividade original (identificada na analise acima). Nao transforme um caca-palavras, cruzadinha, atividade de ligar, completar ou colorir em uma lista generica de perguntas, salvo impossibilidade pedagogica explicita. Adapte dificuldade, linguagem, quantidade e suporte visual mantendo a estrutura central.
+
+Regras: descricao_folha max. 150 palavras, NO MAXIMO 2 a 3 questoes curtas (texto extenso em imagem gerada por IA tende a sair com erros de ortografia). Preserve o objetivo pedagogico original. Folha branca, limpa, com quadros simples, poucas cores e imagens pequenas apenas quando ajudam. Nao inclua guia do professor, metodologia, materiais ou explicacoes pedagogicas na folha do aluno. No Alinhamento BNCC: nunca inventar codigo — usar "Sugerido — validar com o professor" quando nao houver certeza. Portugues correto. Apenas JSON.`;
 }
 
 function buildOpenAIActivityImagePrompt(
@@ -795,7 +1077,7 @@ Regras visuais obrigatórias:
 - Fundo totalmente branco
 - Cabeçalho topo: campos Nome / Data / Turma com linha para preenchimento manual
 - Título grande e chamativo logo abaixo do cabeçalho
-- 3 a 5 questões numeradas, cada uma em quadro próprio com borda fina cinza ou petróleo
+- NO MÁXIMO 2 a 3 questões curtas numeradas, cada uma em quadro próprio com borda fina cinza ou petróleo — priorize ilustração/decoração pedagógica ao restante do espaço em vez de mais texto
 - No máximo 3 cores em toda a folha
 - Imagens pequenas e educativas apenas ao lado de questões que precisam de apoio visual
 - Linhas horizontais claras para resposta do aluno em cada questão
@@ -803,6 +1085,12 @@ Regras visuais obrigatórias:
 - Rodapé discreto com "IncluiLAB"
 - Máximo ${maxPages}
 - Aparência de material didático pronto para imprimir e vender
+
+Checkpoint 4E — atenção especial a ortografia: modelos de geração de imagem
+frequentemente erram a grafia de textos longos. Por isso:
+- Prefira MENOS texto, bem espaçado, a mais texto compacto.
+- Cada palavra do enunciado deve ser curta, comum e sem acentuação rara.
+- Nunca invente texto além do fornecido em "Conteúdo aprovado para a folha" acima.
 
 Proibido na folha do aluno:
 - Objetivo pedagógico, metodologia, materiais ou guia do professor
@@ -1603,6 +1891,357 @@ const VISUAL_STYLE_OPTIONS: { id: ActivityVisualStyle; label: string; emoji: str
   { id: 'pb',          label: 'P&B', emoji: '🖨️' },
 ];
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// NOVA UI (estilo chat) — controlada por INCLUILAB_NEW_UI em src/config/incluilabUi.ts
+// Componentes abaixo NÃO substituem os legados acima; são usados apenas quando
+// o flag está ativo. Reaproveitam os mesmos handlers/estado do componente principal.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─── Componente novo: Estado vazio (conversa livre) ───────────────────────────
+// Sprint 2B — "Criar relatório" foi removido intencionalmente desta lista.
+// O Document Pipeline (que atenderia relatório) ainda não existe; a UI não deve
+// oferecer uma capacidade que o motor não entrega. Reintroduzir apenas quando
+// o Document Pipeline estiver implementado (ver arquitetura: Intent Router →
+// Activity Pipeline → Document Pipeline → Image Pipeline).
+const CAPABILITY_SUGGESTIONS: { icon: React.ElementType; label: string }[] = [
+  { icon: FileText,      label: 'Criar atividade' },
+  { icon: CheckCircle,   label: 'Criar avaliação' },
+  { icon: Layers,        label: 'Adaptar material' },
+  { icon: FileImage,     label: 'Criar imagem' },
+];
+
+const EmptyStateChat: React.FC<{
+  studentCtx:   string;
+  studentName:  string;
+  onSuggestion: (text: string) => void;
+  onCapability: (label: string) => void;
+}> = ({ studentCtx, studentName, onSuggestion, onCapability }) => {
+  const TOPIC_SUGGESTIONS = [
+    'Atividade de frações para 3º ano',
+    'Leitura e interpretação sobre animais',
+    'Sequência lógica para TEA',
+    'Reconhecimento de letras e sílabas',
+  ];
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      minHeight: '100%', padding: '40px 24px', gap: 22,
+      boxSizing: 'border-box',
+    }}>
+      <div style={{
+        width: 56, height: 56, borderRadius: 16,
+        background: `linear-gradient(135deg, ${C.petrol}, #2a6880)`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '0 8px 24px rgba(31,78,95,0.25)',
+      }}>
+        <Sparkles size={26} color="#fff" />
+      </div>
+
+      <div style={{ textAlign: 'center', maxWidth: 480 }}>
+        <h2 style={{ margin: '0 0 8px', fontSize: 20, fontWeight: 800, color: C.dark }}>
+          O que você quer criar hoje?
+        </h2>
+        <p style={{ margin: 0, fontSize: 13.5, color: C.sec, lineHeight: 1.6 }}>
+          {studentCtx
+            ? <>Contexto de <strong style={{ color: C.petrol }}>{studentName}</strong> carregado — descreva o que precisa e o IncluiLAB personaliza para este aluno.</>
+            : 'Descreva livremente: uma atividade, uma adaptação, um relatório ou uma imagem. Não é preciso escolher nada antes.'
+          }
+        </p>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center', maxWidth: 560 }}>
+        {CAPABILITY_SUGGESTIONS.map(cap => (
+          <button
+            key={cap.label}
+            onClick={() => onCapability(cap.label)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '10px 16px', borderRadius: 14, cursor: 'pointer',
+              background: '#fff', border: `1px solid ${C.border}`,
+              color: C.dark, fontSize: 13, fontWeight: 700,
+              transition: 'all 0.15s', outline: 'none',
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = C.petrol; (e.currentTarget as HTMLElement).style.background = C.light; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = C.border; (e.currentTarget as HTMLElement).style.background = '#fff'; }}
+          >
+            <cap.icon size={15} color={C.petrol} /> {cap.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', maxWidth: 520 }}>
+        {TOPIC_SUGGESTIONS.map(s => (
+          <button
+            key={s}
+            onClick={() => onSuggestion(s)}
+            style={{
+              padding: '6px 12px', borderRadius: 20, cursor: 'pointer',
+              background: C.light, border: `1px solid ${C.border}`,
+              color: '#475569', fontSize: 11.5, fontWeight: 500,
+              transition: 'all 0.15s', outline: 'none',
+            }}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ─── Componente novo: Composer simplificado (opções avançadas colapsadas) ─────
+const ChatComposer: React.FC<{
+  inputText:    string;
+  genMode:      GenerationMode;
+  pendingFile:  AttachedFile | null;
+  isGenerating: boolean;
+  visualStyle:  ActivityVisualStyle;
+  targetType:   TargetType;
+  anoSerie:     string;
+  studentId:    string;
+  studentName:  string;
+  students:     Student[];
+  advancedOpen: boolean;
+  onToggleAdvanced: () => void;
+  onInput:      (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown:    (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onModeChange: (m: GenerationMode) => void;
+  onStyleChange:(s: ActivityVisualStyle) => void;
+  onTargetTypeChange: (t: TargetType) => void;
+  onAnoSerieChange:   (v: string) => void;
+  onStudentChange:    (id: string, ctx: string, name: string) => void;
+  onSend:       () => void;
+  onFileClick:  () => void;
+  onRemoveFile: () => void;
+  textAreaRef:  React.RefObject<HTMLTextAreaElement | null>;
+}> = ({
+  inputText, genMode, pendingFile, isGenerating, visualStyle,
+  targetType, anoSerie, studentId, studentName, students,
+  advancedOpen, onToggleAdvanced,
+  onInput, onKeyDown, onModeChange, onStyleChange,
+  onTargetTypeChange, onAnoSerieChange, onStudentChange,
+  onSend, onFileClick, onRemoveFile, textAreaRef,
+}) => {
+  const adaptarAtivo = isAdaptarMode(genMode);
+  const canSend = !isGenerating && (adaptarAtivo ? !!pendingFile : !!inputText.trim());
+  const placeholder = adaptarAtivo
+    ? (pendingFile ? 'Instruções opcionais: "adaptar para TEA", "simplificar"…' : 'Clique em Anexar para selecionar o arquivo a adaptar')
+    : 'Descreva o que você precisa: uma atividade, uma adaptação, um relatório, uma imagem…';
+  const contextLabel = studentId && studentName ? studentName : 'Sem aluno selecionado';
+
+  const miniSelectStyle: React.CSSProperties = {
+    height: 30, padding: '0 10px', borderRadius: 9,
+    border: `1px solid ${C.border}`, background: '#fff',
+    color: C.dark, fontSize: 12, fontWeight: 650,
+    fontFamily: 'inherit', outline: 'none', cursor: isGenerating ? 'default' : 'pointer',
+  };
+
+  return (
+    <div style={{
+      flexShrink: 0, position: 'sticky', bottom: 0, zIndex: 20,
+      borderTop: `1px solid ${C.border}`, background: C.surface,
+      padding: '10px 20px 14px',
+    }}>
+      {/* Painel "Mais opções" — colapsado por padrão */}
+      {advancedOpen && (
+        <div style={{
+          marginBottom: 10, padding: 12, borderRadius: 12,
+          background: C.light, border: `1px solid ${C.border}`,
+          display: 'flex', flexDirection: 'column', gap: 10,
+        }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 10, fontWeight: 900, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Formato
+            </span>
+            <select
+              value={adaptarAtivo ? '' : genMode}
+              disabled={isGenerating}
+              onChange={e => e.target.value && onModeChange(e.target.value as GenerationMode)}
+              style={{ ...miniSelectStyle, color: C.petrol }}
+            >
+              <option value="" disabled>Criar…</option>
+              {MODES_CRIAR.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+            <select
+              value={adaptarAtivo ? genMode : ''}
+              disabled={isGenerating}
+              onChange={e => e.target.value && onModeChange(e.target.value as GenerationMode)}
+              style={{ ...miniSelectStyle, color: '#8A5D00' }}
+            >
+              <option value="" disabled>Adaptar…</option>
+              {MODES_ADAPTAR.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+            </select>
+            <select
+              value={visualStyle}
+              disabled={isGenerating}
+              onChange={e => onStyleChange(e.target.value as ActivityVisualStyle)}
+              style={miniSelectStyle}
+            >
+              {VISUAL_STYLE_OPTIONS.map(opt => <option key={opt.id} value={opt.id}>{opt.emoji} {opt.label}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 10, fontWeight: 900, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              Contexto do aluno (opcional)
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', borderRadius: 20, padding: '2px', border: `1.5px solid ${C.border}` }}>
+              {(['turma_geral', 'adaptada'] as TargetType[]).map(t => (
+                <button
+                  key={t}
+                  onClick={() => {
+                    onTargetTypeChange(t);
+                    if (t === 'turma_geral') onStudentChange('', '', '');
+                  }}
+                  style={{
+                    padding: '4px 10px', borderRadius: 18, border: 'none', cursor: 'pointer',
+                    background: targetType === t ? C.petrol : 'transparent',
+                    color: targetType === t ? '#fff' : C.sec,
+                    fontWeight: 600, fontSize: 11, transition: 'all 0.15s', outline: 'none',
+                  }}
+                >
+                  {t === 'turma_geral' ? 'Turma geral' : 'Aluno específico'}
+                </button>
+              ))}
+            </div>
+            {targetType === 'adaptada'
+              ? <StudentSelector students={students} selectedId={studentId} onChange={onStudentChange} />
+              : (
+                <input
+                  type="text"
+                  value={anoSerie}
+                  onChange={e => onAnoSerieChange(e.target.value)}
+                  placeholder="Ano/Série (ex: 3º ano EF)"
+                  style={{ ...miniSelectStyle, width: 170 }}
+                />
+              )
+            }
+          </div>
+        </div>
+      )}
+
+      {/* Input box */}
+      <div style={{
+        minHeight: 84, display: 'flex', flexDirection: 'column',
+        background: '#fff', border: `1px solid ${isGenerating ? C.border : '#CBD5E1'}`,
+        borderRadius: 16, overflow: 'hidden',
+        boxShadow: isGenerating ? 'none' : '0 8px 22px rgba(15,23,42,0.07)',
+        transition: 'all 0.2s', boxSizing: 'border-box',
+      }}>
+        <textarea
+          ref={textAreaRef}
+          value={inputText}
+          onChange={onInput}
+          onKeyDown={onKeyDown}
+          placeholder={isGenerating ? 'Aguarde, gerando…' : placeholder}
+          disabled={isGenerating}
+          rows={1}
+          style={{
+            flex: '1 1 auto', width: '100%', height: 46, minHeight: 0, maxHeight: 46,
+            border: 'none', outline: 'none', resize: 'none',
+            padding: '12px 16px 0', fontSize: 13.5, lineHeight: 1.35, fontFamily: 'inherit',
+            background: 'transparent', color: C.dark, boxSizing: 'border-box', overflowY: 'auto',
+          }}
+        />
+
+        <div style={{ minHeight: 38, flexShrink: 0, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 7, padding: '0 10px 8px 12px', boxSizing: 'border-box' }}>
+          <button
+            onClick={onFileClick}
+            disabled={isGenerating}
+            title="Anexar arquivo"
+            style={{
+              height: 28, background: C.bg, border: `1px solid ${C.border}`,
+              borderRadius: 8, padding: '0 10px', cursor: isGenerating ? 'default' : 'pointer',
+              color: pendingFile ? C.petrol : C.sec,
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              fontSize: 11, fontWeight: 750,
+            }}
+          >
+            <Paperclip size={13} /> {pendingFile ? 'Trocar' : 'Anexar'}
+          </button>
+
+          <button
+            onClick={onToggleAdvanced}
+            title="Formato, layout e contexto do aluno"
+            style={{
+              height: 28, background: advancedOpen ? C.light : C.bg,
+              border: `1px solid ${advancedOpen ? C.petrol : C.border}`,
+              borderRadius: 8, padding: '0 10px', cursor: 'pointer',
+              color: advancedOpen ? C.petrol : C.sec,
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              fontSize: 11, fontWeight: 750,
+            }}
+          >
+            <SlidersHorizontal size={13} /> Mais opções
+          </button>
+
+          <button
+            onClick={onToggleAdvanced}
+            title="Definir contexto de aluno"
+            style={{
+              height: 28, background: studentId ? '#EAF4F7' : C.bg,
+              border: `1px solid ${studentId ? C.petrol : C.border}`,
+              borderRadius: 20, padding: '0 10px', cursor: 'pointer',
+              color: studentId ? C.petrol : C.sec,
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              fontSize: 11, fontWeight: 650, maxWidth: 180,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}
+          >
+            <UserIcon size={12} /> {contextLabel}
+          </button>
+
+          {pendingFile && (
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              minWidth: 0, maxWidth: 220, height: 26,
+              background: C.light, border: `1px solid ${C.border}`,
+              borderRadius: 8, padding: '0 7px', boxSizing: 'border-box',
+            }}>
+              {pendingFile.type.startsWith('image/') && pendingFile.previewUrl
+                ? <img src={pendingFile.previewUrl} alt="" style={{ width: 17, height: 17, objectFit: 'cover', borderRadius: 4, flexShrink: 0 }} />
+                : <FileText size={13} color={C.petrol} style={{ flexShrink: 0 }} />
+              }
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontWeight: 700, color: C.dark }}>
+                {pendingFile.name}
+              </span>
+              <button onClick={onRemoveFile} title="Remover anexo" style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.sec, padding: 1, borderRadius: 5, display: 'flex', flexShrink: 0 }}>
+                <X size={12} />
+              </button>
+            </div>
+          )}
+
+          <div style={{ flex: 1, minWidth: 8 }} />
+
+          <button
+            onClick={onSend}
+            disabled={!canSend}
+            style={{
+              height: 32, display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '0 18px', borderRadius: 10, border: 'none',
+              background: canSend ? C.petrol : C.border, color: '#fff',
+              fontWeight: 800, fontSize: 14, cursor: canSend ? 'pointer' : 'default',
+              transition: 'all 0.15s',
+              boxShadow: canSend ? '0 5px 14px rgba(31,78,95,0.22)' : 'none',
+              flexShrink: 0,
+            }}
+          >
+            {isGenerating
+              ? <><Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> Gerando…</>
+              : <><Sparkles size={14} /> Enviar</>
+            }
+          </button>
+        </div>
+      </div>
+
+      <p style={{ margin: '6px 2px 0', fontSize: 10, color: C.sec }}>
+        Enter para enviar · Shift+Enter nova linha
+      </p>
+    </div>
+  );
+};
+
 // ─── Componente: Composer (entrada fixa sempre visível) ───────────────────────
 const Composer: React.FC<{
   inputText:    string;
@@ -1830,40 +2469,296 @@ const ResultView: React.FC<{
   const hasImage    = !!result.imageUrl;
   const hasActivity = !!result.contentJson || !!result.activity;
   const hasText     = !!result.contentJson || !!result.activity || !!result.content;
-  const hasAnalysis = !!result.analysisText;
   const hasGuide    = !!result.guiaText || !!(result.activity as any)?.guia_pedagogico;
+  // Sprint 2B.3 (item 3): Gabarito é uma projeção própria, separada do Guia.
+  // Checkpoint 4E — item "Avaliação sem Gabarito": hasGabarito agora também
+  // reconhece o gabarito do pipeline legado (result.legacyAnswerKey), não só
+  // o do pipeline canônico (result.activityPackage.answerKey).
+  const canonicalAnswerKey = result.activityPackage?.answerKey ?? result.activityPackage?.activity.answerKey;
+  const hasGabarito = !!(canonicalAnswerKey?.length && result.activity) || !!result.legacyAnswerKey?.length;
   const saved       = !!result.savedId;
+  // Checkpoint 2B.1: pictograma ≠ ilustração real. Se o professor pediu ilustração
+  // explicitamente (visualMode 'illustration') e o pipeline canônico só entregou
+  // apoio visual (pictograma/emoji, sem imagem real gerada), avisamos com clareza —
+  // nunca apresentamos o fallback como se fosse a ilustração pedida.
+  const showIllustrationFallbackNotice = !!(
+    result.activityPackage &&
+    result.activityPackage.metadata.visualMode === 'illustration' &&
+    !result.activityPackage.visualAssets.some(a => a.deliveredAs === 'illustration')
+  );
+  const showIllustrationFallbackNoticeInCard = showIllustrationFallbackNotice ? (
+    <div role="status" style={{
+      display: 'flex', alignItems: 'flex-start', gap: 8,
+      marginTop: 10, padding: '9px 12px', maxWidth: 460,
+      borderRadius: 10, border: '1px solid #FDE68A',
+      background: '#FFFBEB', color: '#92400E',
+      fontSize: 12.5, lineHeight: 1.5,
+    }}>
+      <Lightbulb size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+      <span>
+        Você pediu uma ilustração. Nesta versão, usamos apoio visual com pictogramas.
+        A geração de ilustrações reais ainda não está disponível neste modo.
+      </span>
+    </div>
+  ) : null;
+  // Checkpoint 4E — item "Adaptação não preserva estrutura": aviso honesto
+  // (mesmo padrão do aviso de ilustração acima) quando o material original foi
+  // identificado como um tipo que o contrato JSON/renderer atual NÃO consegue
+  // de fato reproduzir (caça-palavras/cruzadinha exigem grade de letras — não
+  // existe question.kind para isso). Nunca fingimos suportar o que não suportamos.
+  const showOriginalTypeUnsupportedNotice = !!(
+    result.originalActivityType && !rendererSupportsOriginalType(result.originalActivityType)
+  );
+  const showOriginalTypeUnsupportedNoticeInCard = showOriginalTypeUnsupportedNotice ? (
+    <div role="status" style={{
+      display: 'flex', alignItems: 'flex-start', gap: 8,
+      marginTop: 10, padding: '9px 12px', maxWidth: 460,
+      borderRadius: 10, border: '1px solid #FDE68A',
+      background: '#FFFBEB', color: '#92400E',
+      fontSize: 12.5, lineHeight: 1.5,
+    }}>
+      <Lightbulb size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+      <span>
+        O material original parece ser um(a) <strong>{result.originalActivityType ? ORIGINAL_ACTIVITY_TYPE_LABELS[result.originalActivityType] : ''}</strong> —
+        este formato ainda não é totalmente suportado pelo editor do IncluiLAB. Adaptamos preservando o tema e o objetivo pedagógico,
+        mas no formato mais próximo disponível. Recomendamos revisão manual antes de usar em sala.
+      </span>
+    </div>
+  ) : null;
+  // Checkpoint 4E — item "Preview": rótulo curto de quantidade para o card
+  // compacto (ex.: "10 questões"). Conta itens de seções type==='questions'
+  // do contrato legado, ou exercises do ActivitySchema canônico.
+  const questionCountFromSections = (result.contentJson?.sections || [])
+    .filter(s => s.type === 'questions')
+    .reduce((sum, s) => sum + (s.items?.length || 0), 0);
+  const questionCount = questionCountFromSections || result.activity?.exercises?.length || 0;
+  const questionCountLabel = questionCount > 0 ? `${questionCount} question${questionCount > 1 ? 'ões' : ''}` : null;
+  // Refs do modal "Visualizar" (conteúdo em tamanho real, visível sob demanda).
   const folhaAlunoRef    = useRef<HTMLDivElement | null>(null);
   const guiaProfessorRef = useRef<HTMLDivElement | null>(null);
-  const [exportBusy, setExportBusy] = useState<'pdf' | 'png' | null>(null);
+  const gabaritoRef      = useRef<HTMLDivElement | null>(null);
+  // Checkpoint 4E — item "PDF/PNG não baixam" (reaberto: a correção via portal
+  // da Etapa 4D não resolveu no teste real). Nova causa provável: o preview
+  // compacto da 4D envolveu folhaAlunoRef num wrapper `overflow:hidden` +
+  // `maxHeight` — apesar de o ref em si não mudar de tamanho, isso reintroduz
+  // exatamente o tipo de instabilidade estrutural (ancestral com clipping)
+  // que já era suspeito na causa original do "Unable to find element in
+  // cloned iframe". Correção estrutural (não apenas outro ajuste de timing):
+  // export PASSA A TER FONTE PRÓPRIA, sempre montada fora da viewport
+  // (position:fixed; left:-10000px — nunca display:none, que o html2canvas
+  // não consegue capturar), nunca dentro de um container recolhido/expandido
+  // e nunca dependente de o usuário ter aberto o modal "Visualizar". O MESMO
+  // `result` alimenta as duas cópias (preview/modal e exportação) — nenhum
+  // conteúdo pedagógico é duplicado ou diverge entre elas.
+  const exportFolhaRef    = useRef<HTMLDivElement | null>(null);
+  const exportGuiaRef     = useRef<HTMLDivElement | null>(null);
+  const exportGabaritoRef = useRef<HTMLDivElement | null>(null);
+  const [exportBusy, setExportBusy] = useState<'pdf' | 'png' | 'docx' | null>(null);
   const [exportError, setExportError] = useState('');
   const [imageLoadError, setImageLoadError] = useState(false);
   useEffect(() => { setImageLoadError(false); }, [result.id]);
+  // Checkpoint 4E — item "Preview continua grande": a correção da Etapa 4D
+  // (container recolhido com "Ver atividade completa") não atendeu — ainda
+  // mostrava a folha quase inteira reduzida. Substituída por um CARD
+  // compacto (sem prévia grande nenhuma por padrão) + modal "Visualizar"
+  // dedicado para ver o conteúdo completo.
+  const [viewerOpen, setViewerOpen] = useState(false);
+  useEffect(() => { setViewerOpen(false); }, [result.id]);
 
-  type ResultTab = 'folha' | 'guia' | 'analise';
+  type ResultTab = 'folha' | 'guia' | 'gabarito';
   const [activeTab, setActiveTab] = useState<ResultTab>('folha');
+  const exportRootId = useMemo(
+    () => `incluilab-export-${String(result.id || 'resultado').replace(/[^a-zA-Z0-9_-]/g, '')}`,
+    [result.id],
+  );
+  const exportStageId = (tab: ResultTab) => `${exportRootId}-${tab}`;
 
-  const hasTabs = hasGuide || hasAnalysis;
+  const hasTabs = hasGuide || hasGabarito;
 
-  const handleExport = async (format: 'pdf' | 'png') => {
-    const ref = activeTab === 'guia' ? guiaProfessorRef : folhaAlunoRef;
-    const element = ref.current;
+  // ── Conteúdo de cada aba, parametrizado pelo ref de destino — chamado tanto
+  // pelo modal "Visualizar" (refs visíveis) quanto pelo exportador fora de
+  // tela (refs de export), garantindo que os dois mostrem exatamente o mesmo
+  // `result`, sem duas implementações divergentes.
+  const renderFolhaStage = (targetRef: React.RefObject<HTMLDivElement | null>) => (
+    <>
+      {hasImage && !imageLoadError && (
+        <PreviewStage innerRef={targetRef}>
+          <div data-incluilab-pdf-page="true" data-incluilab-image-page="true" style={{
+            width: 794, minHeight: 1123, background: '#fff',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.12)', borderRadius: 12, padding: 0,
+            overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <img src={result.imageUrl} alt="Atividade gerada" onError={() => setImageLoadError(true)} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+          </div>
+        </PreviewStage>
+      )}
+      {result.activityPackage && result.activity && (!hasImage || imageLoadError) && (
+        <PreviewStage innerRef={targetRef}>
+          <A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="folha" />
+        </PreviewStage>
+      )}
+      {!result.activityPackage && (result.contentJson || result.activity) && (!hasImage || imageLoadError) && (
+        <>
+          {imageLoadError && (
+            <div role="alert" style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              marginBottom: 14, padding: '10px 14px',
+              borderRadius: 10, border: '1px solid #FDE68A',
+              background: '#FFFBEB', color: '#92400E',
+              fontSize: 13, fontWeight: 650,
+            }}>
+              <AlertCircle size={15} />
+              <span>A imagem não pôde ser carregada. Exibindo versão editável em A4.</span>
+            </div>
+          )}
+          <PreviewStage innerRef={targetRef}>
+            <ActivityA4Premium contentJson={result.contentJson || result.activity} studentName={studentName || undefined} visualStyle={visualStyle} />
+          </PreviewStage>
+        </>
+      )}
+      {!result.contentJson && !result.activity && hasText && (!hasImage || imageLoadError) && result.content && (
+        <PreviewStage innerRef={targetRef}>
+          <ActivityA4Premium contentJson={normalizeIncluiLabActivity(result.content, { title: result.title })} studentName={studentName || undefined} visualStyle={visualStyle} />
+        </PreviewStage>
+      )}
+    </>
+  );
+
+  const renderGuiaStage = (targetRef: React.RefObject<HTMLDivElement | null>) => {
+    if (!hasGuide) return null;
+    if (result.guiaText) {
+      return (
+        <PreviewStage innerRef={targetRef}>
+          <div data-incluilab-pdf-page="true" style={{
+            width: 794, minHeight: 1123, maxWidth: 794, boxSizing: 'border-box',
+            background: '#fff', borderRadius: 12, padding: '40px 44px',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.10)', fontFamily: "'Segoe UI', Arial, sans-serif",
+            overflowWrap: 'break-word', wordBreak: 'break-word', overflowX: 'hidden',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28, paddingBottom: 18, borderBottom: `2px solid ${C.border}` }}>
+              <div style={{ width: 42, height: 42, borderRadius: 11, background: C.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <GraduationCap size={20} color={C.petrol} />
+              </div>
+              <div>
+                <p style={{ margin: 0, fontSize: 10, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.08em' }}>IncluiLAB · Atividade Visual</p>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: C.dark }}>Guia do Professor</h2>
+              </div>
+            </div>
+            <div style={{ fontSize: 14, lineHeight: 1.75, color: '#2a2a2a', overflowWrap: 'break-word', wordBreak: 'break-word' }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+                h1: ({ children }: any) => <h1 style={{ fontSize: 20, fontWeight: 800, color: C.dark, margin: '24px 0 12px', borderBottom: `2px solid ${C.border}`, paddingBottom: 8, overflowWrap: 'break-word' }}>{children}</h1>,
+                h2: ({ children }: any) => <h2 style={{ fontSize: 16, fontWeight: 700, color: C.petrol, margin: '22px 0 10px', display: 'flex', alignItems: 'center', gap: 8, overflowWrap: 'break-word' }}>{children}</h2>,
+                h3: ({ children }: any) => <h3 style={{ fontSize: 14, fontWeight: 700, color: C.dark, margin: '16px 0 8px', overflowWrap: 'break-word' }}>{children}</h3>,
+                p: ({ children }: any) => <p style={{ margin: '0 0 12px', lineHeight: 1.75, overflowWrap: 'break-word', wordBreak: 'break-word' }}>{children}</p>,
+                ul: ({ children }: any) => <ul style={{ margin: '8px 0 16px', paddingLeft: 22, display: 'flex', flexDirection: 'column', gap: 6, maxWidth: '100%' }}>{children}</ul>,
+                ol: ({ children }: any) => <ol style={{ margin: '8px 0 16px', paddingLeft: 22, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: '100%' }}>{children}</ol>,
+                li: ({ children }: any) => <li style={{ lineHeight: 1.65, color: '#2a2a2a', overflowWrap: 'break-word', wordBreak: 'break-word' }}>{children}</li>,
+                strong: ({ children }: any) => <strong style={{ fontWeight: 700, color: C.dark }}>{children}</strong>,
+                hr: () => <hr style={{ border: 'none', borderTop: `1px solid ${C.border}`, margin: '20px 0' }} />,
+                table: ({ children }: any) => <div style={{ overflowX: 'auto', maxWidth: '100%' }}><table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', margin: '8px 0 16px' }}>{children}</table></div>,
+                th: ({ children }: any) => <th style={{ border: `1px solid ${C.border}`, padding: '6px 8px', textAlign: 'left', fontSize: 12, wordBreak: 'break-word', overflowWrap: 'break-word' }}>{children}</th>,
+                td: ({ children }: any) => <td style={{ border: `1px solid ${C.border}`, padding: '6px 8px', fontSize: 12, wordBreak: 'break-word', overflowWrap: 'break-word' }}>{children}</td>,
+                code: ({ children }: any) => <code style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: C.light, padding: '1px 4px', borderRadius: 4, fontSize: 12 }}>{children}</code>,
+                pre: ({ children }: any) => <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowX: 'auto', maxWidth: '100%' }}>{children}</pre>,
+              }}>
+                {result.guiaText}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </PreviewStage>
+      );
+    }
+    if (result.activity) {
+      return <PreviewStage innerRef={targetRef}><A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="guia" /></PreviewStage>;
+    }
+    return null;
+  };
+
+  const renderGabaritoStage = (targetRef: React.RefObject<HTMLDivElement | null>, printIdSuffix: string) => {
+    if (!hasGabarito) return null;
+    if (result.activity && canonicalAnswerKey) {
+      return (
+        <PreviewStage innerRef={targetRef}>
+          <AnswerKeyRenderer activity={result.activity} answerKey={canonicalAnswerKey} printId={`incluilab-gabarito-${printIdSuffix}`} />
+        </PreviewStage>
+      );
+    }
+    if (result.legacyAnswerKey) {
+      return (
+        <PreviewStage innerRef={targetRef}>
+          <LegacyAnswerKeyView items={result.legacyAnswerKey} title={result.title} />
+        </PreviewStage>
+      );
+    }
+    return null;
+  };
+
+  const renderActiveStage = (tab: ResultTab, refs: { folha: React.RefObject<HTMLDivElement | null>; guia: React.RefObject<HTMLDivElement | null>; gabarito: React.RefObject<HTMLDivElement | null> }, printIdSuffix: string) => {
+    if (tab === 'folha') return renderFolhaStage(refs.folha);
+    if (tab === 'guia') return renderGuiaStage(refs.guia);
+    if (tab === 'gabarito') return renderGabaritoStage(refs.gabarito, printIdSuffix);
+    return null;
+  };
+
+  const getExportElement = (tab: ResultTab): HTMLElement | null => {
+    const byId = document.getElementById(exportStageId(tab));
+    if (byId?.isConnected) return byId as HTMLElement;
+    const ref = tab === 'guia' ? exportGuiaRef : tab === 'gabarito' ? exportGabaritoRef : exportFolhaRef;
+    return ref.current;
+  };
+
+  const handleExportWord = async () => {
+    if (!result.activityPackage) {
+      setExportError('Word disponível apenas para atividades canônicas salvas em formato estruturado.');
+      return;
+    }
+
+    setExportBusy('docx');
+    setExportError('');
+    try {
+      const blob = await exportIncluiLabActivityToWord(result.activityPackage, {
+        studentName: studentName || undefined,
+      });
+      downloadWordDocument(blob, buildIncluiLabWordFilename(result.activityPackage));
+    } catch (err: any) {
+      const message = err?.message || String(err || 'Erro desconhecido');
+      setExportError(`Nao foi possivel baixar o Word. ${message}`);
+    } finally {
+      setExportBusy(null);
+    }
+  };
+
+  const handleExport = async (format: 'pdf' | 'png', tab: ResultTab = activeTab) => {
+    // Checkpoint 4E: sempre usa os refs de EXPORTAÇÃO dedicados (fora de tela,
+    // sempre montados) — nunca os refs do modal/preview visível. Exportar não
+    // depende mais de o modal "Visualizar" estar aberto.
+    const element = getExportElement(tab);
 
     console.log('[IncluiLAB PDF]', {
-      activeTab,
-      hasFolhaRef: !!folhaAlunoRef.current,
-      hasGuiaRef: !!guiaProfessorRef.current,
+      activeTab: tab,
+      hasExportFolhaRef: !!exportFolhaRef.current,
+      hasExportGuiaRef: !!exportGuiaRef.current,
+      hasExportGabaritoRef: !!exportGabaritoRef.current,
       selectedRefTag: element?.tagName,
+      selectedId: element?.id,
+      selectedStage: element?.dataset?.exportStage,
+      selectedConnected: element?.isConnected,
       elementSize: element?.getBoundingClientRect?.(),
       format,
     });
 
-    if (!element) {
-      const message = 'Nao foi possivel localizar o conteudo visivel para exportar.';
-      console.error('[IncluiLAB PDF] Ref nula no clique de exportacao', {
-        activeTab,
-        hasFolhaRef: !!folhaAlunoRef.current,
-        hasGuiaRef: !!guiaProfessorRef.current,
+    if (!element || !element.isConnected) {
+      const message = !element
+        ? 'Nao foi possivel localizar o conteudo para exportar.'
+        : 'Nao foi possivel baixar o arquivo. O conteudo selecionado para exportar nao esta conectado ao DOM.';
+      console.error('[IncluiLAB PDF] Ref de exportacao nula no clique', {
+        activeTab: tab,
+        hasExportFolhaRef: !!exportFolhaRef.current,
+        hasExportGuiaRef: !!exportGuiaRef.current,
+        hasExportGabaritoRef: !!exportGabaritoRef.current,
+        selectedId: element?.id,
+        selectedStage: element?.dataset?.exportStage,
+        selectedConnected: element?.isConnected,
         format,
       });
       setExportError(message);
@@ -1874,6 +2769,9 @@ const ResultView: React.FC<{
     setExportError('');
     const baseName = sanitizePdfFilename(result.title || 'atividade-incluilab').replace(/\.pdf$/, '');
     try {
+      // Checkpoint 4D: deixa o React aplicar o re-render do overlay (via portal)
+      // e pintar o frame ANTES de disparar a captura do html2canvas.
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
       const exportPromise = format === 'pdf'
         ? exportAsPDF(element, `${baseName}.pdf`)
         : exportAsPNG(element, `${baseName}.png`);
@@ -1903,6 +2801,10 @@ const ResultView: React.FC<{
     </button>
   );
 
+  // Sprint 2B.3 (item 4, Auditoria 2B.2-C): antes, nem o wrapper externo nem o
+  // interno tinham `overflow`/`maxWidth` — conteúdo mais largo que a "página" A4
+  // (ex.: tabela GFM ou token longo sem quebra) vazava horizontalmente para fora
+  // de toda a tela, em vez de ficar contido/scrollável dentro do preview.
   const PreviewStage: React.FC<{ children: React.ReactNode; innerRef?: React.RefObject<HTMLDivElement | null> }> = ({ children, innerRef }) => (
     <div style={{
       maxWidth: 1100,
@@ -1911,8 +2813,9 @@ const ResultView: React.FC<{
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'flex-start',
+      overflowX: 'auto',
     }}>
-      <div ref={innerRef} style={{ display: 'inline-block' }}>
+      <div ref={innerRef} style={{ display: 'inline-block', maxWidth: '100%' }}>
         {children}
       </div>
     </div>
@@ -1921,8 +2824,18 @@ const ResultView: React.FC<{
   return (
     <div style={{ padding: '20px 28px 32px' }}>
 
-      {/* Overlay de exportação premium */}
-      {exportBusy && (
+      {/* Checkpoint 4D — Overlay de exportação premium via createPortal(document.body).
+          ANTES este overlay era um <div> irmão, dentro da MESMA árvore DOM que
+          folhaAlunoRef/guiaProfessorRef/gabaritoRef (ambos filhos do <div> raiz
+          deste componente). handleExport chama setExportBusy(format) e, logo em
+          seguida, html2canvas clona o elemento exportado numa iframe oculta —
+          qualquer inserção/remoção de nó na árvore entre esses dois momentos é
+          suspeita de estar por trás do erro observado "Unable to find element in
+          cloned iframe" (falha ao localizar o elemento original no clone). Um
+          portal para document.body torna o overlay uma subárvore IRMÃ de todo o
+          app (fora da árvore ancestral do elemento exportado), removendo essa
+          fonte de instabilidade sem alterar nenhum conteúdo exportado. */}
+      {exportBusy && createPortal(
         <div style={{
           position: 'fixed', inset: 0, zIndex: 9999,
           background: 'rgba(246,244,239,0.88)',
@@ -1945,7 +2858,11 @@ const ResultView: React.FC<{
               Gerando seu material...
             </p>
             <p style={{ margin: 0, fontSize: 13, color: '#7B8BAF' }}>
-              {exportBusy === 'pdf' ? 'Preparando o PDF para download' : 'Preparando a imagem PNG'}
+              {exportBusy === 'docx'
+                ? 'Preparando o Word para download'
+                : exportBusy === 'pdf'
+                  ? 'Preparando o PDF para download'
+                  : 'Preparando a imagem PNG'}
             </p>
           </div>
           <style>{`
@@ -1954,16 +2871,113 @@ const ResultView: React.FC<{
               50%{transform:scale(1.07);box-shadow:0 16px 48px rgba(31,78,95,0.55)}
             }
           `}</style>
-        </div>
+        </div>,
+        document.body,
       )}
+
+      {/* Checkpoint 4E — item "Preview continua grande": CARD compacto (estilo
+          anexo de chat), substitui a toolbar+prévia grande anteriores. Nenhuma
+          prévia A4 é renderizada aqui — só uma miniatura pequena e ações. */}
+      <div style={{
+        background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`,
+        padding: 16, display: 'flex', gap: 14, alignItems: 'flex-start',
+        boxShadow: '0 2px 12px rgba(0,0,0,0.06)', maxWidth: 460,
+      }}>
+        <div style={{
+          width: 88, height: 110, borderRadius: 8, background: C.bg,
+          border: `1px solid ${C.border}`, flexShrink: 0, overflow: 'hidden',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {hasImage && !imageLoadError ? (
+            <img src={result.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          ) : (
+            <FileText size={28} color={C.sec} />
+          )}
+        </div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <p style={{ margin: 0, fontSize: 11, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Atividade pronta</p>
+          <p style={{ margin: '2px 0 8px', fontSize: 14, fontWeight: 800, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {result.title}
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {questionCountLabel && (
+              <span style={{ fontSize: 11, color: C.dark, background: C.light, padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>
+                {questionCountLabel}
+              </span>
+            )}
+            {result.creditsUsed > 0 && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: C.gold, fontWeight: 700 }}>
+                <Coins size={11} /> {result.creditsUsed} cr
+              </span>
+            )}
+            {saved && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#16A34A', fontWeight: 700 }}>
+                <CheckCircle size={11} /> Salva na Biblioteca
+              </span>
+            )}
+            {result.outputFormat && result.outputFormat !== 'unspecified' && (
+              <span style={{ fontSize: 11, color: C.dark, background: '#EEF2FF', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                Formato solicitado: {outputFormatLabel(result.outputFormat)}
+              </span>
+            )}
+          </div>
+          {result.outputFormatNotice && (
+            <p style={{ margin: '0 0 8px', fontSize: 11, color: C.sec }}>{result.outputFormatNotice}</p>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <Btn size="sm" icon={Sparkles} onClick={() => setViewerOpen(true)}>Visualizar</Btn>
+            <Btn size="sm" icon={Download} onClick={() => void handlePrimaryExport()} disabled={!!exportBusy}>
+              {exportBusy ? 'Gerando...' : outputFormatButtonLabel(result.outputFormat)}
+            </Btn>
+            {!saved && (
+              <Btn size="sm" icon={Bookmark} variant="primary" onClick={onSave} disabled={saving}>
+                {saving ? 'Salvando…' : 'Salvar'}
+              </Btn>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {showIllustrationFallbackNoticeInCard}
+      {showOriginalTypeUnsupportedNoticeInCard}
+
+      {/* Checkpoint 4E — item "Visualizar": modal dedicado (Dialog já usado em
+          outras partes do app — StudentImportModal, ChecklistUploadModal etc.),
+          em vez de expandir uma A4 gigante dentro do fluxo principal do chat. */}
+      <Dialog open={viewerOpen} onOpenChange={setViewerOpen}>
+        <DialogContent className="max-w-[900px] w-[92vw] max-h-[88vh] overflow-hidden p-0 flex flex-col">
+          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            <DialogTitle style={{ fontSize: 14, fontWeight: 800, color: C.dark, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {result.title}
+            </DialogTitle>
+            {hasTabs && (
+              <div style={{ display: 'flex', gap: 5 }}>
+                <TabBtn id="folha" label="Folha do Aluno" icon={FileText} />
+                {hasGuide && <TabBtn id="guia" label="Guia do Professor" icon={GraduationCap} />}
+                {hasGabarito && <TabBtn id="gabarito" label="Gabarito" icon={CheckCircle} />}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 5 }}>
+              <Btn size="sm" icon={Download} onClick={() => void handlePrimaryExport()} disabled={!!exportBusy}>
+                {outputFormatLabel(result.outputFormat)}
+              </Btn>
+            </div>
+          </div>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {activeTab === 'folha' && renderFolhaStage(folhaAlunoRef)}
+            {activeTab === 'guia' && renderGuiaStage(guiaProfessorRef)}
+            {activeTab === 'gabarito' && renderGabaritoStage(gabaritoRef, 'modal')}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {exportError && (
         <div role="alert" style={{
           display: 'flex', alignItems: 'center', gap: 10,
-          marginBottom: 14, padding: '10px 14px',
+          marginTop: 14, padding: '10px 14px',
           borderRadius: 10, border: '1px solid #FECACA',
           background: '#FEF2F2', color: '#991B1B',
-          fontSize: 13, fontWeight: 650,
+          fontSize: 13, fontWeight: 650, maxWidth: 460,
         }}>
           <AlertCircle size={15} />
           <span style={{ flex: 1 }}>{exportError}</span>
@@ -1973,170 +2987,28 @@ const ResultView: React.FC<{
         </div>
       )}
 
-      {/* Toolbar sticky */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 10,
-        background: C.surface, borderRadius: 12,
-        border: `1px solid ${C.border}`,
-        padding: '10px 16px', marginBottom: 20,
-        display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-        boxShadow: '0 2px 12px rgba(0,0,0,0.07)',
-      }}>
-        {/* Título + créditos */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
-          <div style={{ width: 26, height: 26, borderRadius: 7, background: C.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {hasImage ? <FileImage size={12} color={C.petrol} /> : <FileText size={12} color={C.petrol} />}
-          </div>
-          <span style={{ fontSize: 13, fontWeight: 700, color: C.dark, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
-            {result.title}
-          </span>
-          {result.creditsUsed > 0 && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, color: C.gold, fontWeight: 700, flexShrink: 0 }}>
-              <Coins size={11} /> {result.creditsUsed} cr
-            </span>
-          )}
+      {/* Checkpoint 4E — item "PDF/PNG não baixam": fonte de exportação DEDICADA,
+          sempre montada fora da viewport (nunca display:none — html2canvas não
+          captura elementos display:none), sempre mostrando o resultado real do
+          `result`, nunca afetada pelo card compacto acima nem pelo modal. Espelha
+          o `activeTab` atual (o mesmo usado no modal), sem duplicar conteúdo
+          pedagógico — só reaproveita as mesmas funções renderFolhaStage/
+          renderGuiaStage/renderGabaritoStage com refs próprios. */}
+      <div aria-hidden="true" data-incluilab-export-source="true" style={{ position: 'fixed', top: 0, left: -10000, width: 900, pointerEvents: 'none' }}>
+        <div id={exportStageId('folha')} data-export-stage="folha" style={{ width: 900 }}>
+          {renderFolhaStage(exportFolhaRef)}
         </div>
-
-        {/* Tabs */}
-        {hasTabs && (
-          <div style={{ display: 'flex', gap: 5, flex: 1, justifyContent: 'center' }}>
-            <TabBtn id="folha" label="Folha do Aluno" icon={FileText} />
-            {hasGuide && <TabBtn id="guia" label="Guia do Professor" icon={GraduationCap} />}
-            {hasAnalysis && <TabBtn id="analise" label="Análise" icon={Brain} />}
+        {hasGuide && (
+          <div id={exportStageId('guia')} data-export-stage="guia" style={{ width: 900 }}>
+            {renderGuiaStage(exportGuiaRef)}
           </div>
         )}
-
-        {/* Ações */}
-        <div style={{ display: 'flex', gap: 5, flexShrink: 0, marginLeft: hasTabs ? 0 : 'auto' }}>
-          {activeTab !== 'analise' && (
-            <>
-              <Btn size="sm" icon={Download} onClick={() => void handleExport('pdf')} disabled={!!exportBusy}>
-                {exportBusy === 'pdf' ? 'Gerando...' : 'Baixar PDF'}
-              </Btn>
-              <Btn size="sm" icon={Download} onClick={() => void handleExport('png')} disabled={!!exportBusy}>
-                {exportBusy === 'png' ? 'Gerando...' : 'Baixar PNG'}
-              </Btn>
-            </>
-          )}
-          <Btn size="sm" icon={saved ? CheckCircle : Bookmark} variant={saved ? 'success' : 'primary'} onClick={onSave} disabled={saving || saved}>
-            {saving ? 'Salvando…' : saved ? 'Salvo!' : 'Salvar'}
-          </Btn>
-        </div>
-      </div>
-
-      {/* Conteúdo: folha do aluno */}
-      {activeTab === 'folha' && (
-        <>
-          {hasImage && !imageLoadError && (
-            <PreviewStage innerRef={folhaAlunoRef}>
-              <div data-incluilab-pdf-page="true" data-incluilab-image-page="true" style={{
-                width: 794,
-                minHeight: 1123,
-                background: '#fff',
-                boxShadow: '0 10px 30px rgba(0,0,0,0.12)',
-                borderRadius: 12,
-                padding: 0,
-                overflow: 'hidden',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-                <img src={result.imageUrl} alt="Atividade gerada" onError={() => setImageLoadError(true)} style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
-              </div>
-            </PreviewStage>
-          )}
-          {(result.contentJson || result.activity) && (!hasImage || imageLoadError) && (
-            <>
-              {imageLoadError && (
-                <div role="alert" style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  marginBottom: 14, padding: '10px 14px',
-                  borderRadius: 10, border: '1px solid #FDE68A',
-                  background: '#FFFBEB', color: '#92400E',
-                  fontSize: 13, fontWeight: 650,
-                }}>
-                  <AlertCircle size={15} />
-                  <span>A imagem não pôde ser carregada. Exibindo versão editável em A4.</span>
-                </div>
-              )}
-              <PreviewStage innerRef={folhaAlunoRef}>
-                <ActivityA4Premium contentJson={result.contentJson || result.activity} studentName={studentName || undefined} visualStyle={visualStyle} />
-              </PreviewStage>
-            </>
-          )}
-          {!result.contentJson && !result.activity && hasText && (!hasImage || imageLoadError) && result.content && (
-            <PreviewStage innerRef={folhaAlunoRef}>
-              <ActivityA4Premium contentJson={normalizeIncluiLabActivity(result.content, { title: result.title })} studentName={studentName || undefined} visualStyle={visualStyle} />
-            </PreviewStage>
-          )}
-        </>
-      )}
-
-      {/* Conteúdo: guia do professor */}
-      {activeTab === 'guia' && hasGuide && (
-        result.guiaText
-          ? (
-            <PreviewStage innerRef={guiaProfessorRef}>
-              <div data-incluilab-pdf-page="true" style={{
-                width: 794,
-                minHeight: 1123,
-                background: '#fff', borderRadius: 12,
-                padding: '40px 44px',
-                boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
-                fontFamily: "'Segoe UI', Arial, sans-serif",
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28, paddingBottom: 18, borderBottom: `2px solid ${C.border}` }}>
-                  <div style={{ width: 42, height: 42, borderRadius: 11, background: C.light, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <GraduationCap size={20} color={C.petrol} />
-                  </div>
-                  <div>
-                    <p style={{ margin: 0, fontSize: 10, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.08em' }}>IncluiLAB · Atividade Visual</p>
-                    <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: C.dark }}>Guia do Professor</h2>
-                  </div>
-                </div>
-                <div style={{ fontSize: 14, lineHeight: 1.75, color: '#2a2a2a' }}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
-                    h1: ({ children }: any) => <h1 style={{ fontSize: 20, fontWeight: 800, color: C.dark, margin: '24px 0 12px', borderBottom: `2px solid ${C.border}`, paddingBottom: 8 }}>{children}</h1>,
-                    h2: ({ children }: any) => <h2 style={{ fontSize: 16, fontWeight: 700, color: C.petrol, margin: '22px 0 10px', display: 'flex', alignItems: 'center', gap: 8 }}>{children}</h2>,
-                    h3: ({ children }: any) => <h3 style={{ fontSize: 14, fontWeight: 700, color: C.dark, margin: '16px 0 8px' }}>{children}</h3>,
-                    p: ({ children }: any) => <p style={{ margin: '0 0 12px', lineHeight: 1.75 }}>{children}</p>,
-                    ul: ({ children }: any) => <ul style={{ margin: '8px 0 16px', paddingLeft: 22, display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</ul>,
-                    ol: ({ children }: any) => <ol style={{ margin: '8px 0 16px', paddingLeft: 22, display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</ol>,
-                    li: ({ children }: any) => <li style={{ lineHeight: 1.65, color: '#2a2a2a' }}>{children}</li>,
-                    strong: ({ children }: any) => <strong style={{ fontWeight: 700, color: C.dark }}>{children}</strong>,
-                    hr: () => <hr style={{ border: 'none', borderTop: `1px solid ${C.border}`, margin: '20px 0' }} />,
-                  }}>
-                    {result.guiaText}
-                  </ReactMarkdown>
-                </div>
-              </div>
-            </PreviewStage>
-          )
-          : result.activity
-            ? <PreviewStage innerRef={guiaProfessorRef}><A4ActivityRenderer activity={result.activity} studentName={studentName || undefined} activeView="guia" /></PreviewStage>
-            : null
-      )}
-
-      {/* Conteúdo: análise da adaptação */}
-      {activeTab === 'analise' && hasAnalysis && (
-        <div style={{ maxWidth: 900, margin: '0 auto' }}>
-          <div style={{ background: C.surface, borderRadius: 14, padding: '32px 36px', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', fontFamily: "'Segoe UI', Arial, sans-serif" }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 10, background: C.light, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Brain size={20} color={C.petrol} />
-              </div>
-              <div>
-                <p style={{ margin: 0, fontSize: 11, color: C.sec, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Etapa interna · IA</p>
-                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: C.dark }}>Análise da Adaptação</h3>
-              </div>
-            </div>
-            <div style={{ padding: '16px 20px', borderRadius: 10, background: C.bg, border: `1px solid ${C.border}`, fontSize: 13, lineHeight: 1.8, color: '#374151', whiteSpace: 'pre-wrap' }}>
-              {result.analysisText}
-            </div>
-            <p style={{ margin: '16px 0 0', fontSize: 11, color: C.sec }}>Esta análise foi usada internamente para gerar a atividade. Não é destinada ao aluno.</p>
+        {hasGabarito && (
+          <div id={exportStageId('gabarito')} data-export-stage="gabarito" style={{ width: 900 }}>
+            {renderGabaritoStage(exportGabaritoRef, 'export')}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
@@ -2161,6 +3033,7 @@ const GeneratingState: React.FC<{ mode: GenerationMode; topic: string }> = ({ mo
     <h2 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800, color: C.dark }}>
       {mode === 'a4_visual' ? 'Criando atividade com imagens…' :
        mode === 'a4_premium' ? 'Gerando worksheet premium…' :
+       mode === 'avaliacao' ? 'Criando avaliação com gabarito…' :
        mode === 'adaptar_economico' ? 'Adaptando atividade…' :
        mode === 'adaptar_visual' ? 'Adaptando com imagens…' :
        mode === 'adaptar_premium' ? 'Adaptando worksheet premium…' :
@@ -2176,6 +3049,29 @@ const GeneratingState: React.FC<{ mode: GenerationMode; topic: string }> = ({ mo
       @keyframes pulse { 0%,100%{transform:scale(1);box-shadow:0 8px 24px rgba(31,78,95,0.3)} 50%{transform:scale(1.04);box-shadow:0 12px 32px rgba(31,78,95,0.45)} }
       @keyframes spin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
     `}</style>
+  </div>
+);
+
+const OutputFormatPrompt: React.FC<{
+  onChoose: (format: Exclude<IncluiLabOutputFormat, 'unspecified'>) => void;
+}> = ({ onChoose }) => (
+  <div style={{
+    maxWidth: 460,
+    margin: '18px auto 0',
+    padding: '14px 16px',
+    border: `1px solid ${C.border}`,
+    borderRadius: 14,
+    background: C.surface,
+    boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+  }}>
+    <p style={{ margin: '0 0 10px', fontSize: 14, fontWeight: 800, color: C.dark }}>
+      Em qual formato você quer receber a atividade?
+    </p>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      <Btn size="sm" icon={FileText} onClick={() => onChoose('docx')}>Word</Btn>
+      <Btn size="sm" icon={FileText} onClick={() => onChoose('pdf')}>PDF</Btn>
+      <Btn size="sm" icon={FileImage} onClick={() => onChoose('png')}>Imagem</Btn>
+    </div>
   </div>
 );
 
@@ -2210,6 +3106,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
   const [pendingFile,  setPendingFile]  = useState<AttachedFile | null>(null);
   const [genMode,      setGenMode]      = useState<GenerationMode>('a4_economica');
   const [visualStyle,  setVisualStyle]  = useState<ActivityVisualStyle>('fundamental');
+  const [pendingFormatRequest, setPendingFormatRequest] = useState<PendingFormatRequest | null>(null);
+
+  // ── Nova UI (chat): painel "Mais opções" colapsado por padrão ───────────────
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // ── Tipo de público ───────────────────────────────────────────────────────
   const [targetType, setTargetType] = useState<TargetType>('turma_geral');
@@ -2268,9 +3168,34 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     }
   };
 
+  // ── Nova UI (chat): sugestões de capacidade — atalho, nunca obrigatório ─────
+  // Ajusta o formato mais próximo já suportado e foca o campo de texto.
+  // Sprint 2B: "Criar relatório" foi removido de CAPABILITY_SUGGESTIONS (Document
+  // Pipeline ainda não existe — ver comentário acima da constante). O campo livre
+  // continua aceitando qualquer pedido em texto normalmente, sem esse atalho.
+  const handleCapabilityClick = (label: string) => {
+    switch (label) {
+      case 'Adaptar material':
+        handleModeChange('adaptar_economico');
+        break;
+      case 'Criar avaliação':
+        setGenMode('avaliacao');
+        break;
+      case 'Criar imagem':
+        setGenMode('a4_visual');
+        break;
+      case 'Criar atividade':
+      default:
+        setGenMode('a4_economica');
+        break;
+    }
+    setTimeout(() => textAreaRef.current?.focus(), 50);
+  };
+
   // ── Input handlers ────────────────────────────────────────────────────────
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value);
+    if (pendingFormatRequest) setPendingFormatRequest(null);
     const ta = e.target;
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
@@ -2295,26 +3220,76 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     setErrorMsg('');
     const topic = text || (pendingFile?.name ?? '');
     setCurrentTopic(topic);
-    const requiredCredits = getModeConfig(genMode).maxCost;
+    const lowerTopic = topic.toLowerCase();
+    const effectiveMode: GenerationMode =
+      genMode === 'a4_economica' && AVALIACAO_KEYWORDS.some(k => lowerTopic.includes(k))
+        ? 'avaliacao'
+        : genMode;
+    if (effectiveMode !== genMode) setGenMode(effectiveMode);
+    const canonicalTextMode =
+      (effectiveMode === 'a4_economica' && isIncluiLabCanonicalModeEnabled('a4_economica')) ||
+      (effectiveMode === 'avaliacao' && isIncluiLabCanonicalModeEnabled('avaliacao')) ||
+      (effectiveMode === 'adaptar_economico' && isIncluiLabCanonicalModeEnabled('adaptar_economico'));
+    if (canonicalTextMode) {
+      const previewIntent = extractCanonicalIntent(topic, {
+        hasAttachment: isAdaptarMode(effectiveMode),
+        studentContext: studentCtx || undefined,
+        requestTypeHint: effectiveMode === 'avaliacao' ? 'avaliacao' : effectiveMode === 'adaptar_economico' ? 'adaptacao' : 'atividade',
+      });
+      if (previewIntent.requestedVisualStyle === 'preto_e_branco') setVisualStyle('pb');
+      if (previewIntent.outputFormat === 'unspecified') {
+        setPendingFormatRequest({ mode: effectiveMode, topic, inputText: inputText.trim(), file: pendingFile });
+        setLabState('idle');
+        return;
+      }
+    }
+    const requiredCredits = getModeConfig(effectiveMode).maxCost;
     if (creditsAvailable !== undefined && creditsAvailable < requiredCredits) {
       setErrorMsg(CREDIT_INSUFFICIENT_MSG);
       return;
     }
-    void runGeneration(genMode, topic);
+    void runGeneration(effectiveMode, topic);
   };
 
   // ── Geração ───────────────────────────────────────────────────────────────
-  const runGeneration = async (mode: GenerationMode, topic: string) => {
+  const runGeneration = async (
+    mode: GenerationMode,
+    topic: string,
+    outputFormatHint?: IncluiLabOutputFormat,
+    extraTextOverride?: string,
+    fileOverride?: AttachedFile | null,
+  ) => {
     setLabState('generating');
-    const extras = inputText.trim();
+    const extras = extraTextOverride ?? inputText.trim();
+    const fileForGeneration = fileOverride ?? pendingFile;
     switch (mode) {
-      case 'a4_economica':      await generateA4Economica(topic); break;
+      // Sprint canônico: rollout segmentado por modo. Visual/Premium seguem legados
+      // até o pipeline visual trocar "Imagen desenha folha inteira" por renderer estruturado.
+      case 'a4_economica':      await (isIncluiLabCanonicalModeEnabled('a4_economica') ? generateA4EconomicaCanonical(topic, outputFormatHint) : generateA4Economica(topic)); break;
+      case 'avaliacao':         await (isIncluiLabCanonicalModeEnabled('avaliacao') ? generateAvaliacaoCanonical(topic, outputFormatHint) : generateA4Economica(`Avaliação: ${topic}`)); break;
       case 'a4_visual':         await generateA4Visual(topic); break;
       case 'a4_premium':        await generateA4Premium(topic); break;
-      case 'adaptar_economico': if (pendingFile) await generateAdaptarEconomico(pendingFile, extras); break;
-      case 'adaptar_visual':    if (pendingFile) await generateAdaptarVisual(pendingFile, extras); break;
-      case 'adaptar_premium':   if (pendingFile) await generateAdaptarPremium(pendingFile, extras); break;
+      case 'adaptar_economico': if (fileForGeneration) await (isIncluiLabCanonicalModeEnabled('adaptar_economico') ? generateAdaptarEconomicoCanonical(fileForGeneration, extras, outputFormatHint) : generateAdaptarEconomico(fileForGeneration, extras)); break;
+      case 'adaptar_visual':    if (fileForGeneration) await generateAdaptarVisual(fileForGeneration, extras); break;
+      case 'adaptar_premium':   if (fileForGeneration) await generateAdaptarPremium(fileForGeneration, extras); break;
     }
+  };
+
+  const handlePrimaryExport = async () => {
+    if (result.outputFormat === 'docx') return handleExportWord();
+    if (result.outputFormat === 'png') return handleExport('png', 'folha');
+    return handleExport('pdf', 'folha');
+  };
+
+  const handleChooseOutputFormat = (format: Exclude<IncluiLabOutputFormat, 'unspecified'>) => {
+    const pending = pendingFormatRequest;
+    if (!pending) return;
+    setErrorMsg('');
+    setPendingFormatRequest(null);
+    setInputText(pending.inputText);
+    setPendingFile(pending.file);
+    setCurrentTopic(pending.topic);
+    void runGeneration(pending.mode, pending.topic, format, pending.inputText, pending.file);
   };
 
   // ── 1. A4 Econômica (3 cr) — JSON + pictogramas/emoji, sem imagem IA ─────
@@ -2325,22 +3300,133 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     try {
       const raw = await AIService.generateIncluiLabActivitySchema(buildPremiumActivityPrompt(topic, studentCtx), user);
       const cleaned = cleanJsonString(raw);
-      let parsedForGuia: any = {};
-      try { parsedForGuia = JSON.parse(cleaned); } catch {}
-      const guiaText = extractGuiaText(parsedForGuia, topic);
+      // Checkpoint 4D — CORREÇÃO: A4 Econômica é atividade geral, nunca adaptação.
+      // O contrato de buildPremiumActivityPrompt não pede guia_pedagogico (e proíbe
+      // explicitamente "guia do professor na folha"), então parsedForGuia.guia_pedagogico
+      // é sempre undefined aqui. ANTES, extractGuiaText(undefined, topic) caía no
+      // fallback buildFallbackGuide(topic) — que NUNCA retorna vazio — e fabricava um
+      // "Guia do Professor" para 100% das gerações de A4 Econômica, violando a regra
+      // canônica (atividade geral não tem Guia). Correção: não extrair/fabricar guia
+      // algum neste modo. guiaText fica undefined -> hasGuide=false -> aba não aparece.
       const contentJson = normalizeIncluiLabActivity(cleaned, { title: topic, prompt: topic, grade: anoSerie });
+      // Checkpoint 4E — item "Avaliação sem Gabarito": quando o tema pede avaliação/
+      // prova/teste, buildPremiumActivityPrompt já exige um campo "gabarito" no JSON
+      // (ver topicRequestsAvaliacao). Extraímos aqui, best-effort — se o parse falhar
+      // ou o campo vier ausente/mal formado, simplesmente não há gabarito (sem
+      // fabricar nada, ao contrário do bug antigo do Guia).
+      let legacyAnswerKey: IncluiLabAnswerKeyItem[] | undefined;
+      try {
+        const parsedForGabarito = JSON.parse(cleaned);
+        if (Array.isArray(parsedForGabarito?.gabarito)) {
+          legacyAnswerKey = parsedForGabarito.gabarito
+            .filter((g: any) => g && typeof g.numero === 'number' && typeof g.resposta === 'string' && g.resposta.trim())
+            .map((g: any) => ({ numero: g.numero, resposta: g.resposta.trim(), explicacao: typeof g.explicacao === 'string' ? g.explicacao.trim() : undefined }));
+          if (!legacyAnswerKey.length) legacyAnswerKey = undefined;
+        }
+      } catch { /* sem gabarito válido — não fabricamos um */ }
       await safeDeductCredits(user, 'INCLUILAB_A4_ECONOMICA', cost);
-      setResult({
+      const nextResult: GeneratedResult = {
         id: uid(),
         title: contentJson.title,
         prompt: topic,
         contentJson,
         content: activityToJson(contentJson),
+        creditsUsed: cost,
+        mode: 'a4_economica',
+        legacyAnswerKey,
+      };
+      setResult(nextResult);
+      setLabState('result'); setInputText(''); setPendingFile(null);
+      // Checkpoint 4D — autosave: reaproveita o mesmo persistResult do botão
+      // "Salvar" manual e do pipeline canônico. Nenhuma Biblioteca nova, nenhum
+      // schema novo — só passa a chamar o que já existia para os outros modos.
+      await autoSavePersistedResult(nextResult);
+    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+  }
+
+  // ── 1b. A4 Econômica — PIPELINE CANÔNICO (Sprint 2B) ──────────────────────
+  // Só roda quando INCLUILAB_CANONICAL_PIPELINE === true. Mesmo custo em créditos
+  // do modo legado (INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA — nenhum preço novo).
+  async function generateA4EconomicaCanonical(topic: string, outputFormatHint?: IncluiLabOutputFormat) {
+    const cost = INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
+    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+    try {
+      const request = extractCanonicalIntent(topic, {
+        hasAttachment: false,
+        studentContext: studentCtx || undefined,
+        requestTypeHint: 'atividade',
+        outputFormatHint,
+      });
+      if (request.requestedVisualStyle === 'preto_e_branco') setVisualStyle('pb');
+      const pkg = await runCanonicalActivityPipeline({
+        request,
+        user,
+        cost,
+        actionKey: 'incluilab_canonical_a4_economica',
+      });
+      // Sprint 2B.3 (item 2): guiaText só existe quando o pacote tem teacherGuide
+      // (ou seja, requestType === 'adaptacao'). Para atividade/avaliação geral fica undefined.
+      const guiaText = pkg.teacherGuide ? buildTeacherGuideMarkdown(pkg) : undefined;
+      const contentJson = normalizeIncluiLabActivity(pkg.activity, { title: pkg.activity.header.title, prompt: topic, grade: anoSerie });
+      const nextResult: GeneratedResult = {
+        id: uid(),
+        title: pkg.activity.header.title,
+        prompt: topic,
+        contentJson,
+        activity: pkg.activity,
+        content: activityToJson(pkg.activity),
         guiaText,
         creditsUsed: cost,
         mode: 'a4_economica',
-      });
+        activityPackage: pkg,
+        outputFormat: pkg.exportSettings.outputFormat,
+        outputFormatNotice: pkg.exportSettings.normalizedOutputFormatNotice,
+      };
+      setResult(nextResult);
       setLabState('result'); setInputText(''); setPendingFile(null);
+      // Sprint 2B.3 (item 5): autosave — créditos já foram commitados pelo pipeline
+      // (ver comentário acima de runCanonicalActivityPipeline); persistimos logo em
+      // seguida. Se falhar, o professor vê erro visível — não fica só no console.
+      await autoSavePersistedResult(nextResult);
+    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+  }
+
+  async function generateAvaliacaoCanonical(topic: string, outputFormatHint?: IncluiLabOutputFormat) {
+    const cost = INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
+    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+    try {
+      const request = extractCanonicalIntent(topic, {
+        hasAttachment: false,
+        studentContext: studentCtx || undefined,
+        requestTypeHint: 'avaliacao',
+        outputFormatHint,
+      });
+      if (request.requestedVisualStyle === 'preto_e_branco') setVisualStyle('pb');
+      const pkg = await runCanonicalActivityPipeline({
+        request,
+        user,
+        cost,
+        actionKey: 'incluilab_canonical_avaliacao',
+      });
+      const contentJson = normalizeIncluiLabActivity(pkg.activity, { title: pkg.activity.header.title, prompt: topic, grade: anoSerie });
+      const nextResult: GeneratedResult = {
+        id: uid(),
+        title: pkg.activity.header.title,
+        prompt: topic,
+        contentJson,
+        activity: pkg.activity,
+        content: activityToJson(pkg.activity),
+        creditsUsed: cost,
+        mode: 'avaliacao',
+        activityPackage: pkg,
+        outputFormat: pkg.exportSettings.outputFormat,
+        outputFormatNotice: pkg.exportSettings.normalizedOutputFormatNotice,
+      };
+      setResult(nextResult);
+      setLabState('result'); setInputText(''); setPendingFile(null);
+      await autoSavePersistedResult(nextResult);
     } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
   }
 
@@ -2394,7 +3480,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         buildFallbackActivityContentFromVisualPayload(parsed, topic, targetType, anoSerie),
         { title: topic },
       );
-      setResult({
+      const nextResult: GeneratedResult = {
         id: uid(),
         title: contentJson.title,
         prompt: topic,
@@ -2404,8 +3490,12 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         guiaText: parsed.guia_pedagogico,
         creditsUsed: cost,
         mode: 'a4_visual',
-      });
+      };
+      setResult(nextResult);
       setLabState('result'); setInputText(''); setPendingFile(null);
+      // Checkpoint 4D — autosave (item 13/14): A4 Visual nunca chamava persistência
+      // automática; o professor dependia só do botão "Salvar" manual.
+      await autoSavePersistedResult(nextResult);
     } catch (err: any) {
       if (reservationId) {
         try {
@@ -2481,7 +3571,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         buildFallbackActivityContentFromVisualPayload(parsed, topic, targetType, anoSerie),
         { title: topic },
       );
-      setResult({
+      const nextResult: GeneratedResult = {
         id: uid(),
         title: contentJson.title,
         prompt: topic,
@@ -2491,8 +3581,11 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         guiaText: parsed.guia_pedagogico,
         creditsUsed: cost,
         mode: 'a4_premium',
-      });
+      };
+      setResult(nextResult);
       setLabState('result'); setInputText(''); setPendingFile(null);
+      // Checkpoint 4D — autosave (item 13/14): mesma correção da A4 Visual.
+      await autoSavePersistedResult(nextResult);
     } catch (err: any) {
       if (reservationId) {
         try {
@@ -2526,14 +3619,27 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
     try {
       const analysisText = await AIService.generateFromPromptWithImage(buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user);
-      const raw = await AIService.generateIncluiLabActivitySchema(buildPremiumAdaptActivityPrompt(analysisText, studentCtx, extraInstructions), user);
+      // Checkpoint 4E — item "Adaptação não preserva o material original": detecta
+      // o tipo estrutural (best-effort, a partir da análise em texto do Gemini
+      // Vision) e passa para o prompt, que agora exige preservar essa estrutura.
+      const originalActivityType = detectOriginalActivityType(analysisText);
+      const raw = await AIService.generateIncluiLabActivitySchema(
+        buildPremiumAdaptActivityPrompt(analysisText, studentCtx, extraInstructions, originalActivityType), user,
+      );
       const cleanedAdapt = cleanJsonString(raw);
       let parsedAdaptForGuia: any = {};
       try { parsedAdaptForGuia = JSON.parse(cleanedAdapt); } catch {}
       const guiaTextAdapt = extractGuiaText(parsedAdaptForGuia, extraInstructions || file.name);
-      const contentJson = normalizeIncluiLabActivity(cleanedAdapt, { title: `Atividade Adaptada: ${file.name}`, prompt: extraInstructions, grade: anoSerie });
+      // Checkpoint 4E — item "Título vindo do filename": ANTES o fallback de
+      // título era literalmente `Atividade Adaptada: ${file.name}` — se o
+      // modelo não retornasse um "title" utilizável, o nome cru do arquivo
+      // (com extensão, underscores etc.) virava o título pedagógico. Agora o
+      // fallback tenta extrair um título da própria análise de conteúdo antes
+      // de recorrer ao nome do arquivo (sanitizado, só como último recurso).
+      const fallbackTitle = deriveAdaptedFallbackTitle(analysisText, file.name);
+      const contentJson = normalizeIncluiLabActivity(cleanedAdapt, { title: fallbackTitle, prompt: extraInstructions, grade: anoSerie });
       await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_ECONOMICO', cost);
-      setResult({
+      const nextResult: GeneratedResult = {
         id: uid(),
         title: contentJson.title,
         prompt: extraInstructions,
@@ -2543,8 +3649,71 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         guiaText: guiaTextAdapt,
         creditsUsed: cost,
         mode: 'adaptar_economico',
-      });
+        originalActivityType,
+      };
+      setResult(nextResult);
       setLabState('result'); setInputText(''); setPendingFile(null);
+      // Checkpoint 4D — autosave (item 13/14). Guia mantido aqui: Adaptar É
+      // adaptação de fato (requestType implícito 'adaptacao'), então o Guia do
+      // Professor é esperado e correto neste modo — não é o bug do item A.
+      await autoSavePersistedResult(nextResult);
+    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+  }
+
+  // ── 4b. Adaptar — Econômico — PIPELINE CANÔNICO (Sprint 2B) ───────────────
+  // Só roda quando INCLUILAB_CANONICAL_PIPELINE === true. Mesmo custo em créditos
+  // do modo legado (INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO — nenhum preço novo).
+  async function generateAdaptarEconomicoCanonical(file: AttachedFile, extraInstructions: string, outputFormatHint?: IncluiLabOutputFormat) {
+    const cost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO;
+    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
+    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+    try {
+      // A análise de imagem não é reservada separadamente: é uma etapa auxiliar de
+      // baixo custo que já roda sem cobrança dedicada no fluxo legado equivalente.
+      const analysisText = await AIService.generateFromPromptWithImage(buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user);
+      const originalActivityType = detectOriginalActivityType(analysisText);
+      const semanticTopic = extraInstructions.trim() || deriveAdaptedFallbackTitle(analysisText, file.name);
+      const request = extractCanonicalIntent(semanticTopic, {
+        hasAttachment: true,
+        studentContext: studentCtx || undefined,
+        requestTypeHint: 'adaptacao',
+        originalActivityType,
+        outputFormatHint,
+      });
+      if (request.requestedVisualStyle === 'preto_e_branco') setVisualStyle('pb');
+      const pkg = await runCanonicalActivityPipeline({
+        request,
+        user,
+        cost,
+        actionKey: 'incluilab_canonical_adaptar_economico',
+        analysisText,
+      });
+      // Sprint 2B.3 (item 2): guiaText só existe quando o pacote tem teacherGuide.
+      // Aqui requestType é sempre 'adaptacao' (requestTypeHint acima), então na
+      // prática sempre existirá — mantemos a checagem por consistência/segurança.
+      const guiaTextAdapt = pkg.teacherGuide ? buildTeacherGuideMarkdown(pkg) : undefined;
+      const fallbackTitle = deriveAdaptedFallbackTitle(analysisText, file.name);
+      const contentJson = normalizeIncluiLabActivity(pkg.activity, { title: pkg.activity.header.title || fallbackTitle, prompt: extraInstructions, grade: anoSerie });
+      const nextResult: GeneratedResult = {
+        id: uid(),
+        title: contentJson.title,
+        prompt: extraInstructions,
+        contentJson,
+        activity: pkg.activity,
+        content: activityToJson(pkg.activity),
+        analysisText,
+        guiaText: guiaTextAdapt,
+        creditsUsed: cost,
+        mode: 'adaptar_economico',
+        activityPackage: pkg,
+        originalActivityType,
+        outputFormat: pkg.exportSettings.outputFormat,
+        outputFormatNotice: pkg.exportSettings.normalizedOutputFormatNotice,
+      };
+      setResult(nextResult);
+      setLabState('result'); setInputText(''); setPendingFile(null);
+      // Sprint 2B.3 (item 5): autosave após commit — ver comentário no gerador acima.
+      await autoSavePersistedResult(nextResult);
     } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
   }
 
@@ -2607,7 +3776,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         ),
         { title: file.name },
       );
-      setResult({
+      const nextResult: GeneratedResult = {
         id: uid(),
         title: contentJson.title,
         prompt: extraInstructions,
@@ -2618,8 +3787,11 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         analysisText,
         creditsUsed: cost,
         mode: 'adaptar_visual',
-      });
+      };
+      setResult(nextResult);
       setLabState('result'); setInputText(''); setPendingFile(null);
+      // Checkpoint 4D — autosave (item 13/14).
+      await autoSavePersistedResult(nextResult);
     } catch (err: any) {
       if (reservationId) {
         try {
@@ -2705,7 +3877,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         ),
         { title: file.name },
       );
-      setResult({
+      const nextResult: GeneratedResult = {
         id: uid(),
         title: contentJson.title,
         prompt: extraInstructions,
@@ -2716,8 +3888,11 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
         analysisText,
         creditsUsed: cost,
         mode: 'adaptar_premium',
-      });
+      };
+      setResult(nextResult);
       setLabState('result'); setInputText(''); setPendingFile(null);
+      // Checkpoint 4D — autosave (item 13/14).
+      await autoSavePersistedResult(nextResult);
     } catch (err: any) {
       if (reservationId) {
         try {
@@ -2744,38 +3919,85 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     }
   }
 
-  // ── Salvar resultado ──────────────────────────────────────────────────────
+  // ── Persistência (compartilhada entre "Salvar" manual e autosave canônico) ─
+  // Sprint 2B.3 (item 5, Auditoria 2B.2-E): tenantId é resolvido ESTRITAMENTE a
+  // partir de user.tenant_id. O padrão antigo `(user as any).tenant_id ?? user.id`
+  // usava o próprio user.id como tenant_id quando tenant_id estava ausente — isso
+  // quase certamente violaria a RLS de INSERT (`tenant_id = my_tenant_id()`) e
+  // falhava de forma silenciosa. Aqui, se tenant_id não existir, erro explícito
+  // em vez de um fallback incorreto. (Os modos legados não foram tocados.)
+  const persistResult = async (target: GeneratedResult): Promise<{ id: string | null; errorMsg?: string }> => {
+    const tenantId = (user as any).tenant_id;
+    if (!tenantId) {
+      return {
+        id: null,
+        errorMsg: 'Não foi possível salvar na Biblioteca: tenant não identificado para este usuário. Contate o suporte.',
+      };
+    }
+    try {
+      const id = await GeneratedActivityService.save({
+        tenantId,
+        userId:      user.id,
+        studentId:   studentId || undefined,
+        title:       target.title,
+        prompt:      target.prompt || inputText || currentTopic,
+        content:     target.content || (target.contentJson ? activityToJson(target.contentJson) : `[Imagem gerada — ${new Date().toLocaleString('pt-BR')}]`),
+        // Sprint 2B: resultados do pipeline canônico persistem o ActivitySchema 2.0 completo
+        // (com requestType/answerKey/deliveredAs) achatado na raiz do jsonb, mais os campos
+        // extras do ActivityPackage (metadata/exportSettings) — tudo em content_json, sem
+        // migration (jsonb livre). Continua legível pelo normalizeIncluiLabActivity legado
+        // porque header+exercises seguem na raiz do objeto.
+        contentJson: target.activityPackage
+          ? buildCanonicalActivityStorageContent(target.activityPackage)
+          : (target.contentJson || (target.activity ? normalizeIncluiLabActivity(target.activity) : {})),
+        imageUrl:    target.imageUrl,
+        // guiaText tem prioridade; analysisText como fallback para modos texto
+        guidance:    target.guiaText || target.analysisText,
+        isAdapted:   target.mode.startsWith('adaptar_'),
+        creditsUsed: target.creditsUsed,
+        costCredits: target.creditsUsed,
+        mode:        target.mode,
+        style:       target.contentJson?.visualStyle?.theme,
+        tags:        studentName ? [studentName] : [],
+      });
+      if (!id) {
+        return { id: null, errorMsg: 'Não foi possível salvar a atividade na Biblioteca. Tente novamente pelo botão "Salvar".' };
+      }
+      return { id };
+    } catch (e: any) {
+      return {
+        id: null,
+        errorMsg: `Não foi possível salvar a atividade na Biblioteca. ${e?.message || ''}`.trim(),
+      };
+    }
+  };
+
+  const applyPersistOutcome = async (target: GeneratedResult, outcome: { id: string | null; errorMsg?: string }) => {
+    if (outcome.id) {
+      setResult(prev => (prev && prev.id === target.id) ? { ...prev, savedId: outcome.id! } : prev);
+      await loadLibrary();
+    } else if (outcome.errorMsg) {
+      // Sprint 2B.3 (item 5): erro visível ao professor — nunca só console.error.
+      setErrorMsg(outcome.errorMsg);
+    }
+  };
+
+  // ── Salvar resultado (clique manual no botão "Salvar") ────────────────────
   const handleSave = async () => {
     if (!result) return;
     setSavingResult(true);
-    try {
-      const id = await GeneratedActivityService.save({
-        tenantId:    (user as any).tenant_id ?? user.id,
-        userId:      user.id,
-        studentId:   studentId || undefined,
-        title:       result.title,
-        prompt:      result.prompt || inputText || currentTopic,
-        content:     result.content || (result.contentJson ? activityToJson(result.contentJson) : `[Imagem gerada — ${new Date().toLocaleString('pt-BR')}]`),
-        contentJson: result.contentJson || (result.activity ? normalizeIncluiLabActivity(result.activity) : {}),
-        imageUrl:    result.imageUrl,
-        // guiaText tem prioridade; analysisText como fallback para modos texto
-        guidance:    result.guiaText || result.analysisText,
-        isAdapted:   result.mode.startsWith('adaptar_'),
-        creditsUsed: result.creditsUsed,
-        costCredits: result.creditsUsed,
-        mode:        result.mode,
-        style:       result.contentJson?.visualStyle?.theme,
-        tags:        studentName ? [studentName] : [],
-      });
-      if (id) {
-        setResult(prev => prev ? { ...prev, savedId: id } : prev);
-        await loadLibrary();
-      }
-    } catch (e: any) {
-      console.error('[IncluiLAB] Erro ao salvar:', e?.message);
-    } finally {
-      setSavingResult(false);
-    }
+    const outcome = await persistResult(result);
+    await applyPersistOutcome(result, outcome);
+    setSavingResult(false);
+  };
+
+  // ── Autosave da Biblioteca (Sprint 2B.3, item 5) ───────────────────────────
+  // Chamado pelos geradores canônicos logo após o commit de créditos (ver
+  // comentário em canonicalActivityPipeline.ts). Mesmo caminho de persistência
+  // do botão "Salvar" manual — se falhar, o professor vê o banner de erro.
+  const autoSavePersistedResult = async (target: GeneratedResult) => {
+    const outcome = await persistResult(target);
+    await applyPersistOutcome(target, outcome);
   };
 
   // ── Deletar da biblioteca ─────────────────────────────────────────────────
@@ -2791,16 +4013,22 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     setLibrarySelId(act.id);
     const fullAct = await GeneratedActivityService.getById(act.id);
     const row = fullAct || act;
-    const storedActivity = parseStoredActivity(row.content);
+    const rawStoredContentJson = getStoredContentJson(row);
+    const storedActivity = parseStoredActivityFromPayload(rawStoredContentJson, row.content);
     const legacyActivity = !storedActivity && row.content && !row.image_url
       ? createLegacyActivity(row.title || 'Atividade', row.content)
       : null;
     const activity = storedActivity || legacyActivity || undefined;
-    const contentJson = normalizeIncluiLabActivity(getStoredContentJson(row), {
+    const contentJson = normalizeIncluiLabActivity(activity?.schemaVersion === '2.0' ? activity : rawStoredContentJson, {
       title: row.title || 'Atividade',
       prompt: row.prompt || row.content || '',
       subject: row.discipline || '',
     });
+    // Sprint 2B.3 (item 6): reconstrói o ActivityPackage quando o item salvo é
+    // canônico (schemaVersion '2.0'). Sem isso, reabrir um item da Biblioteca
+    // perdia o roteamento para o A4ActivityRenderer, o gabarito e o aviso de
+    // ilustração — degradava silenciosamente para a renderização legada.
+    const activityPackage = buildActivityPackageFromStoredRow(activity, rawStoredContentJson);
     // Se a atividade tem imagem e não tem JSON parseável → guidance é o guia pedagógico (Visual/Premium)
     const storedGuidance = typeof row.guidance === 'string' && row.guidance.trim()
       ? row.guidance
@@ -2813,13 +4041,20 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
       prompt:      row.prompt || undefined,
       contentJson,
       activity,
+      activityPackage,
       content:     row.content,
       imageUrl:    row.image_url,
-      guiaText:    storedGuidance && (isImageMode || guidanceLooksLikeGuide) ? storedGuidance : undefined,
-      analysisText: storedGuidance && !guidanceLooksLikeGuide && !isImageMode ? storedGuidance : undefined,
+      // Para itens canônicos com teacherGuide (adaptação), reconstrói o Markdown a
+      // partir do ActivityPackage — nunca inclui gabarito (separado, ver item 3).
+      guiaText:    activityPackage?.teacherGuide
+        ? buildTeacherGuideMarkdown(activityPackage)
+        : (storedGuidance && (isImageMode || guidanceLooksLikeGuide) ? storedGuidance : undefined),
+      analysisText: !activityPackage && storedGuidance && !guidanceLooksLikeGuide && !isImageMode ? storedGuidance : undefined,
       creditsUsed: row.cost_credits ?? row.credits_used ?? 0,
       mode:        row.mode || (row.is_adapted ? 'adaptar_economico' : 'a4_economica'),
       savedId:     row.id,
+      outputFormat: activityPackage?.exportSettings.outputFormat,
+      outputFormatNotice: activityPackage?.exportSettings.normalizedOutputFormatNotice,
     });
     setLabState('result');
   };
@@ -2829,6 +4064,7 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     setLabState('idle');
     setResult(null);
     setLibrarySelId(null);
+    setPendingFormatRequest(null);
     setTimeout(() => textAreaRef.current?.focus(), 100);
   };
 
@@ -2918,6 +4154,10 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
 
   // RENDER PRINCIPAL
   // ─────────────────────────────────────────────────────────────────────────
+  // A interface clássica ("Studio", com seletores sempre visíveis) é preservada
+  // abaixo, intacta, e continua ativa quando INCLUILAB_NEW_UI = false.
+  // Ver src/config/incluilabUi.ts para reverter.
+  if (!INCLUILAB_NEW_UI) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', maxHeight: '100%', minHeight: 0, overflow: 'hidden', background: C.bg }}>
 
@@ -3044,14 +4284,18 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
           {/* Workspace scrollável */}
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', background: C.bg }}>
             {labState === 'idle' && (
-              <EmptyState
-                studentCtx={studentCtx}
-                studentName={studentName}
-                onSuggestion={(text) => {
-                  setInputText(text);
-                  setTimeout(() => textAreaRef.current?.focus(), 50);
-                }}
-              />
+              pendingFormatRequest ? (
+                <OutputFormatPrompt onChoose={handleChooseOutputFormat} />
+              ) : (
+                <EmptyState
+                  studentCtx={studentCtx}
+                  studentName={studentName}
+                  onSuggestion={(text) => {
+                    setInputText(text);
+                    setTimeout(() => textAreaRef.current?.focus(), 50);
+                  }}
+                />
+              )
             )}
             {labState === 'generating' && (
               <GeneratingState mode={genMode} topic={currentTopic} />
@@ -3079,6 +4323,152 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
             onKeyDown={handleKeyDown}
             onModeChange={handleModeChange}
             onStyleChange={setVisualStyle}
+            onSend={handleSend}
+            onFileClick={() => fileInputRef.current?.click()}
+            onRemoveFile={() => setPendingFile(null)}
+            textAreaRef={textAreaRef}
+          />
+        </div>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={isAdaptarMode(genMode) ? '.png,.jpg,.jpeg,.webp' : '.pdf,.png,.jpg,.jpeg,.webp,.docx,.doc'}
+        style={{ display: 'none' }}
+        onChange={handleFileSelect}
+      />
+      <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
+    </div>
+  );
+  } // fim do bloco legado (INCLUILAB_NEW_UI === false)
+
+  // ── Nova UI (estilo chat) ────────────────────────────────────────────────
+  // Contexto do aluno é opcional; formato/layout ficam em "Mais opções".
+  const chatContextSummary = studentId && studentName
+    ? studentName
+    : 'Sem aluno selecionado';
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', maxHeight: '100%', minHeight: 0, overflow: 'hidden', background: C.bg }}>
+
+      {/* ── Header enxuto ───────────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', padding: '10px 20px',
+        background: C.surface, borderBottom: `1px solid ${C.border}`, flexShrink: 0,
+        flexWrap: 'wrap', gap: 10,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10,
+            background: `linear-gradient(135deg, ${C.petrol}, #2a6880)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Brain size={18} color="#fff" />
+          </div>
+          <div>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 800, color: C.dark, lineHeight: 1 }}>IncluiLAB</p>
+            <p style={{ margin: 0, fontSize: 10, color: C.sec, lineHeight: 1.3 }}>
+              {studentId ? `Contexto: ${chatContextSummary}` : 'Peça o que precisar'}
+            </p>
+          </div>
+        </div>
+
+        <div style={{ flex: 1 }} />
+
+        <CreditBalanceBadge
+          balance={creditsAvailableSafe}
+          compact
+          onClick={() => onNavigate?.('subscription')}
+        />
+
+        <Btn size="sm" icon={BookMarked} onClick={() => onNavigate?.('incluilab_library')}>
+          Biblioteca
+        </Btn>
+
+        <button onClick={handleRegenerate} style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '7px 16px', borderRadius: 20, fontSize: 12, fontWeight: 700,
+          background: C.petrol, border: 'none', cursor: 'pointer',
+          color: '#fff', flexShrink: 0,
+          boxShadow: `0 2px 8px rgba(31,78,95,0.25)`,
+        }}>
+          <PlusCircle size={14} /> Nova criação
+        </button>
+      </div>
+
+      {/* ── Corpo: workspace + composer ─────────────────────────────────────── */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+
+          {/* Banner de erro */}
+          {errorMsg && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 20px', background: '#FEF2F2', borderBottom: '1px solid #FECACA',
+              flexShrink: 0,
+            }}>
+              <AlertCircle size={14} color="#DC2626" />
+              <span style={{ flex: 1, fontSize: 13, color: '#991B1B' }}>{errorMsg}</span>
+              <button onClick={() => setErrorMsg('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991B1B', padding: 2 }}>
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
+          {/* Workspace scrollável */}
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', background: C.bg }}>
+            {labState === 'idle' && (
+              pendingFormatRequest ? (
+                <OutputFormatPrompt onChoose={handleChooseOutputFormat} />
+              ) : (
+                <EmptyStateChat
+                  studentCtx={studentCtx}
+                  studentName={studentName}
+                  onSuggestion={(text) => {
+                    setInputText(text);
+                    setTimeout(() => textAreaRef.current?.focus(), 50);
+                  }}
+                  onCapability={handleCapabilityClick}
+                />
+              )
+            )}
+            {labState === 'generating' && (
+              <GeneratingState mode={genMode} topic={currentTopic} />
+            )}
+            {labState === 'result' && result && (
+              <ResultView
+                result={result}
+                studentName={studentName}
+                visualStyle={visualStyle}
+                onSave={handleSave}
+                saving={savingResult}
+                onExportJson={() => exportActivityJson(result.contentJson || result.activity || result.content || {}, `${exportTitle}.json`)}
+              />
+            )}
+          </div>
+
+          {/* Composer simplificado — opções avançadas colapsadas */}
+          <ChatComposer
+            inputText={inputText}
+            genMode={genMode}
+            pendingFile={pendingFile}
+            isGenerating={labState === 'generating'}
+            visualStyle={visualStyle}
+            targetType={targetType}
+            anoSerie={anoSerie}
+            studentId={studentId}
+            studentName={studentName}
+            students={students}
+            advancedOpen={advancedOpen}
+            onToggleAdvanced={() => setAdvancedOpen(v => !v)}
+            onInput={handleInput}
+            onKeyDown={handleKeyDown}
+            onModeChange={handleModeChange}
+            onStyleChange={setVisualStyle}
+            onTargetTypeChange={setTargetType}
+            onAnoSerieChange={setAnoSerie}
+            onStudentChange={handleStudentChange}
             onSend={handleSend}
             onFileClick={() => fileInputRef.current?.click()}
             onRemoveFile={() => setPendingFile(null)}

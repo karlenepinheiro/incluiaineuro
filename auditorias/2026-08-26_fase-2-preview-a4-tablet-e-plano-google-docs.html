@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Fase 2 — Prévia A4 no Tablet e Plano Google Docs</title>
+<style>
+  :root { --petrol:#1F4E5F; --dark:#2E3A59; --gold:#C69214; --bg:#F6F4EF; --surface:#FFFFFF; --border:#E7E2D8; --text:#111827; --muted:#6B7280; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; }
+  .header-inner { max-width: 1040px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 26px; font-weight: 800; max-width: 800px; }
+  .header p { opacity: .85; margin-top: 10px; font-size: 13px; max-width: 760px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1040px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h4 { font-size: 12.5px; color: var(--petrol); margin: 14px 0 6px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-ok { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-pendente { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+  .badge-critico { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .badge-nver { background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color: #C69214; background: #FEF9EE; }
+  .callout.ok { border-color: #059669; background: #F0FDF4; }
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+  pre { background: #1e1e1e; color: #d4d4d4; padding: 12px 16px; border-radius: 8px; overflow-x: auto; font-size: 12px; margin: 8px 0 14px; }
+  .checklist td:first-child { font-weight: 600; width: 62%; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="header"><div class="header-inner">
+  <div class="kicker">Correção controlada + Auditoria de integração</div>
+  <h1>Prévia A4 no Tablet (Safari/WebKit) e Plano Google Docs</h1>
+  <p>Correção real (reproduzida e verificada em navegador) do crash da prévia A4 em Safari/WebKit, fallback amigável com "Tentar novamente", rótulo "Baixar Word (.docx)" preservado, e auditoria completa da integração Google Docs (não implementada — infraestrutura OAuth/Drive não existe hoje).</p>
+  <div class="cover-badges">
+    <span class="badge badge-ok">26/08/2026</span>
+    <span class="badge badge-ok">Causa raiz reproduzida e corrigida em navegador real (Chromium)</span>
+    <span class="badge badge-ok">339/339 testes · build OK</span>
+    <span class="badge badge-pendente">Google Docs: auditado, NÃO implementado (aguardando autorização)</span>
+  </div>
+</div></div>
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Escopo alterado</strong><code>FormalPdfPreview.tsx</code>, <code>EstudoCasoPdfPreview.tsx</code>, <code>pdfjsCompat.ts</code> (novo), <code>DocumentWorkspace.tsx</code></div>
+    <div><strong>Gateway/Banco/RLS/Secrets</strong>Não alterados</div>
+    <div><strong>Google OAuth/Drive</strong>Não implementado — infraestrutura inexistente, ver Seção D</div>
+    <div><strong>WebKit real</strong>Não disponível neste ambiente (só Chromium) — ver Seção B</div>
+  </div>
+
+  <section class="block">
+    <h2><span class="num">A</span>Causa real do crash na prévia A4 (Safari/WebKit)</h2>
+    <p><span class="badge badge-ok">CONFIRMADO POR REPRODUÇÃO REAL EM NAVEGADOR</span> — não é uma suposição estática. A versão instalada de <code>pdfjs-dist</code> (5.7.284) usa, no seu próprio código, <code>Map.prototype.getOrInsertComputed(...)</code> — um método nativo do proposal TC39 "Map/Set Upsert", já disponível no V8/Chromium mas <strong>ainda não implementado no motor JavaScript do Safari/WebKit</strong> em uso nos iPads. Isso derruba <code>PDFPageProxy.render()</code> (via <code>WorkerTransport.getOptionalContentConfig()</code>, no thread principal) com exatamente o erro relatado.</p>
+    <h4>Como foi confirmado (sem precisar de um iPad físico)</h4>
+    <p>Como não há binário WebKit disponível neste ambiente (só Chromium via Playwright), a causa foi reproduzida simulando a ausência do método — a mesma condição real do Safari — em um navegador de verdade:</p>
+    <ol class="plain">
+      <li>Gerado um PDF real de teste (jsPDF) e carregado com o mesmo <code>pdfjs-dist</code> usado em produção, em uma página servida localmente e aberta no Chromium real.</li>
+      <li><strong>Cenário base</strong> (Chromium normal, método nativo presente): renderização com sucesso.</li>
+      <li><strong>Cenário simulando Safari</strong> (<code>delete Map.prototype.getOrInsertComputed</code> antes de qualquer script rodar): erro reproduzido <em>literalmente</em> — <code>"this[#methodPromises].getOrInsertComputed is not a function"</code>, disparado dentro de <code>PDFPageProxy.render()</code> → <code>WorkerTransport.getOptionalContentConfig()</code>. Mesmo mecanismo do erro relatado.</li>
+      <li><strong>Cenário com a correção aplicada</strong> (mesma ausência simulada + polyfill): renderização volta a funcionar.</li>
+    </ol>
+    <p>A geração do PDF em si (jsPDF, em <code>PDFGenerator</code>) não usa <code>pdfjs-dist</code> — por isso continuou funcionando mesmo com a prévia quebrada, exatamente como relatado.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">B</span>Correção de compatibilidade aplicada</h2>
+    <p>Novo arquivo <code>src/utils/pdfjsCompat.ts</code>: um polyfill mínimo, <strong>sem dependências novas</strong>, que implementa a mesma semântica do método nativo quando ausente (idempotente — não faz nada quando o motor já suporta nativamente). Chamado no topo de <code>FormalPdfPreview.tsx</code> e <code>EstudoCasoPdfPreview.tsx</code>, antes de qualquer uso de <code>pdfjs-dist</code>.</p>
+    <pre>export function ensurePdfjsMapUpsertCompat(): void {
+  // Map.prototype.getOrInsertComputed e WeakMap.prototype.getOrInsertComputed —
+  // só define se o motor ainda não tiver nativamente.
+}</pre>
+    <p><strong>Escopo do polyfill:</strong> só o thread principal, onde o erro relatado foi reproduzido (<code>PDFPageProxy.render()</code> roda no thread principal). O worker interno do pdfjs-dist roda em sua própria realm JS e não é afetado por este polyfill — não injetei nada dentro do worker porque isso exigiria envolver o script do worker de um jeito que <span class="badge badge-nver">não pude verificar com segurança neste ambiente</span> (sem WebKit real para testar). Se o mesmo erro vier a ocorrer dentro do worker, o fallback amigável (Seção C) garante que a professora nunca veja um erro técnico — isso fica registrado como limitação honesta, não como "corrigido com certeza absoluta".</p>
+    <p><strong>Recomendação de fast-follow (não feito nesta fase, fora do escopo autorizado):</strong> o mesmo polyfill deveria ser chamado também em <code>src/services/studentDocumentImportService.ts</code> (Cadastro Inteligente), que usa <code>pdfjs-dist</code> do mesmo jeito e está igualmente exposto a este crash em iPad.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">C</span>Fallback amigável — nunca mais mostra erro técnico</h2>
+    <p>A tela de erro de <code>FormalPdfPreview</code>/<code>EstudoCasoPdfPreview</code> deixou de exibir <code>{error}</code> (que antes podia mostrar exatamente o texto técnico "getOrInsertComputed is not a function"). Agora sempre mostra:</p>
+    <div class="callout">"Tivemos dificuldade para exibir a prévia neste navegador. Seu documento está preservado e você pode abri-lo ou baixá-lo normalmente."</div>
+    <p>Com três ações: <strong>Abrir PDF</strong> (nova aba, mesmo blob já gerado), <strong>Baixar PDF</strong> (download direto do mesmo blob, via atributo <code>download</code>), <strong>Tentar novamente</strong> (incrementa um <code>retryToken</code> incluído nas dependências do efeito — refaz <em>somente</em> a prévia, chamando de novo <code>PDFGenerator.generateFromSections</code> + a renderização em canvas; não chama IA, não toca banco, não consome créditos). O erro técnico real continua sendo logado via <code>console.error</code> só para diagnóstico — nunca na tela.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">D</span>Word e Google Docs — duas opções obrigatoriamente separadas</h2>
+    <p><strong>Baixar Word (.docx):</strong> rótulo do botão em <code>DocumentWorkspace.tsx</code> atualizado para "Baixar Word (.docx)" (era "Baixar Word"). Comportamento não mudou — continua reutilizando o pipeline Word já validado (<code>wordExportService.ts</code>), sem login, sem tocar Google, preservando estilos/tabelas/margens/imagens/cabeçalhos/rodapés.</p>
+    <p><strong>Abrir no Google Docs:</strong> <span class="badge badge-critico">NÃO implementado nesta fase</span> — confirmado por busca em todo o código-fonte: não existe nenhuma infraestrutura de OAuth do Google nem de Google Drive API no projeto hoje (as únicas menções a "google" são Google Fonts). Implementar isso de forma segura e real exige peças que não existem — Client ID/Secret OAuth, um fluxo de autorização, uma Edge Function para trocar o código por token sem expor segredo no frontend, e uma tabela para guardar o token com segurança. Nada disso foi criado nesta fase, conforme instruído ("não improvise").</p>
+
+    <h4>Arquitetura necessária (plano, não implementado)</h4>
+    <div class="table-wrap"><table>
+      <tr><th>Peça</th><th>O que é</th><th>Onde vive</th></tr>
+      <tr><td>OAuth Client (Web)</td><td>Credencial OAuth 2.0 do Google Cloud, tipo "Web application"</td><td>Google Cloud Console (configuração externa, feita por você)</td></tr>
+      <tr><td>Escopo mínimo</td><td><code>https://www.googleapis.com/auth/drive.file</code> — acesso <em>somente</em> aos arquivos que o próprio IncluiAI criar, nunca ao Drive inteiro da professora</td><td>Tela de consentimento OAuth</td></tr>
+      <tr><td>Fluxo recomendado</td><td>Authorization Code (servidor troca o código por tokens) — dá refresh token, evita popup repetido a cada uso; exige Client Secret <strong>só no backend</strong></td><td>Nova Edge Function, ex.: <code>google-drive-export</code></td></tr>
+      <tr><td>Armazenamento de token</td><td>Nova tabela, ex.: <code>google_drive_credentials</code> (tenant_id, user_id, refresh_token, scope, created_at, revoked_at) com RLS restrita ao próprio usuário</td><td>Migration nova (não criada)</td></tr>
+      <tr><td>Upload + conversão</td><td>Edge Function recebe o DOCX (o mesmo já gerado pelo pipeline Word), chama <code>Drive.files.create</code> com <code>mimeType</code> de origem DOCX e destino <code>application/vnd.google-apps.document</code> (conversão automática para Google Docs nativo)</td><td>Mesma Edge Function</td></tr>
+      <tr><td>Abertura</td><td>Retorna o <code>fileId</code>; frontend abre <code>https://docs.google.com/document/d/{fileId}/edit</code> em nova aba — o documento REAL, já criado, não uma tela vazia</td><td>Frontend (botão)</td></tr>
+    </table></div>
+
+    <h4>O que você precisará configurar no Google Cloud (checklist para autorização futura)</h4>
+    <ol class="plain">
+      <li>Criar/selecionar um projeto no Google Cloud Console.</li>
+      <li>Ativar a "Google Drive API" para esse projeto.</li>
+      <li>Configurar a tela de consentimento OAuth: nome do app, e-mail de suporte, logo (respeitando as diretrizes de marca do Google — não usar o logotipo oficial do Google de forma incorreta), URL de Política de Privacidade e Termos de Uso (o Google exige isso mesmo para o escopo mínimo <code>drive.file</code>).</li>
+      <li>Adicionar exatamente o escopo <code>drive.file</code> — evita a verificação de segurança pesada exigida para escopos sensíveis (como o escopo <code>drive</code> completo).</li>
+      <li>Criar a credencial "OAuth 2.0 Client ID", tipo "Web application", com as origens JavaScript autorizadas e o(s) redirect URI(s) do domínio de produção do IncluiAI.</li>
+      <li>Enviar o app para verificação do Google antes de sair do modo "Testing" (mesmo com <code>drive.file</code>, o processo de verificação de marca ainda é necessário para uso em produção com usuários reais).</li>
+      <li>Depois de aprovado: o <strong>Client ID</strong> pode ir ao frontend (não é segredo); o <strong>Client Secret</strong> vai <em>só</em> como secret da Edge Function (Supabase), nunca no frontend.</li>
+    </ol>
+
+    <h4>Privacidade e segurança (já mapeadas para quando for autorizado)</h4>
+    <ul>
+      <li>Arquivo criado como privado por padrão (comportamento padrão do Drive — não compartilhar automaticamente).</li>
+      <li>Nunca colocar Client Secret no frontend — só na Edge Function.</li>
+      <li>Nenhuma URL com dados do aluno — só o <code>fileId</code>, opaco.</li>
+      <li>Nenhum conteúdo do documento em log — só metadados técnicos (status, latência).</li>
+      <li>Refresh token nunca no localStorage do navegador — só na tabela nova, com RLS, acessada apenas pela Edge Function via service role.</li>
+      <li>Botão desabilitado durante a chamada (evita duplo clique criando dois arquivos).</li>
+      <li>Tratamento explícito de popup bloqueado e sessão OAuth expirada, com mensagem clara para tentar de novo.</li>
+      <li>Se tecnicamente possível (token info do Google), mostrar qual conta Google está sendo usada antes de confirmar o envio.</li>
+    </ul>
+    <p class="callout warn">Nenhuma dessas peças foi criada. Este é um plano para autorização própria e separada — nada aqui foi implementado.</p>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">E</span>Testes, build e limitações honestas</h2>
+    <ul>
+      <li><strong>Testes:</strong> 339/339 passando (7 novos para o polyfill, cobrindo a semântica exata do método — get existente não recomputa, insere quando ausente, idempotente, não sobrescreve implementação nativa).</li>
+      <li><strong>Reprodução real do crash + da correção:</strong> feita em Chromium real via Playwright, simulando a ausência do método (mesma condição do Safari) — não é apenas uma suposição de código.</li>
+      <li><strong>tsc --noEmit:</strong> 56 erros, todos pré-existentes (mesmas 2 linhas de sempre em cada arquivo de prévia, sobre a assinatura de <code>page.render()</code> — não são regressão desta fase).</li>
+      <li><strong>Build:</strong> sucesso.</li>
+      <li><span class="badge badge-nver">Não testado em WebKit/Safari real</span> — não há esse binário disponível neste ambiente. A reprodução via simulação em Chromium é a evidência mais forte disponível sem um dispositivo real; recomenda-se validação final em um iPad de verdade antes de considerar encerrado.</li>
+      <li>O polyfill do worker do pdfjs-dist não foi implementado (Seção B) — risco residual não eliminado, mas coberto pelo fallback amigável.</li>
+    </ul>
+  </section>
+
+  <div class="callout ok"><strong>Fim desta fase.</strong> Nenhum banco, Gateway, RLS ou segredo foi alterado. Google Docs continua não implementado, aguardando autorização própria para a Fase 3 descrita na Seção D.</div>
+</div>
+<div class="footer">IncluiAI · Prévia A4 no Tablet e Plano Google Docs · 26/08/2026</div>
+</body>
+</html>

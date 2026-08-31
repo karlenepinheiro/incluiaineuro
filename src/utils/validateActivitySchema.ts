@@ -1,5 +1,6 @@
 import type {
   ActivityAccessibilityNotes,
+  ActivityAnswerKeyItem,
   ActivityBlock,
   ActivityBlockType,
   ActivityExercise,
@@ -7,6 +8,7 @@ import type {
   ActivityHeader,
   ActivitySchema,
   ActivityVisualAsset,
+  CanonicalRequestType,
   GuiaPedagogico,
 } from '../types';
 
@@ -33,6 +35,10 @@ const EXERCISE_TYPES: ActivityExerciseType[] = [
   'matching',
   'drawing',
   'ordering',
+  'word_search',
+  'crossword',
+  'coloring',
+  'table',
 ];
 
 // Mapeamento dos tipos da folha_do_aluno → tipos canônicos
@@ -42,6 +48,12 @@ const FOLHA_EXERCISE_TYPE_MAP: Record<string, ActivityExerciseType> = {
   completar_frase:  'fill_blank',
   circular:         'multiple_choice',
   desenho:          'drawing',
+  colorir:          'coloring',
+  caca_palavras:    'word_search',
+  'caça_palavras':  'word_search',
+  crossword:        'crossword',
+  cruzadinha:       'crossword',
+  tabela:           'table',
   resposta_curta:   'short_answer',
   verdadeiro_falso: 'multiple_choice',
 };
@@ -81,6 +93,10 @@ function normalizeExerciseType(value: unknown): ActivityExerciseType {
   const raw = asString(value);
   // Tenta mapeamento do formato folha_do_aluno primeiro
   if (FOLHA_EXERCISE_TYPE_MAP[raw]) return FOLHA_EXERCISE_TYPE_MAP[raw];
+  if (raw === 'open_question' || raw === 'open_questions' || raw === 'discursive') return 'short_answer';
+  if (raw === 'match') return 'matching';
+  if (raw === 'caca_palavras' || raw === 'caça-palavras' || raw === 'caça_palavras') return 'word_search';
+  if (raw === 'cruzadinha' || raw === 'palavras_cruzadas') return 'crossword';
   const type = raw as ActivityExerciseType;
   return EXERCISE_TYPES.includes(type) ? type : 'short_answer';
 }
@@ -253,9 +269,17 @@ function normalizeExercises(value: unknown): ActivityExercise[] {
         answerLines: asPositiveInt(exercise.linhas_resposta ?? exercise.answerLines ?? exercise.answer_lines, type === 'drawing' ? 1 : 3),
         supportHint: asString(exercise.dica_visual ?? exercise.supportHint ?? exercise.support_hint) || undefined,
         visualAssetId: asString(exercise.visualAssetId ?? exercise.visual_asset_id) || undefined,
+        grid: asStringArray(exercise.grid ?? exercise.grade_letras ?? exercise.grade, 20),
+        clues: asStringArray(exercise.clues ?? exercise.pistas, 20),
       };
     })
-    .slice(0, 5);
+    // Sprint 2B (item 6) / 2B.3 (item 7): tecto de sanidade, não limite pedagógico.
+    // Antes era 5 — isso truncava silenciosamente pedidos legítimos de mais questões
+    // (ex.: "10 questões") no Activity Pipeline canônico. Elevado para 50 no 2B.3
+    // para acompanhar o teto do intentExtractor ("um a cinquenta"). Os prompts
+    // legados continuam pedindo à IA no máximo 3 a 6 itens, então este aumento não
+    // muda o comportamento observado no fluxo antigo.
+    .slice(0, 50);
 
   if (exercises.length === 0) {
     throw new ActivitySchemaValidationError(
@@ -333,9 +357,15 @@ function normalizeFolhaExercicios(value: unknown, existingAssets: ActivityVisual
         answerLines: asPositiveInt(ex.linhas_resposta ?? ex.answerLines, type === 'drawing' ? 1 : 3),
         supportHint: asString(ex.dica_visual ?? ex.supportHint) || undefined,
         visualAssetId,
+        grid: asStringArray(ex.grid ?? ex.grade_letras ?? ex.grade, 20),
+        clues: asStringArray(ex.clues ?? ex.pistas, 20),
       };
     })
-    .slice(0, 5);
+    // Sprint 2B.3 (item 1): mesmo teto de sanidade de normalizeExercises — antes
+    // era 5 e truncava silenciosamente qualquer atividade canônica (avaliação/
+    // adaptação) cujo JSON viesse nesse formato. Nenhum branch de parsing deve
+    // truncar abaixo do que o pipeline canônico validou.
+    .slice(0, 50);
 
   if (exercises.length === 0) {
     throw new ActivitySchemaValidationError(
@@ -368,6 +398,43 @@ function normalizeGuiaPedagogico(value: unknown): GuiaPedagogico | undefined {
   };
 }
 
+const CANONICAL_REQUEST_TYPES: CanonicalRequestType[] = ['atividade', 'avaliacao', 'adaptacao'];
+
+// Sprint 2B.3 (item 6 da Auditoria 2B.2): antes desta correção, validateActivitySchema
+// SEMPRE retornava schemaVersion '1.0' e descartava requestType/answerKey do JSON de
+// entrada — mesmo quando o item era canônico (2.0). Isso fazia itens salvos pelo
+// Activity Pipeline canônico perderem gabarito/identidade ao serem reabertos da
+// Biblioteca (handleLibSelect → parseStoredActivity → validateActivitySchema).
+// Estas funções propagam os campos quando presentes e válidos; itens legados (sem
+// esses campos) continuam exatamente como antes — nada quebra por ausência deles.
+function normalizeSchemaVersionField(value: unknown): '1.0' | '2.0' {
+  return value === '2.0' ? '2.0' : '1.0';
+}
+
+function normalizeRequestTypeField(value: unknown): CanonicalRequestType | undefined {
+  const raw = asString(value) as CanonicalRequestType;
+  return CANONICAL_REQUEST_TYPES.includes(raw) ? raw : undefined;
+}
+
+function normalizeAnswerKeyField(value: unknown, validExerciseIds: Set<string>): ActivityAnswerKeyItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .filter(isRecord)
+    .map((item): ActivityAnswerKeyItem => {
+      const numbered = Number(item.numero ?? item.number ?? item.questao ?? item.questão);
+      return {
+        exerciseId: asString(item.exerciseId ?? item.exercise_id)
+          || (Number.isFinite(numbered) && numbered > 0 ? `exercise-${Math.round(numbered)}` : ''),
+        answer: asString(item.answer ?? item.resposta ?? item.correctAnswer ?? item.correct_answer),
+        explanation: asString(item.explanation ?? item.explicacao) || undefined,
+      };
+    })
+    // Preserva apenas itens coerentes com os exercicios desta mesma atividade —
+    // nunca reintroduz um gabarito "solto" que não corresponda a exercises reais.
+    .filter(item => item.exerciseId && item.answer && validExerciseIds.has(item.exerciseId));
+  return items.length > 0 ? items : undefined;
+}
+
 export function validateActivitySchema(input: unknown): ActivitySchema {
   const parsed = typeof input === 'string' ? parseStrictJson(input) : input;
   if (!isRecord(parsed)) {
@@ -396,9 +463,10 @@ export function validateActivitySchema(input: unknown): ActivitySchema {
     };
 
     const rawFooter = isRecord(parsed.footer) ? parsed.footer : {};
+    const exerciseIds = new Set(exercises.map(e => e.id));
 
     return {
-      schemaVersion: '1.0',
+      schemaVersion: normalizeSchemaVersionField(parsed.schemaVersion),
       header,
       blocks: [],
       exercises,
@@ -409,6 +477,8 @@ export function validateActivitySchema(input: unknown): ActivitySchema {
         note: asString(rawFooter.note) || 'Atividade gerada pelo IncluiLAB.',
         generatedBy: asString(rawFooter.generatedBy ?? rawFooter.generated_by) || 'IncluiLAB',
       },
+      requestType: normalizeRequestTypeField(parsed.requestType),
+      answerKey: normalizeAnswerKeyField(parsed.answerKey ?? parsed.answer_key ?? parsed.gabarito, exerciseIds),
     };
   }
 
@@ -419,9 +489,10 @@ export function validateActivitySchema(input: unknown): ActivitySchema {
   const visualAssets = normalizeVisualAssets(parsed.visualAssets ?? parsed.visual_assets);
   const accessibilityNotes = normalizeAccessibilityNotes(parsed.accessibilityNotes ?? parsed.accessibility_notes);
   const rawFooter = isRecord(parsed.footer) ? parsed.footer : {};
+  const exerciseIds = new Set(exercises.map(e => e.id));
 
   return {
-    schemaVersion: '1.0',
+    schemaVersion: normalizeSchemaVersionField(parsed.schemaVersion),
     header,
     blocks,
     exercises,
@@ -432,6 +503,8 @@ export function validateActivitySchema(input: unknown): ActivitySchema {
       note: asString(rawFooter.note) || 'Atividade gerada pelo IncluiLAB.',
       generatedBy: asString(rawFooter.generatedBy ?? rawFooter.generated_by) || 'IncluiLAB',
     },
+    requestType: normalizeRequestTypeField(parsed.requestType),
+    answerKey: normalizeAnswerKeyField(parsed.answerKey ?? parsed.answer_key ?? parsed.gabarito, exerciseIds),
   };
 }
 

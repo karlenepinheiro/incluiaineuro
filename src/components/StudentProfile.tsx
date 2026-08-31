@@ -12,10 +12,11 @@ import {
   TrendingUp, Users, Tag, Send, LogOut, Zap, Image, Copy, RefreshCw, ClipboardList,
   ListChecks, Plus, ChevronDown, ChevronUp,
 } from 'lucide-react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { DocButton, DocIconButton } from './ui/DocButton';
 import { SmartTextarea } from './SmartTextarea';
 import { AIService } from '../services/aiService';
-import { ExportService } from '../services/exportService';
+import { StudentProfileExportRow } from './fichas/StudentProfileExportRow';
 import { databaseService } from '../services/databaseService';
 import { StorageService } from '../services/storageService';
 import {
@@ -46,6 +47,9 @@ import { ChecklistCuidadoraForm } from './ChecklistCuidadoraForm';
 import { ChecklistUploadModal } from './ChecklistUploadModal';
 import { printRegenteEnem, printCuidadoraEnem } from './ChecklistEnemPDF';
 import { getStudentSupportVisual } from '../views/StudentsListView';
+
+// ── Transição premium (reorganização animada do workspace do aluno) ──────────
+const WORKSPACE_EASE = [0.22, 1, 0.36, 1] as const;
 
 // ── Critérios do perfil evolutivo (10 dimensões) ─────────────────────────────
 const CRITERIA = [
@@ -321,6 +325,7 @@ interface StudentProfileProps {
   serviceRecords?: ServiceRecord[];
   appointments?: Appointment[];
   onAddServiceRecord?: (record: ServiceRecord) => void;
+  onAddAppointment?: (appointment: Appointment) => void;
   onUpdateStudent?: (s: Student) => void;
   onNavigateTo?: (view: string) => void;
   onRefreshProtocols?: () => Promise<void>;
@@ -339,12 +344,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   serviceRecords = [],
   appointments = [],
   onUpdateStudent,
+  onAddAppointment,
   onNavigateTo,
   onRefreshProtocols,
   onCreateDocument,
 }) => {
   type Tab = 'ficha' | 'evolucao' | 'agenda' | 'documentos' | 'timeline' | 'atividades' | 'perfil_inteligente' | 'plano_acao' | 'plano_acao_aee' | 'rotina' | 'observacao_regente';
-  const [activeTab, setActiveTab] = useState<Tab>('ficha');
+  // null = visão geral (overview); um valor = workspace focado naquele módulo (ver seção "Navegação Premium em Grupos")
+  const [activeTab, setActiveTab] = useState<Tab | null>(null);
+  const prefersReducedMotion = useReducedMotion();
+  const workspaceTransition = { duration: prefersReducedMotion ? 0 : 0.42, ease: WORKSPACE_EASE };
+  // Resumo de Potencialidades/Barreiras agora vive no cabeçalho do aluno — toggles de "ver todas"
+  const [showAllStrengths, setShowAllStrengths] = useState(false);
+  const [showAllBarriers, setShowAllBarriers] = useState(false);
   const [fichas, setFichas] = useState<FichaComplementar[]>(student.fichasComplementares || []);
   const [quickDocType, setQuickDocType] = useState<QuickDocType | null>(null);
   const [showFichaConfig, setShowFichaConfig] = useState(false);
@@ -457,6 +469,38 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
   const [docPreview, setDocPreview] = useState<{ name: string; url: string } | null>(null);
 
+  // ── Agendamento direto na aba Agenda — evita sair da página do aluno (reaproveita AppointmentService via onAddAppointment) ──
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const emptyScheduleForm: Partial<Appointment> = {
+    title: '', date: todayISO, time: '08:00', duration: 50, type: 'Atendimento', professional: user?.name ?? '', location: '', notes: '',
+  };
+  const [scheduleForm, setScheduleForm] = useState<Partial<Appointment>>(emptyScheduleForm);
+  const handleScheduleSubmit = () => {
+    if (!scheduleForm.title?.trim() || !scheduleForm.date) {
+      alert('Preencha ao menos o título e a data do atendimento.');
+      return;
+    }
+    const apt: Appointment = {
+      id: crypto.randomUUID(),
+      studentId: student.id,
+      studentName: student.name,
+      title: scheduleForm.title.trim(),
+      date: scheduleForm.date,
+      time: scheduleForm.time || '08:00',
+      duration: scheduleForm.duration ?? 50,
+      type: (scheduleForm.type as Appointment['type']) ?? 'Atendimento',
+      professional: scheduleForm.professional || (user?.name ?? ''),
+      location: scheduleForm.location || undefined,
+      notes: scheduleForm.notes || undefined,
+      status: 'agendado',
+      createdAt: new Date().toISOString(),
+    };
+    onAddAppointment?.(apt);
+    setShowScheduleModal(false);
+    setScheduleForm(emptyScheduleForm);
+  };
+
   // doc analysis
   const [analyzingDocId, setAnalyzingDocId] = useState<string | null>(null);
   const [analyses, setAnalyses] = useState<DocumentAnalysis[]>(student.documentAnalyses || []);
@@ -475,19 +519,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   // Abre o modal de configuração antes de gerar o PDF
   const handleDownloadFiche = () => setShowFichaConfig(true);
 
+  // [FASE 2 · BLOCO B] Guarda o config e os dados agregados escolhidos no modal
+  // para que o painel de exportação (PDF + Word + Google Docs) use exatamente a
+  // MESMA configuração e a MESMA origem de dados.
+  const [profileExport, setProfileExport] = useState<{ config: FichaConfig; extra: any } | null>(null);
+
   const handleGenerateFichaWithConfig = (config: FichaConfig) => {
-    const school = user?.schoolConfigs?.[0] ?? null;
     const studentAppointments = appointments.filter(a => a.studentId === student.id);
     const studentServiceRecords = serviceRecords.filter(r =>
       !r.studentId || r.studentId === student.id
     );
-
-    ExportService.generateStudentProfilePDF(
-      student,
-      user?.name || 'Sistema',
-      school,
+    setProfileExport({
       config,
-      {
+      extra: {
         evolutions:      effectiveEvolutions as any[],
         appointments:    studentAppointments,
         serviceRecords:  studentServiceRecords,
@@ -499,7 +543,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         fichas:          fichas as any[],
         protocols:       studentProtocols,
       },
-    );
+    });
     setShowFichaConfig(false);
   };
 
@@ -916,7 +960,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   }[] = [
     {
       id: 'dados', label: 'Dados e Perfil', icon: <User size={15}/>,
-      color: '#1F4E5F', bg: '#EBF5F9', border: '#C7E8F5',
+      color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE',
       tabs: [
         { id: 'ficha',              sub: 'Dados pessoais e escolares' },
         { id: 'perfil_inteligente', sub: 'Análise IA personalizada' },
@@ -934,7 +978,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     },
     {
       id: 'documentos_grupo', label: 'Documentos', icon: <FileText size={15}/>,
-      color: '#0369a1', bg: '#EFF6FF', border: '#BFDBFE',
+      color: '#EA580C', bg: '#FFF7ED', border: '#FED7AA',
       tabs: [
         { id: 'documentos', sub: 'PEI, PAEE, PDI e mais' },
         { id: 'atividades',  sub: 'Atividades com IA' },
@@ -984,10 +1028,28 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             <Sparkles size={15}/> Gerar em Lote
           </button>
           <button onClick={handleDownloadFiche} className="bg-brand-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-brand-700 transition shadow-sm flex items-center gap-2">
-            <Printer size={15}/> Baixar Ficha PDF
+            <Printer size={15}/> Gerar Dossiê
           </button>
         </div>
       </div>
+
+      {/* [FASE 2 · BLOCO B] Painel de exportação do dossiê (PDF + Word + Google Docs) */}
+      {profileExport && (
+        <div className="print:hidden mt-3 rounded-xl border border-gray-200 bg-white p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Exportar Dossiê do Aluno</p>
+            <button onClick={() => setProfileExport(null)} className="text-xs text-gray-400 hover:text-gray-600">Fechar</button>
+          </div>
+          <StudentProfileExportRow
+            student={student}
+            user={user}
+            school={user?.schoolConfigs?.[0] ?? null}
+            config={profileExport.config}
+            extra={profileExport.extra}
+            emittedBy={user?.name || 'Sistema'}
+          />
+        </div>
+      )}
 
       {/* ── Hero Card ── */}
       {(() => {
@@ -1008,12 +1070,15 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         <div className="h-1.5" style={{ background: accentBar }}/>
 
         <div className="p-6 flex flex-col md:flex-row gap-6 items-start">
-          {/* Avatar circular premium */}
-          <div className="w-24 h-24 rounded-full overflow-hidden shrink-0 bg-gray-50" style={{ border: '3px solid #FFFFFF', boxShadow: '0 0 0 2px #E7E2D8, 0 4px 16px rgba(0,0,0,0.12)', minWidth: '6rem' }}>
+          {/* Avatar circular premium — 80px mobile / 96px tablet / 128px desktop */}
+          <div
+            className="w-20 h-20 md:w-24 md:h-24 lg:w-32 lg:h-32 rounded-full overflow-hidden shrink-0 bg-gray-50"
+            style={{ border: '3px solid #FFFFFF', boxShadow: '0 0 0 2px #E7E2D8, 0 4px 16px rgba(0,0,0,0.12)' }}
+          >
             {student.photoUrl ? (
               <img src={student.photoUrl} alt={student.name} className="w-full h-full object-cover"/>
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-3xl font-bold" style={{ background: 'linear-gradient(135deg, #EBF5F9, #D6EEF8)', color: '#1F4E5F' }}>
+              <div className="w-full h-full flex items-center justify-center text-3xl lg:text-5xl font-bold" style={{ background: 'linear-gradient(135deg, #EBF5F9, #D6EEF8)', color: '#1F4E5F' }}>
                 {student.name.charAt(0)}
               </div>
             )}
@@ -1033,7 +1098,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               )}
             </div>
             <div className="flex items-center gap-2 mb-1">
-              <h1 className="text-2xl font-bold text-gray-900">{student.name}</h1>
+              <h1 className="text-2xl md:text-3xl lg:text-4xl font-extrabold text-gray-900 leading-tight">{student.name}</h1>
               {(() => {
                 const sv = getStudentSupportVisual(student);
                 return sv ? (
@@ -1125,50 +1190,148 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
         )}
 
+        {/* ── Potencialidades e Barreiras — parte do perfil-resumo do aluno ── */}
+        {(student.abilities?.length > 0 || student.difficulties?.length > 0) && (
+          <div className="mx-6 mb-6 grid md:grid-cols-2 gap-3">
+            {/* Potencialidades — identidade verde */}
+            <div className="rounded-2xl overflow-hidden border border-green-100">
+              <div className="px-4 py-2 bg-green-600 flex items-center gap-1.5">
+                <CheckCircle size={13} className="text-white"/>
+                <span className="text-[11px] font-extrabold text-white uppercase tracking-wider">Potencialidades</span>
+              </div>
+              <div className="bg-green-50 p-3">
+                {student.abilities?.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(showAllStrengths ? student.abilities : student.abilities.slice(0, 6)).map((ab, i) => (
+                      <Tag_ key={i} label={ab} color="green"/>
+                    ))}
+                    {student.abilities.length > 6 && (
+                      <button
+                        onClick={() => setShowAllStrengths(v => !v)}
+                        className="text-[11px] font-bold text-green-700 hover:text-green-800 underline underline-offset-2"
+                      >
+                        {showAllStrengths ? 'Ver menos' : `+${student.abilities.length - 6} ver todas`}
+                      </button>
+                    )}
+                  </div>
+                ) : <p className="text-xs text-gray-400 italic">Nenhuma registrada.</p>}
+              </div>
+            </div>
+
+            {/* Barreiras — identidade laranja */}
+            <div className="rounded-2xl overflow-hidden border border-orange-100">
+              <div className="px-4 py-2 bg-orange-600 flex items-center gap-1.5">
+                <AlertCircle size={13} className="text-white"/>
+                <span className="text-[11px] font-extrabold text-white uppercase tracking-wider">Barreiras</span>
+              </div>
+              <div className="bg-orange-50 p-3">
+                {student.difficulties?.length > 0 ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(showAllBarriers ? student.difficulties : student.difficulties.slice(0, 6)).map((d, i) => (
+                      <Tag_ key={i} label={d} color="orange"/>
+                    ))}
+                    {student.difficulties.length > 6 && (
+                      <button
+                        onClick={() => setShowAllBarriers(v => !v)}
+                        className="text-[11px] font-bold text-orange-700 hover:text-orange-800 underline underline-offset-2"
+                      >
+                        {showAllBarriers ? 'Ver menos' : `+${student.difficulties.length - 6} ver todas`}
+                      </button>
+                    )}
+                  </div>
+                ) : <p className="text-xs text-gray-400 italic">Nenhuma registrada.</p>}
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
         ); // fecha o return do IIFE
       })()}
 
+      {/* ── Ações Rápidas — reaproveitam rotas/handlers já existentes ── */}
+      <div className="print:hidden">
+        <p className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider mb-2 px-1">Ações rápidas</p>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            {
+              label: 'Gerar documento', icon: <FilePlus size={16}/>, color: '#0369a1', bg: '#EFF6FF', border: '#BFDBFE',
+              onClick: () => { setBatchSelected(['ESTUDO_CASO', 'PAEE', 'PEI']); setBatchProgress([]); setBatchRunning(false); setShowBatchModal(true); },
+            },
+            {
+              label: 'Criar atividade adaptada', icon: <Zap size={16}/>, color: '#7c3aed', bg: '#FAF5FF', border: '#E9D5FF',
+              onClick: () => onNavigateTo?.('incluilab'),
+            },
+            {
+              label: 'Registrar atendimento', icon: <ClipboardCheck size={16}/>, color: '#15803d', bg: '#F0FDF4', border: '#BBF7D0',
+              onClick: () => onNavigateTo?.('appointments'),
+            },
+            {
+              label: 'Adicionar observação', icon: <Eye size={16}/>, color: '#1F4E5F', bg: '#EBF5F9', border: '#C7E8F5',
+              onClick: () => setActiveTab('observacao_regente'),
+            },
+          ].map(action => (
+            <button
+              key={action.label}
+              type="button"
+              onClick={action.onClick}
+              className="flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left border transition-all hover:-translate-y-0.5"
+              style={{ background: action.bg, borderColor: action.border, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}
+            >
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: action.color }}>
+                <span className="text-white">{action.icon}</span>
+              </div>
+              <span className="text-xs font-bold leading-tight" style={{ color: action.color }}>{action.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* ── Navegação Premium em Grupos ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 print:hidden">
+      <motion.div
+        layout
+        transition={workspaceTransition}
+        className={activeTab ? 'flex flex-col md:flex-row md:items-start gap-3 lg:gap-5 print:hidden' : 'print:hidden'}
+      >
+      <motion.div
+        layout
+        transition={workspaceTransition}
+        className={activeTab ? 'flex flex-col gap-3 md:w-56 lg:w-72 md:shrink-0' : 'grid grid-cols-2 lg:grid-cols-4 gap-3'}
+      >
         {NAV_GROUPS.map(group => {
           const isGroupActive = group.tabs.some(t => t.id === activeTab);
           return (
-            <div
+            <motion.div
+              layout
+              transition={workspaceTransition}
               key={group.id}
-              className="bg-white rounded-2xl overflow-hidden"
+              className="rounded-2xl overflow-hidden"
               style={{
-                border: `1.5px solid ${isGroupActive ? group.border : '#E7E2D8'}`,
+                border: `1.5px solid ${isGroupActive ? group.color : group.border}`,
                 boxShadow: isGroupActive
-                  ? `0 4px 16px ${group.color}18, 0 1px 4px rgba(0,0,0,0.05)`
-                  : '0 1px 4px rgba(0,0,0,0.04)',
+                  ? `0 6px 20px ${group.color}35, 0 1px 4px rgba(0,0,0,0.06)`
+                  : `0 2px 10px ${group.color}14, 0 1px 3px rgba(0,0,0,0.04)`,
                 transition: 'box-shadow 0.18s, border-color 0.18s',
               }}
             >
-              {/* Cabeçalho do grupo */}
+              {/* Cabeçalho do grupo — cor forte sempre visível, identidade cromática imediata */}
               <div
                 className="px-4 py-3 flex items-center gap-2.5"
-                style={{
-                  background: isGroupActive ? group.bg : '#FAFAF9',
-                  borderBottom: `1.5px solid ${isGroupActive ? group.border : '#F0EDE8'}`,
-                }}
+                style={{ background: group.color }}
               >
                 <div
                   className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
-                  style={{ background: isGroupActive ? group.color : `${group.color}20` }}
+                  style={{ background: 'rgba(255,255,255,0.22)' }}
                 >
-                  <span style={{ color: isGroupActive ? 'white' : group.color }}>{group.icon}</span>
+                  <span className="text-white">{group.icon}</span>
                 </div>
-                <span
-                  className="text-[11px] font-extrabold uppercase tracking-wider leading-tight"
-                  style={{ color: group.color }}
-                >
+                <span className="text-[11px] font-extrabold uppercase tracking-wider leading-tight text-white">
                   {group.label}
                 </span>
               </div>
 
-              {/* Itens do grupo — cards premium com ícone + título + subtítulo */}
-              <div className="py-1.5 px-1.5 space-y-1">
+              {/* Itens do grupo — cards premium com ícone + título + subtítulo, sobre fundo tingido da cor do grupo */}
+              <div className="py-1.5 px-1.5 space-y-1" style={{ background: group.bg }}>
                 {group.tabs.map(item => {
                   const tab = TABS.find(t => t.id === item.id);
                   if (!tab) return null;
@@ -1177,17 +1340,17 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                     <button
                       key={item.id}
                       onClick={() => setActiveTab(item.id)}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left"
-                      style={{
-                        background: isActive ? `${group.bg}E6` : 'transparent',
-                        borderLeft: `3px solid ${isActive ? group.color : 'transparent'}`,
-                        transition: 'all 0.12s',
-                      }}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${isActive ? '' : 'hover:bg-white/60'}`}
+                      style={isActive
+                        ? { background: '#FFFFFF', borderLeft: `3px solid ${group.color}`, boxShadow: `0 2px 8px ${group.color}30` }
+                        : { borderLeft: '3px solid transparent' }
+                      }
                     >
                       {/* Ícone */}
                       <div
                         className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                        style={{ background: isActive ? group.color : `${group.color}15` }}
+                        style={{ background: isActive ? group.color : `${group.color}28` }}
                       >
                         <span style={{ color: isActive ? 'white' : group.color }}>
                           {tab.icon}
@@ -1234,10 +1397,40 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
                   );
                 })}
               </div>
-            </div>
+            </motion.div>
           );
         })}
-      </div>
+      </motion.div>
+
+      {/* ── Workspace focado: coluna compacta some no mobile, ficha ocupa a área principal ── */}
+      {activeTab && (
+      <div className="flex-1 min-w-0">
+        {/* Voltar à visão geral — reversível, mesma transição em sentido contrário. Ponto de navegação principal do workspace. */}
+        <button
+          type="button"
+          onClick={() => setActiveTab(null)}
+          aria-label="Voltar para a visão geral do aluno"
+          className="group inline-flex items-center gap-2.5 bg-white border-2 rounded-2xl pl-2 pr-4 py-2 mb-4 text-sm font-extrabold transition-all hover:shadow-md print:hidden"
+          style={{ borderColor: '#1F4E5F', color: '#1F4E5F', boxShadow: '0 2px 10px rgba(31,78,95,0.14)' }}
+        >
+          <span
+            className="w-7 h-7 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:-translate-x-0.5"
+            style={{ background: '#1F4E5F' }}
+          >
+            <ArrowLeft size={15} className="text-white"/>
+          </span>
+          Visão geral
+        </button>
+
+        <AnimatePresence mode="wait">
+        <motion.div
+          key={activeTab}
+          initial={prefersReducedMotion ? false : { opacity: 0, x: 32 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: 16 }}
+          transition={workspaceTransition}
+          className="space-y-5"
+        >
 
       {/* ══════════════════════════════════════════════════════════════════════
           TAB 1 — FICHA DO ALUNO
@@ -1245,6 +1438,25 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
          ══════════════════════════════════════════════════════════════════════ */}
       {activeTab === 'ficha' && (
         <div className="space-y-4">
+
+          {/* ── Cabeçalho da seção — modo leitura primeiro ── */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: '#EBF5F9' }}>
+                <User size={17} style={{ color: '#1F4E5F' }}/>
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-gray-800 leading-tight">Ficha do Aluno</h2>
+                <p className="text-xs text-gray-400">Informações pessoais e escolares</p>
+              </div>
+            </div>
+            <button
+              onClick={onEdit}
+              className="shrink-0 flex items-center gap-1.5 bg-white border border-gray-300 text-gray-700 px-3.5 py-2 rounded-lg text-xs font-bold hover:bg-gray-50 transition shadow-sm print:hidden"
+            >
+              <Edit size={13}/> Editar ficha
+            </button>
+          </div>
 
           {/* ── Quick Info Cards ── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1284,31 +1496,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
             </div>
           )}
 
-          {/* ── Potencialidades vs Barreiras ── */}
-          <div className="grid md:grid-cols-2 gap-3">
-            <div className="bg-green-50 rounded-2xl p-4 border border-green-100">
-              <p className="text-xs font-bold text-green-700 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                <CheckCircle size={12}/> Potencialidades
-              </p>
-              {student.abilities?.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {student.abilities.slice(0, 6).map((ab, i) => <Tag_ key={i} label={ab} color="green"/>)}
-                  {student.abilities.length > 6 && <span className="text-xs text-green-600 font-semibold">+{student.abilities.length - 6}</span>}
-                </div>
-              ) : <p className="text-xs text-gray-400 italic">Nenhuma registrada.</p>}
-            </div>
-            <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100">
-              <p className="text-xs font-bold text-orange-700 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
-                <AlertCircle size={12}/> Barreiras
-              </p>
-              {student.difficulties?.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {student.difficulties.slice(0, 6).map((d, i) => <Tag_ key={i} label={d} color="orange"/>)}
-                  {student.difficulties.length > 6 && <span className="text-xs text-orange-600 font-semibold">+{student.difficulties.length - 6}</span>}
-                </div>
-              ) : <p className="text-xs text-gray-400 italic">Nenhuma registrada.</p>}
-            </div>
-          </div>
+          {/* Potencialidades e Barreiras agora fazem parte do perfil-resumo, no cabeçalho do aluno (topo da página). */}
 
           {/* ── Contato rápido ── */}
           {(student.guardianPhone || student.guardianEmail) && (
@@ -1954,16 +2142,26 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           <div className="space-y-5">
             {/* ── Agendamentos (AppointmentsView) ── */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
-              <SectionHeader
-                icon={<Calendar size={16} style={{ color: '#1F4E5F' }}/>}
-                title="6. Agendamentos"
-                subtitle={`${studentAppointments.length} agendamento(s) para este aluno`}
-              />
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <SectionHeader
+                  icon={<Calendar size={16} style={{ color: '#1F4E5F' }}/>}
+                  title="6. Agendamentos"
+                  subtitle={`${studentAppointments.length} agendamento(s) para este aluno`}
+                />
+                <button
+                  type="button"
+                  onClick={() => { setScheduleForm(emptyScheduleForm); setShowScheduleModal(true); }}
+                  className="shrink-0 flex items-center gap-1.5 text-white px-3.5 py-2 rounded-lg text-xs font-bold hover:opacity-90 transition shadow-sm"
+                  style={{ background: '#15803d' }}
+                >
+                  <Plus size={14}/> Agendar atendimento
+                </button>
+              </div>
               {studentAppointments.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-gray-200 p-8 text-center">
                   <Calendar size={28} className="mx-auto mb-2 text-gray-200"/>
                   <p className="text-gray-400 text-sm">Nenhum agendamento vinculado.</p>
-                  <p className="text-xs text-gray-300 mt-1">Crie um agendamento na Agenda e vincule este aluno.</p>
+                  <p className="text-xs text-gray-300 mt-1">Use "Agendar atendimento" acima para criar um, direto por aqui.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -2606,19 +2804,19 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
         <div className="space-y-5">
           {/* Cabeçalho da ferramenta */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
-            <div className="flex flex-col md:flex-row md:items-start gap-4 justify-between">
+            <div className="flex flex-col gap-4">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <Eye size={20} style={{ color: '#1F4E5F' }} />
-                  <h2 className="text-lg font-bold text-gray-800">Observação em Sala — Professor Regente</h2>
+                  <h2 className="text-lg font-bold text-gray-800">Observação em Sala — Professor de Sala de Aula</h2>
                 </div>
-                <p className="text-sm text-gray-500 max-w-2xl">
+                <p className="text-sm text-gray-500">
                   Registre evidências observadas em sala e gere um parecer pedagógico estruturado.
                   O parecer é salvo no dossiê do aluno e alimenta futuros documentos (PEI, PAEE, Estudo de Caso).
                 </p>
               </div>
               {/* Ações rápidas: upload + download */}
-              <div className="flex flex-wrap gap-2 shrink-0">
+              <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setShowChecklistUpload('checklist_regente')}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold border border-brand-200 text-brand-700 bg-brand-50 hover:bg-brand-100 transition"
@@ -2797,6 +2995,12 @@ ${['Comunica-se verbalmente','Usa gestos para comunicar','Usa recursos de CAA','
         </div>
       )}
 
+        </motion.div>
+        </AnimatePresence>
+      </div>
+      )}
+      </motion.div>
+
       {/* ── Modal: Documento Complementar (Sprint 5B) ── */}
       {quickDocType && (
         <QuickDocModal
@@ -2888,6 +3092,119 @@ ${['Comunica-se verbalmente','Usa gestos para comunicar','Usa recursos de CAA','
             </div>
             <div className="h-[75vh] bg-gray-50">
               <iframe src={docPreview.url} title={docPreview.name} className="w-full h-full"/>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Agendar Atendimento (direto na aba Agenda, sem sair da página do aluno) ── */}
+      {showScheduleModal && (
+        <div className="fixed inset-0 z-[90] bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Calendar size={18} style={{ color: '#15803d' }}/> Agendar Atendimento
+              </h3>
+              <button onClick={() => setShowScheduleModal(false)}><X size={20} className="text-gray-400 hover:text-gray-700"/></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Novo agendamento para <strong>{student.name}</strong>.</p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1 block">Título *</label>
+                <input
+                  type="text"
+                  value={scheduleForm.title ?? ''}
+                  onChange={e => setScheduleForm(f => ({ ...f, title: e.target.value }))}
+                  placeholder={`Atendimento — ${student.name}`}
+                  className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1 block">Data *</label>
+                  <input
+                    type="date"
+                    value={scheduleForm.date ?? todayISO}
+                    onChange={e => setScheduleForm(f => ({ ...f, date: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1 block">Hora</label>
+                  <input
+                    type="time"
+                    value={scheduleForm.time ?? '08:00'}
+                    onChange={e => setScheduleForm(f => ({ ...f, time: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1 block">Tipo</label>
+                  <select
+                    value={scheduleForm.type ?? 'Atendimento'}
+                    onChange={e => setScheduleForm(f => ({ ...f, type: e.target.value as Appointment['type'] }))}
+                    className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                  >
+                    <option value="Atendimento">Atendimento</option>
+                    <option value="AEE">AEE</option>
+                    <option value="Avaliacao">Avaliação</option>
+                    <option value="Reuniao">Reunião</option>
+                    <option value="Outro">Outro</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1 block">Duração (min)</label>
+                  <input
+                    type="number"
+                    min={5}
+                    step={5}
+                    value={scheduleForm.duration ?? 50}
+                    onChange={e => setScheduleForm(f => ({ ...f, duration: Number(e.target.value) }))}
+                    className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1 block">Profissional</label>
+                <input
+                  type="text"
+                  value={scheduleForm.professional ?? ''}
+                  onChange={e => setScheduleForm(f => ({ ...f, professional: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1 block">Local (opcional)</label>
+                <input
+                  type="text"
+                  value={scheduleForm.location ?? ''}
+                  onChange={e => setScheduleForm(f => ({ ...f, location: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1 block">Observações (opcional)</label>
+                <textarea
+                  value={scheduleForm.notes ?? ''}
+                  onChange={e => setScheduleForm(f => ({ ...f, notes: e.target.value }))}
+                  rows={2}
+                  className="w-full border border-gray-200 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-200 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button onClick={() => setShowScheduleModal(false)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50">Cancelar</button>
+              <button
+                onClick={handleScheduleSubmit}
+                className="flex-1 text-white py-2.5 rounded-xl font-bold text-sm hover:opacity-90 transition"
+                style={{ background: '#15803d' }}
+              >
+                Confirmar agendamento
+              </button>
             </div>
           </div>
         </div>

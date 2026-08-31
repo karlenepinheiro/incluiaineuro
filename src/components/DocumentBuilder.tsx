@@ -34,6 +34,15 @@ import { StoredTemplateSelector } from './StoredTemplateSelector';
 import { SchoolTemplate } from '../services/templateService';
 import { DocumentPrintPreview } from './docs/DocumentPrintPreview';
 import { FormalPdfPreview } from './document-preview/FormalPdfPreview';
+import { DocumentWorkspace, type GoogleDocsExportStatus } from './document-workspace/DocumentWorkspace';
+import { DOCUMENT_WORKSPACE_ENABLED, shouldShowFormalDocumentWorkspace } from '../config/documentWorkspaceFlags';
+import { GOOGLE_DOCS_EXPORT_ENABLED } from '../config/googleDriveConfig';
+import {
+  GoogleDriveExportError,
+  buildGoogleDocsDisplayName,
+  exportCurrentDocumentToGoogleDocs,
+  openGoogleDocLink,
+} from '../services/googleDriveExportService';
 import type { DocType } from './docs/DocComponents';
 import { ensureDocumentCode, getDocumentCodeKind, isValidatedDocumentType } from '../utils/documentCodes';
 import type { SchoolConfig } from '../types';
@@ -484,6 +493,14 @@ interface DocumentBuilderProps {
   isGenerating?: boolean;
   aiStatus?: AIResultStatus;
   aiWarning?: string;
+  /**
+   * [FASE 1b] Notifica o chamador (App.tsx) sempre que o novo DocumentWorkspace do
+   * PAEE entra ou sai de exibição — usado apenas para liberar a largura do wrapper
+   * externo (`max-w-4xl`) quando o workspace está realmente ativo, e restaurá-la
+   * em qualquer outro caso (outro documento, modo de edição, flag desligada).
+   * Prop opcional: se omitida, nada muda para nenhum outro fluxo.
+   */
+  onWorkspaceActiveChange?: (active: boolean) => void;
 }
 
 // Custo de créditos por tipo de documento — fonte única: src/config/aiCosts.ts
@@ -736,6 +753,7 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
   isGenerating,
   aiStatus,
   aiWarning,
+  onWorkspaceActiveChange,
 }) => {
   const [step, setStep] = useState<'select_student' | 'select_mode' | 'editor' | 'history'>(initialData ? 'editor' : (initialStudent ? 'select_mode' : 'select_student'));
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(initialStudent || null);
@@ -2243,6 +2261,27 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
     type === DocumentType.PAEE ||
     type === DocumentType.PDI ||
     type === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE;
+  // [EXPANSÃO EXPORTAÇÕES] O DocumentWorkspace (painel lateral + viewport A4 +
+  // botões Baixar PDF / Baixar Word / Abrir no Google Docs / Imprimir) passa a
+  // envolver TODOS os documentos formais com renderer Word canônico (Estudo de
+  // Caso, PEI, PAEE, PDI e Plano Unificado) — não apenas o PAEE do piloto.
+  // Continua estrito: somente em modo de visualização (!isEditing) e somente
+  // com a flag habilitada. Handlers 100% reaproveitados (nada duplicado).
+  const showFormalWorkspace = shouldShowFormalDocumentWorkspace(DOCUMENT_WORKSPACE_ENABLED, type, isEditing);
+  // Rótulo curto do documento para o painel lateral (nunca dados do aluno).
+  const workspaceDocLabel =
+    type === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE ? 'Plano Unificado' : String(type);
+  // Espelha showFormalWorkspace para o chamador (App.tsx), que não tem
+  // visibilidade sobre isEditing (estado interno deste componente). Usado somente
+  // para liberar a largura do wrapper externo quando o workspace está realmente
+  // ativo — não dispara nenhum outro efeito colateral.
+  useEffect(() => {
+    onWorkspaceActiveChange?.(showFormalWorkspace);
+    // Ao desmontar (ex.: sair do documento), garante que o chamador volte ao
+    // estado "não ativo" — evita que o wrapper externo fique preso na largura
+    // ampliada caso o componente saia de tela abruptamente.
+    return () => onWorkspaceActiveChange?.(false);
+  }, [showFormalWorkspace, onWorkspaceActiveChange]);
   const unifiedIdentityMeta = isFormalDocumentWithProtectedStudentCode(type)
     ? buildStudentHydrationData(selectedStudent, user.schoolConfigs)
     : null;
@@ -2302,6 +2341,121 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
   // ── Gerar PDF real via jsPDF (separado do Imprimir) ──────────────────────────
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [generatingWord, setGeneratingWord] = useState(false);
+
+  // ── "Abrir no Google Docs" (piloto PAEE, 27/08/2026) ─────────────────────────
+  // Exportação pontual, iniciada pela professora — não chama IA, não reserva
+  // nem consome créditos. Ver src/services/googleDriveExportService.ts para a
+  // arquitetura completa (Google Identity Services, escopo drive.file, upload
+  // multipart direto do navegador, sem backend/refresh token/conta de serviço).
+  const [googleDocsStatus, setGoogleDocsStatus] = useState<GoogleDocsExportStatus>('idle');
+  const [googleDocsMessage, setGoogleDocsMessage] = useState<string | null>(null);
+  // Renomeado de "BlockedUrl" para "FallbackUrl" (28/08/2026): mostrar este
+  // link nunca significa "o navegador bloqueou" com certeza — só que a
+  // tentativa automática de abrir a aba não pôde ser confirmada como
+  // bem-sucedida. Ver openGoogleDocLink() para o porquê.
+  const [googleDocsFallbackUrl, setGoogleDocsFallbackUrl] = useState<string | null>(null);
+  const [googleDocsResult, setGoogleDocsResult] = useState<{ fileId: string; url: string; exportedSignature: string } | null>(null);
+  // Guarda de duplo clique — verificada de forma síncrona ANTES de qualquer
+  // `await`, o que o `disabled`/`loading` do botão (que só atualiza no próximo
+  // render) sozinho não garante contra um segundo clique disparado no mesmo tick.
+  const googleDocsInFlightRef = useRef(false);
+
+  // Troca de aluno/documento: limpa o estado da exportação (nunca aponta
+  // "Documento criado — Abrir" nem o diálogo de "documento alterado" para o
+  // link de um aluno/documento diferente do que está na tela agora). Isto só
+  // RESETA estado local — não inicia nenhuma autorização/upload por conta
+  // própria, então não viola a regra de nunca disparar a exportação por
+  // efeito de renderização.
+  useEffect(() => {
+    setGoogleDocsStatus('idle');
+    setGoogleDocsMessage(null);
+    setGoogleDocsFallbackUrl(null);
+    setGoogleDocsResult(null);
+    googleDocsInFlightRef.current = false;
+  }, [selectedStudent?.id, currentAuditCode]);
+
+  /** Assinatura leve do conteúdo atual — usada só para detectar se o documento mudou desde a última exportação para o Google Docs (nunca para persistência). */
+  const currentGoogleDocsContentSignature = JSON.stringify(sections);
+
+  // Se o conteúdo mudou depois de uma exportação concluída, a ação volta a ser
+  // uma exportação NOVA (nunca reabre silenciosamente uma cópia desatualizada
+  // como se fosse a atual) — ver requisito de diferenciação em Seção 7.
+  const googleDocsContentChangedSinceExport =
+    googleDocsStatus === 'done' &&
+    googleDocsResult !== null &&
+    googleDocsResult.exportedSignature !== currentGoogleDocsContentSignature;
+  const effectiveGoogleDocsStatus: GoogleDocsExportStatus = googleDocsContentChangedSinceExport ? 'idle' : googleDocsStatus;
+
+  const handleOpenGoogleDocs = async () => {
+    // 1. Documento já criado PARA O CONTEÚDO ATUAL: o clique só reabre o
+    //    link existente — nunca gera um novo upload.
+    if (!googleDocsContentChangedSinceExport && googleDocsStatus === 'done' && googleDocsResult) {
+      const opened = openGoogleDocLink(googleDocsResult.url);
+      setGoogleDocsFallbackUrl(opened ? null : googleDocsResult.url);
+      return;
+    }
+
+    // 2. Existe uma cópia de uma versão ANTERIOR do documento: nunca cria uma
+    //    cópia nova silenciosamente nem reabre a antiga como se fosse atual —
+    //    pede confirmação explícita da professora antes de prosseguir.
+    if (googleDocsContentChangedSinceExport) {
+      const confirmed = window.confirm(
+        'O documento foi alterado. Deseja criar uma nova cópia no Google Docs?',
+      );
+      if (!confirmed) return;
+    }
+
+    if (googleDocsInFlightRef.current) return; // duplo clique
+    if (!selectedStudent || sections.length === 0) {
+      setGoogleDocsMessage('Nenhum conteúdo para exportar.');
+      return;
+    }
+    googleDocsInFlightRef.current = true;
+    setGoogleDocsFallbackUrl(null);
+    setGoogleDocsMessage(null);
+
+    const signatureAtStart = currentGoogleDocsContentSignature;
+    try {
+      const school = resolveStudentSchool(selectedStudent, user.schoolConfigs);
+      const auditCode = currentAuditCode || initialProtocol?.auditCode || (initialData as any)?.auditCode || '';
+      const displayName = buildGoogleDocsDisplayName(String(type), selectedStudent.name, auditCode);
+
+      const { fileId, url } = await exportCurrentDocumentToGoogleDocs(
+        {
+          displayName,
+          generateDocxBlob: () =>
+            exportDocumentToWord({
+              docType: type,
+              title: String(type),
+              data: { sections },
+              student: selectedStudent,
+              user,
+              school,
+              protocol: initialProtocol,
+              auditCode,
+            }),
+        },
+        (step) => setGoogleDocsStatus(step),
+      );
+
+      setGoogleDocsResult({ fileId, url, exportedSignature: signatureAtStart });
+      setGoogleDocsStatus('done');
+      // Tentativa automática de abrir a aba assim que o documento é criado —
+      // pode não funcionar (a ativação do clique original pode já ter
+      // expirado depois da autorização + geração do DOCX + upload); nesse
+      // caso mostramos o link alternativo, sem declarar bloqueio como fato.
+      const opened = openGoogleDocLink(url);
+      setGoogleDocsFallbackUrl(opened ? null : url);
+    } catch (e: any) {
+      const message = e instanceof GoogleDriveExportError
+        ? e.message
+        : (e?.message || 'Não foi possível abrir no Google Docs. Tente novamente.');
+      setGoogleDocsMessage(message);
+      setGoogleDocsStatus('error');
+    } finally {
+      googleDocsInFlightRef.current = false;
+    }
+  };
   const handleGeneratePDF = async () => {
     if (!selectedStudent || sections.length === 0) { alert('Nenhum conteúdo para exportar.'); return; }
     setGeneratingPDF(true);
@@ -2337,7 +2491,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
   const handleExportWord = async () => {
     if (!canExportWord) {
-      alert('Exportacao Word disponivel apenas para Estudo de Caso, PEI, PAEE e Plano Unificado PAEE + PEI.');
+      alert('Exportacao Word disponivel apenas para Estudo de Caso, PEI, PAEE, PDI e Plano Unificado PAEE + PEI.');
       return;
     }
     if (!selectedStudent || sections.length === 0) {
@@ -2897,29 +3051,36 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                 <DocButton variant="primary" icon={<Edit3 size={15}/>} onClick={() => setIsEditing(true)} title={isEstudoCasoDocument ? 'Editar campos' : 'Editar documento'}>
                   {isEstudoCasoDocument ? 'Editar campos' : 'Editar'}
                 </DocButton>
-                <DocButton
-                  variant="outline"
-                  icon={<Download size={15}/>}
-                  loading={generatingPDF}
-                  onClick={handleGeneratePDF}
-                  title="Gerar PDF"
-                >
-                  <span className="hidden sm:inline">{generatingPDF ? 'Gerando…' : 'Gerar PDF'}</span>
-                </DocButton>
-                {canExportWord && (
-                  <DocButton
-                    variant="outline"
-                    icon={<FileOutput size={15}/>}
-                    loading={generatingWord}
-                    onClick={handleExportWord}
-                    title="Exportar documento Word editavel"
-                  >
-                    <span className="hidden sm:inline">{generatingWord ? 'Exportando...' : 'Exportar Word'}</span>
-                  </DocButton>
+                {/* [EXPANSÃO EXPORTAÇÕES] Quando o DocumentWorkspace está ativo, estes
+                    mesmos botões passam a viver no painel lateral do documento — ocultos
+                    aqui apenas para não duplicar a mesma ação na tela. Handlers inalterados. */}
+                {!showFormalWorkspace && (
+                  <>
+                    <DocButton
+                      variant="outline"
+                      icon={<Download size={15}/>}
+                      loading={generatingPDF}
+                      onClick={handleGeneratePDF}
+                      title="Gerar PDF"
+                    >
+                      <span className="hidden sm:inline">{generatingPDF ? 'Gerando…' : 'Gerar PDF'}</span>
+                    </DocButton>
+                    {canExportWord && (
+                      <DocButton
+                        variant="outline"
+                        icon={<FileOutput size={15}/>}
+                        loading={generatingWord}
+                        onClick={handleExportWord}
+                        title="Exportar documento Word editavel"
+                      >
+                        <span className="hidden sm:inline">{generatingWord ? 'Exportando...' : 'Exportar Word'}</span>
+                      </DocButton>
+                    )}
+                    <DocButton variant="outline" icon={<Printer size={15}/>} onClick={handlePrint} title="Imprimir">
+                      <span className="hidden sm:inline">Imprimir</span>
+                    </DocButton>
+                  </>
                 )}
-                <DocButton variant="outline" icon={<Printer size={15}/>} onClick={handlePrint} title="Imprimir">
-                  <span className="hidden sm:inline">Imprimir</span>
-                </DocButton>
               </>
             )}
 
@@ -3072,27 +3233,56 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
         {/* Preview premium (modo visualização / impressão) */}
         {!isEditing && selectedStudent && (
-          usesPdfPreview ? (
-            <div ref={documentRef}>
-              <FormalPdfPreview
-                docType={type}
-                title={documentTitle}
-                student={selectedStudent}
-                user={user}
-                school={resolveStudentSchool(selectedStudent, user.schoolConfigs)}
-                sections={sections.map(sec => ({
-                  title: sec.title,
-                  fields: sec.fields.map(f => ({
-                    label:    f.label,
-                    value:    f.value ?? '',
-                    type:     f.type,
-                    maxScale: (f as any).maxScale,
-                  })),
-                }))}
-                auditCode={currentAuditCode}
-              />
-            </div>
-          ) : (
+          usesPdfPreview ? (() => {
+            // [EXPANSÃO EXPORTAÇÕES] `formalPreview` é EXATAMENTE o mesmo elemento que
+            // já existia (mesmo componente, mesmas props). Ele só passa a ser envolvido
+            // pelo DocumentWorkspace quando showFormalWorkspace é verdadeiro; em qualquer
+            // outro caso (flag desligada, documento sem Word canônico, modo edição) o
+            // retorno é este mesmo nó, sem alterações — não há um segundo caminho.
+            const formalPreview = (
+              <div ref={documentRef}>
+                <FormalPdfPreview
+                  docType={type}
+                  title={documentTitle}
+                  student={selectedStudent}
+                  user={user}
+                  school={resolveStudentSchool(selectedStudent, user.schoolConfigs)}
+                  sections={sections.map(sec => ({
+                    title: sec.title,
+                    fields: sec.fields.map(f => ({
+                      label:    f.label,
+                      value:    f.value ?? '',
+                      type:     f.type,
+                      maxScale: (f as any).maxScale,
+                    })),
+                  }))}
+                  auditCode={currentAuditCode}
+                  fitToContainer={showFormalWorkspace}
+                />
+              </div>
+            );
+
+            if (!showFormalWorkspace) return formalPreview;
+
+            return (
+              <DocumentWorkspace
+                docLabel={workspaceDocLabel}
+                studentName={selectedStudent.name}
+                statusLabel={initialProtocol ? (initialProtocol.status === 'FINAL' ? 'Concluído' : 'Rascunho') : null}
+                onDownloadPdf={handleGeneratePDF}
+                isDownloadingPdf={generatingPDF}
+                onDownloadWord={canExportWord ? handleExportWord : undefined}
+                isDownloadingWord={generatingWord}
+                onOpenGoogleDocs={GOOGLE_DOCS_EXPORT_ENABLED && canExportWord ? handleOpenGoogleDocs : undefined}
+                googleDocsStatus={effectiveGoogleDocsStatus}
+                googleDocsMessage={googleDocsMessage}
+                googleDocsFallbackUrl={googleDocsFallbackUrl}
+                onPrint={handlePrint}
+              >
+                {formalPreview}
+              </DocumentWorkspace>
+            );
+          })() : (
           <div ref={documentRef} className="w-full max-w-[210mm] mt-8 shadow-xl print:shadow-none print:w-full print:m-0" id="document-content">
             <DocumentPrintPreview
               docType={toDocType(type)}

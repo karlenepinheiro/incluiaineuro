@@ -53,6 +53,33 @@ interface SidebarProps {
   creditsAvailable?: number;
 }
 
+export function getUserInitials(name?: string | null): string {
+  const parts = String(name ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return 'U';
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? '' : '';
+  return `${first}${last}`.toUpperCase();
+}
+
+export function getSidebarProfileDisplay(user: Pick<User, 'name' | 'email' | 'cargo' | 'profilePhoto'>) {
+  const name = user.name?.trim() || user.email?.trim() || 'Usuário';
+  const subtitle = user.cargo?.trim() || 'Professor(a)';
+  const photoUrl = user.profilePhoto?.trim() || null;
+  return {
+    name,
+    subtitle,
+    photoUrl,
+    initials: getUserInitials(name),
+  };
+}
+
+export function shouldShowSidebarProfileText(collapsed: boolean): boolean {
+  return !collapsed;
+}
+
 export const Sidebar: React.FC<SidebarProps> = ({
   user,
   currentView,
@@ -463,15 +490,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <MessageCircle size={18} className="shrink-0" style={{ color: '#25D366' }} />
                   {!collapsed && (
                     <>
-                      <span className="flex-1 text-left">Suporte Humanizado</span>
+                      <span className="flex-1 text-left">Suporte</span>
                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 shrink-0">
                         WA
                       </span>
                     </>
                   )}
                 </a>,
-                'Suporte Humanizado (WhatsApp)'
+                'Suporte (WhatsApp)'
               )}
+              {/* [Simplificação do menu] "Configurações" passa a ser um item de
+                  navegação normal, logo abaixo de "Suporte" — mesmo padrão visual
+                  dos demais itens (NavItem). Deixou de aparecer isolado no rodapé. */}
+              <NavItem viewId="settings" icon={Settings} label="Configurações" iconColor="#64748B" />
               {user.isAdmin && (
                 <NavItem viewId="admin" icon={PieChart} label="Painel CEO" iconColor="#B45309" />
               )}
@@ -479,21 +510,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* Rodapé fixo — apenas Configurações e Sair da Conta */}
-        <div className={cn('border-t border-border bg-bg-app shrink-0 space-y-1', collapsed ? 'p-2' : 'p-3')}>
-          <NavItem viewId="settings" icon={Settings} label="Configurações" iconColor="#64748B" />
+        {/* Rodapé fixo — somente "Sair", compacto e no mesmo padrão dos itens de navegação.
+            [Simplificação do menu] O bloco de identificação (avatar/nome/cargo) e o item
+            "Configurações" saíram daqui — Configurações agora vive na navegação normal
+            (logo abaixo de "Suporte"), e a identidade do usuário não é mais duplicada
+            aqui (permanece disponível em Configurações e no restante do sistema). */}
+        <div className={cn('border-t border-border bg-bg-app shrink-0', collapsed ? 'p-2' : 'p-3')}>
           {withTooltip(
             <button
               onClick={onLogout}
+              aria-label="Sair da conta"
               className={cn(
-                'w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold border transition-all duration-150',
-                'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 hover:border-red-300 hover:text-red-700',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50',
-                collapsed && 'px-0'
+                'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 text-gray-500 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/40',
+                collapsed && 'justify-center px-0'
               )}
             >
-              <LogOut size={16} className="shrink-0" />
-              {!collapsed && <span className="whitespace-nowrap">Sair da Conta</span>}
+              <LogOut size={18} className="shrink-0" />
+              {!collapsed && <span className="flex-1 text-left">Sair</span>}
             </button>,
             'Sair da conta'
           )}

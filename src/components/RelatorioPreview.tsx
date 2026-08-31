@@ -1,10 +1,18 @@
 // RelatorioPreview.tsx — Wrapper do RelatorioViewer com toolbar, edição inline e print
 // Preview = PDF: impressão via DOM overlay (mesmo HTML que o usuário vê na tela)
 
-import React, { useState, useRef } from 'react';
-import { Edit2, Printer, Download, Save, X, ChevronLeft, CheckCircle } from 'lucide-react';
+import React, { useCallback, useState, useRef } from 'react';
+import { Edit2, Save, X, ChevronLeft, CheckCircle } from 'lucide-react';
 import { DocButton } from './ui/DocButton';
 import { RelatorioViewer } from './RelatorioViewer';
+import { DocumentExportActions } from './document-workspace/DocumentExportActions';
+import { useFormalDocumentExport } from './document-workspace/useFormalDocumentExport';
+import {
+  relatorioTecnicoToSections,
+  relatorioTecnicoTitle,
+  relatorioTecnicoDocLabel,
+} from '../services/documentModel/relatorioTecnico';
+import { ExportService } from '../services/exportService';
 import type {
   RelatorioResultado,
   RelatorioSimples,
@@ -90,6 +98,35 @@ export const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
 
   const d = draft.data;
   const isComplete = d.tipo === 'completo';
+
+  // [FASE 2] Exportações canônicas — usam SEMPRE os dados editados (`draft`).
+  const getSections = useCallback(
+    () => relatorioTecnicoToSections(draft, { scores }),
+    [draft, scores],
+  );
+  // "Baixar PDF" real (jsPDF canônico com cabeçalho/rodapé/QR) — substitui a
+  // antiga "impressão de innerHTML". "Imprimir" continua separado (handlePrint).
+  const handleDownloadPdf = useCallback(async () => {
+    await ExportService.exportRelatorioAlunoPDF({
+      student,
+      resultado: draft,
+      scores,
+      school: school ?? null,
+      createdBy: draft.geradoPor || 'Profissional',
+    });
+  }, [student, draft, scores, school]);
+
+  const exportActions = useFormalDocumentExport({
+    docLabel: relatorioTecnicoDocLabel(draft.data),
+    title: relatorioTecnicoTitle(draft.data),
+    student,
+    school: school ?? null,
+    auditCode: draft.codigoDoc,
+    getSections,
+    onDownloadPdf: handleDownloadPdf,
+    onPrint: () => { void handlePrint(); },
+    isolationKey: `relatorio:${student.id}:${draft.codigoDoc}`,
+  });
 
   // Patch helpers
   const patchField = (key: string, value: unknown) =>
@@ -178,27 +215,12 @@ export const RelatorioPreview: React.FC<RelatorioPreviewProps> = ({
           >
             {showEdit ? <><X size={12} /> Fechar edição</> : <><Edit2 size={12} /> Editar</>}
           </button>
-
-          <button
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition border"
-            style={{
-              background: 'rgba(255,255,255,0.12)',
-              color: 'rgba(255,255,255,0.9)',
-              borderColor: 'rgba(255,255,255,0.4)',
-            }}
-          >
-            <Printer size={13} /> Imprimir
-          </button>
-
-          <button
-            onClick={handlePrint}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white transition"
-            style={{ background: '#C69214' }}
-          >
-            <Download size={13} /> Exportar PDF
-          </button>
         </div>
+      </div>
+
+      {/* ── Barra de exportação (PDF real + Word .docx + Google Docs + Imprimir) ── */}
+      <div className="px-4 py-3 bg-[#F6F4EF] border-b border-[#E7E2D8] print:hidden">
+        <DocumentExportActions {...exportActions} />
       </div>
 
       {/* ── Painel de edição ─────────────────────────────────────────────────── */}
