@@ -313,7 +313,7 @@ function htmlToOoxmlParagraphs(html: string): string[] {
 
   function ppr(align?: string, spacingAfter?: number): string {
     const jc = align && align !== 'left' ? `<w:jc w:val="${align === 'justify' ? 'both' : align}"/>` : '';
-    return `<w:pPr>${jc}<w:spacing w:after="${spacingAfter ?? 120}" w:line="276" w:lineRule="auto"/></w:pPr>`;
+    return `<w:pPr>${jc}<w:spacing w:after="${spacingAfter ?? 90}" w:line="252" w:lineRule="auto"/></w:pPr>`;
   }
 
   const alignFromStyle = resolveWordParagraphAlign;
@@ -346,10 +346,10 @@ function htmlToOoxmlParagraphs(html: string): string[] {
 
     if (tag === 'h1') {
       const runs = Array.from(el.childNodes).map(c => walkInline(c, true, false, false)).join('');
-      result.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:spacing w:after="180" w:line="276" w:lineRule="auto"/></w:pPr>${runs || `<w:r>${rpr(true, false, false, 26)}<w:t/></w:r>`}</w:p>`);
+      result.push(`<w:p><w:pPr><w:pStyle w:val="Heading1"/><w:spacing w:after="120" w:line="252" w:lineRule="auto"/></w:pPr>${runs || `<w:r>${rpr(true, false, false, 26)}<w:t/></w:r>`}</w:p>`);
     } else if (tag === 'h2') {
       const runs = Array.from(el.childNodes).map(c => walkInline(c, true, false, false)).join('');
-      result.push(`<w:p><w:pPr><w:pStyle w:val="Heading2"/><w:spacing w:after="120" w:line="276" w:lineRule="auto"/></w:pPr>${runs || `<w:r>${rpr(true, false, false, 23)}<w:t/></w:r>`}</w:p>`);
+      result.push(`<w:p><w:pPr><w:pStyle w:val="Heading2"/><w:spacing w:after="90" w:line="252" w:lineRule="auto"/></w:pPr>${runs || `<w:r>${rpr(true, false, false, 23)}<w:t/></w:r>`}</w:p>`);
     } else if (tag === 'ul') {
       for (const li of Array.from(el.children)) {
         if (li.tagName.toLowerCase() !== 'li') continue;
@@ -456,14 +456,14 @@ function paragraph(text: string, options: {
   preserveBreaks?: boolean;
 } = {}): string {
   const size = options.style === 'Title' ? 32 : options.style === 'Heading1' ? 26 : options.style === 'Heading2' ? 23 : 24;
-  const spacingAfter = options.style === 'Title' ? 240 : options.style === 'Heading1' ? 180 : 120;
+  const spacingAfter = options.style === 'Title' ? 180 : options.style === 'Heading1' ? 120 : 90;
   const pStyle = options.style ? `<w:pStyle w:val="${options.style}"/>` : '';
   const align = options.align && options.align !== 'left' ? `<w:jc w:val="${options.align}"/>` : '';
   const lines = options.preserveBreaks ? normalizeMarkdownText(String(text ?? '')).split(/\r?\n/) : [normalizeMarkdownText(String(text ?? ''))];
   const runText = lines.map((line, index) => `${index > 0 ? '<w:br/>' : ''}<w:t xml:space="preserve">${escapeXml(line)}</w:t>`).join('');
 
   return `<w:p>
-    <w:pPr>${pStyle}${align}<w:spacing w:after="${spacingAfter}" w:line="276" w:lineRule="auto"/></w:pPr>
+    <w:pPr>${pStyle}${align}<w:spacing w:after="${spacingAfter}" w:line="252" w:lineRule="auto"/></w:pPr>
     <w:r>
       <w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="${size}"/><w:szCs w:val="${size}"/>${options.bold ? '<w:b/>' : ''}${options.color ? `<w:color w:val="${options.color}"/>` : ''}</w:rPr>
       ${runText}
@@ -678,7 +678,7 @@ function escapeXml(value: string): string {
 function sectionPropertiesXml(): string {
   return `<w:sectPr>
     <w:pgSz w:w="11906" w:h="16838"/>
-    <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/>
+    <w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/>
   </w:sectPr>`;
 }
 
@@ -734,7 +734,7 @@ function stylesXml(): string {
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:docDefaults>
     <w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault>
-    <w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="276" w:lineRule="auto"/></w:pPr></w:pPrDefault>
+    <w:pPrDefault><w:pPr><w:spacing w:after="90" w:line="252" w:lineRule="auto"/></w:pPr></w:pPrDefault>
   </w:docDefaults>
   <w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>
   <w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:qFormat/><w:rPr><w:b/><w:sz w:val="32"/><w:szCs w:val="32"/></w:rPr></w:style>

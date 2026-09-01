@@ -526,7 +526,7 @@ export const DocumentSignatureBlock: React.FC<DocumentSignatureBlockProps> = ({
       {signatures.map((sig, i) => (
         <div key={i} style={{ textAlign: 'center' }}>
           {/* Linha para assinatura */}
-          <div style={{ height: 40, borderBottom: `1.5px solid ${colors.gray}`, marginBottom: spacing.sm }} />
+          <div style={{ height: 30, borderBottom: `1.5px solid ${colors.gray}`, marginBottom: spacing.sm }} />
           <p style={{ margin: 0, fontSize: fontSize.sm, fontWeight: 700, color: colors.dark }}>
             {sig.name || '_________________________'}
           </p>
@@ -550,7 +550,7 @@ export const DocumentItemList: React.FC<{
     {items.filter(Boolean).map((item, i) => (
       <li key={i} style={{
         display: 'flex', alignItems: 'flex-start', gap: spacing.sm,
-        marginBottom: spacing.sm, fontSize: fontSize.base, color: colors.dark, lineHeight: 1.65,
+        marginBottom: spacing.xs, fontSize: fontSize.base, color: colors.dark, lineHeight: 1.5,
       }}>
         {numbered
           ? <span style={{
@@ -599,7 +599,7 @@ export const DocumentHighlight: React.FC<{
             textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</span>
         </div>
       )}
-      <div style={{ fontSize: fontSize.base, color: colors.dark, lineHeight: 1.8 }}>{children}</div>
+      <div style={{ fontSize: fontSize.base, color: colors.dark, lineHeight: 1.55, textAlign: 'justify' }}>{children}</div>
     </div>
   );
 };

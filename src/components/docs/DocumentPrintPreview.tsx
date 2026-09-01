@@ -74,8 +74,8 @@ const FieldRenderer: React.FC<{ field: PrintField }> = ({ field }) => {
   };
 
   const wrapStyle: React.CSSProperties = {
-    marginBottom: spacing.lg,
-    paddingBottom: spacing.lg,
+    marginBottom: spacing.md,
+    paddingBottom: spacing.md,
     borderBottom: `1px solid ${colors.border}`,
   };
 
@@ -216,7 +216,8 @@ const FieldRenderer: React.FC<{ field: PrintField }> = ({ field }) => {
       ) : (
         <p style={{
           margin: 0, fontSize: fontSize.base, color: colors.dark,
-          lineHeight: 1.75, whiteSpace: 'pre-wrap', fontFamily: fonts.body,
+          lineHeight: 1.55, whiteSpace: 'pre-wrap', fontFamily: fonts.body,
+          textAlign: 'justify',
         }}>
           {str}
         </p>

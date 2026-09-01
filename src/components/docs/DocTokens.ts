@@ -60,48 +60,51 @@ export const fonts = {
   mono:    "'JetBrains Mono', 'Fira Code', monospace",
 } as const;
 
+// [COMPACTAÇÃO E REDESIGN DOCUMENTAL — 09/2026] Corpo (base/sm/md) preservado;
+// títulos menos "gigantes" e escala de espaçamento mais densa para eliminar
+// grandes áreas vazias no preview HTML premium.
 export const fontSize = {
   '2xs':  9,
   xs:     10,
   sm:     11,
   base:   13,
   md:     14,
-  lg:     16,
-  xl:     20,
-  '2xl':  24,
-  '3xl':  28,
+  lg:     15,
+  xl:     18,
+  '2xl':  21,
+  '3xl':  24,
 } as const;
 
 // ─── Espaçamento ──────────────────────────────────────────────────────────────
 
 export const spacing = {
-  xs:  4,
-  sm:  8,
-  md:  12,
-  lg:  16,
-  xl:  24,
-  '2xl': 32,
-  '3xl': 40,
+  xs:  3,
+  sm:  6,
+  md:  9,
+  lg:  12,
+  xl:  16,
+  '2xl': 22,
+  '3xl': 28,
 } as const;
 
 // ─── Bordas e arredondamentos ─────────────────────────────────────────────────
 
 export const radius = {
-  sm:   6,
-  md:   10,
-  lg:   12,
-  xl:   14,
-  '2xl': 16,
+  sm:   5,
+  md:   8,
+  lg:   10,
+  xl:   11,
+  '2xl': 13,
   full: 999,
 } as const;
 
 // ─── Sombras ──────────────────────────────────────────────────────────────────
 
 export const shadows = {
-  sm:   '0 1px 4px rgba(28,32,51,0.06)',
-  md:   '0 2px 12px rgba(28,32,51,0.08)',
-  lg:   '0 4px 20px rgba(31,78,95,0.12)',
-  card: '0 2px 8px rgba(31,78,95,0.08)',
+  sm:   '0 1px 3px rgba(28,32,51,0.05)',
+  md:   '0 2px 8px rgba(28,32,51,0.07)',
+  lg:   '0 3px 14px rgba(31,78,95,0.10)',
+  card: '0 1px 5px rgba(31,78,95,0.07)',
 } as const;
 
 // ─── Dimensões A4 ─────────────────────────────────────────────────────────────
@@ -110,9 +113,9 @@ export const a4 = {
   width:          '210mm',
   minHeight:      '297mm',
   paddingX:       '10mm',
-  paddingY:       '12mm',
-  paddingXScreen: 40,   // px para visualização web
-  paddingYScreen: 32,
+  paddingY:       '10mm',
+  paddingXScreen: 36,   // px para visualização web
+  paddingYScreen: 24,
 } as const;
 
 // ─── Helper: cor de score ─────────────────────────────────────────────────────

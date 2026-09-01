@@ -78,16 +78,17 @@ export const FORMAL_PDF_LAYOUT = Object.freeze({
   pageHeight: FORMAL_PDF_PAGE.height,
 });
 
+// [COMPACTAÇÃO 09/2026] Respiros entre blocos reduzidos de forma equilibrada.
 export const FORMAL_PDF_SPACING = Object.freeze({
   xs: 2,
-  sm: 4,
-  md: 6,
-  lg: 9,
-  xl: 12,
-  sectionGap: 8,
-  fieldGap: 5,
-  paragraphGap: 4,
-  signatureGap: 10,
+  sm: 3,
+  md: 4.5,
+  lg: 7,
+  xl: 10,
+  sectionGap: 6,
+  fieldGap: 3.5,
+  paragraphGap: 3,
+  signatureGap: 8,
 });
 
 export const FORMAL_PDF_COLORS = Object.freeze({
@@ -115,10 +116,13 @@ export const FORMAL_PDF_TYPOGRAPHY = Object.freeze({
   smallBodySize: 9.2,
   footerSize: 7.6,
   validationSize: 8.4,
-  mainTitleLineHeight: 6.4,
-  bodyLineHeight: 5.8,
-  smallLineHeight: 4.7,
-  footerLineHeight: 3.8,
+  // [COMPACTAÇÃO 09/2026] Entrelinhas reduzidas de forma equilibrada — tamanhos
+  // de fonte preservados. Afeta o corpo dos documentos formais (PEI/PAEE/Plano
+  // Unificado/Estudo de Caso) sem prejuízo de legibilidade.
+  mainTitleLineHeight: 6.0,
+  bodyLineHeight: 5.2,
+  smallLineHeight: 4.4,
+  footerLineHeight: 3.7,
 });
 
 export const FORMAL_LEGAL_BASIS_ITEMS = Object.freeze([

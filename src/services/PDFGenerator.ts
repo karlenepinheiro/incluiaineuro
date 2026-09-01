@@ -1155,7 +1155,7 @@ const FORMAL_BODY_SIZE = 12;
 const FORMAL_LABEL_SIZE = 10.5;
 const FORMAL_SECTION_SIZE = 13;
 const FORMAL_TITLE_SIZE = 14;
-const FORMAL_LINE_H = 7.2;
+const FORMAL_LINE_H = 6.4; // [COMPACTAÇÃO 09/2026] era 7.2 — entrelinha mais equilibrada, fonte preservada
 const FORMAL_X = 20;
 const FORMAL_R = 20;
 const FORMAL_CONTENT_W = 170;
@@ -4420,7 +4420,7 @@ function renderUnifiedSectionTitle(
 ): void {
   const { doc, layout, colors } = ctx;
   const titleLines = doc.splitTextToSize(normalizeFormalPdfText(title, 'Seção do documento'), layout.contentWidth - 28);
-  const pillHeight = Math.max(10, 5.5 + titleLines.length * 4.2);
+  const pillHeight = Math.max(9, 4.6 + titleLines.length * 4.0);
   ensureUnifiedSpace(ctx, pillHeight + 6, school, auditCode, qrUrl);
   const prefix = `${String(number).padStart(2, '0')}.`;
   const startY = ctx.y;
@@ -4446,7 +4446,7 @@ function renderUnifiedSectionTitle(
   setFormalPdfColor(doc, 'text', colors.text);
   doc.text(titleLines, layout.marginLeft + 20, startY + 6.4);
 
-  ctx.y = startY + pillHeight + 5;
+  ctx.y = startY + pillHeight + 3;
 }
 
 function renderUnifiedField(
@@ -4471,7 +4471,7 @@ function renderUnifiedField(
   for (const labelLine of labelLines) {
     ensureUnifiedSpace(ctx, 4.5, school, auditCode, qrUrl);
     doc.text(labelLine, layout.marginLeft, ctx.y);
-    ctx.y += 4.2;
+    ctx.y += 3.9;
   }
 
   applyFormalPdfTypography(doc, 'body', 'normal');
@@ -4487,7 +4487,7 @@ function renderUnifiedField(
   setFormalPdfColor(doc, 'draw', colors.divider);
   doc.setLineWidth(layout.ruleWidth);
   doc.line(layout.marginLeft, ctx.y + 1.2, layout.marginLeft + layout.contentWidth, ctx.y + 1.2);
-  ctx.y += 4;
+  ctx.y += 2.6;
 }
 
 function renderUnifiedLegalBasisBlock(
@@ -4765,7 +4765,7 @@ function renderPeiSectionTitle(
 ): void {
   const { doc, layout, colors } = ctx;
   const titleLines = doc.splitTextToSize(normalizeFormalPdfText(title, 'Secao do documento'), layout.contentWidth - 28);
-  const pillHeight = Math.max(10, 5.5 + titleLines.length * 4.2);
+  const pillHeight = Math.max(9, 4.6 + titleLines.length * 4.0);
   ensurePeiSpace(ctx, pillHeight + 6, school, auditCode, qrUrl);
   const prefix = `${String(number).padStart(2, '0')}.`;
   const startY = ctx.y;
@@ -4791,7 +4791,7 @@ function renderPeiSectionTitle(
   setFormalPdfColor(doc, 'text', colors.text);
   doc.text(titleLines, layout.marginLeft + 20, startY + 6.4);
 
-  ctx.y = startY + pillHeight + 5;
+  ctx.y = startY + pillHeight + 3;
 }
 
 function renderPeiField(
@@ -4864,7 +4864,7 @@ function renderPeiRichValue(
   for (const labelLine of labelLines) {
     ensurePeiSpace(ctx, 4.5, school, auditCode, qrUrl);
     doc.text(labelLine, layout.marginLeft, ctx.y);
-    ctx.y += 4.2;
+    ctx.y += 3.9;
   }
 
   const newPage = (): number => {
@@ -4880,14 +4880,14 @@ function renderPeiRichValue(
     10.8,
     newPage,
     ctx.layout.contentBottom,
-    5.7,
+    5.2,
     'helvetica',
   );
 
   setFormalPdfColor(doc, 'draw', colors.divider);
   doc.setLineWidth(layout.ruleWidth);
   doc.line(layout.marginLeft, ctx.y + 1.2, layout.marginLeft + layout.contentWidth, ctx.y + 1.2);
-  ctx.y += 4;
+  ctx.y += 2.6;
 }
 
 function renderPeiLegalBasisBlock(
@@ -5174,7 +5174,7 @@ function renderPaeeSectionTitle(
 ): void {
   const { doc, layout, colors } = ctx;
   const titleLines = doc.splitTextToSize(normalizeFormalPdfText(title, 'Secao do documento'), layout.contentWidth - 28);
-  const pillHeight = Math.max(10, 5.5 + titleLines.length * 4.2);
+  const pillHeight = Math.max(9, 4.6 + titleLines.length * 4.0);
   ensurePaeeSpace(ctx, pillHeight + 6, school, auditCode, qrUrl);
   const prefix = `${String(number).padStart(2, '0')}.`;
   const startY = ctx.y;
@@ -5200,7 +5200,7 @@ function renderPaeeSectionTitle(
   setFormalPdfColor(doc, 'text', colors.text);
   doc.text(titleLines, layout.marginLeft + 20, startY + 6.4);
 
-  ctx.y = startY + pillHeight + 5;
+  ctx.y = startY + pillHeight + 3;
 }
 
 function renderPaeeField(
@@ -5273,7 +5273,7 @@ function renderPaeeRichValue(
   for (const labelLine of labelLines) {
     ensurePaeeSpace(ctx, 4.5, school, auditCode, qrUrl);
     doc.text(labelLine, layout.marginLeft, ctx.y);
-    ctx.y += 4.2;
+    ctx.y += 3.9;
   }
 
   const newPage = (): number => {
@@ -5289,14 +5289,14 @@ function renderPaeeRichValue(
     10.8,
     newPage,
     ctx.layout.contentBottom,
-    5.7,
+    5.2,
     'helvetica',
   );
 
   setFormalPdfColor(doc, 'draw', colors.divider);
   doc.setLineWidth(layout.ruleWidth);
   doc.line(layout.marginLeft, ctx.y + 1.2, layout.marginLeft + layout.contentWidth, ctx.y + 1.2);
-  ctx.y += 4;
+  ctx.y += 2.6;
 }
 
 function renderPaeeLegalBasisBlock(
@@ -5468,7 +5468,7 @@ function renderFormalDocument(
     doc.setFontSize(FORMAL_SECTION_SIZE);
     sc(doc, FORMAL_TEXT);
     doc.text(`${numbered ? `${sectionN}. ` : ''}${title.toUpperCase()}`, x + 4.5, y + 5.3);
-    y += h + 6;
+    y += h + 4;
   };
 
   // I. Identificação do Aluno
