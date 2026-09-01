@@ -47,7 +47,7 @@ function emptyBlock(title: string): ActionPlanBlock {
   return { title, items: [] };
 }
 
-function rowToRecord(row: any): AEEActionPlanRecord {
+export function rowToRecord(row: any): AEEActionPlanRecord {
   const period: AEEActionPlanPeriod = DB_TO_PERIOD[row.plan_type] ?? 'mensal';
   const cj = row.content_json ?? {};
 
@@ -83,7 +83,7 @@ function rowToRecord(row: any): AEEActionPlanRecord {
   };
 }
 
-function planJsonToContentJson(plan: AEEActionPlanJSON) {
+export function planJsonToContentJson(plan: AEEActionPlanJSON) {
   const cj: Record<string, any> = {
     session_objective:  plan.sessionObjective ?? null,
     next_step:          plan.nextStep         ?? null,

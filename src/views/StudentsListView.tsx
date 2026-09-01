@@ -460,6 +460,12 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
           tenantId={user.tenant_id}
           userId={user.id}
           onClose={() => setShowImportModal(false)}
+          // Sprint "consumo no momento certo" (26/08/2026): o Gateway confirma
+          // (commit) o crédito na mesma requisição que entrega a análise —
+          // antes de qualquer salvamento. Cancelar a revisão sem salvar NÃO
+          // estorna o crédito. Aqui só reaproveitamos o mesmo refresh de
+          // tenantSummary já usado no caminho de importação concluída.
+          onCreditsConsumed={() => onImportStudents?.(0)}
           onImportComplete={(importedCount) => {
             setShowImportModal(false);
             onImportStudents?.(importedCount);

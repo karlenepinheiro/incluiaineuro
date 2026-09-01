@@ -29,13 +29,24 @@ import {
   mapVisualDocumentToStudentPayload,
   draftToEditable,
   saveStudentsFromDocx,
+  resolveAcceptedImageMimeType,
+  buildPageDisclosureMessage,
+  DOCUMENT_TRUNCATION_NOTICE,
   CREDITS_DOC_TEXT,
   CREDITS_VISUAL,
   type EditableDraft,
   type DocxSaveResult,
   type ImportFileType,
+  type DocumentPageInfo,
 } from '../services/studentDocumentImportService';
-import { CreditTransactionService } from '../services/creditService';
+import { createCreditsSyncGate } from '../utils/creditsSyncGate';
+import {
+  MAX_VISUAL_PDF_PAGES,
+  buildMultiPagePreProcessingNotice,
+  buildMultiPageButtonLabel,
+  buildMultiPageSuccessMessage,
+  buildAnalyzedPagesLabel,
+} from '../utils/pdfMultiPage';
 
 // ─── Paleta ────────────────────────────────────────────────────────────────
 const C = {
@@ -59,10 +70,10 @@ const C = {
 
 const AI_STAGES = [
   'Lendo o documento',
-  'Organizando as informações',
-  'Identificando aluno(s)',
-  'Estruturando ficha pedagógica',
-  'Preparando revisão final',
+  'Identificando os dados do aluno',
+  'Comparando com os campos do cadastro',
+  'Organizando para revisão',
+  'Preparando confirmação',
 ];
 
 // ─── Tipos ────────────────────────────────────────────────────────────────
@@ -86,6 +97,14 @@ interface Props {
   userId: string;
   onClose: () => void;
   onImportComplete: (importedCount: number) => void;
+  /**
+   * Chamado UMA VEZ assim que uma análise de IA é confirmada como utilizável
+   * (crédito já cobrado pelo Gateway) e a revisão é exibida — o pai deve usar
+   * isto para recarregar o saldo exibido (tenantSummary), sem cobrar nada de
+   * novo nem chamar a IA de novo. Também serve de rede de segurança ao
+   * fechar/cancelar caso ainda não tenha disparado (ver handleClose).
+   */
+  onCreditsConsumed?: () => void;
   existingStudents?: ExistingStudentRef[];
 }
 
@@ -301,10 +320,12 @@ function getFileTypeLabel(type: ImportFileType | null): string {
 }
 
 const ACCEPTED_DOC_EXTS = ['.docx', '.pdf', '.png', '.jpg', '.jpeg', '.webp'];
+const UNSUPPORTED_FORMAT_MESSAGE = 'Este arquivo utiliza um formato não suportado. Envie PDF, Word (.docx), JPG, PNG ou WEBP.';
+const LEGACY_DOC_MESSAGE = 'Arquivos Word antigos (.doc) precisam ser convertidos para .docx ou PDF.';
 
 // ─── Componente principal ─────────────────────────────────────────────────
 export const StudentImportModal: React.FC<Props> = ({
-  tenantId, userId, onClose, onImportComplete, existingStudents,
+  tenantId, userId, onClose, onImportComplete, onCreditsConsumed, existingStudents,
 }) => {
   // ── Estado CSV ─────────────────────────────────────────────────────────────
   const [step, setStep]             = useState<ImportStep>('upload');
@@ -323,17 +344,52 @@ export const StudentImportModal: React.FC<Props> = ({
   const [docxSaveResult, setDocxSaveResult]   = useState<DocxSaveResult | null>(null);
   const [docxIsSaving, setDocxIsSaving]       = useState(false);
 
-  // ── Reserva de créditos diferida (deferCommit) ─────────────────────────────
-  // Guardamos a reservationId em ref (não dispara re-render) para uso em cleanup/unmount
-  const pendingReservationRef = useRef<string | null>(null);
-  const pendingCreditsCostRef = useRef<number>(0);
+  // ── Consumo de créditos (corrigido em 26/08/2026 — "consumo no momento
+  // certo"): o AI Gateway confirma (commit) o crédito atomicamente assim que
+  // entrega uma resposta utilizável — não há mais reserva para o frontend
+  // gerenciar depois (nenhum commit/release local, nenhuma reserva
+  // pendurada). `creditsCharged` só existe para mostrar discretamente
+  // "Análise concluída — N créditos utilizados" na revisão.
+  const [creditsCharged, setCreditsCharged] = useState<number | null>(null);
+  // Guarda de duplo clique: sincronamente impede uma 2ª chamada de IA
+  // enquanto a 1ª ainda está em voo (setStep é assíncrono — um ref é o único
+  // jeito de bloquear ANTES do próximo render).
+  const isProcessingRef = useRef(false);
+  // Sincronização do saldo exibido (não é estado financeiro — é só "já
+  // avisei o pai para recarregar tenantSummary?"). Ref porque não deve
+  // disparar re-render nem se comportar diferente entre renders — a lógica
+  // de quando notificar é 100% da responsabilidade do gate (ver
+  // src/utils/creditsSyncGate.ts, testado isoladamente).
+  const creditsSyncGateRef = useRef(createCreditsSyncGate());
+  // Leitura multipágina: sinaliza para o loop de renderização (local, ANTES
+  // de qualquer chamada ao Gateway) que o usuário pediu para cancelar. Ref,
+  // não estado — lido de dentro de um loop assíncrono já em voo.
+  const cancelRequestedRef = useRef(false);
 
   // ── Estado detecção de tipo de arquivo ─────────────────────────────────────
   const [importFileType, setImportFileType]         = useState<ImportFileType | null>(null);
   const [fileReady, setFileReady]                   = useState(false);
   const [pendingCost, setPendingCost]               = useState(0);
   const [pendingExtractedText, setPendingExtractedText] = useState<string | null>(null);
+  const [pendingPdfPageInfo, setPendingPdfPageInfo] = useState<DocumentPageInfo | null>(null);
   const [isDetecting, setIsDetecting]               = useState(false);
+
+  // ── Leitura multipágina (PDF escaneado) ─────────────────────────────────────
+  // Progresso da renderização LOCAL (antes de qualquer chamada à IA) — "Preparando
+  // página X de N". `null` = fora da fase de renderização (nada, ou já chamando a IA).
+  const [renderProgress, setRenderProgress] = useState<{ current: number; total: number } | null>(null);
+  // Permite mostrar o botão de fechar durante a fase de renderização LOCAL de
+  // um PDF multipágina (cancelamento seguro, sempre ANTES da chamada ao
+  // Gateway) — nas demais tasks/arquivos o botão continua oculto durante o
+  // processamento, exatamente como antes desta mudança.
+  const [canCancelProcessing, setCanCancelProcessing] = useState(false);
+  // Páginas realmente enviadas à IA (já sem as páginas em branco descartadas)
+  // — usado só para exibir "Dados analisados nas páginas 1–N" na revisão.
+  const [visualPagesIncluded, setVisualPagesIncluded] = useState<number[] | null>(null);
+
+  // ── Avisos de cobertura do documento (páginas/truncamento) ─────────────────
+  const [docxPageDisclosure, setDocxPageDisclosure]   = useState<string | null>(null);
+  const [docxTruncationNotice, setDocxTruncationNotice] = useState<string | null>(null);
 
   // ── Estado animação IA ─────────────────────────────────────────────────────
   const [aiStageIdx, setAiStageIdx]   = useState(0);
@@ -344,23 +400,6 @@ export const StudentImportModal: React.FC<Props> = ({
   const [duplicateCandidates, setDuplicateCandidates] = useState<DuplicateCandidate[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // ── Cleanup: libera reserva pendente ao fechar/desmontar ──────────────────
-  useEffect(() => {
-    return () => {
-      const rid = pendingReservationRef.current;
-      if (!rid) return;
-      pendingReservationRef.current = null;
-      CreditTransactionService.atomicReleaseReservedCredits({
-        tenantId,
-        reservationId: rid,
-        userId,
-        description: 'Modal fechado — crédito reservado liberado',
-        source: 'student_import_modal.unmount',
-      }).catch(e => console.warn('[DocImport] Falha ao liberar reserva no unmount:', e));
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // ── Animação IA ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -415,13 +454,23 @@ export const StudentImportModal: React.FC<Props> = ({
   const prepareDocumentFile = useCallback(async (f: File) => {
     setParseError(null);
     const ext = f.name.toLowerCase().match(/\.[^.]+$/)?.[0] ?? '';
-    if (!ACCEPTED_DOC_EXTS.includes(ext)) {
-      setParseError('Formato não suportado. Aceitos: .docx, .pdf, .png, .jpg, .jpeg, .webp');
+
+    if (ext === '.doc') {
+      setParseError(LEGACY_DOC_MESSAGE);
       return;
     }
+    if (!ACCEPTED_DOC_EXTS.includes(ext)) {
+      setParseError(UNSUPPORTED_FORMAT_MESSAGE);
+      return;
+    }
+
     setFile(f);
     setPendingExtractedText(null);
+    setPendingPdfPageInfo(null);
+    setDocxPageDisclosure(null);
+    setDocxTruncationNotice(null);
     setFileReady(false);
+    setVisualPagesIncluded(null);
 
     if (ext === '.docx') {
       setImportFileType('docx');
@@ -430,17 +479,30 @@ export const StudentImportModal: React.FC<Props> = ({
     } else if (ext === '.pdf') {
       setIsDetecting(true);
       try {
-        const text = await extractTextFromPdf(f);
-        if (text) {
+        const extraction = await extractTextFromPdf(f);
+        if (extraction.text) {
           setImportFileType('pdf-text');
           setPendingCost(CREDITS_DOC_TEXT);
-          setPendingExtractedText(text);
+          setPendingExtractedText(extraction.text);
+          setPendingPdfPageInfo({ totalPages: extraction.totalPages, pagesAnalyzed: extraction.pagesAnalyzed });
         } else {
           setImportFileType('pdf-image');
           setPendingCost(CREDITS_VISUAL);
+          // Contagem real de páginas (pdf.numPages, já lida pelo pdfjs acima,
+          // sem custo de IA) — usada no aviso pré-processamento e no botão de
+          // confirmação abaixo. Leitura multipágina (27/08/2026): antes desta
+          // mudança só a 1ª página era planejada; agora o plano é o mesmo do
+          // Gateway (planMultiPagePdf) — até MAX_VISUAL_PDF_PAGES páginas.
+          setPendingPdfPageInfo({
+            totalPages: extraction.totalPages,
+            pagesAnalyzed: Math.min(extraction.totalPages, MAX_VISUAL_PDF_PAGES),
+          });
         }
       } catch {
-        // PDF corrompido ou não-legível → tenta via visual
+        // PDF corrompido, protegido por senha ou não-legível → tenta via
+        // visual. Não sabemos a contagem real de páginas neste caso (pdfjs
+        // nem conseguiu abrir o arquivo) — pendingPdfPageInfo permanece null,
+        // e o aviso informa honestamente que a contagem é desconhecida.
         setImportFileType('pdf-image');
         setPendingCost(CREDITS_VISUAL);
       } finally {
@@ -448,53 +510,40 @@ export const StudentImportModal: React.FC<Props> = ({
         setFileReady(true);
       }
     } else {
+      // Imagem — valida o mimetype real antes de aceitar (correção da
+      // auditoria de 25/08/2026: não aceitar silenciosamente um arquivo cujo
+      // tipo real não é um dos formatos suportados pela leitura visual).
+      if (!resolveAcceptedImageMimeType(f)) {
+        setParseError(UNSUPPORTED_FORMAT_MESSAGE);
+        setFile(null);
+        return;
+      }
       setImportFileType('image');
       setPendingCost(CREDITS_VISUAL);
       setFileReady(true);
     }
   }, []);
 
-  // ── Helpers de reserva de créditos ────────────────────────────────────────
-  const releaseReservation = useCallback(async () => {
-    const rid = pendingReservationRef.current;
-    if (!rid) return;
-    pendingReservationRef.current = null;
-    try {
-      await CreditTransactionService.atomicReleaseReservedCredits({
-        tenantId,
-        reservationId: rid,
-        userId,
-        description: 'Importação cancelada ou falha — crédito liberado',
-        source: 'student_import_modal.release',
-      });
-      console.info('[DocImport] Reserva liberada:', rid);
-    } catch (e) {
-      console.warn('[DocImport] Falha ao liberar reserva:', e);
-    }
-  }, [tenantId, userId]);
-
-  const commitReservation = useCallback(async () => {
-    const rid = pendingReservationRef.current;
-    if (!rid) return;
-    pendingReservationRef.current = null;
-    try {
-      await CreditTransactionService.atomicCommitReservedCredits({
-        tenantId,
-        reservationId: rid,
-        userId,
-        description: `Importação de aluno concluída (${pendingCreditsCostRef.current} créditos)`,
-        source: 'student_import_modal.commit',
-      });
-      console.info('[DocImport] Reserva confirmada:', rid);
-    } catch (e) {
-      // Aluno já foi salvo — falha no commit é recuperável via reconciliação do ledger
-      console.warn('[DocImport] Falha ao confirmar reserva (aluno salvo, crédito pode ser reconciliado):', e);
-    }
-  }, [tenantId, userId]);
-
-  // ── Processamento IA (chamado após confirmação de créditos) ───────────────
+  // ── Processamento IA (chamado após confirmação de créditos) ────────────────
+  // Consumo de créditos: o AI Gateway já reserva, chama o provider e
+  // confirma (ou libera, em falha) o crédito atomicamente numa única
+  // requisição — ver studentDocumentImportService.ts. Se `mapDocumentTextToStudentPayload`/
+  // `mapVisualDocumentToStudentPayload` retornarem com sucesso, o crédito já
+  // foi definitivamente cobrado; se lançarem, nenhum crédito foi cobrado.
+  // Cancelar/fechar/trocar de arquivo DEPOIS deste ponto não devolve o valor.
   const runAIProcessing = useCallback(async () => {
     if (!file || !importFileType) return;
+    if (isProcessingRef.current) return; // guarda contra duplo clique
+    isProcessingRef.current = true;
+    creditsSyncGateRef.current.beginAttempt();
+    cancelRequestedRef.current = false;
+    setRenderProgress(null);
+    setVisualPagesIncluded(null);
+    // Leitura multipágina: só o caminho de PDF escaneado tem uma fase de
+    // renderização LOCAL cancelável (antes de qualquer chamada ao Gateway) —
+    // nos demais tipos o botão de fechar continua oculto durante o
+    // processamento, exatamente como antes desta mudança.
+    setCanCancelProcessing(importFileType === 'pdf-image');
     setStep('ai_processing');
     setParseError(null);
     try {
@@ -503,24 +552,71 @@ export const StudentImportModal: React.FC<Props> = ({
         const text = await extractTextFromDocx(file);
         aiResult = await mapDocumentTextToStudentPayload(text);
       } else if (importFileType === 'pdf-text' && pendingExtractedText) {
-        aiResult = await mapDocumentTextToStudentPayload(pendingExtractedText);
+        aiResult = await mapDocumentTextToStudentPayload(pendingExtractedText, pendingPdfPageInfo ?? undefined);
       } else {
-        aiResult = await mapVisualDocumentToStudentPayload(file);
+        aiResult = await mapVisualDocumentToStudentPayload(file, {
+          onPageRenderStart: (current, total) => {
+            // Aproxima "renderização terminou" ao iniciar a última página
+            // planejada — a partir daí já mostramos "Analisando N páginas
+            // com IA" (a chamada de rede começa logo em seguida).
+            setRenderProgress(current >= total ? null : { current, total });
+          },
+          isCancelled: () => cancelRequestedRef.current,
+        });
       }
-      // Armazena reserva para commit/release posterior
-      pendingReservationRef.current = aiResult.reservationId;
-      pendingCreditsCostRef.current = aiResult.creditsConsumed;
+      setCreditsCharged(aiResult.creditsConsumed);
       setDocxDrafts(aiResult.drafts.map(draftToEditable));
       setCurrentDraftIdx(0);
+      setVisualPagesIncluded(aiResult.pagesIncluded ?? null);
+      setDocxPageDisclosure(
+        importFileType === 'pdf-image'
+          // Leitura multipágina usa buildAnalyzedPagesLabel/buildMultiPageSuccessMessage
+          // na revisão (cientes de páginas em branco descartadas no meio do
+          // documento) em vez deste aviso genérico de "primeiras N páginas".
+          ? null
+          : aiResult.pageInfo ? buildPageDisclosureMessage(aiResult.pageInfo.totalPages, aiResult.pageInfo.pagesAnalyzed) : null,
+      );
+      setDocxTruncationNotice(aiResult.truncated ? DOCUMENT_TRUNCATION_NOTICE : null);
       setStep('ai_preview');
+      // Análise utilizável confirmada pelo Gateway (crédito já cobrado no
+      // banco nesta mesma chamada) — a revisão acabou de abrir. Sincroniza o
+      // saldo exibido agora, uma única vez, sem nova chamada à IA.
+      creditsSyncGateRef.current.notifyOnSuccess(() => onCreditsConsumed?.());
     } catch (err: any) {
-      // IA falhou — Edge Function já liberou a reserva automaticamente
-      pendingReservationRef.current = null;
-      setParseError(err?.message ?? 'Erro ao processar o documento.');
+      const rawMsg: string = err?.message ?? '';
+
+      if (rawMsg === 'IMPORT_CANCELLED') {
+        // Cancelado pelo usuário durante a renderização LOCAL — nenhuma
+        // chamada ao Gateway chegou a ser feita, nenhum crédito envolvido.
+        // O modal já foi fechado por handleClose; nada a exibir.
+        return;
+      }
+
+      // Por construção do Gateway (reserve → provider → validar → commit/release,
+      // tudo na mesma requisição), se chegamos aqui nenhum crédito foi
+      // cobrado — a reserva (se chegou a existir) já foi liberada do lado do
+      // servidor antes mesmo desta resposta de erro chegar ao navegador. O
+      // mesmo vale para falhas na preparação LOCAL do PDF (PAGE_RENDER_FAILED/
+      // NO_READABLE_PAGES): elas acontecem ANTES de qualquer reserva existir.
+      let friendlyMsg: string;
+      if (rawMsg.startsWith('INSUFFICIENT_CREDITS')) {
+        friendlyMsg = 'Saldo de créditos insuficiente para esta análise.';
+      } else if (rawMsg.startsWith('PAGE_RENDER_FAILED') || rawMsg === 'NO_READABLE_PAGES') {
+        console.warn('[DocImport] Falha na preparação local do PDF:', rawMsg);
+        friendlyMsg = 'Não conseguimos analisar este documento. Nenhum crédito foi consumido.';
+      } else {
+        const cause = rawMsg || 'Não foi possível concluir a análise.';
+        friendlyMsg = /cr[eé]dito/i.test(cause) ? cause : `${cause} Nenhum crédito foi consumido.`;
+      }
+      setParseError(friendlyMsg);
       setStep('upload');
       setFileReady(false);
+    } finally {
+      isProcessingRef.current = false;
+      setCanCancelProcessing(false);
+      setRenderProgress(null);
     }
-  }, [file, importFileType, pendingExtractedText]);
+  }, [file, importFileType, pendingExtractedText, pendingPdfPageInfo, onCreditsConsumed]);
 
   // ── Drop / change handlers ─────────────────────────────────────────────────
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -576,30 +672,26 @@ export const StudentImportModal: React.FC<Props> = ({
     setDocxIsSaving(true);
     setParseError(null);
     try {
+      // O crédito da análise já foi cobrado quando a revisão foi
+      // disponibilizada (ver runAIProcessing) — salvar não cobra de novo,
+      // independentemente do resultado abaixo.
       const res = await saveStudentsFromDocx(docxDrafts, tenantId, userId, importFileType ?? 'docx');
 
-      if (res.saved > 0) {
-        // Pelo menos um aluno salvo → confirma débito de crédito
-        await commitReservation();
-      } else {
-        // Nenhum aluno salvo (todos falharam) → libera crédito reservado
-        await releaseReservation();
+      if (res.saved === 0) {
         res.errors = res.errors.length > 0
           ? res.errors
-          : ['Nenhum aluno foi salvo. Nenhum crédito foi cobrado.'];
+          : ['Nenhum aluno foi salvo.'];
       }
 
       setDocxSaveResult(res);
       setStep('done');
     } catch (err: any) {
       const msg: string = err?.message ?? String(err);
-      // Libera reserva em qualquer erro de salvamento
-      await releaseReservation();
       if (msg.includes('students_import_source_check')) {
         console.error('students_import_source_check: import_source inválido enviado pelo importador.', { importFileType, msg });
-        setParseError('A importação não foi concluída. Nenhum crédito foi cobrado. (Origem do arquivo não reconhecida — atualize a página e tente novamente.)');
+        setParseError('A importação não foi concluída. (Origem do arquivo não reconhecida — atualize a página e tente novamente.)');
       } else {
-        setParseError(`A importação não foi concluída. Nenhum crédito foi cobrado. ${msg || 'Erro ao salvar. Tente novamente.'}`);
+        setParseError(`A importação não foi concluída. ${msg || 'Erro ao salvar. Tente novamente.'}`);
       }
     } finally {
       setDocxIsSaving(false);
@@ -613,8 +705,6 @@ export const StudentImportModal: React.FC<Props> = ({
 
   // ── Trocar modo ────────────────────────────────────────────────────────────
   const switchMode = (mode: ImportMode) => {
-    // Libera reserva caso usuária troque de modo após a IA ter processado
-    releaseReservation();
     setImportMode(mode);
     setParseError(null);
     setParsed(null);
@@ -625,14 +715,38 @@ export const StudentImportModal: React.FC<Props> = ({
     setFileReady(false);
     setPendingCost(0);
     setPendingExtractedText(null);
+    setPendingPdfPageInfo(null);
+    setDocxPageDisclosure(null);
+    setDocxTruncationNotice(null);
+    setCreditsCharged(null);
     setIsDetecting(false);
+    setRenderProgress(null);
+    setVisualPagesIncluded(null);
   };
 
-  // ── Fechar modal liberando reserva pendente ────────────────────────────────
+  // ── Fechar modal ────────────────────────────────────────────────────────────
+  // Não há mais reserva para liberar aqui: se uma análise já foi entregue
+  // (ai_preview), o crédito já foi cobrado definitivamente e fechar o modal
+  // sem salvar não devolve o valor (regra de negócio de 26/08/2026).
+  //
+  // Rede de segurança do saldo: normalmente o saldo já foi sincronizado no
+  // instante em que a revisão abriu (creditsSyncGateRef.notifyOnSuccess em
+  // runAIProcessing). O gate só dispara aqui se uma análise chegou a ser
+  // tentada e ainda não foi sincronizada (ex.: fechou durante a chamada) —
+  // e nunca duplica, nem dispara se nada chegou a ser processado.
+  //
+  // Leitura multipágina: se o fechamento aconteceu durante a fase de
+  // renderização LOCAL (canCancelProcessing), sinaliza o cancelamento para o
+  // loop em voo — ele para ANTES de qualquer chamada ao Gateway. Depois que
+  // a fase local termina e a chamada de rede começa, este sinal não tem mais
+  // efeito (o botão de fechar já volta a ficar oculto nesse ponto).
   const handleClose = useCallback(() => {
-    releaseReservation();
+    if (isProcessingRef.current && canCancelProcessing) {
+      cancelRequestedRef.current = true;
+    }
+    creditsSyncGateRef.current.notifyOnClose(() => onCreditsConsumed?.());
     onClose();
-  }, [releaseReservation, onClose]);
+  }, [onClose, onCreditsConsumed, canCancelProcessing]);
 
   // ── Configuração dos steps ─────────────────────────────────────────────────
   const csvStepOrder  = ['upload', 'preview', 'importing', 'done'];
@@ -697,7 +811,7 @@ export const StudentImportModal: React.FC<Props> = ({
               </p>
             </div>
           </div>
-          {step !== 'importing' && step !== 'ai_processing' && (
+          {(step !== 'importing' && (step !== 'ai_processing' || canCancelProcessing)) && (
             <button
               onClick={handleClose}
               className="w-8 h-8 rounded-lg flex items-center justify-center transition hover:opacity-70"
@@ -784,7 +898,7 @@ export const StudentImportModal: React.FC<Props> = ({
                       Documento com IA ✨
                     </p>
                     <p className="text-xs mt-0.5" style={{ color: C.textSec }}>
-                      Word, PDF ou imagem da ficha/anamnese
+                      Ficha de cadastro, matrícula ou anamnese — Word (.docx), PDF, JPG, PNG ou WEBP
                     </p>
                   </div>
                 </button>
@@ -873,7 +987,7 @@ export const StudentImportModal: React.FC<Props> = ({
                       <p className="text-xs mt-0.5" style={{ color: C.textSec }}>{getFileTypeLabel(importFileType)}</p>
                     </div>
                     <button
-                      onClick={() => { setFile(null); setFileReady(false); setImportFileType(null); setPendingExtractedText(null); }}
+                      onClick={() => { setFile(null); setFileReady(false); setImportFileType(null); setPendingExtractedText(null); setPendingPdfPageInfo(null); }}
                       className="text-xs font-medium transition hover:opacity-70 flex-shrink-0 px-2 py-1 rounded-lg"
                       style={{ color: C.textSec, background: C.border }}
                     >
@@ -881,16 +995,12 @@ export const StudentImportModal: React.FC<Props> = ({
                     </button>
                   </div>
 
-                  {/* Custo em créditos */}
-                  <div className="flex items-center justify-between px-4 py-3"
-                       style={{ borderTop: `1px solid ${C.border}` }}>
+                  {/* Custo em créditos — cobrado quando a IA entregar os
+                      dados para revisão, não quando o aluno for salvo */}
+                  <div className="px-4 py-3" style={{ borderTop: `1px solid ${C.border}` }}>
                     <p className="text-sm" style={{ color: C.text }}>
-                      {importFileType === 'image' || importFileType === 'pdf-image'
-                        ? 'Leitura visual pela IA — consumirá'
-                        : 'Esta importação consumirá'
-                      }
+                      {`A análise deste documento consumirá ${pendingCost} créditos quando os dados forem disponibilizados para revisão.`}
                     </p>
-                    <p className="font-bold text-sm" style={{ color: C.petrol }}>{pendingCost} créditos</p>
                   </div>
 
                   {/* Aviso de qualidade para documentos visuais */}
@@ -900,7 +1010,7 @@ export const StudentImportModal: React.FC<Props> = ({
                       <AlertTriangle size={13} style={{ color: C.amber, marginTop: 2, flexShrink: 0 }} />
                       <p className="text-xs" style={{ color: '#92400e' }}>
                         {importFileType === 'pdf-image'
-                          ? 'PDF escaneado detectado. Apenas a primeira página será processada. Para melhores resultados, envie imagem nítida e bem iluminada.'
+                          ? `${buildMultiPagePreProcessingNotice(pendingPdfPageInfo?.totalPages ?? null)} Para melhores resultados, envie imagem nítida e bem iluminada.`
                           : 'Para melhores resultados, envie imagem nítida, bem iluminada e com o texto legível.'
                         }
                       </p>
@@ -915,7 +1025,10 @@ export const StudentImportModal: React.FC<Props> = ({
                       style={{ background: C.gold, boxShadow: '0 4px 12px rgba(198,146,20,0.25)' }}
                     >
                       <Sparkles size={15} />
-                      Processar com IA — {pendingCost} créditos
+                      {importFileType === 'pdf-image'
+                        ? buildMultiPageButtonLabel(pendingPdfPageInfo?.totalPages ?? 1, pendingCost)
+                        : `Processar com IA — ${pendingCost} créditos`
+                      }
                     </button>
                   </div>
                 </div>
@@ -962,7 +1075,7 @@ export const StudentImportModal: React.FC<Props> = ({
                     </p>
                     <p className="text-xs mt-1" style={{ color: C.textSec }}>
                       {importMode === 'docx'
-                        ? 'ou clique para selecionar • .docx · .pdf · imagens'
+                        ? 'ou clique para selecionar • .docx, .pdf, .jpg, .png, .webp'
                         : 'ou clique para selecionar • aceita vírgula e ponto-e-vírgula'
                       }
                     </p>
@@ -987,14 +1100,16 @@ export const StudentImportModal: React.FC<Props> = ({
                   <Sparkles size={16} style={{ color: C.gold, marginTop: 2, flexShrink: 0 }} />
                   <div>
                     <p className="text-sm font-semibold" style={{ color: C.dark }}>
-                      Envie uma ficha, anamnese ou relatório
+                      Envie uma ficha de cadastro, matrícula ou anamnese
                     </p>
                     <p className="text-xs mt-1" style={{ color: C.textSec }}>
-                      Pode ser Word, PDF ou foto escaneada. A IA organiza os dados para você revisar antes de salvar.
-                      Nenhum aluno é criado automaticamente — você confirma tudo primeiro.
+                      A IA identifica os dados compatíveis com o cadastro do aluno — nome, data de nascimento, série,
+                      turma, turno, escola e responsável, por exemplo. O cadastro pode ficar incompleto: você poderá
+                      anexar laudos e relatórios depois, no perfil do aluno. Nenhum aluno é criado automaticamente —
+                      você revisa e confirma tudo primeiro.
                     </p>
                     <p className="text-xs mt-1.5 font-medium" style={{ color: C.amber }}>
-                      Word / PDF com texto: {CREDITS_DOC_TEXT} créditos &nbsp;·&nbsp; Imagem / PDF escaneado: {CREDITS_VISUAL} créditos
+                      PDF / Word (.docx) com texto: {CREDITS_DOC_TEXT} créditos &nbsp;·&nbsp; Imagem / PDF escaneado: {CREDITS_VISUAL} créditos
                     </p>
                   </div>
                 </div>
@@ -1202,9 +1317,13 @@ export const StudentImportModal: React.FC<Props> = ({
 
               <div className="text-center">
                 <p className="text-lg font-bold" style={{ color: C.dark }}>
-                  {importFileType === 'image' || importFileType === 'pdf-image'
-                    ? 'A IA está analisando a imagem'
-                    : 'A IA está lendo o documento'
+                  {renderProgress
+                    ? `Preparando página ${renderProgress.current} de ${renderProgress.total}`
+                    : importFileType === 'pdf-image' && (pendingPdfPageInfo?.pagesAnalyzed ?? 1) > 1
+                      ? `Analisando ${pendingPdfPageInfo?.pagesAnalyzed} páginas com IA`
+                      : importFileType === 'image' || importFileType === 'pdf-image'
+                        ? 'A IA está analisando a imagem'
+                        : 'A IA está lendo o documento'
                   }
                 </p>
                 <p className="text-xs mt-1" style={{ color: C.textSec }}>
@@ -1260,6 +1379,25 @@ export const StudentImportModal: React.FC<Props> = ({
             return (
               <div className="p-6 flex flex-col gap-4">
 
+                {/* Confirmação discreta de consumo — a análise já foi cobrada
+                    definitivamente neste ponto; cancelar depois não devolve. */}
+                {creditsCharged != null && (
+                  <p className="text-xs" style={{ color: C.textSec }}>
+                    {importFileType === 'pdf-image' && visualPagesIncluded && visualPagesIncluded.length > 0
+                      ? buildMultiPageSuccessMessage(visualPagesIncluded.length, creditsCharged)
+                      : `Análise concluída — ${creditsCharged} ${creditsCharged === 1 ? 'crédito utilizado' : 'créditos utilizados'}.`
+                    }
+                  </p>
+                )}
+
+                {/* Leitura multipágina: quais páginas exatamente entraram na análise
+                    (discreto — já sem as páginas em branco descartadas). */}
+                {importFileType === 'pdf-image' && visualPagesIncluded && visualPagesIncluded.length > 0 && (
+                  <p className="text-xs" style={{ color: C.textSec }}>
+                    {buildAnalyzedPagesLabel(visualPagesIncluded)}
+                  </p>
+                )}
+
                 {/* Banner multi-aluno */}
                 {docxDrafts.length > 1 && (
                   <div className="flex items-center gap-3 p-3 rounded-xl"
@@ -1288,6 +1426,35 @@ export const StudentImportModal: React.FC<Props> = ({
                         Aluno {i + 1}{d.name ? `: ${d.name.split(' ')[0]}` : ''}
                       </button>
                     ))}
+                  </div>
+                )}
+
+                {/* Avisos de cobertura do documento (páginas não analisadas / conteúdo cortado) */}
+                {(docxPageDisclosure || docxTruncationNotice) && (
+                  <div className="flex flex-col gap-2">
+                    {docxPageDisclosure && (
+                      <div className="flex items-start gap-2 p-3 rounded-xl text-xs"
+                           style={{ background: '#EEF4F7', color: C.petrol }}>
+                        <Info size={13} className="mt-0.5 shrink-0" />
+                        {docxPageDisclosure}
+                      </div>
+                    )}
+                    {docxTruncationNotice && (
+                      <div className="flex items-start gap-2 p-3 rounded-xl text-xs"
+                           style={{ background: C.amberLight, color: C.amber }}>
+                        <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                        {docxTruncationNotice}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Nome não identificado — cadastro exige preenchimento manual, IA nunca inventa */}
+                {!draft.name.trim() && (
+                  <div className="flex items-start gap-2 p-3 rounded-xl text-xs"
+                       style={{ background: C.redLight, color: C.red }}>
+                    <AlertCircle size={13} className="mt-0.5 shrink-0" />
+                    Não encontramos o nome do aluno neste documento. Preencha o campo "Nome do Aluno" abaixo para poder salvar o cadastro.
                   </div>
                 )}
 
@@ -1435,7 +1602,12 @@ export const StudentImportModal: React.FC<Props> = ({
                     <Field label="Histórico Escolar" value={draft.schoolHistory} onChange={v => update('schoolHistory', v)} multiline flagged={isFlag('schoolHistory')} />
                     <Field label="Contexto Familiar" value={draft.familyContext} onChange={v => update('familyContext', v)} multiline flagged={isFlag('familyContext')} />
                     <Field label="Observações Pedagógicas" value={draft.observations} onChange={v => update('observations', v)} multiline flagged={isFlag('observations')} />
-                    <Field label="Recomendações" value={draft.recommendations} onChange={v => update('recommendations', v)} multiline flagged={isFlag('recommendations')} />
+                    <div>
+                      <Field label="Recomendações" value={draft.recommendations} onChange={v => update('recommendations', v)} multiline flagged={isFlag('recommendations')} />
+                      <p className="text-[11px] mt-1" style={{ color: C.textSec }}>
+                        Será salvo junto com as Observações Pedagógicas.
+                      </p>
+                    </div>
                   </div>
                 </PreviewCard>
 
@@ -1537,6 +1709,13 @@ export const StudentImportModal: React.FC<Props> = ({
                       </p>
                     </div>
                   </div>
+                  {docxSaveResult.saved > 0 && (
+                    <div className="flex items-start gap-2 p-3 rounded-xl text-xs"
+                         style={{ background: '#EEF4F7', color: C.petrol }}>
+                      <Info size={13} className="mt-0.5 shrink-0" />
+                      Cadastro criado. Você poderá complementar as informações e anexar laudos ou relatórios no perfil do aluno.
+                    </div>
+                  )}
                   {docxSaveResult.errors.length > 0 && (
                     <div className="rounded-xl overflow-hidden border" style={{ borderColor: C.border }}>
                       <div className="px-4 py-2.5 text-xs font-semibold flex items-center gap-2"
@@ -1576,6 +1755,12 @@ export const StudentImportModal: React.FC<Props> = ({
             {step === 'ai_preview' && (
               <button
                 onClick={() => {
+                  // Nota de crédito: a análise que já foi entregue nesta
+                  // revisão já foi cobrada definitivamente — trocar de
+                  // arquivo agora NÃO devolve esse valor (regra de negócio de
+                  // 26/08/2026). Uma nova análise, se a professora processar
+                  // outro arquivo, é uma cobrança nova e independente, com o
+                  // mesmo painel de confirmação de custo de sempre.
                   setStep('upload');
                   setDocxDrafts([]);
                   setFile(null);
@@ -1584,6 +1769,10 @@ export const StudentImportModal: React.FC<Props> = ({
                   setFileReady(false);
                   setImportFileType(null);
                   setPendingExtractedText(null);
+                  setPendingPdfPageInfo(null);
+                  setDocxPageDisclosure(null);
+                  setDocxTruncationNotice(null);
+                  setCreditsCharged(null);
                 }}
                 className="text-sm font-medium transition hover:opacity-70"
                 style={{ color: C.textSec }}
@@ -1639,6 +1828,7 @@ export const StudentImportModal: React.FC<Props> = ({
                 <button
                   onClick={() => handleDocxSave()}
                   disabled={docxIsSaving || !docxDrafts.some(d => d.name.trim())}
+                  title={!docxIsSaving && !docxDrafts.some(d => d.name.trim()) ? 'Preencha o nome do aluno para poder salvar' : undefined}
                   className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold text-white transition hover:opacity-85 disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{ background: C.gold, boxShadow: '0 4px 12px rgba(198,146,20,0.25)' }}
                 >

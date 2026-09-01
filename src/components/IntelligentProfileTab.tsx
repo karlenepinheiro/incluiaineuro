@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Sparkles, Download, RefreshCw, History, UserCheck,
   BookOpen, Lightbulb, Brain, CheckCircle,
   Activity, Star, Eye, Stethoscope, X, ChevronRight,
   AlertCircle, ShieldAlert, AlertTriangle,
-  Pencil, Trash2, Hash, Plus, Lock,
+  Pencil, Trash2, Hash, Plus, Lock, Save,
 } from 'lucide-react';
 import { Student, User as UserType, PlanTier, resolvePlanTier } from '../types';
 import { AIService, friendlyAIError } from '../services/aiService';
+import { AI_CREDIT_COSTS } from '../config/aiCosts';
 import {
   IntelligentProfileService,
   IntelligentProfileRecord,
@@ -15,9 +16,11 @@ import {
   ChecklistItem,
   ChallengeItem,
   RecommendedActivity,
+  nextProfileVersion,
 } from '../services/intelligentProfileService';
 import { calculateAge } from '../utils/dateUtils';
 import { generateDocumentCodeFromSeed } from '../utils/documentCodes';
+import { IntelligentProfileExportRow } from './fichas/IntelligentProfileExportRow';
 
 // MASTER checkout URL (fallback to official link)
 const MASTER_CHECKOUT_URL =
@@ -671,10 +674,100 @@ export const IntelligentProfileTab: React.FC<Props> = ({ student, user, onNaviga
   const [isDeleting, setIsDeleting]               = useState(false);
   const [tenantProfileCount, setTenantProfileCount] = useState(0);
 
+  // Recuperação segura quando a IA já entregou um resultado válido mas o
+  // save no banco falhou. Guarda o resultado gerado (na sessão, em memória —
+  // nunca em localStorage/sessionStorage) para permitir "Tentar salvar
+  // novamente" SEM nova chamada de IA e SEM nova cobrança.
+  const [pendingSave, setPendingSave] = useState<{
+    json: IntelligentProfileJSON;
+    generationType: 'initial' | 'update' | 'manual_edit';
+    versionNumber: number;
+    summary?: string;
+  } | null>(null);
+  const [pendingSaveError, setPendingSaveError] = useState('');
+  const [savingPending, setSavingPending]       = useState(false);
+
+  // Trava síncrona contra duplo-disparo de geração (antes de o React
+  // re-renderizar e o botão ficar disabled).
+  const genLock = useRef(false);
+
+  const PROFILE_COST = AI_CREDIT_COSTS.PERFIL_INTELIGENTE;
+
   // ── Plan gates ─────────────────────────────────────────────────────────────
   const userTier    = resolvePlanTier(user.plan);
   const isFreeUser  = userTier === PlanTier.FREE;
   const isDemoLocked = isFreeUser && tenantProfileCount >= 1;
+
+  /** Registro "rascunho" para exibir o perfil gerado mesmo antes de persistir. */
+  const makeDraftRecord = (
+    json: IntelligentProfileJSON,
+    generationType: 'initial' | 'update' | 'manual_edit',
+    versionNumber: number,
+  ): IntelligentProfileRecord => ({
+    id: '__draft__',
+    student_id: student.id,
+    tenant_id: (user as any).tenant_id ?? '',
+    generated_by: user.id ?? null,
+    generated_by_name: user.name ?? null,
+    version_number: versionNumber,
+    profile_json: json,
+    generation_type: generationType,
+    summary: null,
+    created_at: json.generatedAt || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+
+  /** Próxima versão = max(version_number existente) + 1 — nunca (selecionada
+   *  + 1). Escopo já isolado por student_id nas queries do service. (M-06) */
+  const nextVersion = () => nextProfileVersion(versions);
+
+  /**
+   * Persiste um perfil já gerado. NÃO chama a IA. NÃO reserva/debita crédito.
+   * Em falha de banco: preserva o conteúdo na tela e habilita o retry.
+   */
+  const persistProfile = async (
+    json: IntelligentProfileJSON,
+    generationType: 'initial' | 'update' | 'manual_edit',
+    versionNumber: number,
+    summary?: string,
+  ) => {
+    setSavingPending(true);
+    setPendingSaveError('');
+    try {
+      const saved = await IntelligentProfileService.save({
+        studentId:       student.id,
+        tenantId:        (user as any).tenant_id ?? '',
+        generatedBy:     user.id,
+        generatedByName: user.name,
+        profileJson:     json,
+        generationType,
+        summary,
+        versionNumber,
+      });
+      if (!saved) throw new Error('save_returned_null');
+      setPendingSave(null);
+      setShowManualEdit(false);
+      await loadData();
+    } catch (e: any) {
+      console.error('[IntelligentProfileTab] persistProfile falhou:', e?.message ?? e);
+      setPendingSave({ json, generationType, versionNumber, summary });
+      setProfile(makeDraftRecord(json, generationType, versionNumber));
+      setShowManualEdit(false);
+      setPendingSaveError(
+        'Documento gerado com sucesso, mas não foi possível salvá-lo. Seu conteúdo foi ' +
+        'preservado nesta tela. Tente salvar novamente sem gerar ou consumir novos créditos.',
+      );
+    } finally {
+      setSavingPending(false);
+    }
+  };
+
+  const handleRetrySave = () => {
+    if (!pendingSave || savingPending) return;
+    void persistProfile(
+      pendingSave.json, pendingSave.generationType, pendingSave.versionNumber, pendingSave.summary,
+    );
+  };
 
   const loadData = useCallback(async () => {
     if (!student.id) { setLoadingInit(false); return; }
@@ -699,51 +792,42 @@ export const IntelligentProfileTab: React.FC<Props> = ({ student, user, onNaviga
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleGenerate = async (isUpdate: boolean) => {
+    if (genLock.current) return;
     if (isDemoLocked) { setShowUpgradeModal(true); return; }
+    genLock.current = true;
+    // operationId por tentativa de geração — o Gateway usa para reserva/commit/
+    // release idempotentes: duplo clique ou retry de rede não reserva/debita 2×.
+    const operationId = (globalThis.crypto?.randomUUID?.() ?? `op-${Date.now()}-${Math.random()}`);
     setError('');
     setIsGenerating(true);
     try {
-      const newVersion = isUpdate ? (profile?.version_number ?? 0) + 1 : 1;
-      const profileJson = await AIService.generateIntelligentProfile(student, user as any, newVersion);
-      const saved = await IntelligentProfileService.save({
-        studentId:       student.id,
-        tenantId:        (user as any).tenant_id ?? '',
-        generatedBy:     user.id,
-        generatedByName: user.name,
+      // Regenerar a partir de uma versão antiga deve produzir max + 1, não
+      // (versão selecionada + 1). (auditoria 30/08/2026 — M-06)
+      const newVersion = isUpdate ? nextVersion() : 1;
+      const profileJson = await AIService.generateIntelligentProfile(
+        student, user as any, newVersion, operationId,
+      );
+      // Resultado já validado (estrutura + placeholders) e crédito confirmado
+      // no Gateway. Persiste — em falha, o conteúdo fica na tela para retry.
+      await persistProfile(
         profileJson,
-        generationType:  isUpdate ? 'update' : 'initial',
-        summary:         isUpdate ? 'Perfil atualizado com novos dados' : undefined,
-        versionNumber:   newVersion,
-      });
-      if (!saved) throw new Error('Não foi possível salvar o perfil. Tente novamente.');
-      await loadData();
+        isUpdate ? 'update' : 'initial',
+        newVersion,
+        isUpdate ? 'Perfil atualizado com novos dados' : undefined,
+      );
     } catch (e: any) {
       setError(friendlyAIError(e));
     } finally {
       setIsGenerating(false);
+      genLock.current = false;
     }
   };
 
   const handleManualSave = async (editedJson: IntelligentProfileJSON) => {
     setError('');
-    try {
-      const newVersion = (profile?.version_number ?? 0) + 1;
-      const saved = await IntelligentProfileService.save({
-        studentId:       student.id,
-        tenantId:        (user as any).tenant_id ?? '',
-        generatedBy:     user.id,
-        generatedByName: user.name,
-        profileJson:     editedJson,
-        generationType:  'manual_edit',
-        summary:         `Edição manual realizada por ${user.name}`,
-        versionNumber:   newVersion,
-      });
-      if (!saved) throw new Error('Não foi possível salvar as alterações.');
-      setShowManualEdit(false);
-      await loadData();
-    } catch (e: any) {
-      setError(e.message || 'Erro ao salvar as alterações.');
-    }
+    await persistProfile(
+      editedJson, 'manual_edit', nextVersion(), `Edição manual realizada por ${user.name}`,
+    );
   };
 
   const handleDelete = async () => {
@@ -908,7 +992,7 @@ export const IntelligentProfileTab: React.FC<Props> = ({ student, user, onNaviga
             {isGenerating ? <RefreshCw size={17} className="animate-spin" /> : <Sparkles size={17} />}
             {isGenerating ? 'Gerando perfil com IA…' : 'Gerar análise completa do aluno'}
           </button>
-          <p className="text-xs text-slate-400 mt-3">Custo: <strong>5 créditos</strong></p>
+          <p className="text-xs text-slate-400 mt-3">Custo: <strong>{PROFILE_COST} créditos</strong></p>
         </div>
       </div>
     );
@@ -931,7 +1015,7 @@ export const IntelligentProfileTab: React.FC<Props> = ({ student, user, onNaviga
             <button onClick={() => handleGenerate(true)} disabled={isGenerating}
               className="flex items-center gap-2 px-4 py-2.5 bg-white text-[#1F4E5F] hover:bg-[#EEF5F8] border border-[#C5DDE7] rounded-xl font-semibold text-sm transition-all disabled:opacity-50">
               {isGenerating ? <RefreshCw size={15} className="animate-spin" /> : <Sparkles size={15} />}
-              {isGenerating ? 'Processando…' : 'Atualizar com IA'}
+              {isGenerating ? 'Processando…' : `Atualizar com IA · ${PROFILE_COST} créd.`}
             </button>
           )}
 
@@ -952,15 +1036,18 @@ export const IntelligentProfileTab: React.FC<Props> = ({ student, user, onNaviga
           {isDemoLocked ? (
             <button onClick={() => setShowUpgradeModal(true)}
               className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 text-slate-400 border border-slate-200 rounded-xl font-semibold text-sm hover:bg-amber-50 hover:border-amber-200 hover:text-amber-600 transition-all">
-              <Lock size={15} /> Gerar PDF
+              <Lock size={15} /> Exportar
             </button>
-          ) : (
-            <button onClick={handleExportPdf} disabled={exportingPdf}
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#1F4E5F] hover:bg-[#1a4250] text-white rounded-xl font-semibold text-sm transition-all shadow-sm disabled:opacity-60">
-              {exportingPdf ? <RefreshCw size={15} className="animate-spin" /> : <Download size={15} />}
-              Gerar PDF
-            </button>
-          )}
+          ) : profile ? (
+            <IntelligentProfileExportRow
+              record={profile}
+              student={student}
+              user={user}
+              school={(user as any)?.schoolConfigs?.[0] ?? null}
+              onDownloadPdf={handleExportPdf}
+              isDownloadingPdf={exportingPdf}
+            />
+          ) : null}
         </div>
 
         <div className="flex items-center gap-2">
@@ -988,6 +1075,29 @@ export const IntelligentProfileTab: React.FC<Props> = ({ student, user, onNaviga
         <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl p-3 mb-5">
           <AlertCircle size={15} className="text-red-500 shrink-0 mt-0.5" />
           <span className="text-sm text-red-600">{error}</span>
+        </div>
+      )}
+
+      {/* RECUPERAÇÃO — geração OK, save falhou */}
+      {pendingSave && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5">
+          <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-amber-800">
+              {pendingSaveError || 'Documento gerado, mas não foi possível salvá-lo. O conteúdo está preservado nesta tela.'}
+            </p>
+            <p className="text-xs text-amber-600 mt-0.5">
+              Salvar novamente não gera novo conteúdo nem consome créditos.
+            </p>
+          </div>
+          <button
+            onClick={handleRetrySave}
+            disabled={savingPending}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white rounded-xl font-semibold text-sm shrink-0 transition-colors"
+          >
+            {savingPending ? <RefreshCw size={14} className="animate-spin" /> : <Save size={14} />}
+            {savingPending ? 'Salvando…' : 'Tentar salvar novamente'}
+          </button>
         </div>
       )}
 

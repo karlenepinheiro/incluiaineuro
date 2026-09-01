@@ -13,6 +13,7 @@ import {
 import { AIService } from '../services/aiService';
 import { AEEActionPlanService } from '../services/aeeActionPlanService';
 import { AI_CREDIT_COSTS } from '../config/aiCosts';
+import { PlanoAcaoExportRow } from './fichas/PlanoAcaoExportRow';
 
 // ── Paleta ────────────────────────────────────────────────────────────────────
 
@@ -389,8 +390,10 @@ const AEEPlanCard: React.FC<{
 const AEEPrintModal: React.FC<{
   plan: AEEActionPlanJSON;
   studentName: string;
+  student: Student;
+  user: any;
   onClose: () => void;
-}> = ({ plan, studentName, onClose }) => {
+}> = ({ plan, studentName, student, user, onClose }) => {
   const ref = useRef<HTMLDivElement>(null);
   const periodLabel = PERIOD_CONFIG[plan.period]?.label ?? 'Mensal';
 
@@ -449,25 +452,28 @@ const AEEPrintModal: React.FC<{
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto m-4">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
-          <div>
-            <h2 className="font-bold text-gray-800">Pré-visualização — Plano AEE</h2>
-            <p className="text-xs text-gray-500">{studentName} · Plano {periodLabel}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 text-sm font-bold px-4 py-2 rounded-lg text-white transition hover:opacity-90"
-              style={{ background: TEAL }}
-            >
-              <Printer size={15} /> Imprimir / PDF
-            </button>
+        <div className="px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-bold text-gray-800">Pré-visualização — Plano AEE</h2>
+              <p className="text-xs text-gray-500">{studentName} · Plano {periodLabel}</p>
+            </div>
             <button
               onClick={onClose}
               className="w-9 h-9 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition"
             >
               <X size={18} />
             </button>
+          </div>
+          <div className="mt-3">
+            <PlanoAcaoExportRow
+              variant="aee"
+              plan={plan}
+              student={student}
+              user={user}
+              school={user?.schoolConfigs?.[0] ?? null}
+              onPrint={handlePrint}
+            />
           </div>
         </div>
 
@@ -553,6 +559,12 @@ export const AEEActionPlanTab: React.FC<AEEActionPlanTabProps> = ({ student, use
   const [printPlan, setPrintPlan]   = useState<AEEActionPlanJSON | null>(null);
   const [localDone, setLocalDone]   = useState<Record<string, boolean>>({});
 
+  // Recuperação segura (geração OK, save falhou) — sem nova IA, sem nova cobrança.
+  const [pendingPlan, setPendingPlan]     = useState<AEEActionPlanJSON | null>(null);
+  const [pendingError, setPendingError]   = useState('');
+  const [savingPending, setSavingPending] = useState(false);
+  const genLock = useRef(false);
+
   const hasPAEE = protocols.some(p => p.type === DocumentType.PAEE);
 
   const paeeDoc = protocols.find(p => p.type === DocumentType.PAEE);
@@ -584,34 +596,57 @@ export const AEEActionPlanTab: React.FC<AEEActionPlanTabProps> = ({ student, use
 
   useEffect(() => { load(); }, [load]);
 
-  const handleGenerate = async () => {
-    if (!hasPAEE) return;
-    setError('');
-    setGenerating(true);
+  /** Persiste um plano AEE já gerado. NÃO chama IA. NÃO reserva/debita crédito. */
+  const persistPlan = async (plan: AEEActionPlanJSON) => {
+    setSavingPending(true);
+    setPendingError('');
     try {
       const tenantId      = user?.tenant_id ?? user?.tenantId ?? '';
       const createdBy     = user?.id ?? '';
-      const createdByName = user?.name ?? user?.email ?? 'Profissional AEE';
-
-      const plan = await AIService.generateAEEActionPlan(student, user, period, paeeContent, 1);
-
+      const createdByName  = user?.name ?? user?.email ?? 'Profissional AEE';
       await AEEActionPlanService.save({
-        studentId:    student.id,
-        tenantId,
-        createdBy,
-        createdByName,
-        planJson:     plan,
+        studentId: student.id, tenantId, createdBy, createdByName,
+        planJson: plan,
         sourceSnapshot: { paeeId: paeeDoc?.id ?? null },
       });
+      setPendingPlan(null);
       await load();
+    } catch (e: any) {
+      console.error('[AEEActionPlanTab] persistPlan falhou:', e?.message ?? e);
+      setPendingPlan(plan);
+      setPendingError(
+        'Documento gerado com sucesso, mas não foi possível salvá-lo. Seu conteúdo foi ' +
+        'preservado nesta tela. Tente salvar novamente sem gerar ou consumir novos créditos.',
+      );
+    } finally {
+      setSavingPending(false);
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!hasPAEE || genLock.current) return;
+    genLock.current = true;
+    const operationId = (globalThis.crypto?.randomUUID?.() ?? `op-${Date.now()}-${Math.random()}`);
+    setError('');
+    setGenerating(true);
+    try {
+      const plan = await AIService.generateAEEActionPlan(student, user, period, paeeContent, 1, operationId);
+      await persistPlan(plan);
     } catch (e: any) {
       setError(e?.message || 'Erro ao gerar plano AEE. Tente novamente.');
     } finally {
       setGenerating(false);
+      genLock.current = false;
     }
   };
 
+  const handleRetrySave = () => {
+    if (!pendingPlan || savingPending) return;
+    void persistPlan(pendingPlan);
+  };
+
   const handleDelete = async (id: string) => {
+    if (id === '__pending__') { setPendingPlan(null); setPendingError(''); return; }
     try {
       await AEEActionPlanService.archive(id);
       setRecords(prev => prev.filter(r => r.id !== id));
@@ -630,7 +665,7 @@ export const AEEActionPlanTab: React.FC<AEEActionPlanTabProps> = ({ student, use
   return (
     <div className="space-y-5">
       {printPlan && (
-        <AEEPrintModal plan={printPlan} studentName={student.name} onClose={() => setPrintPlan(null)} />
+        <AEEPrintModal plan={printPlan} studentName={student.name} student={student} user={user} onClose={() => setPrintPlan(null)} />
       )}
 
       {/* ── Header ── */}
@@ -759,13 +794,53 @@ export const AEEActionPlanTab: React.FC<AEEActionPlanTabProps> = ({ student, use
         </div>
       )}
 
+      {/* ── Recuperação: geração OK, save falhou ── */}
+      {pendingPlan && (
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl p-4" style={{ background: '#FFFBEB', border: '1.5px solid #FDE68A' }}>
+            <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-800">
+                {pendingError || 'Plano AEE gerado, mas não foi possível salvá-lo. O conteúdo está preservado abaixo.'}
+              </p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                Salvar novamente não gera novo plano nem consome créditos.
+              </p>
+            </div>
+            <button
+              onClick={handleRetrySave}
+              disabled={savingPending}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm text-white shrink-0 transition hover:opacity-90 disabled:opacity-60"
+              style={{ background: TEAL }}
+            >
+              {savingPending ? <RefreshCw size={14} className="animate-spin" /> : <FileCheck size={14} />}
+              {savingPending ? 'Salvando…' : 'Tentar salvar novamente'}
+            </button>
+          </div>
+          <AEEPlanCard
+            record={{
+              id: '__pending__',
+              student_id: student.id,
+              tenant_id: user?.tenant_id ?? user?.tenantId ?? '',
+              plan_json: pendingPlan,
+              created_at: pendingPlan.generatedAt || new Date().toISOString(),
+            }}
+            index={0}
+            onDelete={handleDelete}
+            onPrint={setPrintPlan}
+            localDone={localDone}
+            onToggleItem={handleToggleItem}
+          />
+        </div>
+      )}
+
       {/* ── Content ── */}
       {loading ? (
         <div className="flex items-center justify-center py-16 text-gray-400 gap-2">
           <RefreshCw size={18} className="animate-spin" />
           <span className="text-sm">Carregando planos AEE…</span>
         </div>
-      ) : records.length === 0 ? (
+      ) : records.length === 0 && !pendingPlan ? (
         <div
           className="rounded-2xl p-12 text-center"
           style={{ background: '#FAFAF8', border: '2px dashed #E7E2D8' }}
@@ -798,7 +873,7 @@ export const AEEActionPlanTab: React.FC<AEEActionPlanTabProps> = ({ student, use
             ))}
           </div>
         </div>
-      ) : (
+      ) : records.length === 0 ? null : (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">

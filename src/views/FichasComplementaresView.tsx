@@ -28,6 +28,7 @@ import { generateDocumentCode } from '../utils/documentCodes';
 import { ChecklistRegenteForm, buildChecklistPrintHtml } from '../components/ChecklistRegenteForm';
 import { ChecklistCuidadoraForm, buildCuidadoraPrintHtml } from '../components/ChecklistCuidadoraForm';
 import { ChecklistUploadModal } from '../components/ChecklistUploadModal';
+import { FichaExportRow } from '../components/fichas/FichaExportRow';
 
 interface Props {
   students: Student[];
@@ -1664,29 +1665,36 @@ export const FichasComplementaresView: React.FC<Props> = ({ students, user }) =>
                           ))}
                         </div>
 
-                        <div className="flex flex-wrap gap-3 mt-6 pt-4 border-t border-white/60">
-                          <button
-                            onClick={() => handleSaveFicha(ficha.id)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl font-bold text-sm hover:bg-black transition"
-                          >
-                            <Save size={14} /> Salvar Ficha
-                          </button>
-                          <button
-                            onClick={() => handlePrintFicha(ficha)}
-                            disabled={!!generatingFicha}
-                            className="flex items-center gap-2 px-4 py-2 text-white rounded-xl font-bold text-sm transition disabled:opacity-60"
-                            style={{ background: '#1F4E5F' }}
-                          >
-                            {generatingFicha === ficha.id
-                              ? <><span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Gerando...</>
-                              : <><Download size={14} /> Gerar PDF</>}
-                          </button>
-                          {isSaved && (
-                            <div className="ml-auto flex items-center gap-1 text-xs text-gray-500">
-                              <ShieldCheck size={12} className="text-green-600" />
-                              <span className="font-mono">{savedFichas[ficha.id].code}</span>
-                            </div>
-                          )}
+                        <div className="mt-6 pt-4 border-t border-white/60 space-y-3">
+                          <div className="flex flex-wrap gap-3 items-center">
+                            <button
+                              onClick={() => handleSaveFicha(ficha.id)}
+                              className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl font-bold text-sm hover:bg-black transition"
+                            >
+                              <Save size={14} /> Salvar Ficha
+                            </button>
+                            {isSaved && (
+                              <div className="ml-auto flex items-center gap-1 text-xs text-gray-500">
+                                <ShieldCheck size={12} className="text-green-600" />
+                                <span className="font-mono">{savedFichas[ficha.id].code}</span>
+                              </div>
+                            )}
+                          </div>
+                          {/* [FASE 2] PDF (canônico já existente) + Word (.docx) real + Abrir no Google Docs */}
+                          <FichaExportRow
+                            fichaId={ficha.id}
+                            fichaTitle={ficha.title}
+                            fields={ficha.fields.map(f => ({
+                              label: f.label,
+                              value: getVal(ficha.id, f.id),
+                              isScale: f.type === 'scale',
+                            }))}
+                            student={selectedStudent}
+                            user={user}
+                            school={school}
+                            auditCode={savedFichas[ficha.id]?.code ?? null}
+                            onDownloadPdf={() => handlePrintFicha(ficha)}
+                          />
                         </div>
 
                         {/* ── Histórico de fichas salvas ── */}

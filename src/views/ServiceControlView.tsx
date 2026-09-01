@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { User, Student, ServiceRecord, ServiceDailyChecklist } from '../types';
 import { Plus, Calendar, GripVertical, CheckCircle, Edit, Trash2, Download, ClipboardList, ChevronDown, ChevronUp } from 'lucide-react';
 import { AudioEnhancedTextarea } from '../components/AudioEnhancedTextarea';
-import { ExportService } from '../services/exportService';
+import { ServiceRecordExportRow } from '../components/fichas/ServiceRecordExportRow';
 
 interface Props {
   user: User;
@@ -93,9 +93,9 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
       }
   };
 
-  const handleDownloadPDF = (record: ServiceRecord) => {
-      ExportService.generateServiceRecordPDF(record);
-  };
+  // [FASE 2 · BLOCO B] O "Baixar PDF" (que apontava para um método inexistente)
+  // agora abre o painel de exportação do registro (PDF real + Word + Google Docs).
+  const toggleExport = (id: string) => setExpandedRecordId(prev => (prev === id ? null : id));
 
   return (
     <div className="max-w-6xl mx-auto p-8 min-h-screen">
@@ -314,7 +314,7 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                                               <ClipboardList size={16}/>
                                           </button>
                                         )}
-                                        <button onClick={() => handleDownloadPDF(r)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded" title="Baixar PDF">
+                                        <button onClick={() => toggleExport(r.id)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded" title="Exportar (PDF / Word / Google Docs)">
                                             <Download size={16}/>
                                         </button>
                                         <button onClick={() => handleEdit(r)} className="p-1.5 text-gray-500 hover:text-brand-600 hover:bg-brand-50 rounded" title="Editar">
@@ -326,9 +326,19 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                                     </div>
                                 </td>
                               </tr>
-                              {expandedRecordId === r.id && r.dailyChecklist && (
+                              {expandedRecordId === r.id && (
                                 <tr className="bg-brand-50 border-t border-brand-100">
                                   <td colSpan={7} className="px-8 py-4">
+                                    {(() => {
+                                      const st = students.find(s => s.id === r.studentId) || ({ id: r.studentId, name: r.studentName } as any);
+                                      return (
+                                        <div className="mb-4">
+                                          <p className="text-[10px] font-bold uppercase text-brand-600 mb-2">Exportar registro</p>
+                                          <ServiceRecordExportRow record={r} student={st} user={user} school={user?.schoolConfigs?.[0] ?? null} />
+                                        </div>
+                                      );
+                                    })()}
+                                    {r.dailyChecklist && (<>
                                     <p className="text-[10px] font-bold uppercase text-brand-600 mb-3 flex items-center gap-1.5"><ClipboardList size={12}/> Ficha Avaliativa Diária</p>
                                     <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
                                       <div>
@@ -364,6 +374,7 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                                         </div>
                                       )}
                                     </div>
+                                    </>)}
                                   </td>
                                 </tr>
                               )}

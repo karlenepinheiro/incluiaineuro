@@ -1,8 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, Loader2 } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Download, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import { PDFGenerator } from '../../services/PDFGenerator';
+import { ensurePdfjsMapUpsertCompat } from '../../utils/pdfjsCompat';
 import type { DocumentType, SchoolConfig, Student, User } from '../../types';
+
+// Corrige, antes de qualquer uso de pdfjs-dist, a incompatibilidade real que
+// quebra esta prévia em Safari/WebKit (iPad) — ver src/utils/pdfjsCompat.ts
+// para a causa raiz completa (confirmada por reprodução real em navegador).
+ensurePdfjsMapUpsertCompat();
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -29,6 +35,18 @@ interface FormalPdfPreviewProps {
   school?: SchoolConfig | null;
   sections: PreviewSection[];
   auditCode: string;
+  /**
+   * Quando true, a caixa que envolve as páginas usa a largura do CONTÊINER pai
+   * (`w-full`, ainda limitada por `max-w-[940px]`) em vez de `w-[96vw]` (relativo
+   * à janela do navegador). Isso evita corte/overflow quando este componente é
+   * renderizado dentro de um layout mais estreito que a janela inteira (ex.:
+   * DocumentWorkspace, que tem um painel lateral ao lado).
+   * Padrão: false — preserva o comportamento anterior (w-[96vw]) para todos os
+   * chamadores existentes. Não afeta paginação, margens, cabeçalho, rodapé, QR
+   * Code ou o conteúdo do PDF em si — apenas a largura da caixa de exibição em
+   * tela; o mesmo PDF real continua sendo gerado e renderizado.
+   */
+  fitToContainer?: boolean;
 }
 
 const PAGE_MAX_WIDTH = 780;
@@ -42,13 +60,20 @@ export const FormalPdfPreview: React.FC<FormalPdfPreviewProps> = ({
   school,
   sections,
   auditCode,
+  fitToContainer = false,
 }) => {
+  const boxWidthClass = fitToContainer ? 'w-full' : 'w-[96vw]';
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pages, setPages] = useState<RenderedPage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isRendering, setIsRendering] = useState(true);
   const objectUrlRef = useRef<string | null>(null);
   const sectionsKey = useMemo(() => JSON.stringify(sections), [sections]);
+  // Incrementado por "Tentar novamente" — refaz SOMENTE a prévia (regenera o
+  // PDF a partir das mesmas seções já em memória e re-renderiza as páginas
+  // em canvas). Não chama IA, não toca banco, não consome créditos.
+  const [retryToken, setRetryToken] = useState(0);
+  const handleRetry = useCallback(() => setRetryToken(t => t + 1), []);
 
   useEffect(() => {
     let active = true;
@@ -117,6 +142,10 @@ export const FormalPdfPreview: React.FC<FormalPdfPreviewProps> = ({
         setPages(renderedPages);
       } catch (e: any) {
         if (!active) return;
+        // Nunca expõe o erro técnico (stack trace, nomes de método internos
+        // do pdfjs-dist etc.) à professora — ver a mensagem amigável abaixo.
+        // O erro real fica só no console, para diagnóstico.
+        console.error('[FormalPdfPreview] Falha ao renderizar a prévia A4:', e);
         setError(e?.message || 'Nao foi possivel renderizar o preview A4 do PDF.');
       } finally {
         if (active) setIsRendering(false);
@@ -129,7 +158,7 @@ export const FormalPdfPreview: React.FC<FormalPdfPreviewProps> = ({
       active = false;
       cleanupObjectUrl();
     };
-  }, [auditCode, docType, school, sectionsKey, student, title, user]);
+  }, [auditCode, docType, school, sectionsKey, student, title, user, retryToken]);
 
   const openPdfButton = pdfUrl ? (
     <a
@@ -139,30 +168,47 @@ export const FormalPdfPreview: React.FC<FormalPdfPreviewProps> = ({
       className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
     >
       <ExternalLink size={14} />
-      Abrir PDF em nova aba
+      Abrir PDF
     </a>
   ) : null;
 
   if (error) {
     return (
-      <div className="mt-8 w-[96vw] max-w-[940px] rounded-2xl border border-red-200 bg-white p-5 text-red-700 shadow-xl print:hidden">
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold">Nao foi possivel montar o preview A4.</p>
-            <p className="mt-1 text-xs text-red-600">{error}</p>
-          </div>
-          {openPdfButton}
-        </div>
-        <p className="text-xs text-slate-600">
-          O PDF foi preservado. Use o botao para abrir a versao final em nova aba.
+      <div className={`mt-8 ${boxWidthClass} max-w-[940px] rounded-2xl border border-amber-200 bg-white p-5 text-slate-700 shadow-xl print:hidden`}>
+        <p className="text-sm font-semibold text-slate-800">
+          Tivemos dificuldade para exibir a prévia neste navegador.
         </p>
+        <p className="mt-1 text-xs text-slate-600">
+          Seu documento está preservado e você pode abri-lo ou baixá-lo normalmente.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {openPdfButton}
+          {pdfUrl && (
+            <a
+              href={pdfUrl}
+              download={`${(title || 'documento').replace(/[\\/:*?"<>|]+/g, '_')}.pdf`}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              <Download size={14} />
+              Baixar PDF
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            <RefreshCw size={14} />
+            Tentar novamente
+          </button>
+        </div>
       </div>
     );
   }
 
   if (isRendering || pages.length === 0) {
     return (
-      <div className="mt-8 flex min-h-[640px] w-[96vw] max-w-[940px] items-center justify-center rounded-2xl border border-gray-200 bg-white shadow-xl print:hidden">
+      <div className={`mt-8 flex min-h-[640px] ${boxWidthClass} max-w-[940px] items-center justify-center rounded-2xl border border-gray-200 bg-white shadow-xl print:hidden`}>
         <div className="flex items-center gap-2 text-sm text-gray-500">
           <Loader2 size={18} className="animate-spin" />
           Gerando preview do PDF...
@@ -173,7 +219,7 @@ export const FormalPdfPreview: React.FC<FormalPdfPreviewProps> = ({
 
   return (
     <div
-      className="mt-8 w-[96vw] max-w-[940px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-2xl print:shadow-none print:border-0 print:m-0"
+      className={`mt-8 ${boxWidthClass} max-w-[940px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-2xl print:shadow-none print:border-0 print:m-0`}
       id="document-content"
     >
       <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 print:hidden">

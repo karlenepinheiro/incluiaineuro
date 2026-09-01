@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Student, User as UserType, SchoolConfig, PriorKnowledgeProfile } from '../types';
 import { PDFGenerator } from '../services/PDFGenerator';
+import { MatriculaExportRow } from './fichas/MatriculaExportRow';
 
 const C = {
   bg:       '#F6F4EF',
@@ -143,7 +144,7 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
   const [saving, setSaving] = useState(false);
   const [savedStudent, setSavedStudent] = useState<Student | null>(null);
   const [generatingDocs, setGeneratingDocs] = useState(false);
-  const [docsReady, setDocsReady] = useState<{ nome: string; blob: Blob }[]>([]);
+  const [docsReady, setDocsReady] = useState<{ nome: string; blob: Blob; tipo: 'termo_aee' | 'declaracao_matricula_srm' | 'declaracao_compromisso'; student: Student }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const [data, setData] = useState<WizardData>({
@@ -244,20 +245,21 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
   const handleGenerateDocs = async (student: Student) => {
     setGeneratingDocs(true);
     const school = user.schoolConfigs?.[0] ?? null;
-    const blobs: { nome: string; blob: Blob }[] = [];
+    const blobs: { nome: string; blob: Blob; tipo: 'termo_aee' | 'declaracao_matricula_srm' | 'declaracao_compromisso'; student: Student }[] = [];
+    const safe = student.name.replace(/\s+/g, '_');
 
     try {
       if (data.docs.termo) {
         const blob = await PDFGenerator.generateMatriculaDoc('termo_aee', student, user, school);
-        blobs.push({ nome: `Termo_AEE_${student.name.replace(/\s+/g, '_')}.pdf`, blob });
+        blobs.push({ nome: `Termo_AEE_${safe}.pdf`, blob, tipo: 'termo_aee', student });
       }
       if (data.docs.declaracao) {
         const blob = await PDFGenerator.generateMatriculaDoc('declaracao_matricula_srm', student, user, school);
-        blobs.push({ nome: `Declaracao_Matricula_SRM_${student.name.replace(/\s+/g, '_')}.pdf`, blob });
+        blobs.push({ nome: `Declaracao_Matricula_SRM_${safe}.pdf`, blob, tipo: 'declaracao_matricula_srm', student });
       }
       if (data.docs.compromisso) {
         const blob = await PDFGenerator.generateMatriculaDoc('declaracao_compromisso', student, user, school);
-        blobs.push({ nome: `Declaracao_Compromisso_${student.name.replace(/\s+/g, '_')}.pdf`, blob });
+        blobs.push({ nome: `Declaracao_Compromisso_${safe}.pdf`, blob, tipo: 'declaracao_compromisso', student });
       }
       setDocsReady(blobs);
     } catch (e) {
@@ -265,10 +267,6 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
     } finally {
       setGeneratingDocs(false);
     }
-  };
-
-  const downloadDoc = (item: { nome: string; blob: Blob }) => {
-    PDFGenerator.download(item.blob, item.nome);
   };
 
   // ── Render steps ─────────────────────────────────────────────────────────
@@ -281,8 +279,8 @@ export const EnrollmentWizard: React.FC<EnrollmentWizardProps> = ({
       case 4: return (
         <StepFinalizar
           data={data} set={set} saving={saving} savedStudent={savedStudent}
-          generatingDocs={generatingDocs} docsReady={docsReady}
-          onDownload={downloadDoc} onFinish={handleFinish} error={error}
+          generatingDocs={generatingDocs} docsReady={docsReady} user={user}
+          onFinish={handleFinish} error={error}
           pkIsIncomplete={pkIsIncomplete} pkFilledCount={pkFilledCount}
           onGoToProfile={() => setStep(1)}
         />
@@ -776,10 +774,11 @@ function StepAnalise({ data, set, checkedCount }: { data: WizardData; set: any; 
 }
 
 // ─── Step 4: Finalizar ────────────────────────────────────────────────────────
-function StepFinalizar({ data, set, saving, savedStudent, generatingDocs, docsReady, onDownload, onFinish, error, pkIsIncomplete, pkFilledCount, onGoToProfile }: {
+function StepFinalizar({ data, set, saving, savedStudent, generatingDocs, docsReady, user, onFinish, error, pkIsIncomplete, pkFilledCount, onGoToProfile }: {
   data: WizardData; set: any; saving: boolean; savedStudent: Student | null;
-  generatingDocs: boolean; docsReady: { nome: string; blob: Blob }[];
-  onDownload: (d: { nome: string; blob: Blob }) => void;
+  generatingDocs: boolean;
+  docsReady: { nome: string; blob: Blob; tipo: 'termo_aee' | 'declaracao_matricula_srm' | 'declaracao_compromisso'; student: Student }[];
+  user: UserType;
   onFinish: () => void; error: string | null;
   pkIsIncomplete: boolean; pkFilledCount: number; onGoToProfile: () => void;
 }) {
@@ -914,24 +913,22 @@ function StepFinalizar({ data, set, saving, savedStudent, generatingDocs, docsRe
           )}
 
           {docsReady.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: C.dark, textAlign: 'left', marginBottom: 4 }}>
-                Documentos prontos para download:
+                Documentos prontos — Baixar PDF, Baixar Word (.docx) ou Abrir no Google Docs:
               </div>
               {docsReady.map((doc, i) => (
-                <button
-                  key={i}
-                  onClick={() => onDownload(doc)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px',
-                    borderRadius: 10, border: `1.5px solid ${C.petrol}`,
-                    background: C.surface, cursor: 'pointer', textAlign: 'left',
-                  }}
-                >
-                  <Download size={15} style={{ color: C.petrol, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: C.petrol, flex: 1 }}>{doc.nome}</span>
-                  <ChevronRight size={13} style={{ color: C.muted }} />
-                </button>
+                <div key={i} style={{ border: `1.5px solid ${C.border}`, borderRadius: 10, padding: '10px 12px', textAlign: 'left' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.dark, marginBottom: 6 }}>{doc.nome}</div>
+                  <MatriculaExportRow
+                    tipo={doc.tipo}
+                    student={doc.student}
+                    user={user}
+                    school={user.schoolConfigs?.[0] ?? null}
+                    pdfBlob={doc.blob}
+                    pdfFilename={doc.nome}
+                  />
+                </div>
               ))}
             </div>
           )}

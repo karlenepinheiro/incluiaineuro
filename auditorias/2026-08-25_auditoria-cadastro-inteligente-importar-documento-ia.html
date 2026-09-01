@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Auditoria — Cadastro Inteligente / Importar Aluno por Documento com IA</title>
+<style>
+  :root {
+    --petrol:  #1F4E5F; --dark: #2E3A59; --gold: #C69214; --bg: #F6F4EF;
+    --surface: #FFFFFF; --border: #E7E2D8; --text: #111827; --muted: #6B7280;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.65; }
+  .header { background: linear-gradient(135deg, var(--petrol) 0%, var(--dark) 100%); color: #fff; padding: 44px 48px; }
+  .header-inner { max-width: 1080px; margin: 0 auto; }
+  .kicker { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; opacity: .7; font-weight: 700; margin-bottom: 10px; }
+  .header h1 { font-size: 26px; font-weight: 800; max-width: 820px; }
+  .header p { opacity: .85; margin-top: 10px; font-size: 13px; max-width: 780px; }
+  .cover-badges { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+  .container { max-width: 1080px; margin: 0 auto; padding: 32px 24px 80px; }
+  .info-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 22px; margin-bottom: 28px; font-size: 12px; color: var(--muted); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px 24px; }
+  .info-bar strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 2px; }
+  section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 26px 30px; margin-bottom: 20px; }
+  section.block h2 { font-size: 17px; color: var(--dark); margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  section.block h2 .num { background: var(--petrol); color: #fff; width: 26px; height: 26px; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; flex-shrink: 0; }
+  section.block h3 { font-size: 13.5px; color: var(--dark); margin: 18px 0 8px; font-weight: 700; }
+  section.block h4 { font-size: 12.5px; color: var(--petrol); margin: 14px 0 6px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
+  section.block p { margin-bottom: 10px; }
+  section.block ul, section.block ol.plain { padding-left: 20px; margin-bottom: 12px; }
+  section.block li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 12.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: #FAF9F6; color: var(--dark); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .3px; }
+  .table-wrap { overflow-x: auto; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 10px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; }
+  .badge-ok { background: #ECFDF5; color: #065F46; border: 1px solid #6EE7B7; }
+  .badge-pendente { background: #FFF7ED; color: #9A3412; border: 1px solid #FED7AA; }
+  .badge-info { background: #F0F9FF; color: #075985; border: 1px solid #BAE6FD; }
+  .badge-critico { background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA; }
+  .badge-parcial { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+  .badge-hip { background: #F5F3FF; color: #5B21B6; border: 1px solid #DDD6FE; }
+  .badge-nver { background: #F1F5F9; color: #334155; border: 1px solid #CBD5E1; }
+  .callout { border-left: 4px solid var(--petrol); background: #F0F6F7; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 12px 0; font-size: 12.5px; }
+  .callout.warn { border-color: #C69214; background: #FEF9EE; }
+  .callout.ok { border-color: #059669; background: #F0FDF4; }
+  .callout.crit { border-color: #DC2626; background: #FEF2F2; }
+  code { background: #F1EFE9; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 12px; font-family: Consolas, monospace; }
+  .p0 { color: #991B1B; font-weight: 800; }
+  .p1 { color: #9A3412; font-weight: 800; }
+  .p2 { color: #075985; font-weight: 800; }
+  .checklist td:first-child { font-weight: 600; width: 60%; }
+  .footer { background: var(--petrol); color: rgba(255,255,255,.65); padding: 22px 48px; font-size: 12px; text-align: center; }
+  .toc { columns: 2; column-gap: 32px; font-size: 12.5px; }
+  .toc a { color: var(--petrol); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .toc li { break-inside: avoid; }
+</style>
+</head>
+<body>
+<div class="header"><div class="header-inner">
+  <div class="kicker">Auditoria técnica · Somente leitura</div>
+  <h1>Cadastro Inteligente / Importar Alunos por Documento com IA</h1>
+  <p>Rastreamento do fluxo real (arquivo → extração → IA → revisão → cadastro → créditos), sem alterações de código, banco, Gateway, prompts ou créditos. Objetivo: localizar a causa real dos relatos de professoras de que o sistema "não conseguiu interpretar" documentos enviados.</p>
+  <div class="cover-badges">
+    <span class="badge badge-info">25/08/2026</span>
+    <span class="badge badge-ok">Nenhum arquivo alterado</span>
+    <span class="badge badge-ok">Nenhuma chamada real de IA feita</span>
+    <span class="badge badge-pendente">Aguardando autorização para Fase 2 (implementação)</span>
+  </div>
+</div></div>
+<div class="container">
+
+  <div class="info-bar">
+    <div><strong>Branch</strong><code>integracao/incluiai-2-0-oficial</code></div>
+    <div><strong>Worktree</strong>Alterações pré-existentes preservadas — nada revertido, movido ou limpo (ver Seção 0)</div>
+    <div><strong>Banco</strong>Não tocado — apenas leitura de schema/migrations</div>
+    <div><strong>Gateway</strong>Não tocado — apenas leitura de código</div>
+    <div><strong>Créditos</strong>Não tocado — nenhum débito real gerado</div>
+    <div><strong>Método</strong>Rastreamento ponta a ponta por código real, não por nomes de função ou UI</div>
+  </div>
+
+  <section class="block">
+    <h2><span class="num">·</span>Como ler este relatório</h2>
+    <p>Cada afirmação carrega uma etiqueta de confiança, conforme exigido no pedido:</p>
+    <p>
+      <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span>
+      <span class="badge badge-info">CONFIRMADO POR TESTE LOCAL</span>
+      <span class="badge badge-hip">HIPÓTESE</span>
+      <span class="badge badge-nver">NÃO FOI POSSÍVEL VERIFICAR</span>
+    </p>
+    <p>Nenhum teste chamou provedores reais de IA, nenhum crédito foi consumido, nenhum arquivo de aluno real foi processado. Toda a análise é estática (leitura de código-fonte, schema SQL e migrations).</p>
+  </section>
+
+  <!-- ===================== 0. WORKTREE ===================== -->
+  <section class="block">
+    <h2><span class="num">0</span>Estado inicial e segurança do worktree</h2>
+    <p>Branch atual: <code>integracao/incluiai-2-0-oficial</code>. <code>git status --short</code> e <code>git diff --stat</code> foram executados (somente leitura) no início desta auditoria. Existem <strong>24 arquivos modificados</strong> e <strong>~30 arquivos novos não commitados</strong> no worktree (IncluiLAB pipeline canônico, gateway multi-provider, testes novos, imagens de personagem, etc.) — pré-existentes a esta auditoria. <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span></p>
+    <p>Nenhum comando destrutivo foi usado (sem <code>git reset</code>, <code>checkout --</code>, <code>clean</code>, <code>stash</code>). Nenhum arquivo dessas mudanças pré-existentes foi tocado por esta auditoria. O único arquivo criado por esta auditoria é o próprio relatório, em <code>auditorias/</code>.</p>
+  </section>
+
+  <!-- ===================== A. RESUMO EXECUTIVO ===================== -->
+  <section class="block">
+    <h2><span class="num">A</span>Resumo executivo (linguagem simples)</h2>
+    <p>O recurso existe e não é "fachada": há upload real, leitura real de PDF/Word, envio real para a IA (o mesmo Gateway usado no resto do produto), uma tela de revisão editável de verdade, e um controle de créditos bem desenhado (reserva → confirma/libera, nunca cobra em caso de falha de IA). Isso é bom e deve ser preservado.</p>
+    <p>Mas encontramos <strong>quatro causas concretas e verificáveis no código</strong> que explicam por que professoras relatam falha de interpretação:</p>
+    <ol class="plain">
+      <li><strong>Fotos e imagens PNG/WEBP são enviadas ao modelo de IA com o rótulo de tipo errado</strong> (identificadas como JPEG mesmo não sendo). Isso pode fazer a IA falhar silenciosamente ou ler mal a imagem. Só arquivos <code>.jpg</code>/<code>.jpeg</code> escapam do problema por coincidência de rótulo padrão.</li>
+      <li><strong>PDF ou foto escaneada: apenas a primeira página é analisada</strong> — sempre, mesmo que o documento tenha 5 páginas. Isso é avisado na tela, mas é uma limitação estrutural séria para laudos e anamneses reais, que raramente cabem em 1 página.</li>
+      <li><strong>Documentos longos (PDF digital ou Word) são cortados em 8.000 caracteres</strong> antes de chegar à IA, e o PDF de texto só lê as 5 primeiras páginas — sem qualquer aviso à professora de que o resto do documento foi ignorado.</li>
+      <li><strong>Word antigo (.doc) não é aceito</strong>, apesar de a interface anunciar "Word" de forma genérica.</li>
+    </ol>
+    <p>Também encontramos um risco de cobrança indevida: se a professora fechar a aba do navegador (não pelo botão "Cancelar") depois que a IA já processou o documento mas antes de confirmar o salvamento, o crédito reservado pode ficar debitado permanentemente — não localizamos nenhuma rotina automática (cron/job) que expire e devolva reservas de crédito abandonadas.</p>
+    <p>Nada disso exige trocar o Gateway, o provider ou criar tabelas novas. São correções pontuais e de baixo risco — ver Seção T/U.</p>
+  </section>
+
+  <!-- ===================== B. MAPA DO FLUXO ===================== -->
+  <section class="block">
+    <h2><span class="num">B</span>Mapa completo do fluxo real</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Etapa do pedido</th><th>Existe de verdade?</th><th>Onde</th></tr>
+      <tr><td>Seleção/drag-drop de arquivo</td><td><span class="badge badge-ok">Real</span> — 1 arquivo por vez</td><td><code>StudentImportModal.tsx:526-542</code></td></tr>
+      <tr><td>Validação de formato</td><td><span class="badge badge-parcial">Parcial</span> — só extensão, sem MIME/assinatura, sem limite de tamanho</td><td><code>StudentImportModal.tsx:415-421</code> (<code>ACCEPTED_DOC_EXTS</code>)</td></tr>
+      <tr><td>Identificação do tipo (PDF texto vs escaneado)</td><td><span class="badge badge-ok">Real</span> — tenta extrair texto; se &lt;80 chars, trata como escaneado</td><td><code>studentDocumentImportService.ts:397-422</code></td></tr>
+      <tr><td>Leitura de PDF (texto)</td><td><span class="badge badge-ok">Real</span>, mas limitada a 5 páginas</td><td><code>studentDocumentImportService.ts:397-422</code> (pdfjs-dist, client-side)</td></tr>
+      <tr><td>Leitura de Word/DOCX</td><td><span class="badge badge-ok">Real</span>, texto corrido, sem estrutura</td><td><code>studentDocumentImportService.ts:120-133</code> (mammoth, client-side)</td></tr>
+      <tr><td>"OCR" de imagem / PDF escaneado</td><td><span class="badge badge-parcial">Parcial</span> — não é OCR tradicional; é leitura visual multimodal via Gemini Vision, só da 1ª página/imagem</td><td><code>studentDocumentImportService.ts:426-459, 480-489</code></td></tr>
+      <tr><td>Preparação do payload</td><td><span class="badge badge-parcial">Parcial</span> — bug de MIME em imagens não-JPEG (ver Seção H/R)</td><td><code>studentDocumentImportService.ts:440-447</code></td></tr>
+      <tr><td>Autenticação</td><td><span class="badge badge-ok">Real</span> — JWT do Supabase enviado automaticamente</td><td><code>aiGatewayService.ts:51-64</code>, <code>index.ts:77-93</code></td></tr>
+      <tr><td>Gateway → Router → Provider</td><td><span class="badge badge-ok">Real</span> — mesmo Gateway multi-provider do resto do produto</td><td><code>ai-gateway/index.ts</code>, <code>_router.ts</code>, <code>_geminiProvider.ts</code></td></tr>
+      <tr><td>Resposta estruturada</td><td><span class="badge badge-parcial">Parcial</span> — <code>JSON.parse</code> + checagem de forma mínima; sem schema formal</td><td><code>studentDocumentImportService.ts:191-210, 500-513</code></td></tr>
+      <tr><td>Validação</td><td><span class="badge badge-parcial">Parcial</span> — normalização de tipos, sem validação semântica (ex.: data plausível, CID bem formado)</td><td><code>studentDocumentImportService.ts:228-272</code></td></tr>
+      <tr><td>Mapeamento para cadastro</td><td><span class="badge badge-ok">Real e robusto</span> — com uma lacuna confirmada (ver Seção N)</td><td><code>databaseService.ts:566-847</code></td></tr>
+      <tr><td>Revisão humana</td><td><span class="badge badge-ok">Real e editável</span>, com lacunas (ver Seção O)</td><td><code>StudentImportModal.tsx:1254-1450</code></td></tr>
+      <tr><td>Confirmação explícita</td><td><span class="badge badge-ok">Real</span> — nenhum aluno é criado sem clique explícito</td><td><code>StudentImportModal.tsx:1639-1650</code></td></tr>
+      <tr><td>Persistência</td><td><span class="badge badge-ok">Real</span></td><td><code>studentDocumentImportService.ts:333-389</code> → <code>databaseService.saveStudent</code></td></tr>
+      <tr><td>Cobrança de créditos</td><td><span class="badge badge-ok">Bem desenhada no happy path</span>, mas <span class="p1">com risco de crédito perdido em abandono</span> (ver Seção P)</td><td><code>StudentImportModal.tsx:326-493</code>, <code>_credits.ts</code></td></tr>
+      <tr><td>Uso posterior em PEI/PAEE/etc.</td><td><span class="badge badge-nver">Não verificado em profundidade</span> — fora do escopo direto, ver nota na Seção N</td><td><code>_contextBuilder.ts:36-38</code></td></tr>
+    </table></div>
+  </section>
+
+  <!-- ===================== C. COMPONENTES E ARQUIVOS ===================== -->
+  <section class="block">
+    <h2><span class="num">C</span>Componentes, arquivos e funções realmente envolvidos</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Arquivo</th><th>Responsabilidade real</th><th>Maturidade</th></tr>
+      <tr><td><code>src/components/StudentImportModal.tsx</code></td><td>Modal único para os dois modos (CSV e "Documento com IA"). Controla os steps, o upload, a detecção de tipo, o painel de custo, o processamento e a revisão editável.</td><td>Alta — único componente, sem duplicação, bem organizado</td></tr>
+      <tr><td><code>src/services/studentDocumentImportService.ts</code></td><td>Extração de texto (DOCX/PDF), decisão de rota texto-vs-visual, construção dos 2 prompts de extração, chamada ao Gateway, normalização do draft, persistência em lote.</td><td>Média — funcional, mas com truncamentos e o bug de MIME</td></tr>
+      <tr><td><code>src/services/aiGatewayService.ts</code></td><td>Único ponto de contato do browser com IA — fetch direto (não usa <code>supabase.functions.invoke</code>) para ter acesso ao status HTTP.</td><td>Alta</td></tr>
+      <tr><td><code>supabase/functions/ai-gateway/index.ts</code></td><td>Edge Function: JWT → tenant → router → reserva de créditos → chamada ao provider → validação → commit/release → persistência opcional em <code>documents</code>.</td><td>Alta — fluxo financeiro (reserve/commit/release) bem estruturado</td></tr>
+      <tr><td><code>supabase/functions/ai-gateway/_router.ts</code></td><td>Seleciona Gemini (default) ou OpenAI por variável de ambiente; fallback opcional (desabilitado por padrão).</td><td>Alta</td></tr>
+      <tr><td><code>supabase/functions/ai-gateway/_geminiProvider.ts</code> / <code>_vertex.ts</code></td><td>Chamada real à API Gemini (texto/JSON/imagem via <code>inlineData</code>).</td><td>Alta, exceto tratamento de <code>mimeType</code> recebido do cliente (ver Seção H)</td></tr>
+      <tr><td><code>supabase/functions/ai-gateway/_credits.ts</code> + migration <code>20260520000002_atomic_credit_transactions.sql</code></td><td>Reserva/commit/release atômico de créditos via RPC no Postgres.</td><td>Alta no happy path; sem rotina de expiração automática (ver Seção P)</td></tr>
+      <tr><td><code>src/services/databaseService.ts</code> (<code>saveStudent</code>)</td><td>Mapeamento completo camelCase→snake_case para a tabela <code>students</code>, com whitelist explícita de colunas reais.</td><td>Alta</td></tr>
+      <tr><td><code>src/services/csvImportService.ts</code></td><td>Modo CSV — completamente separado do modo IA, sem overlap de código.</td><td>Não é foco desta auditoria; mencionado para contraste</td></tr>
+      <tr><td><code>src/services/creditService.ts</code></td><td><code>atomicReleaseReservedCredits</code> / <code>atomicCommitReservedCredits</code> — chamadas de frontend para as RPCs de crédito.</td><td>Alta</td></tr>
+    </table></div>
+    <h4>Código morto / nunca acionado</h4>
+    <p>Nenhum código morto relevante foi encontrado nesta feature. Não existe nenhuma biblioteca de OCR tradicional (Tesseract, Cloud Vision, etc.) no projeto — <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span> (busca por <code>tesseract</code>/<code>ocr</code> não retornou nenhuma implementação de OCR real; o termo "OCR" na UI de <code>ChecklistUploadModal.tsx</code> e nesta feature se refere sempre a leitura visual multimodal via Gemini).</p>
+    <h4>Testes existentes</h4>
+    <p><span class="badge badge-critico">Inexistente</span> — não há nenhum arquivo de teste para <code>StudentImportModal.tsx</code> ou <code>studentDocumentImportService.ts</code> (busca por <code>*mport*.test.*</code> e pelo nome do serviço não retornou nada). Existem testes de Gateway/router/OpenAI provider (<code>src/__tests__/aiGatewayRouter.test.ts</code>, <code>aiGatewayOpenAIProvider.test.ts</code>) e do pipeline do IncluiLAB, mas nenhum cobre a importação de alunos por documento. <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span></p>
+  </section>
+
+  <!-- ===================== D/E. FORMATOS ===================== -->
+  <section class="block">
+    <h2><span class="num">D/E</span>Formatos realmente suportados vs. prometidos</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Formato</th><th>Anunciado na UI</th><th>Aceito no <code>&lt;input&gt;</code></th><th>Interpretado corretamente?</th></tr>
+      <tr><td>.docx</td><td>Sim ("Word")</td><td>Sim</td><td><span class="badge badge-ok">Sim</span> — texto corrido via mammoth</td></tr>
+      <tr><td>.doc (Word antigo)</td><td>Sim, implicitamente ("Word")</td><td><span class="p0">Não</span> — ausente de <code>ACCEPTED_DOC_EXTS</code> e do <code>accept</code> do input</td><td><span class="badge badge-critico">Não suportado</span> — rejeitado com "Formato não suportado"</td></tr>
+      <tr><td>.pdf (com texto)</td><td>Sim</td><td>Sim</td><td><span class="badge badge-parcial">Parcial</span> — só 5 primeiras páginas, texto truncado em 8.000 caracteres</td></tr>
+      <tr><td>.pdf (escaneado)</td><td>Sim</td><td>Sim</td><td><span class="badge badge-parcial">Parcial</span> — só a 1ª página, via imagem renderizada</td></tr>
+      <tr><td>.jpg / .jpeg</td><td>Sim</td><td>Sim</td><td><span class="badge badge-ok">Sim</span> — mimeType coincide por acaso com o fallback do backend</td></tr>
+      <tr><td>.png</td><td>Sim ("imagem")</td><td>Sim</td><td><span class="p0">Quebrado</span> — enviado ao Gemini rotulado como <code>image/jpeg</code> (ver Seção H)</td></tr>
+      <tr><td>.webp</td><td>Sim ("imagem")</td><td>Sim</td><td><span class="p0">Quebrado</span> — mesmo bug de MIME</td></tr>
+      <tr><td>.heic (iPhone)</td><td>Não anunciado</td><td>Não</td><td>Não suportado — condizente com o que é anunciado</td></tr>
+    </table></div>
+    <p class="callout crit"><strong>Achado central:</strong> o formato mais comum de "foto de documento tirada com celular" salva pelo WhatsApp/Google Fotos costuma ser <code>.jpg</code> (funciona) — mas screenshots e imagens exportadas de apps de scanner frequentemente são <code>.png</code> ou <code>.webp</code> (quebrados pelo bug de MIME). Isso é compatível com relatos inconsistentes ("às vezes funciona, às vezes não") sem que a causa pareça óbvia a quem não rastreou o código byte a byte.</p>
+  </section>
+
+  <!-- ===================== F. PDF DIGITAL ===================== -->
+  <section class="block">
+    <h2><span class="num">F</span>Situação real do PDF digital</h2>
+    <p><span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span> — biblioteca: <code>pdfjs-dist</code>, execução 100% no navegador (não no backend, não em Edge Function). Worker configurado via <code>pdfjsLib.GlobalWorkerOptions.workerSrc</code> apontando para o build local do worker (<code>studentDocumentImportService.ts:25-28</code>) — configuração correta.</p>
+    <ul>
+      <li><strong>Páginas analisadas:</strong> <code>Math.min(pdf.numPages, 5)</code> — <span class="p1">documentos com mais de 5 páginas perdem conteúdo silenciosamente</span>, sem nenhum aviso na interface (<code>studentDocumentImportService.ts:403</code>).</li>
+      <li><strong>Truncamento por caracteres:</strong> o texto extraído (de PDF ou de DOCX) é cortado em <code>text.substring(0, 8000)</code> antes de entrar no prompt (<code>studentDocumentImportService.ts:178</code>) — para uma anamnese longa ou um laudo com múltiplas seções, isso pode cortar exatamente as informações do fim do documento (ex.: assinatura do profissional, CID, recomendações), sem aviso.</li>
+      <li><strong>Ordem/concatenação:</strong> o texto de cada página é concatenado em ordem (<code>fullText += pageText + '\n'</code>), mas dentro de uma página os itens de texto são apenas unidos por espaço (<code>item.str).join(' ')</code>) — <span class="badge badge-parcial">colunas ou tabelas podem embaralhar a ordem de leitura</span>, pois pdfjs retorna itens de texto na ordem do stream do PDF, não necessariamente na ordem visual quando há colunas.</li>
+      <li><strong>Fallback quando texto é ruim:</strong> existe — se o texto extraído tiver menos de 80 caracteres, o sistema já reclassifica como <code>pdf-image</code> e usa a rota visual (<code>extractTextFromPdf</code> retorna <code>null</code>). Mas esse limiar (80 chars) não distingue um PDF "quase todo escaneado com uma linha de cabeçalho digital" — nesse caso passaria como "PDF de texto" com conteúdo insuficiente.</li>
+      <li><strong>PDF protegido por senha ou corrompido:</strong> <span class="p1">sem mensagem específica</span>. <code>pdfjsLib.getDocument(...).promise</code> lança exceção; o <code>catch</code> em <code>prepareDocumentFile</code> reclassifica como <code>pdf-image</code> (<code>StudentImportModal.tsx:442-445</code>), mas ao tentar a rota visual, <code>renderPdfFirstPageToBase64</code> chama o mesmo <code>pdfjsLib.getDocument</code> e falha de novo — o erro que chega à professora é o erro técnico bruto do pdfjs (ex.: "PasswordException"), não uma mensagem como "este PDF está protegido por senha".</li>
+    </ul>
+  </section>
+
+  <!-- ===================== G. PDF ESCANEADO / OCR ===================== -->
+  <section class="block">
+    <h2><span class="num">G</span>Situação real do PDF escaneado e "OCR"</h2>
+    <p><span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span> — <strong>não existe OCR tradicional</strong> no sistema (sem Tesseract, sem Google Cloud Vision, sem nenhum motor de reconhecimento de caracteres). O que existe é: o PDF é renderizado em um <code>&lt;canvas&gt;</code> no navegador, convertido para JPEG, e enviado como imagem para o Gemini 2.5 Flash, que faz leitura visual multimodal direta do documento (<code>renderPdfFirstPageToBase64</code>, <code>studentDocumentImportService.ts:426-438</code>).</p>
+    <ul>
+      <li><strong>Só a primeira página</strong> é renderizada e enviada — <code>pdf.getPage(1)</code> hardcoded (linha 429). Confirmado e <em>disclosed</em> na UI ("Apenas a primeira página será processada" — <code>StudentImportModal.tsx:903</code>), mas continua sendo uma limitação estrutural grave: a maioria dos laudos/anamneses reais tem 2+ páginas.</li>
+      <li><strong>Sem pré-processamento</strong>: não há rotação automática, correção de perspectiva, ajuste de contraste, redução de ruído ou detecção de página escura/em branco. A imagem é renderizada em escala 2.0x e comprimida em JPEG qualidade 0.85 — suficiente para a maioria dos casos, mas sem nenhuma correção para fotos tortas ou mal iluminadas.</li>
+      <li><strong>Sem timeout dedicado no cliente</strong> — o timeout de 90s está no servidor (<code>index.ts:293</code>, <code>callAIWithRetryAndTimeout(...,0,90_000)</code>); o cliente não tem seu próprio timeout/retry.</li>
+      <li><strong>Sem indicação de confiança por página</strong> — só existe um <code>confidence</code> geral por aluno extraído (0 a 1), calculado pelo próprio modelo dentro do JSON de resposta — não há verificação independente de qualidade de imagem antes do envio.</li>
+      <li><strong>Cobrança:</strong> os 5 créditos (visual) só são <em>reservados</em> antes da chamada e só são <em>confirmados</em> (cobrados de fato) se pelo menos 1 aluno for salvo — se o OCR/leitura visual falhar ou a confiança média for <code>&lt; 0.25</code>, a função lança erro e a reserva é liberada automaticamente pela Edge Function (<code>studentDocumentImportService.ts:528-532</code>, <code>index.ts:318-339</code>). <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span> — falha de OCR/leitura visual não cobra crédito no caminho feliz de erro.</li>
+    </ul>
+  </section>
+
+  <!-- ===================== H. IMAGENS ===================== -->
+  <section class="block">
+    <h2><span class="num">H</span>Imagens e análise multimodal — achado crítico de MIME type</h2>
+    <p class="callout crit">
+      <strong>P0 confirmado por código.</strong> Em <code>studentDocumentImportService.ts:440-447</code>, a função <code>fileToBase64</code> lê o arquivo com <code>FileReader.readAsDataURL</code> e depois descarta o prefixo <code>data:&lt;mimetype&gt;;base64,</code>, mantendo só o payload base64:
+    </p>
+    <pre style="background:#1e1e1e;color:#d4d4d4;padding:12px 16px;border-radius:8px;overflow-x:auto;font-size:12px;">reader.onload  = () => resolve((reader.result as string).split(',')[1]);</pre>
+    <p>Esse valor "puro" (sem prefixo) é enviado como <code>imageBase64</code> ao Gateway. No servidor, <code>_vertex.ts:46-51</code> tenta recuperar o tipo MIME original com uma regex sobre o prefixo <code>data:...</code>:</p>
+    <pre style="background:#1e1e1e;color:#d4d4d4;padding:12px 16px;border-radius:8px;overflow-x:auto;font-size:12px;">const mimeMatch = imageBase64.match(/^data:([^;]+);base64,/);
+const mimeType  = mimeMatch?.[1] || 'image/jpeg';  // ← fallback quando não há prefixo</pre>
+    <p>Como o prefixo já foi removido no cliente, <code>mimeMatch</code> nunca casa, e o Gemini recebe <strong>todas as imagens rotuladas como <code>image/jpeg</code></strong>, independentemente do formato real dos bytes. Um <code>.png</code> ou <code>.webp</code> chega à API do Gemini com um <code>inlineData.mimeType</code> que não corresponde aos bytes reais — na melhor hipótese o modelo ainda consegue decodificar (alguns decoders são tolerantes), na pior o modelo falha silenciosamente em interpretar a imagem ou devolve um JSON vazio/genérico.</p>
+    <p><strong>Prova de que isso é um bug e não uma limitação da plataforma:</strong> o mesmo projeto tem outro fluxo de leitura visual, <code>ChecklistUploadModal.tsx:74-81</code>, que faz exatamente a mesma operação mas <em>sem</em> descartar o prefixo:</p>
+    <pre style="background:#1e1e1e;color:#d4d4d4;padding:12px 16px;border-radius:8px;overflow-x:auto;font-size:12px;">reader.onload = () => resolve(reader.result as string); // mantém "data:image/png;base64,..."</pre>
+    <p>Isso confirma que a correção é trivial (parar de fazer <code>.split(',')[1]</code> no cliente OU repassar o mimetype real explicitamente) — mas não deve ser feita nesta fase, apenas documentada. <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span></p>
+    <h4>Demais pontos de imagem</h4>
+    <ul>
+      <li>Sim, a imagem é convertida em base64 e enviada inline (não via URL, não via Storage) — a imagem nunca é persistida em nenhum bucket. Bom para privacidade, mas significa que a imagem também não pode ser consultada de novo depois na revisão.</li>
+      <li>Só uma imagem por vez é aceita (sem <code>multiple</code> no input, sem loop de arquivos).</li>
+      <li>Sem alerta de "imagem escura/cortada/desfocada" antes do envio — só um aviso textual genérico pedindo "imagem nítida e bem iluminada".</li>
+    </ul>
+  </section>
+
+  <!-- ===================== I. WORD/DOCX ===================== -->
+  <section class="block">
+    <h2><span class="num">I</span>Word/DOCX</h2>
+    <ul>
+      <li><strong>Biblioteca:</strong> <code>mammoth.extractRawText()</code> — extrai texto corrido, sem preservar estrutura (tabelas viram texto solto, listas perdem marcadores, títulos perdem hierarquia). <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span></li>
+      <li><strong>Fichas em tabela</strong> (muito comuns em anamneses escolares) são achatadas em texto corrido — o prompt de extração não tem nenhuma instrução específica para reconstruir pares rótulo/valor de uma tabela.</li>
+      <li><strong>Caixas de texto</strong> dentro do DOCX: <code>extractRawText</code> do mammoth tipicamente ignora conteúdo em text boxes flutuantes — não verificado com um arquivo real, mas é uma limitação conhecida da biblioteca. <span class="badge badge-nver">NÃO FOI POSSÍVEL VERIFICAR</span> sem um arquivo de teste real.</li>
+      <li><strong>.doc antigo:</strong> não suportado — nem pela extensão aceita, nem pelo mammoth (que é feito para OOXML/.docx).</li>
+      <li><strong>DOCX vazio/protegido:</strong> tratado — se o texto extraído for vazio, lança erro amigável explícito ("O arquivo Word não contém texto extraível...", <code>studentDocumentImportService.ts:127-131</code>).</li>
+      <li><strong>Só o nome do arquivo enviado por engano:</strong> não acontece — o texto é sempre extraído antes de qualquer chamada de IA.</li>
+    </ul>
+  </section>
+
+  <!-- ===================== J/K. GATEWAY E PROVIDERS ===================== -->
+  <section class="block">
+    <h2><span class="num">J/K</span>Provider, modelo e integração real com o Gateway</h2>
+    <p><span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span> — este recurso usa exatamente o mesmo caminho que o resto do produto: <code>callAIGateway()</code> → Edge Function <code>ai-gateway/index.ts</code> → <code>_router.ts</code> → <code>_geminiProvider.ts</code>/<code>_openaiProvider.ts</code>. Não existe caminho paralelo, mock ou resposta fixa para esta feature.</p>
+    <ul>
+      <li><strong>Provider ativo hoje:</strong> Gemini (<code>gemini-2.5-flash</code>), por ser o default (<code>_router.ts:46</code>, <code>DEFAULT_MODE = 'gemini'</code>) — OpenAI só entra se <code>AI_OPENAI_ENABLED=true</code> (default <code>false</code>).</li>
+      <li><strong>Fallback entre providers:</strong> existe no código (<code>selectProviderChain</code>), mas só ativa se <code>AI_FALLBACK_ENABLED=true</code> (default <code>false</code>). Hoje, na prática, uma falha do Gemini derruba a importação sem tentar OpenAI. <span class="badge badge-nver">Valor real das env vars em produção não verificado</span> (não há acesso a secrets/produção nesta auditoria).</li>
+      <li><strong>Documentos visuais são suportados pelo Gateway</strong> — <code>task: 'image'</code> e o parâmetro <code>imageBase64</code> chegam corretamente até o provider Gemini (<code>_geminiProvider.ts:42-44</code> repassa <code>input.imageBase64</code>). O problema não é o Gateway — é o valor que chega até ele (Seção H).</li>
+      <li><strong>requestType</strong> correto e específico: <code>document_import</code> (texto) e <code>document_import_visual</code> (visual) — usado para auditoria (<code>_audit.ts</code>) e para custo, mas não para nenhuma lógica especial de roteamento hoje.</li>
+      <li><strong>JSON habilitado:</strong> sim — <code>task: 'json'</code>, e o servidor tenta <code>generationConfig.responseMimeType: 'application/json'</code> primeiro, com fallback para modo texto puro se falhar (<code>_vertex.ts:85-104</code>).</li>
+      <li><strong>Truncamento de prompt no Gateway:</strong> limite de 32.000 caracteres (<code>index.ts:137-139</code>) — não é o gargalo real (o gargalo é o corte de 8.000 caracteres feito antes, no frontend).</li>
+      <li><strong>Mocks/respostas fixas:</strong> nenhum encontrado — <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span>.</li>
+      <li><strong>Chaves/segredos:</strong> lidos via <code>Deno.env.get(...)</code> no servidor, nunca expostos ao browser. Não foi feita nenhuma tentativa de leitura de valores reais de secrets nesta auditoria.</li>
+    </ul>
+  </section>
+
+  <!-- ===================== L. PROMPT ===================== -->
+  <section class="block">
+    <h2><span class="num">L</span>Estrutura atual do prompt de extração (sem alterar)</h2>
+    <p>Há dois prompts distintos, ambos em <code>studentDocumentImportService.ts</code>: um para texto (linhas 140-178) e um para imagem (linhas 461-480). Ambos compartilham a mesma filosofia de "não inventar".</p>
+    <h4>Pontos fortes (confirmados por código)</h4>
+    <ul>
+      <li>Regra explícita e repetida: "NUNCA invente, suponha ou infira informações" — se o dado não está no texto/imagem, omita o campo.</li>
+      <li>Proíbe placeholders como "Não informado"/"N/A" — força omissão real do campo em vez de poluir com string vazia.</li>
+      <li>CID: só extrai se aparecer literalmente um código no padrão (ex.: F84.0) — não deduz a partir de descrição de comportamento.</li>
+      <li>Suporta múltiplos alunos no mesmo documento (array <code>students</code>).</li>
+      <li><code>needsReview</code> por campo de baixa confiança + <code>confidence</code> geral por aluno.</li>
+      <li>No modo visual, instrui explicitamente confiança baixa (≤0.4) para documentos pouco legíveis.</li>
+    </ul>
+    <h4>Pontos fracos identificados</h4>
+    <ul>
+      <li><strong>Sem exigência de evidência/trecho de origem</strong> por campo — o prompt nunca pede ao modelo para citar de onde tirou cada dado, o que impossibilita a revisão "por página" pedida no escopo (Seção O).</li>
+      <li><strong>Sem distinção explícita entre "diagnóstico confirmado" e "hipótese diagnóstica"</strong> — o prompt fala em "diagnósticos literalmente presentes", mas não instrui a preservar qualificadores como "suspeita de" ou "em investigação" como metadado separado.</li>
+      <li><strong>Sem instrução anti-capacitismo/infantilização de linguagem</strong> — não há uma diretriz explícita para o tom da extração (o que é menos crítico aqui, já que o prompt extrai dados, não gera texto longo, mas os campos livres como <code>observations</code>/<code>recommendations</code> reproduzem o texto de origem sem qualquer filtro).</li>
+      <li><strong>Sem instrução para reconhecer documento irrelevante</strong> (ex.: um PDF que não é ficha/laudo/anamnese) — a única defesa é a checagem pós-resposta de que existe pelo menos um <code>name</code> não vazio; um documento genérico contendo qualquer nome próprio pode gerar uma extração espúria de "1 aluno" com poucos campos.</li>
+      <li><strong>Não pede confiança por campo</strong>, só confiança geral por aluno — impossibilita destacar "este campo específico está duvidoso, mas o resto está ok" além do flag binário em <code>needsReview</code>.</li>
+      <li>O prompt de texto corta a entrada em 8.000 caracteres <em>antes</em> de ser montado — para documentos longos, o modelo nunca vê o final do documento.</li>
+    </ul>
+  </section>
+
+  <!-- ===================== M. MODELO DE RESPOSTA ===================== -->
+  <section class="block">
+    <h2><span class="num">M</span>Modelo de resposta e validação</h2>
+    <p>Estrutura de retorno (<code>StudentDocumentDraft</code>, <code>studentDocumentImportService.ts:32-59</code>) cobre bem o essencial: identificação, responsável, diagnóstico/CID/suporte/medicação, perfil pedagógico (habilidades, dificuldades, estratégias, comunicação), contexto (histórico escolar, contexto familiar, observações, recomendações), e metadados de extração (<code>needsReview</code>, <code>confidence</code>).</p>
+    <p><strong>Faltam explicitamente do modelo de resposta</strong> (pedidos no escopo, seção 13, e ausentes do código):</p>
+    <ul>
+      <li>nome social, código do aluno, etapa de ensino, sexo distinto de "gênero", endereço do responsável;</li>
+      <li>profissional responsável pelo documento, data do documento, instituição emissora (campos "declarados no documento" que ajudariam a rastrear a origem);</li>
+      <li>tipo de documento detectado, páginas analisadas, campos não encontrados (hoje só existe o inverso — campos encontrados);</li>
+      <li>trechos de evidência e confiança por campo (mencionado acima);</li>
+      <li>divergências entre fontes (não aplicável hoje pois só 1 documento é processado por vez).</li>
+    </ul>
+    <p><strong>Validação:</strong> é estrutural, não semântica — <code>JSON.parse</code> + checagem de que <code>students</code> é array não vazio + filtro de nomes vazios (<code>studentDocumentImportService.ts:204-210</code>). Não há verificação de que <code>birthDate</code> seja uma data plausível, que <code>cid</code> siga o padrão CID-10, ou que <code>gender</code> seja um dos 3 valores esperados antes de cair no <code>normalizeImportedStudentFromDocument</code> (que aí sim faz o <code>.includes(['M','F','OTHER'])</code>). Não existe biblioteca de schema (Zod/Yup/AJV) usada aqui — <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span>, embora o Gateway tenha uma função <code>validateAndRepair</code> genérica (<code>_aiUtils.ts</code>) usada para <code>task: 'json'</code>/<code>'document'</code> — não é específica ao schema de aluno.</p>
+  </section>
+
+  <!-- ===================== N. MAPEAMENTO PARA O CADASTRO ===================== -->
+  <section class="block">
+    <h2><span class="num">N</span>Campos extraídos vs. campos descartados no mapeamento real</h2>
+    <p><code>databaseService.saveStudent</code> tem uma whitelist explícita de colunas reais da tabela <code>students</code> (<code>REAL_COLUMNS</code>, ~45 colunas) e resolve aliases camelCase/legado de forma consistente e testada. O mapeamento é, de modo geral, <strong>sólido</strong>: <code>abilities→skills</code>, <code>difficulties→student_difficulties</code>, <code>strategies→student_strategies</code>, <code>communication→communication</code>, <code>diagnosis[0]→primary_diagnosis</code>/<code>diagnosis[1:]→secondary_diagnoses</code>, <code>cid→cid_codes</code> (como array).</p>
+    <p class="callout crit"><strong>Lacuna confirmada:</strong> o campo <code>recommendations</code> é extraído pela IA, é mostrado e é editável na tela de revisão ("Recomendações", <code>StudentImportModal.tsx:1438</code>), mas é <strong>silenciosamente descartado</strong> — <code>saveStudentsFromDocx</code> (<code>studentDocumentImportService.ts:346-381</code>) nunca inclui <code>recommendations</code> no objeto passado a <code>saveStudent</code>, e a tabela <code>students</code> nem tem uma coluna equivalente na whitelist. A professora edita um campo que nunca é salvo. <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span></p>
+    <p><strong>Inconsistência secundária (menor):</strong> a whitelist <code>REAL_COLUMNS</code> inclui uma coluna <code>medication</code> dedicada, mas <code>saveStudent</code> nunca a popula — o conteúdo de medicação é sempre gravado em <code>medical_notes</code> (texto livre) via <code>textFromMaybeArray(student?.medication ?? ...)</code>. Se algum outro lugar do sistema ler a coluna <code>medication</code> especificamente, ela ficará sempre vazia para alunos importados por este fluxo. <span class="badge badge-hip">HIPÓTESE</span> quanto a impacto downstream (não foi mapeado todo consumidor de <code>medication</code>).</p>
+    <p><strong>Uso posterior (PEI/PAEE/PDI/Estudo de Caso):</strong> <code>_contextBuilder.ts:36-38</code> busca <code>select('*')</code> da tabela <code>students</code>, portanto tecnicamente os campos salvos por este fluxo <em>estão disponíveis</em> na variável <code>ctx.data.student</code>. Porém, <code>_contextFormatter.ts</code> (responsável por transformar esse contexto em texto de prompt) não faz nenhuma referência direta a <code>ctx.data.student</code> nas buscas realizadas — sugerindo que os campos pedagógicos desse aluno podem estar sendo formatados a partir de uma estrutura diferente (perfis, avaliações) e não diretamente da linha bruta de <code>students</code>. <span class="badge badge-nver">NÃO FOI POSSÍVEL VERIFICAR EM PROFUNDIDADE</span> — rastrear todo o pipeline de PEI/PAEE está fora do escopo direto desta auditoria (o pedido explicitamente pede para não tocar/alterar o IncluiLAB), mas é um ponto de atenção para uma auditoria dedicada se a suspeita se confirmar.</p>
+  </section>
+
+  <!-- ===================== O. REVISÃO HUMANA ===================== -->
+  <section class="block">
+    <h2><span class="num">O</span>Revisão humana — funcional, mas incompleta</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Pergunta do escopo</th><th>Resposta</th></tr>
+      <tr><td>Professora vê todos os campos encontrados?</td><td><span class="badge badge-ok">Sim</span> — formulário completo com 6 seções (Dados Pessoais, Responsável, Escolares, Diagnóstico/Saúde, Perfil Pedagógico, Contexto/Observações)</td></tr>
+      <tr><td>Pode editar antes de salvar?</td><td><span class="badge badge-ok">Sim</span> — todos os campos são <code>&lt;input&gt;</code>/<code>&lt;textarea&gt;</code> editáveis</td></tr>
+      <tr><td>Campos duvidosos recebem destaque?</td><td><span class="badge badge-ok">Sim</span> — borda âmbar + ⚠ nos campos listados em <code>needsReview</code></td></tr>
+      <tr><td>Documento original consultável durante a revisão?</td><td><span class="p1">Não</span> — o arquivo nunca é persistido (nem em Storage, nem em memória após a chamada), então não há como reabrir/comparar</td></tr>
+      <tr><td>Sabe de qual página veio cada informação?</td><td><span class="p1">Não</span> — sem rastreamento de página/trecho de origem</td></tr>
+      <tr><td>Indicação de confiança?</td><td><span class="badge badge-parcial">Parcial</span> — só geral por aluno (<code>ConfidenceBadge</code>), não por campo</td></tr>
+      <tr><td>Confirmação explícita antes de criar/atualizar?</td><td><span class="badge badge-ok">Sim</span> — botão "Confirmar e salvar N aluno(s)", nada é automático</td></tr>
+      <tr><td>Comparação com cadastro já existente?</td><td><span class="badge badge-parcial">Parcial</span> — checagem simples de nome (ver Seção Q), sem comparação campo-a-campo</td></tr>
+      <tr><td>Rejeitar campo individualmente?</td><td><span class="badge badge-parcial">Parcial</span> — pode apagar o valor do campo manualmente, mas não há um botão "descartar este campo"</td></tr>
+      <tr><td>Cancelar sem salvar?</td><td><span class="badge badge-ok">Sim</span> — libera a reserva de crédito corretamente ao cancelar/fechar</td></tr>
+      <tr><td>Cancelar <em>durante</em> o processamento de IA?</td><td><span class="p1">Não</span> — botão de fechar (X) é ocultado enquanto <code>step === 'ai_processing'</code> (<code>StudentImportModal.tsx:700</code>)</td></tr>
+    </table></div>
+    <p><strong>Conclusão:</strong> a revisão é funcional e real (não decorativa) — mas incompleta frente ao pedido de rastreabilidade por página/evidência. Isso é coerente com a ausência dessas informações no próprio JSON que a IA retorna (Seção L/M): não há como a UI mostrar o que o backend nunca recebeu.</p>
+  </section>
+
+  <!-- ===================== P. CRÉDITOS ===================== -->
+  <section class="block">
+    <h2><span class="num">P</span>Cobrança de créditos</h2>
+    <p>O desenho geral é <strong>reserve → provider → validate → commit/release</strong>, com <code>deferCommit: true</code> específico para esta feature: a Edge Function reserva os créditos <em>antes</em> de chamar a IA, mas só confirma o débito depois que o frontend salvar pelo menos 1 aluno no banco. <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span> — este desenho é mais seguro que o padrão do resto do produto.</p>
+    <h4>Confirmado como seguro</h4>
+    <ul>
+      <li>Falha do provider de IA (erro, JSON inválido) → reserva liberada automaticamente pela Edge Function antes mesmo de responder ao cliente (<code>index.ts:314-339</code>).</li>
+      <li>Extração com confiança muito baixa (&lt;0.25 no modo visual) → erro lançado no frontend → <code>runAIProcessing</code> zera a referência da reserva (ela já foi liberada no passo acima, pois a chamada ao Gateway lançou erro antes de retornar) — <span class="badge badge-hip">nuance</span>: na verdade, no caminho de baixa confiança, a chamada ao Gateway <em>teve sucesso</em> (a Edge Function já fez commit/deferiu a reserva) e é o <em>frontend</em> quem decide rejeitar depois, em <code>mapVisualDocumentToStudentPayload</code> (linha 528-532) — isso significa que a reserva já teria sido retornada com <code>reservationId</code>, e como a função lança <code>throw</code> antes de retornar o <code>reservationId</code> ao chamador (<code>runAIProcessing</code>), <code>pendingReservationRef</code> nunca é setada — <strong>a reserva fica pendurada no banco, "reserved", sem ninguém do frontend saber o ID para liberá-la.</strong> <span class="p0">Isso é um vazamento de crédito reservado, não apenas hipotético — é uma consequência direta da ordem do código.</span> <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span></li>
+      <li>Erro ao salvar no banco → reserva liberada explicitamente (<code>handleDocxSave</code>, catch, <code>StudentImportModal.tsx:594-597</code>).</li>
+      <li>0 alunos salvos com sucesso (todos falharam) → reserva liberada (linha 585-586).</li>
+      <li>Fechar o modal pelo X ou trocar de modo → libera a reserva (<code>handleClose</code>, <code>switchMode</code>).</li>
+      <li>Desmontagem do componente (React) → libera a reserva no <code>useEffect</code> de cleanup.</li>
+    </ul>
+    <h4>Risco confirmado — sem rede de segurança para reservas abandonadas</h4>
+    <p class="callout crit">A RPC <code>reserve_credits</code> (migration <code>20260520000002_atomic_credit_transactions.sql</code>) <strong>debita o saldo (<code>balance</code>) imediatamente</strong> ao reservar, não apenas "trava" um valor separado. O <code>deferCommit</code> grava um <code>expires_at</code> de 30 minutos (<code>index.ts:229-231</code>), e existe até um índice dedicado (<code>idx_credit_reservations_expires_at ... WHERE status='reserved'</code>) sugerindo que uma rotina de expiração foi planejada — <strong>mas essa rotina não existe</strong>. Nenhuma <code>pg_cron</code>, função <code>expire_reservations</code>/<code>release_expired</code>, nem Edge Function agendada foi encontrada em todo o diretório <code>supabase/</code>. <span class="badge badge-ok">CONFIRMADO POR CÓDIGO (ausência)</span></p>
+    <p>Consequência: se a professora fechar a aba do navegador (crash, F5 forçado, perda de conexão) depois que a IA processou o documento mas antes de confirmar/cancelar pela UI, o <code>useEffect</code> de cleanup do React <strong>não roda de forma confiável</strong> (fechamento abrupto de aba não garante execução de cleanup assíncrono), e o crédito debitado nunca retorna ao saldo — nem em 30 minutos, nem nunca, pois não há sweep.</p>
+    <h4>Demais pontos confirmados</h4>
+    <ul>
+      <li>Preço da interface bate com o preço real: <code>CREDITS_DOC_TEXT = 3</code>, <code>CREDITS_VISUAL = 5</code>, ambos vindos de <code>src/config/aiCosts.ts</code> — fonte única, sem divergência.</li>
+      <li>Cobrança é por confirmação (salvar), não por upload — correto e conservador.</li>
+      <li>PDF convertido em imagem para tentar "burlar" classificação (ex.: renomear .jpg como .pdf) não é possível reduzir custo: a detecção é por conteúdo real (tenta extrair texto do PDF; se falhar, cobra 5 créditos), não por extensão.</li>
+    </ul>
+  </section>
+
+  <!-- ===================== Q. PRIVACIDADE ===================== -->
+  <section class="block">
+    <h2><span class="num">Q</span>Privacidade e armazenamento</h2>
+    <ul>
+      <li><strong>Arquivo original:</strong> processado 100% no navegador (extração de texto/render de imagem) — <strong>nunca é enviado a nenhum bucket de Storage</strong>. Só o texto extraído ou a imagem em base64 trafega até a Edge Function, e só até o provider de IA. <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span> — bom para privacidade (não há bucket público/assinado para auditar aqui, porque não existe).</li>
+      <li><strong>Logs client-side:</strong> <code>console.info</code>/<code>console.debug</code> registram apenas metadados (tempo em ms, contagem de caracteres, contagem de alunos, quantidade de campos com baixa confiança) — nunca o conteúdo em si (nome, CID, diagnóstico). <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span>, boa prática já seguida no projeto.</li>
+      <li><strong>Auditoria server-side (<code>ai_outputs</code>):</strong> a Edge Function grava até <strong>500 caracteres do JSON de resultado</strong> (que pode conter nome, data de nascimento, CID, diagnóstico, telefone do responsável) na tabela <code>ai_outputs</code> via <code>completeAuditRecord</code> (<code>index.ts:411-419</code>, <code>_audit.ts:93-99</code>). <span class="badge badge-ok">CONFIRMADO POR CÓDIGO</span> — dado sensível de aluno é persistido em uma tabela de auditoria.</li>
+      <li><strong>RLS de <code>ai_outputs</code>:</strong> em <code>schema_additions.sql</code>, a tabela <code>ai_requests</code> tem <code>ENABLE ROW LEVEL SECURITY</code> + política por tenant (linhas 525-528), mas <strong><code>ai_outputs</code> não tem nenhuma linha equivalente</strong> em todo o arquivo. <span class="badge badge-ok">CONFIRMADO POR CÓDIGO (ausência no schema lido)</span>. Se a tabela realmente estiver sem RLS em produção e com grants de leitura para o role <code>authenticated</code>/<code>anon</code> via PostgREST, isso seria uma exposição cross-tenant de dados clínicos — mas <span class="badge badge-nver">a exploração real depende de GRANTs de produção que esta auditoria não tem acesso para verificar</span>. Recomenda-se checar isso com prioridade, mesmo sem tocar em nada agora.</li>
+      <li><strong>Isolamento entre tenants no cadastro do aluno:</strong> <code>saveStudent</code> sempre usa o tenant do usuário autenticado, nunca o tenant do payload recebido (<code>databaseService.ts:568-570</code>) — proteção deliberada contra um aluno de outra escola sobrescrever dados por engano.</li>
+      <li><strong>localStorage:</strong> nenhuma referência a armazenar o arquivo ou o texto extraído em <code>localStorage</code>/<code>sessionStorage</code> foi encontrada nesta feature.</li>
+    </ul>
+  </section>
+
+  <!-- ===================== R. CAUSA DOS RELATOS ===================== -->
+  <section class="block">
+    <h2><span class="num">R</span>Causas prováveis dos relatos das professoras</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Causa</th><th>Confiança</th><th>Evidência</th></tr>
+      <tr><td class="p0">Imagens PNG/WEBP enviadas com MIME errado ao Gemini Vision</td><td><span class="badge badge-ok">Confirmado por código</span></td><td><code>studentDocumentImportService.ts:440-447</code> vs. <code>_vertex.ts:46-51</code> vs. <code>ChecklistUploadModal.tsx:74-81</code> (implementação correta ao lado)</td></tr>
+      <tr><td class="p0">PDF/foto escaneada: só a 1ª página é lida</td><td><span class="badge badge-ok">Confirmado por código</span> (disclosed na UI, mas real)</td><td><code>studentDocumentImportService.ts:426-438</code></td></tr>
+      <tr><td class="p1">Documentos longos cortados em 5 páginas / 8.000 caracteres sem aviso</td><td><span class="badge badge-ok">Confirmado por código</span></td><td><code>studentDocumentImportService.ts:178, 403</code></td></tr>
+      <tr><td class="p1">.doc antigo rejeitado sem explicação clara do porquê</td><td><span class="badge badge-ok">Confirmado por código</span></td><td><code>StudentImportModal.tsx:303, 419</code></td></tr>
+      <tr><td class="p2">PDF com colunas/tabelas embaralha ordem do texto</td><td><span class="badge badge-hip">Hipótese plausível</span></td><td>Comportamento conhecido de <code>pdfjs</code> <code>getTextContent</code> sem agrupamento por posição</td></tr>
+      <tr><td class="p2">Documento com texto manuscrito ou letra difícil</td><td><span class="badge badge-nver">Não verificável sem teste real</span></td><td>Depende da capacidade do Gemini Vision no momento do uso, fora do controle do código</td></tr>
+    </table></div>
+  </section>
+
+  <!-- ===================== S. TESTES ===================== -->
+  <section class="block">
+    <h2><span class="num">S</span>Testes existentes e lacunas</h2>
+    <p>Cobertura desta feature: <span class="badge badge-critico">Inexistente</span>. Nenhum teste unitário, de integração ou E2E cobre <code>StudentImportModal.tsx</code> ou <code>studentDocumentImportService.ts</code>.</p>
+    <p>Testes locais executáveis sem custo/efeito externo <strong>não foram rodados nesta fase</strong> porque não existem testes para rodar nesta feature especificamente (rodar a suíte completa do projeto não estava no escopo do pedido de auditoria somente-leitura, e não alteraria a conclusão). Isso deve ser mencionado como limitação honesta: <span class="badge badge-nver">nenhuma execução de teste local foi feita nesta auditoria</span>, apenas leitura estática de código.</p>
+    <p><strong>Lacunas prioritárias para a Fase 2</strong> (ver plano em fases): teste unitário para <code>fileToBase64</code>/mimeType, teste para o corte de 8.000 caracteres, teste para o vazamento de reserva em baixa confiança (Seção P), teste de mapeamento campo-a-campo <code>StudentDocumentDraft → dbPayload</code> (que teria pego o bug de <code>recommendations</code> imediatamente).</p>
+  </section>
+
+  <!-- ===================== T/U/V. ARQUITETURA E PLANO ===================== -->
+  <section class="block">
+    <h2><span class="num">T</span>Arquitetura recomendada — aproveitando o que já existe</h2>
+    <p>Nenhuma peça estrutural nova é necessária. O Gateway já suporta texto estruturado, imagens, resposta JSON e fallback entre providers. Não é necessário trocar de provider, criar tabela nova, nem introduzir um serviço de OCR externo.</p>
+    <p>A arquitetura-alvo do pedido (classificador → extrator → normalização → IA → validação → revisão → confirmação → persistência → cobrança) <strong>já existe hoje nesta ordem</strong> — o que falta são reforços pontuais dentro de cada etapa, não uma reestruturação:</p>
+    <ol class="plain">
+      <li><strong>Extração de conteúdo:</strong> já separada (pdfjs / mammoth / canvas) — precisa de mais páginas e menos truncamento.</li>
+      <li><strong>Interpretação pedagógica:</strong> já no prompt — precisa de evidência por campo.</li>
+      <li><strong>Validação da resposta:</strong> hoje é estrutural — poderia ganhar validação semântica leve (datas, CID) sem exigir biblioteca nova.</li>
+      <li><strong>Mapeamento:</strong> já sólido — precisa só fechar a lacuna do <code>recommendations</code>.</li>
+      <li><strong>Revisão humana:</strong> já real — precisa de indicação "documento não revisitável" mais clara e cancelamento durante processamento.</li>
+      <li><strong>Confirmação/cobrança:</strong> já segura no caminho feliz — precisa fechar o vazamento de reserva de baixa confiança e considerar um job de expiração (fora do escopo imediato, é mudança de banco).</li>
+    </ol>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">U</span>Plano em fases (proposta — não executar sem autorização)</h2>
+    <div class="table-wrap"><table>
+      <tr><th>Fase</th><th>Objetivo</th><th>Prioridade</th><th>Arquivos afetados</th><th>Risco de regressão</th></tr>
+      <tr><td>0 (esta auditoria)</td><td>Diagnóstico somente leitura</td><td>—</td><td>Nenhum (só este relatório novo)</td><td>Nenhum</td></tr>
+      <tr><td>1</td><td>Corrigir MIME type de imagens (P0) + fechar vazamento de reserva em baixa confiança (P0)</td><td class="p0">P0</td><td><code>studentDocumentImportService.ts</code></td><td>Baixo — mudança isolada, sem tocar Gateway/schema</td></tr>
+      <tr><td>2</td><td>Avisar sobre truncamento (5 páginas / 8.000 chars), mensagem específica para PDF protegido/corrompido, permitir cancelar durante <code>ai_processing</code></td><td class="p1">P1</td><td><code>StudentImportModal.tsx</code>, <code>studentDocumentImportService.ts</code></td><td>Baixo-médio — UI e mensagens, sem tocar backend</td></tr>
+      <tr><td>3</td><td>Fechar a lacuna de <code>recommendations</code> descartado (avaliar se cria coluna nova ou reaproveita <code>observations</code>)</td><td class="p1">P1</td><td><code>studentDocumentImportService.ts</code>, possível migration pequena</td><td>Médio — única fase que pode tocar schema, exige decisão do produto</td></tr>
+      <tr><td>4</td><td>Aumentar cobertura de páginas de PDF/imagem escaneada (mais que 1 página) — decisão de produto sobre custo/latência</td><td class="p1">P1</td><td><code>studentDocumentImportService.ts</code></td><td>Médio — pode mudar custo em créditos, exige decisão explícita</td></tr>
+      <tr><td>5</td><td>Evidência por campo, confiança por campo, testes automatizados dedicados</td><td class="p2">P2</td><td><code>studentDocumentImportService.ts</code>, prompt (com autorização), novos testes</td><td>Baixo — aditivo</td></tr>
+      <tr><td>6</td><td>Rotina de expiração de reservas de crédito abandonadas (cron/RPC)</td><td class="p1">P1</td><td>Nova migration + possível Edge Function agendada</td><td>Médio — mexe em fluxo financeiro, exige teste cuidadoso</td></tr>
+      <tr><td>7</td><td>Verificar/aplicar RLS em <code>ai_outputs</code></td><td class="p0">P0 (verificar), depois corrigir</td><td>Migration de RLS</td><td>Baixo se só adicionar policy restritiva</td></tr>
+    </table></div>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">W</span>Riscos e rollback sugerido</h2>
+    <ul>
+      <li>Todas as fases propostas são aditivas ou de correção pontual — nenhuma remove funcionalidade existente.</li>
+      <li>Fase 1 (MIME type) tem rollback trivial: reverter a função <code>fileToBase64</code> para o estado atual.</li>
+      <li>Fase 3 (schema) é a única que exige uma migration — deve ser aditiva (nova coluna opcional), nunca destrutiva, e reversível com <code>DROP COLUMN</code> se necessário.</li>
+      <li>Fase 6 (cron de expiração) deve ser testada primeiro em modo "dry run" (só reportar reservas expiradas, sem liberar automaticamente) antes de liberar créditos de verdade.</li>
+      <li>Recomenda-se validar cada fase com <code>npx tsc --noEmit</code> e a suíte de testes existente antes de qualquer merge, e criar os testes novos da Fase 5 <em>antes</em> das correções da Fase 1, para que sirvam de prova de regressão.</li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <h2><span class="num">X</span>Melhor primeira sprint para resultado visível rápido</h2>
+    <p>Recomenda-se que a "Fase 1" (correção de MIME type + fechamento do vazamento de reserva) seja a primeira sprint: são os dois problemas de <strong>maior impacto perceptível para as professoras</strong> (imagens que hoje simplesmente "não funcionam" passam a funcionar) e de <strong>maior risco financeiro silencioso</strong> (créditos perdidos sem devolução), ambos com <strong>menor risco técnico de implementação</strong> — são mudanças pequenas, isoladas em um único arquivo de frontend, sem tocar Gateway, banco ou prompts.</p>
+  </section>
+
+  <!-- ===================== CHECKLIST FINAL ===================== -->
+  <section class="block">
+    <h2><span class="num">✓</span>Checklist de encerramento</h2>
+    <div class="table-wrap"><table class="checklist">
+      <tr><td>UPLOAD REALMENTE FUNCIONAL</td><td><span class="badge badge-parcial">PARCIAL</span></td></tr>
+      <tr><td>PDF DIGITAL LIDO CORRETAMENTE</td><td><span class="badge badge-parcial">PARCIAL</span></td></tr>
+      <tr><td>PDF ESCANEADO LIDO CORRETAMENTE</td><td><span class="badge badge-parcial">PARCIAL</span></td></tr>
+      <tr><td>OCR REAL EXISTENTE</td><td><span class="badge badge-critico">NÃO</span> (é leitura visual multimodal via Gemini, não OCR tradicional)</td></tr>
+      <tr><td>IMAGEM ANALISADA POR MODELO VISUAL</td><td><span class="badge badge-parcial">PARCIAL</span> (funciona para JPG; quebrado para PNG/WEBP por bug de MIME)</td></tr>
+      <tr><td>WORD/DOCX INTERPRETADO</td><td><span class="badge badge-parcial">PARCIAL</span> (.docx sim, texto corrido; .doc não suportado)</td></tr>
+      <tr><td>MÚLTIPLAS PÁGINAS ANALISADAS</td><td><span class="badge badge-critico">NÃO</span> na leitura visual (só página 1); <span class="badge badge-parcial">PARCIAL</span> no PDF de texto (até 5 páginas / 8.000 chars)</td></tr>
+      <tr><td>GATEWAY REUTILIZADO CORRETAMENTE</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>RESPOSTA ESTRUTURADA VALIDADA</td><td><span class="badge badge-parcial">PARCIAL</span> (estrutural, não semântica)</td></tr>
+      <tr><td>DADOS MAPEADOS AO CADASTRO</td><td><span class="badge badge-parcial">PARCIAL</span> (sólido, exceto <code>recommendations</code> descartado)</td></tr>
+      <tr><td>REVISÃO HUMANA FUNCIONAL</td><td><span class="badge badge-parcial">PARCIAL</span> (real e editável, mas sem documento original nem evidência por campo)</td></tr>
+      <tr><td>DADOS CLÍNICOS NÃO INVENTADOS</td><td><span class="badge badge-info">SIM no prompt</span> (comportamento real do modelo não testado nesta auditoria)</td></tr>
+      <tr><td>COBRANÇA SEGURA DE CRÉDITOS</td><td><span class="badge badge-parcial">PARCIAL</span> (segura no caminho feliz; vazamento confirmado em baixa confiança e em abandono de aba)</td></tr>
+      <tr><td>DADOS SENSÍVEIS PROTEGIDOS</td><td><span class="badge badge-parcial">PARCIAL</span> (arquivo nunca persistido — bom; <code>ai_outputs</code> sem RLS confirmada no schema — a verificar)</td></tr>
+      <tr><td>CAUSA DOS RELATOS IDENTIFICADA</td><td><span class="badge badge-ok">SIM</span></td></tr>
+      <tr><td>BANCO ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>GATEWAY ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>PROMPTS ALTERADOS</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>CRÉDITOS ALTERADOS</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>CÓDIGO ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>INCLUILAB ALTERADO</td><td><strong>NÃO</strong></td></tr>
+      <tr><td>APTO PARA IMPLEMENTAÇÃO CONTROLADA</td><td><span class="badge badge-ok">SIM</span></td></tr>
+    </table></div>
+  </section>
+
+  <div class="callout ok" style="margin-top: 8px;">
+    <strong>Fim da Fase 1 (auditoria).</strong> Nenhuma alteração foi feita em código, banco, Gateway, prompts ou créditos. Aguardando autorização explícita para iniciar qualquer fase de implementação descrita na Seção U.
+  </div>
+
+</div>
+<div class="footer">IncluiAI · Auditoria técnica somente leitura · Cadastro Inteligente / Importar Aluno por Documento com IA · 25/08/2026</div>
+</body>
+</html>

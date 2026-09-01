@@ -23,6 +23,9 @@ import {
 import { buildCanonicalContext } from './_contextBuilder.ts';
 import { formatContextForPrompt } from './_contextFormatter.ts';
 import { callAIWithRetryAndTimeout, validateAndRepair } from './_aiUtils.ts';
+import { checkResultUsability } from './_usability.ts';
+import { sanitizeStructuredResult, validateStructuredResult } from './_resultValidation.ts';
+import { clampPromptContext, logPromptBudget } from './_promptBudget.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -54,6 +57,25 @@ interface GatewayPayload {
    * A reserva expira em 30 minutos automaticamente.
    */
   deferCommit?: boolean;
+  /**
+   * Quando definido (só válido para task 'json'/'document'), o consumo de
+   * créditos só é confirmado (commit) se a resposta validada contiver um
+   * array não vazio em `arrayField` — e, se `minAverageConfidence` +
+   * `confidenceField` forem informados, também exige que a média desse
+   * campo nos itens do array atinja o limite. Caso contrário, a reserva é
+   * liberada e a chamada é tratada como falha (nenhum crédito consumido).
+   *
+   * Sprint "consumo no momento certo" (26/08/2026): permite reaproveitar o
+   * caminho de commit IMEDIATO já existente para tarefas onde "resposta
+   * tecnicamente válida" não é o mesmo que "resultado utilizável" — sem
+   * precisar de uma segunda chamada do frontend para confirmar/liberar
+   * depois. Não afeta nenhuma chamada que não informe este campo.
+   */
+  usabilityCheck?: {
+    arrayField: string;
+    minAverageConfidence?: number;
+    confidenceField?: string;
+  };
 }
 
 Deno.serve(async (req: Request) => {
@@ -117,6 +139,7 @@ Deno.serve(async (req: Request) => {
     buildContextServer = false,
     targetDocType = '',
     deferCommit = false,
+    usabilityCheck,
   } = body;
 
   if (!task || !['text', 'json', 'image', 'document'].includes(task)) {
@@ -152,6 +175,17 @@ Deno.serve(async (req: Request) => {
   let contextWarnings: string[] = [];
   let missingSources: string[] = [];
 
+  // Orçamento do CONTEXTO montado pelo servidor: o prompt cliente já passou no
+  // limite de 32k, mas o contexto canônico anexado pode empurrá-lo além do que
+  // o provedor aceita. Recorta por seções inteiras, do fim (menor prioridade).
+  // (auditoria 30/08/2026 — M-08)
+  const SERVER_CONTEXT_BUDGET = 15_000;
+  const budgetContext = (formatted: string): string => {
+    const clamped = clampPromptContext(formatted, SERVER_CONTEXT_BUDGET);
+    logPromptBudget(`gateway:${requestType ?? task}`, clamped.metrics);
+    return clamped.text;
+  };
+
   if (task === 'document') {
     if (!studentId) return jsonError('O campo studentId e obrigatorio para task="document"', 400);
     try {
@@ -160,7 +194,7 @@ Deno.serve(async (req: Request) => {
       missingSources = ctx.missingOptionalSources;
 
       const formatted = formatContextForPrompt(ctx.data, targetDocType || documentType || '');
-      finalPrompt = formatted ? `${prompt}${formatted}` : prompt;
+      finalPrompt = formatted ? `${prompt}${budgetContext(formatted)}` : prompt;
     } catch (e: any) {
       console.error('[ai-gateway] Erro ao construir contexto (document):', e.message);
       const isCritical = String((e as Error).message || '').includes('CRITICAL');
@@ -175,12 +209,21 @@ Deno.serve(async (req: Request) => {
       missingSources = ctx.missingOptionalSources;
       const formatted = formatContextForPrompt(ctx.data, targetDocType);
       if (formatted) {
-        finalPrompt = `${prompt}${formatted}`;
+        finalPrompt = `${prompt}${budgetContext(formatted)}`;
       }
     } catch (e: any) {
       console.warn('[ai-gateway] buildContextServer falhou (usando prompt original):', e.message);
       contextWarnings.push(`Contexto do servidor indisponivel: ${e.message}`);
     }
+  }
+
+  // Salvaguarda final: se ainda assim o prompt final exceder o limite rígido,
+  // recorta o CONTEXTO (nunca a instrução, que fica no início). Isso não deve
+  // acontecer depois do orçamento acima — é rede de segurança.
+  if (finalPrompt.length > 32_000 && finalPrompt.length > prompt.length) {
+    const extra = clampPromptContext(finalPrompt.slice(prompt.length), Math.max(0, 31_000 - prompt.length));
+    finalPrompt = prompt + extra.text;
+    logPromptBudget(`gateway:hardcap:${requestType ?? task}`, extra.metrics);
   }
 
   let reservationId: string | null = null;
@@ -251,7 +294,36 @@ Deno.serve(async (req: Request) => {
 
     if (task === 'json' || task === 'document') {
       parsedDocument = await validateAndRepair(result);
+
+      // Saneamento determinístico (auditoria 30/08/2026): remove itens/blocos
+      // compostos apenas de texto-molde ("[Nome do jogo]", "[descrição
+      // específica]"). Só REMOVE conteúdo claramente-placeholder — nunca
+      // inventa nem reescreve. requestType fora de {plano_acao, plano_acao_aee,
+      // perfil_inteligente} passa inalterado.
+      parsedDocument = sanitizeStructuredResult(parsedDocument, requestType);
       result = JSON.stringify(parsedDocument);
+
+      // Gate de "resultado utilizável" — ver GatewayPayload.usabilityCheck e
+      // _usability.ts (função pura, testada isoladamente). Lança dentro deste
+      // mesmo try/catch de propósito: reaproveita 100% do fluxo de liberação
+      // de reserva + auditoria + resposta de erro já existente logo abaixo.
+      const usability = checkResultUsability(parsedDocument, usabilityCheck);
+      if (!usability.usable) {
+        throw new Error(`UNUSABLE_RESULT: ${usability.reason ?? 'unknown'}`);
+      }
+
+      // Validação estrutural específica por requestType, ANTES do commit do
+      // crédito. JSON válido ≠ resultado utilizável: blocos obrigatórios vazios,
+      // placeholders remanescentes em campo obrigatório, resposta truncada ou
+      // estrutura de outro tipo de documento falham aqui e liberam a reserva.
+      // Aplicada só aos 3 requestType da auditoria; todo o resto passa livre.
+      const structural = validateStructuredResult(parsedDocument, requestType, result.length);
+      if (!structural.usable) {
+        throw new Error(
+          `UNUSABLE_RESULT: ${structural.reason ?? 'STRUCTURE'}` +
+          (structural.detail ? ` [${structural.detail}]` : ''),
+        );
+      }
     }
   } catch (e: unknown) {
     providerError = (e instanceof Error ? e.message : String(e)) || 'PROVIDER_ERROR';
@@ -417,5 +489,6 @@ function friendlyError(raw: string): string {
     return 'Tempo de resposta da IA excedido. Tente novamente.';
   }
   if (raw.includes('VALIDATION_ERROR')) return 'A IA gerou um documento com formato invalido. Tente novamente.';
+  if (raw.includes('UNUSABLE_RESULT')) return 'Nao foi possivel identificar dados utilizaveis no documento. Nenhum credito foi consumido.';
   return 'Ocorreu um erro ao processar sua solicitacao. Tente novamente.';
 }

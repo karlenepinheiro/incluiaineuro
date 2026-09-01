@@ -88,6 +88,20 @@ export interface IntelligentProfileRecord {
   updated_at: string;
 }
 
+/**
+ * Próximo número de versão para um Perfil Inteligente.
+ * Deve ser `max(version_number existente) + 1` — NUNCA `(versão selecionada) + 1`.
+ * Regenerar a partir de uma versão antiga não pode gravar um número já usado
+ * nem "furar" a sequência. (auditoria 30/08/2026 — M-06)
+ *
+ * `versions` deve conter apenas registros do MESMO aluno (as queries do
+ * service já filtram por `student_id`; o `tenant_id` vai no insert).
+ */
+export function nextProfileVersion(versions: Array<{ version_number?: number | null }>): number {
+  const max = (versions ?? []).reduce((m, v) => Math.max(m, Number(v?.version_number) || 0), 0);
+  return max + 1;
+}
+
 export const IntelligentProfileService = {
   async getVersions(studentId: string): Promise<IntelligentProfileRecord[]> {
     const { data, error } = await supabase
