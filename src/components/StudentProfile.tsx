@@ -217,96 +217,131 @@ const UniqueCodeBadge: React.FC<{ code?: string | null }> = ({ code }) => {
   );
 };
 
-// ── AnalysisCards: exibe resultado da análise IA em cards estruturados ────────
+// ── AnalysisCards: resultado da análise IA em accordion compacto ────────────────
 const AnalysisCards: React.FC<{
   synthesis?: string | null;
   pedagogicalPoints?: string[] | null;
   suggestions?: string[] | null;
   impacts?: string[] | null;
   alerts?: string[] | null;
-}> = ({ synthesis, pedagogicalPoints, suggestions, impacts, alerts }) => (
-  <div className="rounded-xl overflow-hidden border border-purple-100 bg-purple-50/40">
-    {/* Header */}
-    <div className="flex items-center gap-2 px-3 py-2 bg-purple-100/60 border-b border-purple-100">
-      <Brain size={13} className="text-purple-600 shrink-0"/>
-      <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700">Análise IA do documento</span>
+}> = ({ synthesis, pedagogicalPoints, suggestions, impacts, alerts }) => {
+  const [isOpen, setIsOpen] = React.useState(false);
+
+  const pedagogicalCount = Array.isArray(pedagogicalPoints) ? pedagogicalPoints.length : 0;
+  const suggestionsCount = Array.isArray(suggestions) ? suggestions.length : 0;
+  const impactsCount = Array.isArray(impacts) ? impacts.length : 0;
+  const alertsCount = Array.isArray(alerts) ? alerts.length : 0;
+
+  return (
+    <div className="rounded-xl overflow-hidden border border-purple-100 bg-purple-50/40">
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        aria-expanded={isOpen}
+        className="w-full flex items-center justify-between gap-3 px-3 py-2 bg-purple-100/60 hover:bg-purple-100/80 transition-colors text-left"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <Brain size={13} className="text-purple-600 shrink-0"/>
+          <div className="min-w-0">
+            <span className="block text-[10px] font-bold uppercase tracking-wider text-purple-700">
+              Análise IA disponível
+            </span>
+            <span className="block text-[10px] text-purple-600/80 truncate">
+              Síntese, pontos pedagógicos e recomendações
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {!isOpen && (
+            <span className="hidden sm:inline text-[10px] text-purple-600/80">
+              {[
+                pedagogicalCount ? `${pedagogicalCount} pontos` : '',
+                suggestionsCount ? `${suggestionsCount} recomendações` : '',
+                impactsCount ? `${impactsCount} impactos` : '',
+                alertsCount ? `${alertsCount} alertas` : '',
+              ].filter(Boolean).slice(0, 2).join(' · ')}
+            </span>
+          )}
+          <span className="text-[11px] font-semibold text-purple-700">
+            {isOpen ? 'Recolher ▲' : 'Ver análise ▼'}
+          </span>
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="grid sm:grid-cols-2 gap-0 divide-y sm:divide-y-0 sm:divide-x divide-purple-100 border-t border-purple-100">
+          {synthesis && (
+            <div className="p-3 sm:col-span-2 border-b border-purple-100">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-purple-600 mb-1">Síntese da IA</p>
+              <p className="text-xs text-gray-700 leading-relaxed">{synthesis}</p>
+            </div>
+          )}
+
+          {Array.isArray(pedagogicalPoints) && pedagogicalPoints.length > 0 && (
+            <div className="p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600 mb-1.5 flex items-center gap-1">
+                <BookOpen size={10}/> Pontos pedagógicos
+              </p>
+              <ul className="space-y-1">
+                {pedagogicalPoints.slice(0, 4).map((p, i) => (
+                  <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                    <span className="text-blue-400 mt-0.5 shrink-0">•</span>{p}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {Array.isArray(impacts) && impacts.length > 0 && (
+            <div className="p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-orange-600 mb-1.5 flex items-center gap-1">
+                <TrendingUp size={10}/> Impactos pedagógicos
+              </p>
+              <ul className="space-y-1">
+                {impacts.slice(0, 4).map((p, i) => (
+                  <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                    <span className="text-orange-400 mt-0.5 shrink-0">•</span>{p}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {Array.isArray(suggestions) && suggestions.length > 0 && (
+            <div className="p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-green-600 mb-1.5 flex items-center gap-1">
+                <CheckCircle size={10}/> Recomendações
+              </p>
+              <ul className="space-y-1">
+                {suggestions.slice(0, 4).map((s, i) => (
+                  <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                    <span className="text-green-500 mt-0.5 shrink-0">•</span>{s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {Array.isArray(alerts) && alerts.length > 0 && (
+            <div className="p-3 sm:col-span-2 border-t border-purple-100 bg-amber-50/60">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1.5 flex items-center gap-1">
+                <AlertCircle size={10}/> Alertas / Observações
+              </p>
+              <ul className="space-y-1">
+                {alerts.map((a, i) => (
+                  <li key={i} className="text-xs text-amber-800 flex items-start gap-1.5">
+                    <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>{a}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
-    <div className="grid sm:grid-cols-2 gap-0 divide-y sm:divide-y-0 sm:divide-x divide-purple-100">
-
-      {/* Síntese */}
-      {synthesis && (
-        <div className="p-3 sm:col-span-2 border-b border-purple-100">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-purple-600 mb-1">Síntese da IA</p>
-          <p className="text-xs text-gray-700 leading-relaxed">{synthesis}</p>
-        </div>
-      )}
-
-      {/* Pontos pedagógicos */}
-      {Array.isArray(pedagogicalPoints) && pedagogicalPoints.length > 0 && (
-        <div className="p-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-blue-600 mb-1.5 flex items-center gap-1">
-            <BookOpen size={10}/> Pontos pedagógicos
-          </p>
-          <ul className="space-y-1">
-            {pedagogicalPoints.slice(0, 4).map((p, i) => (
-              <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
-                <span className="text-blue-400 mt-0.5 shrink-0">•</span>{p}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Impactos pedagógicos */}
-      {Array.isArray(impacts) && impacts.length > 0 && (
-        <div className="p-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-orange-600 mb-1.5 flex items-center gap-1">
-            <TrendingUp size={10}/> Impactos pedagógicos
-          </p>
-          <ul className="space-y-1">
-            {impacts.slice(0, 4).map((p, i) => (
-              <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
-                <span className="text-orange-400 mt-0.5 shrink-0">•</span>{p}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Recomendações */}
-      {Array.isArray(suggestions) && suggestions.length > 0 && (
-        <div className="p-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-green-600 mb-1.5 flex items-center gap-1">
-            <CheckCircle size={10}/> Recomendações
-          </p>
-          <ul className="space-y-1">
-            {suggestions.slice(0, 4).map((s, i) => (
-              <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
-                <span className="text-green-500 mt-0.5 shrink-0">•</span>{s}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Alertas */}
-      {Array.isArray(alerts) && alerts.length > 0 && (
-        <div className="p-3 sm:col-span-2 border-t border-purple-100 bg-amber-50/60">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1.5 flex items-center gap-1">
-            <AlertCircle size={10}/> Alertas / Observações
-          </p>
-          <ul className="space-y-1">
-            {alerts.map((a, i) => (
-              <li key={i} className="text-xs text-amber-800 flex items-start gap-1.5">
-                <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>{a}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  </div>
-);
+  );
+};
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 interface StudentProfileProps {

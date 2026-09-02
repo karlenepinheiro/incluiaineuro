@@ -1,0 +1,917 @@
+{
+  "updater": "001",
+  "mode": "diagnostic_only",
+  "timestamp": "20260901-155336",
+  "root": "C:\\Users\\karle\\Downloads\\INCLUIAI_2_0_OFICIAL",
+  "branch": "release/fases-1-2-3",
+  "git_status_short": "?? atualizar_incluiai_001.py",
+  "patterns": [
+    "ANÁLISE IA DO DOCUMENTO",
+    "Análise IA do Documento",
+    "Análise IA",
+    "PONTOS PEDAGÓGICOS",
+    "Pontos Pedagógicos",
+    "RECOMENDAÇÕES",
+    "Recomendações",
+    "Analisar com IA"
+  ],
+  "match_count": 90,
+  "matches": [
+    {
+      "file": "src/components/ChecklistCuidadoraForm.tsx",
+      "line": 463,
+      "text": "6. Recomendações para próxima semana",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "0ae19766e9feadd4e97b0723d326e16142c4014a258655233673414b6d7e7e76"
+    },
+    {
+      "file": "src/components/ChecklistRegenteForm.tsx",
+      "line": 175,
+      "text": "label: '8. Recomendações Imediatas',",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "b1467b7006db846eb36a4698375f47038f1d0c8877e72fc44826eba65d18b476"
+    },
+    {
+      "file": "src/components/ChecklistRegenteForm.tsx",
+      "line": 429,
+      "text": "5. Recomendações práticas para sala",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "b1467b7006db846eb36a4698375f47038f1d0c8877e72fc44826eba65d18b476"
+    },
+    {
+      "file": "src/components/ChecklistUploadModal.tsx",
+      "line": 119,
+      "text": "9. Não gere parecer pedagógico, recomendações clínicas ou explicações; retorne apenas JSON extrativo.",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "e207498ac72b5e257e869f84947c951e75cc72311a9096b06071212368509e3e"
+    },
+    {
+      "file": "src/components/ChecklistUploadModal.tsx",
+      "line": 182,
+      "text": "10. Não gere parecer pedagógico, recomendações clínicas ou explicações; retorne apenas JSON extrativo.",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "e207498ac72b5e257e869f84947c951e75cc72311a9096b06071212368509e3e"
+    },
+    {
+      "file": "src/components/ChecklistUploadModal.tsx",
+      "line": 315,
+      "text": "// ── Análise IA ───────────────────────────────────────────────────────────────",
+      "patterns": [
+        "Análise IA"
+      ],
+      "sha256": "e207498ac72b5e257e869f84947c951e75cc72311a9096b06071212368509e3e"
+    },
+    {
+      "file": "src/components/ChecklistUploadModal.tsx",
+      "line": 715,
+      "text": "Analisar com IA",
+      "patterns": [
+        "Analisar com IA"
+      ],
+      "sha256": "e207498ac72b5e257e869f84947c951e75cc72311a9096b06071212368509e3e"
+    },
+    {
+      "file": "src/components/DocumentBuilder.tsx",
+      "line": 476,
+      "text": "estudo_de_caso: 'Identificação, Motivo do Encaminhamento, Histórico Escolar, Avaliação Multidisciplinar, Diagnóstico Funcional, Intervenções Realizadas, Análise e Conclusões, Recomendações',",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "eab4c9ec09e6216724beb91e3c41cbd416604405ba52ffd1511576f4d4be605a"
+    },
+    {
+      "file": "src/components/DocumentBuilder.tsx",
+      "line": 884,
+      "text": "extra.push('Pontos pedagógicos:');",
+      "patterns": [
+        "PONTOS PEDAGÓGICOS",
+        "Pontos Pedagógicos"
+      ],
+      "sha256": "eab4c9ec09e6216724beb91e3c41cbd416604405ba52ffd1511576f4d4be605a"
+    },
+    {
+      "file": "src/components/QuickDocModal.tsx",
+      "line": 243,
+      "text": "<Field label=\"Recomendações Finais\">",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "8bd0f9d435772093cd0472fbc9112bbd8380253be834fe8e7727db3967920d5f"
+    },
+    {
+      "file": "src/components/RelatorioPreview.tsx",
+      "line": 300,
+      "text": "label=\"Recomendações\"",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "76bdaf323b1388eda57c4c172ec1a0144d7dbcc4447e3f39eb3bf5642df28328"
+    },
+    {
+      "file": "src/components/RelatorioPreview.tsx",
+      "line": 363,
+      "text": "label=\"Recomendações Pedagógicas\"",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "76bdaf323b1388eda57c4c172ec1a0144d7dbcc4447e3f39eb3bf5642df28328"
+    },
+    {
+      "file": "src/components/RelatorioPreview.tsx",
+      "line": 368,
+      "text": "label=\"Recomendações Clínicas\"",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "76bdaf323b1388eda57c4c172ec1a0144d7dbcc4447e3f39eb3bf5642df28328"
+    },
+    {
+      "file": "src/components/RelatorioPreview.tsx",
+      "line": 373,
+      "text": "label=\"Recomendações para a Família\"",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "76bdaf323b1388eda57c4c172ec1a0144d7dbcc4447e3f39eb3bf5642df28328"
+    },
+    {
+      "file": "src/components/RelatorioPreview.tsx",
+      "line": 378,
+      "text": "label=\"Recomendações Institucionais\"",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "76bdaf323b1388eda57c4c172ec1a0144d7dbcc4447e3f39eb3bf5642df28328"
+    },
+    {
+      "file": "src/components/RelatorioViewer.tsx",
+      "line": 274,
+      "text": "// ─── Recomendações multidisciplinares ─────────────────────────────────────────",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "e7a0435f65dcd95faa9edabfd85793fa72a57af3f4e0c855a9d10dbc9b4d4978"
+    },
+    {
+      "file": "src/components/RelatorioViewer.tsx",
+      "line": 648,
+      "text": "{/* Recomendações */}",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "e7a0435f65dcd95faa9edabfd85793fa72a57af3f4e0c855a9d10dbc9b4d4978"
+    },
+    {
+      "file": "src/components/RelatorioViewer.tsx",
+      "line": 654,
+      "text": "Recomendações Multidisciplinares",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "e7a0435f65dcd95faa9edabfd85793fa72a57af3f4e0c855a9d10dbc9b4d4978"
+    },
+    {
+      "file": "src/components/RelatorioViewer.tsx",
+      "line": 666,
+      "text": "<DocumentCard title=\"Recomendações\" icon={<HeartHandshake size={14} />} accentColor={colors.blue}>",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "e7a0435f65dcd95faa9edabfd85793fa72a57af3f4e0c855a9d10dbc9b4d4978"
+    },
+    {
+      "file": "src/components/StudentImportModal.tsx",
+      "line": 1606,
+      "text": "<Field label=\"Recomendações\" value={draft.recommendations} onChange={v => update('recommendations', v)} multiline flagged={isFlag('recommendations')} />",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "ba1a5f7e568a69b36e907cd08823f3c47558978e0e5cba19496116aeb5de5bb9"
+    },
+    {
+      "file": "src/components/StudentProfile.tsx",
+      "line": 220,
+      "text": "// ── AnalysisCards: exibe resultado da análise IA em cards estruturados ────────",
+      "patterns": [
+        "Análise IA"
+      ],
+      "sha256": "54ca56feeac6c91b4efa9048fbd24f3b34231c8f4ea72f89111974f4ec5e5e76"
+    },
+    {
+      "file": "src/components/StudentProfile.tsx",
+      "line": 232,
+      "text": "<span className=\"text-[10px] font-bold uppercase tracking-wider text-purple-700\">Análise IA do documento</span>",
+      "patterns": [
+        "ANÁLISE IA DO DOCUMENTO",
+        "Análise IA do Documento",
+        "Análise IA"
+      ],
+      "sha256": "54ca56feeac6c91b4efa9048fbd24f3b34231c8f4ea72f89111974f4ec5e5e76"
+    },
+    {
+      "file": "src/components/StudentProfile.tsx",
+      "line": 244,
+      "text": "{/* Pontos pedagógicos */}",
+      "patterns": [
+        "PONTOS PEDAGÓGICOS",
+        "Pontos Pedagógicos"
+      ],
+      "sha256": "54ca56feeac6c91b4efa9048fbd24f3b34231c8f4ea72f89111974f4ec5e5e76"
+    },
+    {
+      "file": "src/components/StudentProfile.tsx",
+      "line": 248,
+      "text": "<BookOpen size={10}/> Pontos pedagógicos",
+      "patterns": [
+        "PONTOS PEDAGÓGICOS",
+        "Pontos Pedagógicos"
+      ],
+      "sha256": "54ca56feeac6c91b4efa9048fbd24f3b34231c8f4ea72f89111974f4ec5e5e76"
+    },
+    {
+      "file": "src/components/StudentProfile.tsx",
+      "line": 276,
+      "text": "{/* Recomendações */}",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "54ca56feeac6c91b4efa9048fbd24f3b34231c8f4ea72f89111974f4ec5e5e76"
+    },
+    {
+      "file": "src/components/StudentProfile.tsx",
+      "line": 280,
+      "text": "<CheckCircle size={10}/> Recomendações",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "54ca56feeac6c91b4efa9048fbd24f3b34231c8f4ea72f89111974f4ec5e5e76"
+    },
+    {
+      "file": "src/components/StudentProfile.tsx",
+      "line": 922,
+      "text": "{ id: 'perfil_inteligente', sub: 'Análise IA personalizada' },",
+      "patterns": [
+        "Análise IA"
+      ],
+      "sha256": "54ca56feeac6c91b4efa9048fbd24f3b34231c8f4ea72f89111974f4ec5e5e76"
+    },
+    {
+      "file": "src/components/StudentProfile.tsx",
+      "line": 2173,
+      "text": ": <><FileSearch size={12}/><Sparkles size={11}/> Analisar com IA <span style={{ fontWeight: 700, opacity: 0.8 }}>· 2 créd.</span></>}",
+      "patterns": [
+        "Analisar com IA"
+      ],
+      "sha256": "54ca56feeac6c91b4efa9048fbd24f3b34231c8f4ea72f89111974f4ec5e5e76"
+    },
+    {
+      "file": "src/views/FichasComplementaresView.tsx",
+      "line": 761,
+      "text": "? 'Relatório técnico completo com análise pedagógica e recomendações.'",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "ed01630c9218c7affadac49bc0327f170e1cb66322236b8ec5e4398f299cb734"
+    },
+    {
+      "file": "src/views/FichasComplementaresView.tsx",
+      "line": 2048,
+      "text": "{/* Recomendações finais — áudio + chips */}",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "ed01630c9218c7affadac49bc0327f170e1cb66322236b8ec5e4398f299cb734"
+    },
+    {
+      "file": "src/views/FichasComplementaresView.tsx",
+      "line": 2051,
+      "text": "label=\"Recomendações Finais\"",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "ed01630c9218c7affadac49bc0327f170e1cb66322236b8ec5e4398f299cb734"
+    },
+    {
+      "file": "src/views/FichasComplementaresView.tsx",
+      "line": 2054,
+      "text": "placeholder=\"Encaminhamentos e recomendações para continuidade...\"",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "ed01630c9218c7affadac49bc0327f170e1cb66322236b8ec5e4398f299cb734"
+    },
+    {
+      "file": "src/views/FichasHistoricosView.tsx",
+      "line": 115,
+      "text": "descricao: 'Documento detalhado cobrindo todas as dimensões do perfil cognitivo, histórico de atendimentos, evolução por critério e recomendações para o próximo ciclo.',",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "84858a7a3eb4647584706313797a8105c506497352bf85a9d79ff09ee97eb9f9"
+    },
+    {
+      "file": "src/views/ReportsView.tsx",
+      "line": 395,
+      "text": "O parecer deve ter 4–6 parágrafos cobrindo: perfil geral, pontos fortes, áreas de atenção por critério, estratégias eficazes e recomendações pedagógicas.",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "47950c1f2200c02db617d49f8aa4f3f2816995bcd93b3cc2bcb794ff9368c2b9"
+    },
+    {
+      "file": "src/views/SchoolReportView.tsx",
+      "line": 103,
+      "text": "<h3 className=\"font-bold text-base border-b border-gray-300 mb-2 uppercase\">3. Recomendações para a Escola</h3>",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "ed416c57c8044a7fde1b927e43a36581ba13f375aa536f543c41d9eeaa0c6396"
+    },
+    {
+      "file": "src/components/ativaIA/WorkflowCanvas.tsx",
+      "line": 1151,
+      "text": "initialPrompt: 'Com base no documento analisado, elabore um RELATÓRIO PEDAGÓGICO ESTRUTURADO contendo:\\n\\n1. Síntese do documento\\n2. Pontos pedagógicos relevantes\\n3. Necessidades identificadas\\n4. Recomendações de intervenção\\n5. Estratégias pedagógicas sugeridas\\n6. Próximos passos\\n\\nUse linguagem técnica pedagógica formal em português brasileiro.',",
+      "patterns": [
+        "PONTOS PEDAGÓGICOS",
+        "Pontos Pedagógicos",
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "d439426abd95ec95f843fb5383194d06b27a0a7736a2eec9eb25d488622f774e"
+    },
+    {
+      "file": "src/components/docs/DocComponents.tsx",
+      "line": 542,
+      "text": "// Lista de itens com chevron (estratégias, recomendações, metas)",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "e44d66ffa61ed8acaf279512dd6ac303ba761ac555fb84ac4056cc336bd60097"
+    },
+    {
+      "file": "src/components/fichas/ChecklistExportRow.tsx",
+      "line": 28,
+      "text": "recomendacoesImediatas: 'Recomendações Imediatas',",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "aac5c8d929d6789ec149a2471fd457e8abb40e3e98bbad2d845228d0980a45e5"
+    },
+    {
+      "file": "src/services/aiService.ts",
+      "line": 1855,
+      "text": "INSTRUÇÃO SOBRE CONTEÚDO DO ARQUIVO: Se o texto do arquivo não foi extraído ou está vazio, NÃO afirme tê-lo lido. Indique no campo \"resumo\" que o conteúdo não estava acessível e baseie os achados nos metadados disponíveis. Foco pedagógico: barreiras, potencialidades, recomendações escolares — nunca diagnósticos clínicos não fornecidos.",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "77eaa9bd52cdebc31761998d43286659985d66001f0ec6bf6268c26fe45bd947"
+    },
+    {
+      "file": "src/services/aiService.ts",
+      "line": 1857,
+      "text": "Retorne JSON com: resumo, achados (pedagógicos), recomendações (escolares), sinais de alerta (educacionais), sugestões de adaptações.`;",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "77eaa9bd52cdebc31761998d43286659985d66001f0ec6bf6268c26fe45bd947"
+    },
+    {
+      "file": "src/services/blankPDFService.ts",
+      "line": 644,
+      "text": "// RECOMENDAÇÕES IMEDIATAS",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "331e33e089804c604eec4448c955fb3f63ddb04648bb005985a4a530e1678e87"
+    },
+    {
+      "file": "src/services/blankPDFService.ts",
+      "line": 646,
+      "text": "y = drawSection(doc, 'RECOMENDAÇÕES IMEDIATAS', y);",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "331e33e089804c604eec4448c955fb3f63ddb04648bb005985a4a530e1678e87"
+    },
+    {
+      "file": "src/services/blankPDFService.ts",
+      "line": 1087,
+      "text": "y = drawTextArea(doc, 'Recomendações clínicas relevantes:', y, 2);",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "331e33e089804c604eec4448c955fb3f63ddb04648bb005985a4a530e1678e87"
+    },
+    {
+      "file": "src/services/canonicalStudentContext.ts",
+      "line": 131,
+      "text": "recommendations: string[];   // recomendações do profissional",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "35facc9059d7e93cdd1324caf955fcc90a65fefef02c353c9ef860a17a3adfc8"
+    },
+    {
+      "file": "src/services/canonicalStudentContext.ts",
+      "line": 825,
+      "text": "// Sinal 3: pontos pedagógicos dos laudos",
+      "patterns": [
+        "PONTOS PEDAGÓGICOS",
+        "Pontos Pedagógicos"
+      ],
+      "sha256": "35facc9059d7e93cdd1324caf955fcc90a65fefef02c353c9ef860a17a3adfc8"
+    },
+    {
+      "file": "src/services/canonicalStudentContext.ts",
+      "line": 1220,
+      "text": "lines.push('\\nRecomendações pedagógicas / Próximos passos:');",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "35facc9059d7e93cdd1324caf955fcc90a65fefef02c353c9ef860a17a3adfc8"
+    },
+    {
+      "file": "src/services/canonicalStudentContext.ts",
+      "line": 1628,
+      "text": "lines.push('  Pontos pedagógicos:');",
+      "patterns": [
+        "PONTOS PEDAGÓGICOS",
+        "Pontos Pedagógicos"
+      ],
+      "sha256": "35facc9059d7e93cdd1324caf955fcc90a65fefef02c353c9ef860a17a3adfc8"
+    },
+    {
+      "file": "src/services/canonicalStudentContext.ts",
+      "line": 1694,
+      "text": "lines.push(`  Recomendações: ${ev.recommendations.join(' | ')}`);",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "35facc9059d7e93cdd1324caf955fcc90a65fefef02c353c9ef860a17a3adfc8"
+    },
+    {
+      "file": "src/services/checklistSheetService.ts",
+      "line": 80,
+      "text": "// M — Recomendações Imediatas",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "f3fdbea6d1a73bb071fff2b5343453d1dba14e446399676212dd270e583eaa66"
+    },
+    {
+      "file": "src/services/checklistSheetService.ts",
+      "line": 207,
+      "text": "{ prefix: 'M',  label: 'M — RECOMENDAÇÕES IMEDIATAS',     emoji: '📋', codes: ['M1','M2','M3','M4','M5','M6','M7','M8','M9'] },",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "f3fdbea6d1a73bb071fff2b5343453d1dba14e446399676212dd270e583eaa66"
+    },
+    {
+      "file": "src/services/checklistSheetService.ts",
+      "line": 321,
+      "text": "11. Não gere parecer pedagógico, recomendações clínicas ou explicações; retorne apenas JSON extrativo.",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "f3fdbea6d1a73bb071fff2b5343453d1dba14e446399676212dd270e583eaa66"
+    },
+    {
+      "file": "src/services/exportService.ts",
+      "line": 702,
+      "text": "/** Caixa de destaque âmbar — recomendações e encaminhamentos. */",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "19cd5791c06529b6a2816beb791bbf332ef9da84106470a21fa262f76733ce7a"
+    },
+    {
+      "file": "src/services/exportService.ts",
+      "line": 1431,
+      "text": "y = pf_sectionTitle(doc, 'V', 'Observações e Recomendações', FL, y);",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "19cd5791c06529b6a2816beb791bbf332ef9da84106470a21fa262f76733ce7a"
+    },
+    {
+      "file": "src/services/exportService.ts",
+      "line": 1434,
+      "text": "{ title: 'Recomendações Pedagógicas', text: pf_val(recomendacoes,         'Não informado') },",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "19cd5791c06529b6a2816beb791bbf332ef9da84106470a21fa262f76733ce7a"
+    },
+    {
+      "file": "src/services/exportService.ts",
+      "line": 2437,
+      "text": "// Recomendações",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "19cd5791c06529b6a2816beb791bbf332ef9da84106470a21fa262f76733ce7a"
+    },
+    {
+      "file": "src/services/exportService.ts",
+      "line": 2440,
+      "text": "{ title: 'Recomendações Pedagógicas',    items: (data as any).recomendacoesPedagogicas },",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "19cd5791c06529b6a2816beb791bbf332ef9da84106470a21fa262f76733ce7a"
+    },
+    {
+      "file": "src/services/exportService.ts",
+      "line": 2441,
+      "text": "{ title: 'Recomendações Clínicas',        items: (data as any).recomendacoesClinicas },",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "19cd5791c06529b6a2816beb791bbf332ef9da84106470a21fa262f76733ce7a"
+    },
+    {
+      "file": "src/services/exportService.ts",
+      "line": 2442,
+      "text": "{ title: 'Recomendações Familiares',      items: (data as any).recomendacoesFamiliares },",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "19cd5791c06529b6a2816beb791bbf332ef9da84106470a21fa262f76733ce7a"
+    },
+    {
+      "file": "src/services/exportService.ts",
+      "line": 2443,
+      "text": "{ title: 'Recomendações Institucionais',  items: (data as any).recomendacoesInstitucionais },",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "19cd5791c06529b6a2816beb791bbf332ef9da84106470a21fa262f76733ce7a"
+    },
+    {
+      "file": "src/services/exportService.ts",
+      "line": 2446,
+      "text": "addSection('Recomendações Multidisciplinares');",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "19cd5791c06529b6a2816beb791bbf332ef9da84106470a21fa262f76733ce7a"
+    },
+    {
+      "file": "src/services/exportService.ts",
+      "line": 2457,
+      "text": "addSection('Recomendações');",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "19cd5791c06529b6a2816beb791bbf332ef9da84106470a21fa262f76733ce7a"
+    },
+    {
+      "file": "src/services/PDFGenerator.ts",
+      "line": 1791,
+      "text": "// Uso: orientações críticas, recomendações de alta prioridade",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "851e781f2cca979b983368bc113af319d1baa2930933ac120bbb9e26817bd4be"
+    },
+    {
+      "file": "src/services/PDFGenerator.ts",
+      "line": 6025,
+      "text": "// IV. Recomendações Finais",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "851e781f2cca979b983368bc113af319d1baa2930933ac120bbb9e26817bd4be"
+    },
+    {
+      "file": "src/services/PDFGenerator.ts",
+      "line": 6027,
+      "text": "y = sectionBanner(doc, 'IV. Recomendações Finais', ML, y, maxW);",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "851e781f2cca979b983368bc113af319d1baa2930933ac120bbb9e26817bd4be"
+    },
+    {
+      "file": "src/services/PDFGenerator.ts",
+      "line": 6028,
+      "text": "y = renderHighlight(doc, 'Recomendações para Continuidade do Processo', filledData.recomendacoes, ML, y, maxW, newPage);",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "851e781f2cca979b983368bc113af319d1baa2930933ac120bbb9e26817bd4be"
+    },
+    {
+      "file": "src/services/persistenceService.ts",
+      "line": 262,
+      "text": "// LAUDOS / ANÁLISE IA — medical_reports",
+      "patterns": [
+        "Análise IA"
+      ],
+      "sha256": "f73a0996ba14ce7ad390ce183068cfd88c1304aaff86fbc3c708c49628eac998"
+    },
+    {
+      "file": "src/services/reportService.ts",
+      "line": 512,
+      "text": "* - Modo completo: resumo executivo, análise pedagógica, checklist visual, gráficos, recomendações multidisciplinares",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "ef1448622839a28fad934451bde3f9ebf05079917d35199bb06f7134030a45b0"
+    },
+    {
+      "file": "src/services/studentContextService.ts",
+      "line": 224,
+      "text": "lines.push('  Pontos pedagógicos:');",
+      "patterns": [
+        "PONTOS PEDAGÓGICOS",
+        "Pontos Pedagógicos"
+      ],
+      "sha256": "9495bf3f9e5ce37e94b29504a07c64fbb3c03e454a962c4bcad60c54f76ed42f"
+    },
+    {
+      "file": "src/services/studentDocumentImportService.ts",
+      "line": 440,
+      "text": "* \"Recomendações\" não tem coluna própria no cadastro (achado da auditoria de",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "f448c2556d4ec117f564721552b1e472f8b2f3a24a41e2e8b25661be4c398e59"
+    },
+    {
+      "file": "src/services/studentDocumentImportService.ts",
+      "line": 452,
+      "text": "if (recommendations.trim()) parts.push(`Recomendações do documento: ${recommendations.trim()}`);",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "f448c2556d4ec117f564721552b1e472f8b2f3a24a41e2e8b25661be4c398e59"
+    },
+    {
+      "file": "src/services/templateService.ts",
+      "line": 455,
+      "text": "* Fluxo completo: upload → análise IA → injeção de tags → salvar.",
+      "patterns": [
+        "Análise IA"
+      ],
+      "sha256": "59bc2fd2635ea5d585b0d30e5917d304e5b1b712a6dbab323c535ce35607dfae"
+    },
+    {
+      "file": "src/services/documentModel/quickDoc.ts",
+      "line": 83,
+      "text": "section('Recomendações Finais', [",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "b976de503e50f395eb1704e0ef88464646135adbda98ebe6099c0afe9681c883"
+    },
+    {
+      "file": "src/services/documentModel/relatorioTecnico.ts",
+      "line": 142,
+      "text": "? section('Recomendações Multidisciplinares', [",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "4f05b360c7236b3208e86d4031e211d3019e3d1484121eb9fe01a1b5f559859f"
+    },
+    {
+      "file": "src/services/documentModel/relatorioTecnico.ts",
+      "line": 143,
+      "text": "listField('rec_ped', 'Recomendações Pedagógicas', completo.recomendacoesPedagogicas),",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "4f05b360c7236b3208e86d4031e211d3019e3d1484121eb9fe01a1b5f559859f"
+    },
+    {
+      "file": "src/services/documentModel/relatorioTecnico.ts",
+      "line": 144,
+      "text": "listField('rec_cli', 'Recomendações Clínicas', completo.recomendacoesClinicas),",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "4f05b360c7236b3208e86d4031e211d3019e3d1484121eb9fe01a1b5f559859f"
+    },
+    {
+      "file": "src/services/documentModel/relatorioTecnico.ts",
+      "line": 145,
+      "text": "listField('rec_fam', 'Recomendações Familiares', completo.recomendacoesFamiliares),",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "4f05b360c7236b3208e86d4031e211d3019e3d1484121eb9fe01a1b5f559859f"
+    },
+    {
+      "file": "src/services/documentModel/relatorioTecnico.ts",
+      "line": 146,
+      "text": "listField('rec_ins', 'Recomendações Institucionais', completo.recomendacoesInstitucionais),",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "4f05b360c7236b3208e86d4031e211d3019e3d1484121eb9fe01a1b5f559859f"
+    },
+    {
+      "file": "src/services/documentModel/relatorioTecnico.ts",
+      "line": 148,
+      "text": ": section('Recomendações', [",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "4f05b360c7236b3208e86d4031e211d3019e3d1484121eb9fe01a1b5f559859f"
+    },
+    {
+      "file": "src/services/documentModel/studentProfile.ts",
+      "line": 90,
+      "text": "proseField('pp', 'Recomendações', s.recomendacoes ?? s.recommendations, { optional: true }),",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "805a6daffa1b2d2cf0bfa20bc877e02bb6aa89c1d74e5ddd27b61508c7b8adac"
+    },
+    {
+      "file": "src/services/__tests__/genericWordExport.test.ts",
+      "line": 90,
+      "text": "const idxRecs = xml.indexOf('Recomendações Multidisciplinares');",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "05ce2a1fc1380ea9705422c5df7b4ddac01daaab009a2de723b63ddc1c4251fd"
+    },
+    {
+      "file": "src/services/__tests__/studentDocumentImportService.test.ts",
+      "line": 210,
+      "text": "it('junta os dois campos quando ambos existem, rotulando a origem das recomendações', () => {",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "9d815293cc9c2eb67d5c6582f0f58d893675c6ba679a55e1d8a9987957933675"
+    },
+    {
+      "file": "src/services/__tests__/studentDocumentImportService.test.ts",
+      "line": 213,
+      "text": "expect(merged).toContain('Recomendações do documento: Sentar próximo à lousa.');",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "9d815293cc9c2eb67d5c6582f0f58d893675c6ba679a55e1d8a9987957933675"
+    },
+    {
+      "file": "src/services/__tests__/studentDocumentImportService.test.ts",
+      "line": 216,
+      "text": "it('retorna só observações quando não há recomendações', () => {",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "9d815293cc9c2eb67d5c6582f0f58d893675c6ba679a55e1d8a9987957933675"
+    },
+    {
+      "file": "src/services/__tests__/studentDocumentImportService.test.ts",
+      "line": 220,
+      "text": "it('retorna só recomendações (rotuladas) quando não há observações', () => {",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "9d815293cc9c2eb67d5c6582f0f58d893675c6ba679a55e1d8a9987957933675"
+    },
+    {
+      "file": "src/services/__tests__/studentDocumentImportService.test.ts",
+      "line": 222,
+      "text": ".toBe('Recomendações do documento: Sentar próximo à lousa.');",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "9d815293cc9c2eb67d5c6582f0f58d893675c6ba679a55e1d8a9987957933675"
+    },
+    {
+      "file": "src/services/__tests__/studentDocumentImportService.test.ts",
+      "line": 476,
+      "text": "it('mescla \"Recomendações\" dentro de \"observations\" — não descarta mais silenciosamente', async () => {",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "9d815293cc9c2eb67d5c6582f0f58d893675c6ba679a55e1d8a9987957933675"
+    },
+    {
+      "file": "src/services/__tests__/studentDocumentImportService.test.ts",
+      "line": 485,
+      "text": "expect(payload.observations).toContain('Recomendações do documento: Sentar próximo à lousa.');",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "9d815293cc9c2eb67d5c6582f0f58d893675c6ba679a55e1d8a9987957933675"
+    },
+    {
+      "file": "src/services/documentModel/__tests__/adapters.test.ts",
+      "line": 35,
+      "text": "'Recomendações',",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "55aad2cf2c99208063429c247620524c51fa4131da5b9d1a2dfc5b9a427c46c2"
+    },
+    {
+      "file": "src/services/documentModel/__tests__/adapters.test.ts",
+      "line": 49,
+      "text": "it('modo COMPLETO: inclui resumo, perfil cognitivo, checklist (tabela) e recomendações multidisciplinares', () => {",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "55aad2cf2c99208063429c247620524c51fa4131da5b9d1a2dfc5b9a427c46c2"
+    },
+    {
+      "file": "src/services/documentModel/__tests__/adapters.test.ts",
+      "line": 82,
+      "text": "'Recomendações Multidisciplinares',",
+      "patterns": [
+        "RECOMENDAÇÕES",
+        "Recomendações"
+      ],
+      "sha256": "55aad2cf2c99208063429c247620524c51fa4131da5b9d1a2dfc5b9a427c46c2"
+    }
+  ]
+}
