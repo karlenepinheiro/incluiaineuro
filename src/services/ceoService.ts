@@ -55,6 +55,10 @@ export interface CeoCreditDashboard {
   refunds_total: number;
   failed_operations: number;
   suspicious_retries: number;
+  /** FASE 0 / C-2 — presentes após a migration 20260907000001. */
+  open_reservations_amount: number;
+  stale_reservations: number;
+  stale_reservations_amount: number;
 }
 
 export type CeoHealthSourceStatus = 'available' | 'unavailable';
@@ -491,6 +495,9 @@ export async function getCeoCreditDashboard(): Promise<CeoCreditDashboard> {
     refunds_total: Number((data as any)?.refunds_total ?? 0),
     failed_operations: Number((data as any)?.failed_operations ?? 0),
     suspicious_retries: Number((data as any)?.suspicious_retries ?? 0),
+    open_reservations_amount: Number((data as any)?.open_reservations_amount ?? 0),
+    stale_reservations: Number((data as any)?.stale_reservations ?? 0),
+    stale_reservations_amount: Number((data as any)?.stale_reservations_amount ?? 0),
   };
 }
 
@@ -1122,6 +1129,30 @@ export async function getCeoCreditCommandCenter(): Promise<CeoCreditCommandCente
   const consumedToday = ledgerTodayRows ? creditConsumption(ledgerTodayRows) : null;
   const consumedMonth = ledgerMonthRows ? creditConsumption(ledgerMonthRows) : null;
 
+  // FASE 0 / C-2 — reservas TÉCNICAS abertas x vencidas (não é validade comercial).
+  // Critério de "vencida" idêntico ao sweeper expire_stale_credit_reservations():
+  //   expires_at <= now()  OU  (expires_at NULL e criada há > 30 min).
+  const STALE_NULL_GRACE_MS = 30 * 60 * 1000;
+  let openReservationsCount: number | null = reservationRows ? 0 : null;
+  let openReservationsAmount: number | null = reservationRows ? 0 : null;
+  let staleReservationsCount: number | null = reservationRows ? 0 : null;
+  let staleReservationsAmount: number | null = reservationRows ? 0 : null;
+  for (const row of reservationRows ?? []) {
+    if (String(row.status ?? 'reserved') !== 'reserved') continue;
+    const amount = Number(row.amount ?? 0);
+    openReservationsCount = (openReservationsCount ?? 0) + 1;
+    openReservationsAmount = (openReservationsAmount ?? 0) + amount;
+    const expiresMs = row.expires_at ? new Date(row.expires_at as string).getTime() : null;
+    const createdMs = row.created_at ? new Date(row.created_at as string).getTime() : now;
+    const isStale = expiresMs !== null
+      ? expiresMs <= now
+      : now - createdMs >= STALE_NULL_GRACE_MS;
+    if (isStale) {
+      staleReservationsCount = (staleReservationsCount ?? 0) + 1;
+      staleReservationsAmount = (staleReservationsAmount ?? 0) + amount;
+    }
+  }
+
   const cards: CeoCreditCommandCard[] = [
     {
       key: 'wallet_total',
@@ -1150,9 +1181,25 @@ export async function getCeoCreditCommandCenter(): Promise<CeoCreditCommandCente
     {
       key: 'open_reservations',
       title: 'Reservas abertas',
-      value: dashboard?.pending_reservations ?? (reservationRows ? reservationRows.length : null),
-      status: reservationRows === null && !dashboard ? 'unmonitored' : (reservationRows?.length ?? dashboard?.pending_reservations ?? 0) > 0 ? 'attention' : 'ok',
-      subtext: 'status reserved',
+      value: openReservationsCount ?? dashboard?.pending_reservations ?? null,
+      status: reservationRows === null && !dashboard ? 'unmonitored' : (openReservationsCount ?? dashboard?.pending_reservations ?? 0) > 0 ? 'attention' : 'ok',
+      subtext: `status reserved · ${(openReservationsAmount ?? dashboard?.open_reservations_amount ?? 0).toLocaleString('pt-BR')} cr. reservados`,
+      source: 'v_credit_reservations',
+    },
+    {
+      key: 'stale_reservations',
+      title: 'Reservas técnicas vencidas',
+      value: staleReservationsCount ?? dashboard?.stale_reservations ?? null,
+      status: reservationRows === null && !dashboard ? 'unmonitored' : (staleReservationsCount ?? dashboard?.stale_reservations ?? 0) > 0 ? 'attention' : 'ok',
+      subtext: 'expiradas ou expires_at NULL > 30 min — sweeper pendente',
+      source: 'v_credit_reservations',
+    },
+    {
+      key: 'stale_reservations_amount',
+      title: 'Créditos presos em reservas vencidas',
+      value: staleReservationsAmount ?? dashboard?.stale_reservations_amount ?? null,
+      status: reservationRows === null && !dashboard ? 'unmonitored' : (staleReservationsAmount ?? dashboard?.stale_reservations_amount ?? 0) > 0 ? 'attention' : 'ok',
+      subtext: 'soma dos amounts a recuperar via expire_stale_credit_reservations()',
       source: 'v_credit_reservations',
     },
     {

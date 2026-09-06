@@ -283,10 +283,14 @@ Deno.serve(async (req: Request) => {
         description: `IA: ${requestType ?? task}`,
         requestType,
         task,
-        // Quando deferCommit, a reserva expira em 30 min caso o frontend não confirme/libere
-        expiresAt: deferCommit
-          ? new Date(Date.now() + 30 * 60 * 1000).toISOString()
-          : null,
+        // Validade TÉCNICA da reserva temporária da operação de IA — NÃO é validade
+        // comercial de crédito. Toda reserva nasce com este carimbo preenchido para que
+        // o sweeper (expire_stale_credit_reservations) recupere o crédito caso a Edge
+        // Function seja interrompida ou o frontend feche a aba. Nunca enviar null aqui.
+        // deferCommit aguarda confirmação do frontend → 30 min; demais fluxos → 20 min.
+        expiresAt: new Date(
+          Date.now() + (deferCommit ? 30 : 20) * 60 * 1000,
+        ).toISOString(),
         metadata: {
           audit_id: auditId,
           student_id: studentId ?? null,

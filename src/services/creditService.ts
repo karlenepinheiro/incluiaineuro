@@ -8,6 +8,15 @@ import type { CreditLedgerEntry, CreditLedgerType, AdminGrant, AdminGrantType } 
 
 type GrantLedgerType = 'monthly_grant' | 'manual_grant' | 'purchase_extra' | 'courtesy';
 
+/**
+ * Validade TÉCNICA padrão de uma reserva de crédito (RESERVE -> COMMIT/RELEASE).
+ * NÃO confundir com validade comercial de créditos. Este prazo existe apenas para
+ * que uma reserva abandonada (aba fechada, processo interrompido) possa ser
+ * recuperada pelo sweeper `expire_stale_credit_reservations()`. Toda reserva nova
+ * precisa nascer com `expires_at` preenchido — nunca NULL.
+ */
+const DEFAULT_RESERVATION_TTL_MS = 20 * 60 * 1000;
+
 export type CreditRpcResult = {
   ok: boolean;
   reason?: string;
@@ -133,7 +142,9 @@ export const CreditTransactionService = {
       p_tenant_id: params.tenantId,
       p_user_id: params.userId ?? null,
       p_metadata: params.metadata ?? {},
-      p_expires_at: params.expiresAt ?? null,
+      // Nunca NULL: um fluxo com duração legítima diferente deve passar expiresAt explícito.
+      p_expires_at:
+        params.expiresAt ?? new Date(Date.now() + DEFAULT_RESERVATION_TTL_MS).toISOString(),
       p_source: params.source ?? 'frontend_credit_service',
     });
   },
