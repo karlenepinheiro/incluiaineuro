@@ -109,7 +109,12 @@ export function friendlyAIError(e: unknown): string {
     return raw.replace('DATA_ERROR:', '').trim();
   if (raw.includes('Failed to fetch') || raw.includes('NetworkError') || (e as any)?.name === 'TypeError' || raw.includes('Sem conexão'))
     return 'Falha de conexão com o serviço de IA. Verifique sua internet e tente novamente.';
-  if (raw.includes('quota') || raw.includes('429') || raw.includes('rate limit'))
+  // Consistência com o Gateway (correção A-1, 06/09/2026): "len=429" /
+  // "position 4291" / "position 403" são offsets de parse, não status HTTP —
+  // não podem disparar a mensagem de limite de uso. Mesmo guarda do
+  // friendlyError do ai-gateway; nenhuma mensagem e nenhum ramo novo.
+  const looksLikeParseOffset = /\blen\s*=\s*\d+|position\s+\d+/i.test(raw);
+  if (!looksLikeParseOffset && (raw.includes('quota') || raw.includes('429') || raw.includes('rate limit')))
     return 'Limite de uso da IA atingido. Aguarde alguns instantes e tente novamente.';
   if (raw.includes('Tempo de resposta') || raw.includes('AbortError') || raw.includes('TIMEOUT'))
     return 'A IA demorou demais para responder. Tente novamente.';

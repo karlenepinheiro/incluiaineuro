@@ -124,13 +124,20 @@ describe('I/J · fluxo de créditos NÃO foi tocado — uma importação é UMA 
 });
 
 describe('Fora de escopo C-1 — NÃO reintroduzido', () => {
-  it('friendlyError permanece byte-a-byte (o bug do includes("429") NÃO foi corrigido agora)', () => {
-    expect(indexTs).toContain(
-      "if (raw.includes('429') || raw.includes('QUOTA')) return 'Limite de uso da IA atingido. Aguarde alguns instantes.';",
-    );
-    // nenhuma mensagem nova de erro de provider foi adicionada
-    expect(indexTs).not.toContain('OPENAI_RATE_LIMIT');
-    expect(indexTs).not.toContain('RESOURCE_EXHAUSTED');
+  it('friendlyError: nenhum código de erro de provider novo (OpenAI/router); RESOURCE_EXHAUSTED segue sem tratamento', () => {
+    // A-1 (06/09/2026) moveu friendlyError para _friendlyError.ts e reordenou
+    // as regras — ver aiGatewayFriendlyError.test.ts. Aqui só garantimos que
+    // NADA fora de A-1 foi introduzido junto.
+    const friendly = read('supabase/functions/ai-gateway/_friendlyError.ts');
+    expect(friendly).not.toContain('OPENAI_RATE_LIMIT');
+    expect(friendly).not.toContain('OPENAI_');
+    expect(friendly).not.toMatch(/if \(raw\.includes\('RESOURCE_EXHAUSTED'\)\)/);
+    // as 5 mensagens de erro existentes seguem palavra-por-palavra
+    expect(friendly).toContain("'Limite de uso da IA atingido. Aguarde alguns instantes.'");
+    expect(friendly).toContain("'Sem permissao para acessar o modelo de IA. Verifique a service account.'");
+    expect(friendly).toContain("'Tempo de resposta da IA excedido. Tente novamente.'");
+    expect(friendly).toContain("'A IA gerou um documento com formato invalido. Tente novamente.'");
+    expect(friendly).toContain("'Nao foi possivel identificar dados utilizaveis no documento. Nenhum credito foi consumido.'");
   });
 
   it('retry continua desabilitado (retries = 0) — não foi alterado', () => {

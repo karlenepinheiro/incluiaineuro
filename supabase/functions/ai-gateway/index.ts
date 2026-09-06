@@ -32,6 +32,7 @@ import {
   validateGatewayPageNumbers,
   friendlyPageNumbersValidationError,
 } from './_imagesValidation.ts';
+import { friendlyError } from './_friendlyError.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -526,17 +527,4 @@ function jsonError(message: string, status: number): Response {
     status,
     headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
   });
-}
-
-function friendlyError(raw: string): string {
-  if (raw.includes('CONFIG_GEMINI')) return 'Servico de texto IA nao configurado. Contate o suporte.';
-  if (raw.includes('CONFIG_VERTEX_IMAGE')) return 'Servico de imagem IA nao configurado. Contate o suporte.';
-  if (raw.includes('429') || raw.includes('QUOTA')) return 'Limite de uso da IA atingido. Aguarde alguns instantes.';
-  if (raw.includes('403')) return 'Sem permissao para acessar o modelo de IA. Verifique a service account.';
-  if (raw.includes('AbortError') || raw.includes('aborted') || raw.includes('TIMEOUT_EXCEEDED')) {
-    return 'Tempo de resposta da IA excedido. Tente novamente.';
-  }
-  if (raw.includes('VALIDATION_ERROR')) return 'A IA gerou um documento com formato invalido. Tente novamente.';
-  if (raw.includes('UNUSABLE_RESULT')) return 'Nao foi possivel identificar dados utilizaveis no documento. Nenhum credito foi consumido.';
-  return 'Ocorreu um erro ao processar sua solicitacao. Tente novamente.';
 }
