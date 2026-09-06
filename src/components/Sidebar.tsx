@@ -27,10 +27,13 @@ import {
 } from 'lucide-react';
 import { BrandLogo, BRAND } from './BrandLogo';
 
-import { User, PlanTier } from '../types';
+import { User, getPlanLimits, PlanTier } from '../types';
 import { waUrl } from '../config/contact';
 import { cn } from '@/src/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/src/components/ui/tooltip';
+import { Badge } from '@/src/components/ui/badge';
+import { Progress } from '@/src/components/ui/progress';
+import { CreditBalanceBadge } from './CreditBalanceBadge';
 
 /** Preferência de sidebar recolhida (somente desktop) — persistida localmente no navegador. */
 const SIDEBAR_COLLAPSE_KEY = 'incluiai_sidebar_collapsed';
@@ -60,12 +63,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpen,
   onCloseMobile,
   onLogout,
+  studentCount,
+  planMaxStudents,
   triagemCount = 0,
   unreadMessages = 0,
+  creditsAvailable = 0,
 }) => {
   const isPremium = user.plan === PlanTier.PREMIUM;
   const isPro     = user.plan === PlanTier.PRO;
   const isPaid    = isPro || isPremium; // PRO ou PREMIUM — qualquer plano pago
+
+  // [Restauração visual val_*.png] Cabeçalho de plano/créditos + barra de vagas —
+  // apenas apresentação. Os números vêm das MESMAS props que o App.tsx já fornece
+  // (studentCount, planMaxStudents, creditsAvailable); nenhuma regra de crédito ou
+  // de plano é calculada aqui.
+  const planLimits   = getPlanLimits(user.plan);
+  const maxStudents  =
+    typeof planMaxStudents === 'number' && planMaxStudents > 0
+      ? planMaxStudents
+      : ((planLimits as any)?.students ?? 0);
+  const safeMaxStudents = typeof maxStudents === 'number' && maxStudents > 0 ? maxStudents : 0;
+  const studentCountSafe = Number.isFinite(studentCount as number) ? Number(studentCount) : 0;
+  const studentUsagePct = safeMaxStudents > 0 ? Math.min(100, (studentCountSafe / safeMaxStudents) * 100) : 0;
 
   // Recolher/expandir é um recurso exclusivo de desktop (>=1024px), controlado
   // inteiramente dentro deste componente e persistido em localStorage.
@@ -363,6 +382,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
+        {/* [Restauração visual val_*.png] Cabeçalho: Plano + saldo de créditos + uso de vagas.
+            Puramente visual — sem lógica de negócio. Oculto quando a sidebar está
+            recolhida (desktop) e para administradores (que têm o bloco Painel CEO abaixo). */}
+        {!user.isAdmin && !collapsed && (
+          <div className="px-4 py-4 bg-bg-app border-b border-border shrink-0">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Plano</span>
+              <Badge variant="outline" className="text-[10px] font-bold px-1.5 py-0 border-petrol/30 text-petrol">
+                {planLabel}
+              </Badge>
+            </div>
+            <div className="mb-3">
+              <CreditBalanceBadge
+                balance={creditsAvailable}
+                compact
+                onClick={() => { setView('subscription'); closeDrawerIfMobile(); }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[10px] font-semibold text-gray-500 mb-1.5">
+              <span>Alunos</span>
+              <span>{studentCountSafe} / {safeMaxStudents}</span>
+            </div>
+            <Progress value={studentUsagePct} className="h-1.5" />
+          </div>
+        )}
+
         {/* Painel CEO (somente admin) */}
         {user.isAdmin && (
           <div
@@ -441,6 +486,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* Conta */}
               <SectionLabel>Conta</SectionLabel>
               <NavItem viewId="subscription" icon={CreditCard}     label="Assinatura & Créditos" iconColor="#1F4E5F" />
+              {/* [Restauração visual val_*.png] "Configurações" volta a ser item de
+                  navegação nesta seção (como no visual aprovado) — deixou de ficar
+                  isolado no rodapé fixo. Mesma rota/permissão de antes. */}
+              <NavItem viewId="settings"     icon={Settings}       label="Configurações" iconColor="#64748B" />
               <NavItem viewId="help_center"  icon={LifeBuoy}       label="Central de Ajuda" iconColor="#25D366" />
               <NavItem
                 viewId="messages"
@@ -479,20 +528,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* Rodapé fixo — apenas Configurações e Sair da Conta */}
-        <div className={cn('border-t border-border bg-bg-app shrink-0 space-y-1', collapsed ? 'p-2' : 'p-3')}>
-          <NavItem viewId="settings" icon={Settings} label="Configurações" iconColor="#64748B" />
+        {/* Rodapé fixo — [Restauração visual val_*.png] identidade do usuário + "Sair da Conta".
+            Apenas apresentação: `onLogout` continua sendo o handler atual do App
+            (signOut do Supabase / limpeza de sessão intactos). O bloco de perfil é
+            ocultado quando a sidebar está recolhida no desktop. */}
+        <div className={cn('border-t border-border bg-bg-app shrink-0', collapsed ? 'p-2 space-y-1' : 'p-4')}>
+          {!collapsed && (
+            <div className="flex items-center gap-3 mb-3">
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0 overflow-hidden"
+                style={{ background: 'linear-gradient(135deg, #1F4E5F, #2E3A59)' }}
+              >
+                {(user as any).profilePhoto ? (
+                  <img src={(user as any).profilePhoto} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  (user.name || 'U').substring(0, 2).toUpperCase()
+                )}
+              </div>
+              <div className="overflow-hidden flex-1">
+                <p className="text-sm font-bold text-gray-900 truncate">{user.name || 'Usuário'}</p>
+                <p className="text-xs text-gray-500 truncate">{user.isAdmin ? 'Super Admin' : planLabel}</p>
+              </div>
+            </div>
+          )}
           {withTooltip(
             <button
               onClick={onLogout}
+              aria-label="Sair da conta"
               className={cn(
-                'w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-semibold border transition-all duration-150',
-                'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 hover:border-red-300 hover:text-red-700',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50',
+                'w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                'text-red-500 hover:bg-red-50 hover:text-red-600',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/40',
                 collapsed && 'px-0'
               )}
             >
-              <LogOut size={16} className="shrink-0" />
+              <LogOut size={15} className="shrink-0" />
               {!collapsed && <span className="whitespace-nowrap">Sair da Conta</span>}
             </button>,
             'Sair da conta'
