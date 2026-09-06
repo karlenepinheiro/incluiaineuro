@@ -26,6 +26,12 @@ import { callAIWithRetryAndTimeout, validateAndRepair } from './_aiUtils.ts';
 import { checkResultUsability } from './_usability.ts';
 import { sanitizeStructuredResult, validateStructuredResult } from './_resultValidation.ts';
 import { clampPromptContext, logPromptBudget } from './_promptBudget.ts';
+import {
+  validateGatewayImages,
+  friendlyImagesValidationError,
+  validateGatewayPageNumbers,
+  friendlyPageNumbersValidationError,
+} from './_imagesValidation.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -76,6 +82,22 @@ interface GatewayPayload {
     minAverageConfidence?: number;
     confidenceField?: string;
   };
+  /**
+   * Leitura multipágina (extensão ADITIVA e retrocompatível de `imageBase64`,
+   * restaurada em 06/09/2026 — regressão C-1): várias páginas do MESMO
+   * documento (data URLs, em ordem) enviadas numa ÚNICA chamada multimodal.
+   * Validado por `validateGatewayImages` ANTES de qualquer reserva de crédito.
+   * Ausente ⇒ nenhuma chamada existente muda de comportamento. Continua sendo
+   * UMA operação: um operationId, uma reserva, uma análise, um commit — nunca
+   * reserva por página.
+   */
+  images?: unknown;
+  /**
+   * Números de página REAIS (1-indexado, mesmo tamanho de `images`) — evita
+   * que o rótulo enviado ao modelo renumere por posição páginas do meio
+   * descartadas (ex.: em branco). Ver _multiPageParts.ts.
+   */
+  pageNumbers?: unknown;
 }
 
 Deno.serve(async (req: Request) => {
@@ -140,6 +162,8 @@ Deno.serve(async (req: Request) => {
     targetDocType = '',
     deferCommit = false,
     usabilityCheck,
+    images: rawImages,
+    pageNumbers: rawPageNumbers,
   } = body;
 
   if (!task || !['text', 'json', 'image', 'document'].includes(task)) {
@@ -151,6 +175,27 @@ Deno.serve(async (req: Request) => {
   if (prompt.length > 32_000) {
     return jsonError('Prompt excede o limite de 32.000 caracteres', 400);
   }
+
+  // Leitura multipágina (regressão C-1): valida o campo opcional `images`
+  // ANTES de qualquer reserva de crédito ou chamada ao provider — payload
+  // inválido/acima do limite falha cedo e sem custo. Campo ausente
+  // (`rawImages === undefined`) é o caso normal de toda chamada que só usa
+  // `imageBase64`: `images` fica undefined e nada muda.
+  const imagesValidation = validateGatewayImages(rawImages);
+  if (!imagesValidation.ok) {
+    return jsonError(friendlyImagesValidationError(imagesValidation.reason!), 400);
+  }
+  const images = imagesValidation.images;
+
+  // Correção de numeração: valida `pageNumbers` — só faz sentido junto de
+  // `images`; sem `images`, qualquer `pageNumbers` enviado é ignorado.
+  const pageNumbersValidation = images
+    ? validateGatewayPageNumbers(rawPageNumbers, images.length)
+    : { ok: true as const, pageNumbers: undefined };
+  if (!pageNumbersValidation.ok) {
+    return jsonError(friendlyPageNumbersValidationError(pageNumbersValidation.reason!), 400);
+  }
+  const pageNumbers = pageNumbersValidation.pageNumbers;
 
   const cost = Number(creditsRequired) || 0;
   const baseOperationId = operationId?.trim() || crypto.randomUUID();
@@ -285,7 +330,10 @@ Deno.serve(async (req: Request) => {
       }
       const img = typeof imageBase64 === 'string' && imageBase64.length > 0 ? imageBase64 : undefined;
       if (task === 'json' || task === 'document') {
-        return await generateGeminiJSON(finalPrompt.trim(), img);
+        // Leitura multipágina: `images` (já validado acima) tem precedência
+        // sobre `imageBase64` — ver _vertex.ts/_multiPageParts.ts. Continua
+        // sendo UMA chamada ao provider, um resultado, um commit.
+        return await generateGeminiJSON(finalPrompt.trim(), img, images, pageNumbers);
       }
       return await generateGeminiText(finalPrompt.trim(), img);
     };
