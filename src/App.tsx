@@ -50,6 +50,7 @@ import {
   formatPlanDisplayName,
   formatStudentLimit,
   resolvePlanTier,
+  CURRENT_LGPD_TERMS_VERSION,
 } from './types';
 import { ShieldCheck, Menu, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import { ReferralService } from './services/referralService';
@@ -736,8 +737,10 @@ const App: React.FC = () => {
 
   // ── Helper: carrega dados do usuário após autenticação ─────────────────────
   const _loadAfterAuth = async (profile: User) => {
-    const lgpdAlreadyAccepted = localStorage.getItem('incluiai_lgpd_accepted') === 'true';
-    const needsLGPD = !lgpdAlreadyAccepted && !profile.lgpdConsent?.accepted;
+    // Aceite LGPD é lido do banco por usuário (databaseService.getUserProfile) —
+    // sincroniza entre dispositivos/navegadores. Só reaparece se o usuário
+    // nunca aceitou OU aceitou uma versão anterior dos termos.
+    const needsLGPD = !profile.lgpdConsent?.accepted || profile.lgpdConsent?.termVersion !== CURRENT_LGPD_TERMS_VERSION;
     // Escola não é mais pré-requisito: o banner SchoolSetupBanner guia o usuário
     // a completar os dados sem bloquear o acesso ao dashboard.
 
@@ -944,11 +947,10 @@ const App: React.FC = () => {
   };
 
   const handleLGPDAccept = async () => {
-    localStorage.setItem('incluiai_lgpd_accepted', 'true');
-    try { await databaseService.acceptLGPD(user.id, { termVersion: 'v1.0' }); } catch {}
+    try { await databaseService.acceptLGPD(user.id, { termVersion: CURRENT_LGPD_TERMS_VERSION }); } catch {}
     setUser(prev => ({
       ...prev,
-      lgpdConsent: { accepted: true, acceptedAt: new Date().toISOString(), ipAddress: '127.0.0.1', termVersion: 'v1.0' },
+      lgpdConsent: { accepted: true, acceptedAt: new Date().toISOString(), ipAddress: '127.0.0.1', termVersion: CURRENT_LGPD_TERMS_VERSION },
     }));
     setShowLGPD(false);
     setView('settings');
@@ -1825,6 +1827,7 @@ const App: React.FC = () => {
                 userId={user.id}
                 onNavigate={handleSetView}
                 schoolName={user.schoolConfigs?.[0]?.schoolName}
+                professorSexo={user.sex}
               />
             )}
 
@@ -1934,6 +1937,7 @@ const App: React.FC = () => {
                   planMaxStudents={planMaxStudents}
                   userPlan={user.plan}
                   user={user}
+                  professorSexo={user.sex}
                   onSelect={handleSelectStudent}
                   onEdit={s => setEditingStudent(s)}
                   onDelete={deleteStudent}
@@ -2152,8 +2156,9 @@ const App: React.FC = () => {
         </React.Suspense>
       )}
 
-      {/* WhatsApp Float Button — persistente em todas as telas autenticadas */}
-      <WhatsAppFloatButton />
+      {/* WhatsApp Float Button — somente no Dashboard (não deve aparecer em
+          telas internas: documentos, perfil, Meus Alunos, Configurações etc.) */}
+      {view === 'dashboard' && <WhatsAppFloatButton />}
 
       {/* Toast inline — substitui alert() para eventos de vínculo e erros de aluno */}
       {toastMsg && (

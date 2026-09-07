@@ -206,6 +206,14 @@ export function getPlanLimits(plan: unknown) {
 // ENTITIES
 // =====================
 
+/**
+ * Sexo do professor/assinante — usado APENAS para escolher a personagem
+ * ilustrada do hero (Dashboard, Meus Alunos). Nunca usado para lógica de
+ * negócio, créditos ou permissões. 'unspecified' é o valor padrão (também
+ * usado quando a coluna `sex` ainda não existe no ambiente do banco).
+ */
+export type ProfileSex = 'female' | 'male' | 'unspecified';
+
 export interface Tenant {
   id: string;
   name: string;
@@ -242,6 +250,8 @@ export interface User {
   phone?: string | null;
   cpf?: string | null;
   cargo?: string | null;
+  /** Ver ProfileSex — só afeta a personagem ilustrada do hero. */
+  sex?: ProfileSex | null;
   cep?: string | null;
   rua?: string | null;
   numero?: string | null;
@@ -270,6 +280,14 @@ export interface LGPDConsent {
   ipAddress: string;
   termVersion: string;
 }
+
+/**
+ * Versão vigente dos termos exibidos no LGPDModal. Só deve mudar quando o
+ * CONTEÚDO do modal mudar de fato — mudar este valor faz o modal ser exibido
+ * novamente para todo usuário cujo `lgpdConsent.termVersion` estiver
+ * desatualizado (mesmo quem já tinha aceitado uma versão anterior).
+ */
+export const CURRENT_LGPD_TERMS_VERSION = 'v1.0';
 
 export interface TeamMember {
   id: string;

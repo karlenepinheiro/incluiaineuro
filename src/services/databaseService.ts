@@ -11,6 +11,8 @@ import {
   type Student,
   type TenantSummary,
   type User,
+  type ProfileSex,
+  CURRENT_LGPD_TERMS_VERSION,
 } from '../types';
 import { generateStudentUniqueCode, normalizeStudentUniqueCode } from '../utils/studentCodes';
 
@@ -382,21 +384,38 @@ export const databaseService = {
     const uid = userId ?? (await requireAuthUserId());
 
     // Colunas REAIS confirmadas pelo schema (CSVs exportados do Supabase).
-    const PROFILE_COLS = 'id, tenant_id, nome, full_name, email, role, is_super_admin, is_active, phone, cpf, cargo, profile_photo_url, cep, rua, numero, complemento, bairro, cidade, estado, display_name, professional_signature, doc_phone, created_at, must_change_password, password_changed_at';
+    // `sex` é opcional até a migration correspondente ser aplicada no ambiente
+    // (ver supabase/migrations/*_add_users_sex.sql) — fallback abaixo cobre a
+    // ausência dela sem quebrar o carregamento do perfil. Mantido como `const`
+    // (string literal) para preservar a inferência de tipo do Supabase na
+    // primeira consulta; os fallbacks usam uma cópia mutável separada.
+    // `lgpd_accepted`/`lgpd_accepted_at`/`lgpd_term_version` são opcionais pelo
+    // mesmo motivo (ver supabase/migrations/*_add_users_lgpd_consent.sql) —
+    // sem elas, o aceite LGPD cai no fallback local (ver abaixo).
+    const PROFILE_COLS = 'id, tenant_id, nome, full_name, email, role, is_super_admin, is_active, phone, cpf, cargo, sex, lgpd_accepted, lgpd_accepted_at, lgpd_term_version, profile_photo_url, cep, rua, numero, complemento, bairro, cidade, estado, display_name, professional_signature, doc_phone, created_at, must_change_password, password_changed_at';
     let { data: userRow, error: userErr } = await supabase
       .from('users')
       .select(PROFILE_COLS)
       .eq('id', uid)
       .maybeSingle();
 
-    // Fallback: se 'nome' não existir no ambiente (código 42703 = column not found),
-    // refaz a query sem ela — full_name será usado como name.
-    if (userErr?.code === '42703') {
-      const fallback = await supabase
-        .from('users')
-        .select(PROFILE_COLS.replace('nome, ', ''))
-        .eq('id', uid)
-        .maybeSingle();
+    let fallbackCols: string = PROFILE_COLS;
+
+    // Fallback: colunas que podem não existir ainda no ambiente (código 42703 =
+    // column not found) — cada uma tem uma migration própria e pode estar
+    // aplicada de forma independente das outras (ex.: `sex` aplicada mas
+    // `lgpd_*` ainda não). Remove UMA coluna por tentativa (a que o Postgres
+    // acusar) e tenta de novo, até a query passar ou nenhuma bater mais —
+    // cobre qualquer combinação de colunas ausentes, não só uma de cada vez.
+    // 'nome' é legado (não tem migration própria): ausente, full_name vira name.
+    const OPTIONAL_PROFILE_COLUMNS = ['nome', 'lgpd_accepted_at', 'lgpd_term_version', 'lgpd_accepted', 'sex'];
+    for (let attempt = 0; attempt < OPTIONAL_PROFILE_COLUMNS.length && userErr?.code === '42703'; attempt++) {
+      const missingCol = OPTIONAL_PROFILE_COLUMNS.find(
+        col => fallbackCols.includes(`${col}, `) && new RegExp(`\\b${col}\\b`, 'i').test(userErr?.message ?? '')
+      );
+      if (!missingCol) break;
+      fallbackCols = fallbackCols.replace(`${missingCol}, `, '');
+      const fallback = await supabase.from('users').select(fallbackCols).eq('id', uid).maybeSingle();
       userErr = fallback.error;
       userRow = fallback.data as any;
     }
@@ -468,6 +487,7 @@ export const databaseService = {
       phone:                  (userRow as any).phone                  ?? null,
       cpf:                    (userRow as any).cpf                    ?? null,
       cargo:                  (userRow as any).cargo                  ?? null,
+      sex:                    ((userRow as any).sex as ProfileSex | null | undefined) ?? 'unspecified',
       profilePhoto:           (userRow as any).profile_photo_url      ?? undefined,
       cep:                    (userRow as any).cep                    ?? null,
       rua:                    (userRow as any).rua                    ?? null,
@@ -484,17 +504,30 @@ export const databaseService = {
       password_changed_at:    (userRow as any).password_changed_at    ?? null,
     };
 
-    // LGPD: sem coluna no banco → usa localStorage como fallback
-    let localAccepted: any = null;
-    try {
-      const raw = localStorage.getItem(`lgpdAccepted:${profile.id}`);
-      localAccepted = raw ? JSON.parse(raw) : null;
-    } catch {}
-    (profile as any).lgpdConsent = {
-      accepted: !!localAccepted?.accepted,
-      acceptedAt: localAccepted?.acceptedAt ?? null,
-      termVersion: localAccepted?.termVersion ?? null,
-    };
+    // LGPD: prioriza as colunas do banco (sincroniza o aceite entre
+    // dispositivos/navegadores do mesmo usuário). `dbLgpdAccepted === undefined`
+    // só acontece quando a coluna foi removida da query pelo fallback acima
+    // (migration ainda não aplicada neste ambiente) — nesse caso, e só nesse
+    // caso, cai no localStorage (por usuário) como antes.
+    const dbLgpdAccepted = (userRow as any).lgpd_accepted;
+    if (dbLgpdAccepted !== undefined) {
+      (profile as any).lgpdConsent = {
+        accepted: !!dbLgpdAccepted,
+        acceptedAt: (userRow as any).lgpd_accepted_at ?? null,
+        termVersion: (userRow as any).lgpd_term_version ?? null,
+      };
+    } else {
+      let localAccepted: any = null;
+      try {
+        const raw = localStorage.getItem(`lgpdAccepted:${profile.id}`);
+        localAccepted = raw ? JSON.parse(raw) : null;
+      } catch {}
+      (profile as any).lgpdConsent = {
+        accepted: !!localAccepted?.accepted,
+        acceptedAt: localAccepted?.acceptedAt ?? null,
+        termVersion: localAccepted?.termVersion ?? null,
+      };
+    }
 
     // Créditos via credits_wallet.balance
     const walletBalance = await tryGetCreditsWalletBalance(userRow.tenant_id);
@@ -975,6 +1008,7 @@ export const databaseService = {
     phone?: string;
     cpf?: string;
     cargo?: string;
+    sex?: ProfileSex;
     profilePhotoUrl?: string;
     cep?: string;
     rua?: string;
@@ -986,13 +1020,14 @@ export const databaseService = {
     displayName?: string;
     professionalSignature?: string;
     docPhone?: string;
-  }) {
+  }): Promise<{ sexPersisted?: boolean }> {
     const safe: any = {};
     if (typeof patch.name  === 'string') safe.nome  = patch.name;
     if (typeof patch.email === 'string') safe.email = patch.email;
     if (patch.phone                !== undefined) safe.phone                  = patch.phone;
     if (patch.cpf                  !== undefined) safe.cpf                    = patch.cpf;
     if (patch.cargo                !== undefined) safe.cargo                  = patch.cargo;
+    if (patch.sex                  !== undefined) safe.sex                    = patch.sex;
     if (patch.profilePhotoUrl      !== undefined) safe.profile_photo_url      = patch.profilePhotoUrl;
     if (patch.cep                  !== undefined) safe.cep                    = patch.cep;
     if (patch.rua                  !== undefined) safe.rua                    = patch.rua;
@@ -1004,15 +1039,35 @@ export const databaseService = {
     if (patch.displayName          !== undefined) safe.display_name           = patch.displayName;
     if (patch.professionalSignature !== undefined) safe.professional_signature = patch.professionalSignature;
     if (patch.docPhone             !== undefined) safe.doc_phone              = patch.docPhone;
-    if (Object.keys(safe).length === 0) return;
-    const { data, error } = await supabase
+    if (Object.keys(safe).length === 0) return {};
+    const requestedSex = patch.sex !== undefined;
+    let { data, error } = await supabase
       .from('users')
       .update(safe)
       .eq('id', userId)
       .select('id')
       .single();
+
+    // Fallback: coluna 'sex' pode não existir ainda no ambiente (migration não
+    // aplicada) — remove só ela e tenta salvar o restante, sinalizando ao
+    // chamador que o sexo não foi persistido (ver SettingsView.tsx).
+    if (error?.code === '42703' && /sex/i.test(error.message ?? '') && requestedSex) {
+      const { sex: _sex, ...safeWithoutSex } = safe;
+      if (Object.keys(safeWithoutSex).length === 0) return { sexPersisted: false };
+      ({ data, error } = await supabase
+        .from('users')
+        .update(safeWithoutSex)
+        .eq('id', userId)
+        .select('id')
+        .single());
+      if (error) throw error;
+      if (!data) throw new Error('Perfil não encontrado. Nenhuma alteração foi salva.');
+      return { sexPersisted: false };
+    }
+
     if (error) throw error;
     if (!data) throw new Error('Perfil não encontrado. Nenhuma alteração foi salva.');
+    return { sexPersisted: requestedSex ? true : undefined };
   },
 
   /**
@@ -1106,9 +1161,17 @@ export const databaseService = {
     }
   },
 
+  /**
+   * Persiste o aceite LGPD no banco (por usuário — sincroniza entre
+   * dispositivos). Se as colunas `lgpd_*` ainda não existirem no ambiente
+   * (migration não aplicada, ver supabase/migrations/*_add_users_lgpd_consent.sql),
+   * cai no fallback local por usuário — mesmo comportamento de antes, só que
+   * agora `getUserProfile` também sabe ler de volta o valor do banco quando
+   * ele existir (antes só o fallback local era lido).
+   */
   async acceptLGPD(userId: string, payload?: { termVersion?: string }) {
     const acceptedAt = new Date().toISOString();
-    const termVersion = payload?.termVersion ?? 'v1.0';
+    const termVersion = payload?.termVersion ?? CURRENT_LGPD_TERMS_VERSION;
     try {
       const { error } = await supabase
         .from('users')

@@ -79,11 +79,11 @@ interface DashboardViewProps {
   userId?: string;
   schoolName?: string;
   /**
-   * Hint opcional para escolher a personagem do hero (professora/professor/
-   * neutra). O cadastro do usuário AINDA NÃO tem esse campo hoje — nenhum
-   * chamador precisa passar isto. Quando `undefined`, a personagem neutra é
-   * exibida (fallback seguro). Tipado como string para não acoplar a
-   * `types.ts`/migration.
+   * Hint para escolher a personagem do hero (professora/professor/neutra) —
+   * vem de `user.sex` (ver types.ts / Configurações). Quando ausente/neutro,
+   * a personagem neutra é exibida (fallback seguro). Tipado como string
+   * solto (em vez de `ProfileSex`) para não acoplar este componente puramente
+   * visual ao tipo de domínio.
    */
   professorSexo?: string | null;
 }
@@ -846,7 +846,8 @@ export function DashboardView({
   const PeriodIcon     = period.Icon;
   const prefersReduced = useReducedMotion();
   const safeName       = (userName ?? '').trim() || 'Professora';
-  // Personagem do hero — sem dado de sexo hoje, cai na variante neutra.
+  // Personagem do hero — respeita o sexo do professor (Configurações); sem
+  // dado informado, cai na variante neutra (fallback seguro).
   const heroCharacterSrc = resolveHeroCharacterAsset(professorSexo);
   const resetBR      = fmtDateBR(creditsResetAt);
   const isUnlimited  = maxStudents >= 9999;

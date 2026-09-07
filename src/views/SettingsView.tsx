@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, UserRole, resolvePlanTier, PLAN_LIMITS, formatPlanDisplayName, formatStudentLimit } from '../types';
+import { AddOnProduct, TenantSummary, User, SchoolConfig, PlanTier, TeamMember, UserRole, resolvePlanTier, PLAN_LIMITS, formatPlanDisplayName, formatStudentLimit, type ProfileSex } from '../types';
 import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
 import { Plus, Trash2, School, User as UserIcon, CreditCard, Star, Settings, Sparkles, AlertTriangle, ShoppingCart, Upload, Building2, MapPin, Phone, Hash, FileText, AlertCircle, ChevronDown, RefreshCw, ExternalLink, Search, CheckCircle, Lock, Eye, EyeOff, Shield, Info, Briefcase } from 'lucide-react';
 import { fetchSchoolByINEP, validateINEPCode, type INEPFetchError } from '../services/inepService';
@@ -70,6 +70,12 @@ function maskCEP(v: string): string {
   if (d.length <= 5) return d;
   return `${d.slice(0, 5)}-${d.slice(5)}`;
 }
+const SEX_OPTIONS: Array<{ value: ProfileSex; label: string }> = [
+  { value: 'unspecified', label: 'Neutro / Prefiro não informar' },
+  { value: 'female',      label: 'Feminino' },
+  { value: 'male',        label: 'Masculino' },
+];
+
 function getPasswordStrength(p: string): { label: string; color: string; score: number } {
   let score = 0;
   if (p.length >= 8) score++;
@@ -106,6 +112,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
   const [phone, setPhone] = useState<string>(maskPhone(user.phone ?? ''));
   const [cpf, setCpf] = useState<string>(maskCPF(user.cpf ?? ''));
   const [cargo, setCargo] = useState<string>((user as any).cargo ?? '');
+  const [sex, setSex] = useState<ProfileSex>((user as any).sex ?? 'unspecified');
 
   // ─── Endereço pessoal ────────────────────────────────────────────────────────
   const [cep, setCep] = useState<string>(maskCEP((user as any).cep ?? ''));
@@ -156,11 +163,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
     setProfileBusy(true);
     setProfileMsg(null);
     try {
-      await databaseService.updateUserProfile(user.id, {
+      const result = await databaseService.updateUserProfile(user.id, {
         name,
         phone: phone.replace(/\D/g, '') ? phone : '',
         cpf: cpf.replace(/\D/g, '') ? cpf : '',
         cargo,
+        sex,
         profilePhotoUrl: profilePhoto ?? '',
         cep: cep.replace(/\D/g, '') ? cep : '',
         rua, numero, complemento, bairro, cidade, estado,
@@ -169,13 +177,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
       });
       onUpdateUser({
         ...user, name, phone, cpf,
-        cargo, profilePhoto,
+        cargo, sex, profilePhoto,
         cep, rua, numero, complemento, bairro, cidade, estado,
         display_name: displayName,
         professional_signature: professionalSignature,
         doc_phone: docPhone,
       } as any);
-      setProfileMsg({ type: 'success', text: 'Dados salvos com sucesso!' });
+      setProfileMsg(
+        result?.sexPersisted === false
+          ? { type: 'success', text: 'Dados salvos. O campo Sexo ficará persistente após a migration do banco ser aplicada.' }
+          : { type: 'success', text: 'Dados salvos com sucesso!' }
+      );
     } catch (e: any) {
       setProfileMsg({ type: 'error', text: e?.message || 'Erro ao salvar dados.' });
     } finally {
@@ -610,6 +622,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                       className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
                       placeholder="Ex: Professora AEE, Coordenadora..."
                     />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Sexo</label>
+                    <select
+                      value={sex}
+                      onChange={e => setSex(e.target.value as ProfileSex)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 bg-white"
+                    >
+                      {SEX_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-gray-400 mt-1">Usado apenas para escolher a personagem ilustrada do painel.</p>
                   </div>
                   <div>
                     <div className="flex items-center gap-2 mb-1">
