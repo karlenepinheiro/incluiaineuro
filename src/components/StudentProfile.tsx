@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { DocButton, DocIconButton } from './ui/DocButton';
 import { SmartTextarea } from './SmartTextarea';
-import { AIService } from '../services/aiService';
+import { AIService, friendlyAIError } from '../services/aiService';
 import { ExportService } from '../services/exportService';
 import { databaseService } from '../services/databaseService';
 import { StorageService } from '../services/storageService';
@@ -41,6 +41,13 @@ import {
   type FormalGuardDocKey,
   type FormalSourceSnapshot,
 } from '../utils/formalDocumentGuards';
+import {
+  runBatchGeneration,
+  getBatchToast,
+  BATCH_RETRY_MESSAGE,
+  type BatchToast,
+  type BatchItemInput,
+} from '../services/batchDocumentGeneration';
 import { ChecklistRegenteForm } from './ChecklistRegenteForm';
 import { ChecklistCuidadoraForm } from './ChecklistCuidadoraForm';
 import { ChecklistUploadModal } from './ChecklistUploadModal';
@@ -567,9 +574,10 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     ids.reduce((sum, id) => sum + getBatchDocCost(id), 0);
   const [showBatchModal, setShowBatchModal] = useState(false);
   const [batchSelected, setBatchSelected] = useState<string[]>(['ESTUDO_CASO', 'PAEE', 'PEI']);
-  const [batchProgress, setBatchProgress] = useState<{ type: string; status: 'pending' | 'generating' | 'done' | 'error'; msg?: string }[]>([]);
+  const [batchProgress, setBatchProgress] = useState<{ type: string; status: 'pending' | 'generating' | 'retrying' | 'done' | 'error' | 'skipped'; msg?: string }[]>([]);
   const [batchRunning, setBatchRunning] = useState(false);
-  const [batchToast, setBatchToast] = useState('');
+  const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
+  const [batchCanViewDocs, setBatchCanViewDocs] = useState(false);
 
   const getBatchSourceSnapshot = (): FormalSourceSnapshot => {
     const snapshot: FormalSourceSnapshot = { estudoCaso: false, paee: false, pei: false };
@@ -640,90 +648,153 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
     setBatchProgress(ordered.map(t => ({ type: t.id as string, status: 'pending' })));
     setBatchRunning(true);
+    setBatchToast(null);
+    setBatchCanViewDocs(false);
 
-    const schoolCfg = (user as any).schoolConfigs?.[0] ?? null;
+    // ID estável do lote → operationId idempotente por documento
+    // (batchId:estudo_caso, batchId:paee, …). Retry do mesmo item não gera
+    // cobrança duplicada — ver batchDocumentGeneration.ts / atomic_reserve_credits.
+    const batchId =
+      (globalThis.crypto?.randomUUID?.() as string | undefined) ??
+      `batch-${student.id}-${Date.now()}`;
 
-    for (let i = 0; i < ordered.length; i++) {
-      const t = ordered[i];
-      const docCost = getBatchDocCost(t.id as string);
+    const batchItems: BatchItemInput[] = ordered.map(t => ({
+      documentType: t.id,
+      label: t.label,
+      cost: getBatchDocCost(t.id as string),
+    }));
+
+    const generateOne = async (
+      item: BatchItemInput,
+      operationId: string,
+    ): Promise<{ recordId?: string; warning?: string }> => {
+      const aiDocType = item.documentType === 'ESTUDO_CASO' ? DocumentType.ESTUDO_CASO : item.documentType;
       console.info('[BatchDocuments] gerando documento', {
         studentId: student.id,
-        documentType: t.id,
-        documentLabel: t.label,
-        docCost,
-        index: i + 1,
-        total: ordered.length,
+        documentType: item.documentType,
+        documentLabel: item.label,
+        docCost: item.cost,
+        operationId,
       });
-      setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'generating' } : p));
-      try {
-        const aiDocType = t.id === 'ESTUDO_CASO' ? DocumentType.ESTUDO_CASO : t.id;
-        const aiResult = await AIService.generateProtocolJSON(aiDocType, student, user as any);
-        const parsed   = JSON.parse(aiResult.json);
-        const sections = parsed?.sections ?? [];
 
-        const isFallback = aiResult.status === 'fallback_used';
-        const docStatus  = isFallback ? 'DRAFT' : 'DRAFT';
+      // NOTA: operationId é registrado no resultado do lote (telemetria/idempotência
+      // futura). O repasse ao ai-gateway exige alterar AIService.generateProtocolJSON,
+      // hoje congelado pelo guard da FASE 0 — ver relatório, item Idempotência.
+      const aiResult = await AIService.generateProtocolJSON(aiDocType, student, user as any);
+      const parsed   = JSON.parse(aiResult.json);
+      const sections = parsed?.sections ?? [];
+      const isFallback = aiResult.status === 'fallback_used';
 
-        // Gera código de auditoria único para este documento
-        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        let rand = '';
-        for (let k = 0; k < 8; k++) rand += chars.charAt(Math.floor(Math.random() * chars.length));
-        const auditCode = `${rand}-${(user as any).name?.split(' ')[0]?.toUpperCase() ?? 'INC'}-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '')}`;
+      // Gera código de auditoria único para este documento
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      let rand = '';
+      for (let k = 0; k < 8; k++) rand += chars.charAt(Math.floor(Math.random() * chars.length));
+      const auditCode = `${rand}-${(user as any).name?.split(' ')[0]?.toUpperCase() ?? 'INC'}-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '')}`;
 
-        // Salva DRAFT no banco com structuredData correto para que o DocumentBuilder consiga abrir
-        await databaseService.saveDocument({
-          tenant_id:      (user as any).tenant_id,
-          studentId:      student.id,
-          userId:         (user as any).id,
-          doc_type:       t.id === 'ESTUDO_CASO' ? 'ESTUDO_CASO' : t.id,
-          title:          `${t.label} — ${student.name}`,
-          content:        aiResult.json,
-          structuredData: { sections },
-          status:         docStatus,
-          generatedBy:    (user as any).name || 'Sistema',
-          auditCode,
-        });
+      // Salva DRAFT no banco — lança se a persistência falhar (item = failed)
+      const saved = await databaseService.saveDocument({
+        tenant_id:      (user as any).tenant_id,
+        studentId:      student.id,
+        userId:         (user as any).id,
+        doc_type:       item.documentType === 'ESTUDO_CASO' ? 'ESTUDO_CASO' : item.documentType,
+        title:          `${item.label} — ${student.name}`,
+        content:        aiResult.json,
+        structuredData: { sections },
+        status:         'DRAFT',
+        generatedBy:    (user as any).name || 'Sistema',
+        auditCode,
+      });
 
-        // Registra evento na linha do tempo
-        if ((user as any)?.tenant_id) {
-          const statusNote = isFallback ? ' (geração parcial — revisar)' : '';
-          TimelineService.add({
-            tenantId:    (user as any).tenant_id,
-            studentId:   student.id,
-            eventType:   'documento',
-            title:       `${t.label} gerado em lote${statusNote}`,
-            description: `Documento gerado por ${(user as any).name ?? 'Sistema'} · Cód. ${auditCode}${aiResult.warning ? ` · ${aiResult.warning}` : ''}`,
-            author:      (user as any).name,
-          }).catch(() => {});
-        }
-
-        setBatchProgress(prev => prev.map((p, idx) =>
-          idx === i
-            ? { ...p, status: isFallback ? 'done' : 'done', msg: aiResult.warning }
-            : p
-        ));
-        window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: (user as any).id } }));
-      } catch (err: any) {
-        console.warn('[BatchDocuments] erro ao gerar documento', {
-          studentId: student.id,
-          documentType: t.id,
-          documentLabel: t.label,
-          docCost,
-          error: err?.message || String(err),
-        });
-        setBatchProgress(prev => prev.map((p, idx) => idx === i ? { ...p, status: 'error', msg: err?.message || 'Erro' } : p));
+      // Registra evento na linha do tempo
+      if ((user as any)?.tenant_id) {
+        const statusNote = isFallback ? ' (geração parcial — revisar)' : '';
+        TimelineService.add({
+          tenantId:    (user as any).tenant_id,
+          studentId:   student.id,
+          eventType:   'documento',
+          title:       `${item.label} gerado em lote${statusNote}`,
+          description: `Documento gerado por ${(user as any).name ?? 'Sistema'} · Cód. ${auditCode}${aiResult.warning ? ` · ${aiResult.warning}` : ''}`,
+          author:      (user as any).name,
+        }).catch(() => {});
       }
-    }
+
+      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: (user as any).id } }));
+      return { recordId: (saved as any)?.id, warning: aiResult.warning };
+    };
+
+    const summary = await runBatchGeneration({
+      batchId,
+      items: batchItems,
+      savedSnapshot: getBatchSourceSnapshot(),
+      // Documentos diferentes: espaçamento conservador contra rate limit.
+      delayBetweenMs: 5000,
+      // Retry SOMENTE para 429 real: tentativa inicial + 2 retries (10s, 20s).
+      retryBackoffMs: [10_000, 20_000],
+      classifyError: friendlyAIError,
+      generate: generateOne,
+      onItemStart: (idx) => {
+        setBatchProgress(prev => prev.map((p, i) => i === idx ? { ...p, status: 'generating', msg: undefined } : p));
+      },
+      onItemRetry: (idx, _item, info) => {
+        console.warn('[BatchDocuments] rate limit real — retry agendado', {
+          studentId: student.id,
+          index: idx,
+          attempt: info.attempt,
+          waitMs: info.waitMs,
+          attemptsRemaining: info.attemptsRemaining,
+        });
+        setBatchProgress(prev => prev.map((p, i) => i === idx ? { ...p, status: 'retrying', msg: BATCH_RETRY_MESSAGE } : p));
+      },
+      onItemSettled: (idx, result) => {
+        const uiStatus = result.status === 'success'
+          ? 'done'
+          : result.status === 'skipped'
+            ? 'skipped'
+            : 'error';
+        setBatchProgress(prev => prev.map((p, i) => i === idx ? { ...p, status: uiStatus, msg: result.message } : p));
+        if (result.status !== 'success') {
+          console.warn('[BatchDocuments] documento não concluído', {
+            studentId: student.id,
+            documentType: result.documentType,
+            status: result.status,
+            operationId: result.operationId,
+            creditsCharged: result.creditsCharged,
+            message: result.message,
+          });
+        }
+      },
+    });
+
+    console.info('[BatchDocuments] resultado do lote', {
+      studentId: student.id,
+      batchId,
+      successCount: summary.successCount,
+      failedCount: summary.failedCount,
+      skippedCount: summary.skippedCount,
+      results: summary.results.map(r => ({
+        documentType: r.documentType,
+        status: r.status,
+        operationId: r.operationId,
+        creditsCharged: r.creditsCharged,
+        attempts: r.attempts,
+      })),
+    });
+
     setBatchRunning(false);
     window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: (user as any).id } }));
     // Recarrega documentos para refletir na aba Documentos
     await loadDbDocs();
     await onRefreshProtocols?.();
-    // Fecha modal, navega para aba Documentos e exibe toast de confirmação
-    setShowBatchModal(false);
-    setActiveTab('documentos');
-    setBatchToast('Documentos gerados com sucesso. Verifique na aba Documentos se o conteúdo está de acordo com a veracidade dos fatos.');
-    setTimeout(() => setBatchToast(''), 8000);
+
+    const toast = getBatchToast(summary);
+    setBatchCanViewDocs(toast.canViewDocuments);
+    setBatchToast(toast);
+    // Só fecha o modal e navega quando há ao menos 1 documento gerado.
+    if (toast.canViewDocuments) {
+      setShowBatchModal(false);
+      setActiveTab('documentos');
+    }
+    setTimeout(() => setBatchToast(null), 9000);
   };
 
   const handleSaveHistory = async () => {
@@ -1008,9 +1079,20 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
       )}
       {/* ── Toast: geração em lote ── */}
       {batchToast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] bg-green-700 text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-xl max-w-md text-center flex items-start gap-3">
-          <CheckCircle size={18} className="shrink-0 mt-0.5 text-green-200" />
-          <span>{batchToast}</span>
+        <div className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] text-white text-sm font-medium px-5 py-3 rounded-2xl shadow-xl max-w-md text-center flex items-start gap-3 ${
+          batchToast.variant === 'success' ? 'bg-green-700'
+            : batchToast.variant === 'warning' ? 'bg-amber-600'
+            : 'bg-red-700'
+        }`}>
+          {batchToast.variant === 'success'
+            ? <CheckCircle size={18} className="shrink-0 mt-0.5 text-green-200" />
+            : <AlertCircle size={18} className="shrink-0 mt-0.5 text-white/80" />}
+          <div>
+            <p>{batchToast.message}</p>
+            {batchToast.variant !== 'error' && (
+              <p className="text-xs opacity-80 mt-1">Verifique na aba Documentos se o conteúdo está de acordo com a veracidade dos fatos.</p>
+            )}
+          </div>
         </div>
       )}
       {/* ── Header ── */}
@@ -3031,8 +3113,8 @@ ${['Comunica-se verbalmente','Usa gestos para comunicar','Usa recursos de CAA','
                 <div className="space-y-3 mb-5">
                   {batchProgress.map(p => {
                     const label = BATCH_TYPES.find(t => (t.id as string) === p.type)?.label ?? p.type;
-                    const icon = p.status === 'done' ? '✓' : p.status === 'error' ? '✕' : p.status === 'generating' ? '⋯' : '·';
-                    const color = p.status === 'done' ? 'bg-green-50 border-green-200 text-green-700' : p.status === 'error' ? 'bg-red-50 border-red-200 text-red-700' : p.status === 'generating' ? 'bg-brand-50 border-brand-200 text-brand-700' : 'bg-gray-50 border-gray-200 text-gray-500';
+                    const icon = p.status === 'done' ? '✓' : p.status === 'error' ? '✕' : p.status === 'skipped' ? '–' : p.status === 'retrying' ? '↻' : p.status === 'generating' ? '⋯' : '·';
+                    const color = p.status === 'done' ? 'bg-green-50 border-green-200 text-green-700' : p.status === 'error' ? 'bg-red-50 border-red-200 text-red-700' : p.status === 'skipped' ? 'bg-amber-50 border-amber-200 text-amber-700' : p.status === 'retrying' ? 'bg-amber-50 border-amber-200 text-amber-700' : p.status === 'generating' ? 'bg-brand-50 border-brand-200 text-brand-700' : 'bg-gray-50 border-gray-200 text-gray-500';
                     return (
                       <div key={p.type} className={`flex items-center gap-3 p-3 rounded-xl border ${color}`}>
                         <span className="text-base font-bold w-5 text-center">{icon}</span>
@@ -3045,9 +3127,15 @@ ${['Comunica-se verbalmente','Usa gestos para comunicar','Usa recursos de CAA','
                   })}
                 </div>
                 {!batchRunning && (
-                  <button onClick={() => { setShowBatchModal(false); setActiveTab('documentos'); }} className="w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold hover:bg-black text-sm">
-                    Ver Documentos Gerados
-                  </button>
+                  batchCanViewDocs ? (
+                    <button onClick={() => { setShowBatchModal(false); setActiveTab('documentos'); }} className="w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold hover:bg-black text-sm">
+                      Ver Documentos Gerados
+                    </button>
+                  ) : (
+                    <button onClick={() => { setShowBatchModal(false); setBatchProgress([]); }} className="w-full bg-gray-900 text-white py-2.5 rounded-xl font-bold hover:bg-black text-sm">
+                      Fechar
+                    </button>
+                  )
                 )}
               </>
             )}
