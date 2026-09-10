@@ -241,6 +241,8 @@ export interface User {
   profilePhoto?: string;
 
   schoolConfigs: SchoolConfig[];
+  /** Somente tenants.is_internal, carregado do banco. */
+  isInternal?: boolean;
   subscriptionStatus: SubscriptionStatus;
   lgpdConsent?: LGPDConsent;
   aiUsage?: AIUsageLog[];
@@ -946,6 +948,8 @@ export interface AddOnProduct {
 export interface TenantSummary {
   tenantId: string;
   tenantName?: string;
+  /** Somente tenants.is_internal, carregado do banco. */
+  isInternal?: boolean;
   subscriptionStatus: SubscriptionStatus;
   planTier: PlanTier;
   /** Saldo real da carteira (credits_wallet.balance) */

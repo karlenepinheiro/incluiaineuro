@@ -7,7 +7,8 @@ import { fetchAddressByCep, validateCep, normalizeCep, formatCep } from '../serv
 import { PaymentService, /* DEFAULT_ADDONS */ } from '../services/paymentService';
 import { databaseService } from '../services/databaseService';
 import { supabase } from '../services/supabase';
-import { SubscriptionStatusBadge } from '../components/SubscriptionStatusBadge';
+import { SubscriptionFinanceStatus } from '../components/SubscriptionFinanceStatus';
+import { resolveSubscriptionAccess } from '../services/subscriptionAccess';
 import { CreditWalletService, CreditLedgerService, isFreeBootstrapEntry } from '../services/creditService';
 import type { CreditLedgerEntry } from '../types';
 import { getActiveSubscription, type ActiveSubscriptionInfo } from '../services/subscriptionService';
@@ -489,23 +490,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
     }
   };
 
-  const subscriptionStatus = tenantSummary?.subscriptionStatus ?? user.subscriptionStatus ?? 'ACTIVE';
-  const isOverdue = subscriptionStatus === 'OVERDUE';
+  const subscriptionStatus = activeSubscription?.status ?? tenantSummary?.subscriptionStatus ?? user.subscriptionStatus;
+  const isInternal = (tenantSummary?.isInternal ?? user.isInternal) === true;
+  const commercialAccess = resolveSubscriptionAccess({
+    isInternal,
+    subscription: activeSubscription ?? { status: subscriptionStatus, currentPeriodEnd: tenantSummary?.renewalDatePlan, provider: 'kiwify', cancellationVerified: false },
+  });
   const isCanceled = subscriptionStatus === 'CANCELED';
-  const needsPayment = isOverdue || isCanceled;
+  const needsPayment = !commercialAccess.allowed;
 
   // Plano efetivo — normalizado para comparações de UI
-  const effectivePlan = resolvePlanTier(tenantSummary?.planTier ?? user.plan);
+  const effectivePlan = resolvePlanTier(activeSubscription?.planCode ?? tenantSummary?.planTier ?? user.plan);
   const isFreePlan    = effectivePlan === PlanTier.FREE;
   const isProPlan     = effectivePlan === PlanTier.PRO;
   const isMasterPlan  = effectivePlan === PlanTier.PREMIUM;
   const monthlyCredits = PLAN_LIMITS[effectivePlan].ai_credits;
 
-  // Data de vencimento — prioriza DB subscription, depois tenantSummary
-  const expiryDate = activeSubscription?.currentPeriodEnd
-    ?? activeSubscription?.nextDueDate
-    ?? tenantSummary?.renewalDatePlan
-    ?? null;
   const handlePayNow = async () => {
     setFinanceBusy(true);
     try {
@@ -1258,13 +1258,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
                   <p className="text-sm text-gray-600 mt-1">Controle da assinatura, créditos e limites.</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
+                  {!isInternal && <button
                     disabled={financeBusy}
                     onClick={openCustomerPortal}
                     className="border border-gray-300 bg-white text-gray-700 px-4 py-2 rounded-xl font-bold hover:bg-gray-50 flex items-center gap-2 disabled:opacity-60"
                   >
                     <Settings size={16} /> Gerenciar cobranças
-                  </button>
+                  </button>}
                   {isFreePlan && (<>
                     <button
                       disabled={financeBusy}
@@ -1309,24 +1309,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, onUpdateUser, 
               <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Card: Status da Assinatura */}
                 <div className="p-4 rounded-2xl bg-white border border-gray-200">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs uppercase font-extrabold text-gray-500">Status</span>
-                    <SubscriptionStatusBadge status={subscriptionStatus} size="sm" />
-                  </div>
-                  <div className="text-2xl font-extrabold text-gray-900">
-                    {formatPlanDisplayName(
+                  <SubscriptionFinanceStatus
+                    access={commercialAccess}
+                    status={subscriptionStatus}
+                    planName={formatPlanDisplayName(
                       isFreePlan ? 'FREE' : isProPlan ? 'PRO' : 'MASTER',
-                      (activeSubscription as any)?.billingCycle ?? tenantSummary?.billingCycle ?? undefined
+                      isInternal ? undefined : activeSubscription?.billingCycle ?? tenantSummary?.billingCycle ?? undefined
                     )}
-                  </div>
-                  {expiryDate ? (
-                    <p className={`text-xs mt-1 font-semibold ${needsPayment ? 'text-red-600' : 'text-gray-500'}`}>
-                      {needsPayment ? 'Vencido em: ' : 'Renova em: '}
-                      {new Date(expiryDate).toLocaleDateString('pt-BR')}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-gray-400 mt-1">Sem data de vencimento</p>
-                  )}
+                  />
                 </div>
 
                 {/* Card: Créditos IA */}

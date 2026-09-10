@@ -7,6 +7,7 @@
  * Reutilizável em qualquer SaaS: basta trocar a tabela-alvo e o gateway.
  */
 
+import { resolveSubscriptionAccess, type CommercialAccess, type CommercialSubscription } from './subscriptionAccess';
 import { supabase } from './supabase';
 import type { SubscriptionStatus } from '../types';
 import { SUBSCRIPTION_PLANS } from '../config/aiCosts';
@@ -27,20 +28,16 @@ export interface ActiveSubscriptionInfo {
   isTestAccount: boolean;
   cancelAtPeriodEnd: boolean;
   lastPaymentStatus: string | null;
+  provider?: string | null;
+  cancellationVerified?: boolean;
   /** Ciclo de cobrança ('monthly' | 'annual'). Null em contas sem subscription registrada. */
   billingCycle: 'monthly' | 'annual' | null;
 }
 
-export interface SubscriptionAccessResult {
-  /** Usuário pode usar recursos premium? */
-  allowed: boolean;
-  /** Status atual da assinatura */
+export type SubscriptionAccessResult = CommercialAccess & {
   status: SubscriptionStatus;
-  /** Razão caso blocked */
-  reason?: 'payment_required' | 'subscription_ended' | 'grace_period' | 'test_account' | 'courtesy';
-  /** Link direto para checkout de pagamento (quando disponível) */
   paymentLink: string | null;
-}
+};
 
 // ---------------------------------------------------------------------------
 // QUERIES
@@ -58,15 +55,7 @@ export async function getActiveSubscription(tenantId: string): Promise<ActiveSub
   // last_payment_status, next_due_date, created_at, updated_at
   const { data, error } = await supabase
     .from('subscriptions')
-    .select([
-      'id', 'tenant_id', 'plan_id', 'status',
-      'current_period_end', 'next_due_date',
-      'billing_cycle',
-      'provider', 'provider_sub_id',
-      'provider_customer_id', 'provider_payment_link',
-      'provider_update_payment_link', 'last_payment_status',
-      'created_at',
-    ].join(', '))
+    .select('id, tenant_id, plan_id, status, current_period_start, current_period_end, next_due_date, billing_cycle, provider, provider_sub_id, provider_customer_id, provider_payment_link, provider_update_payment_link, last_payment_status, created_at')
     .eq('tenant_id', tenantId)
     .order('created_at', { ascending: false })
     .limit(1)
@@ -86,7 +75,24 @@ export async function getActiveSubscription(tenantId: string): Promise<ActiveSub
     planCode = planRow?.name ?? 'FREE';
   }
 
+  // Leitura conservadora: o webhook colapsa refund/chargeback em CANCELED.
+  let cancellationVerified = false;
+  let lastPaymentStatus = data.last_payment_status ?? null;
+  if (data.provider === 'kiwify' && ['CANCELED', 'CANCELLED'].includes(data.status)) {
+    const { data: events, error: eventError } = await supabase
+      .from('kiwify_webhook_logs')
+      .select('event_type')
+      .eq('tenant_id', tenantId)
+      .in('event_type', ['subscription_canceled', 'refunded', 'chargedback', 'order_refunded', 'chargeback'])
+      .gte('processed_at', data.current_period_start ?? data.created_at);
+    const revocation = events?.find(event => event.event_type !== 'subscription_canceled');
+    cancellationVerified = !eventError && !revocation && !!events?.some(event => event.event_type === 'subscription_canceled');
+    if (revocation) lastPaymentStatus = revocation.event_type;
+  }
+
   return {
+    provider: data.provider,
+    cancellationVerified,
     id: data.id,
     tenantId: data.tenant_id,
     planCode,
@@ -98,82 +104,31 @@ export async function getActiveSubscription(tenantId: string): Promise<ActiveSub
     providerUpdatePaymentLink: data.provider_update_payment_link ?? null,
     isTestAccount: false,
     cancelAtPeriodEnd: false,
-    lastPaymentStatus: data.last_payment_status ?? null,
+    lastPaymentStatus,
   };
 }
 
-/**
- * Verifica se o usuário tem acesso aos recursos do sistema.
- *
- * Regras:
- * - ACTIVE      → acesso total (desde que current_period_end não esteja no passado)
- * - TRIAL       → acesso total (período de avaliação)
- * - COURTESY    → acesso total (cortesia manual)
- * - INTERNAL_TEST → acesso total (conta interna)
- * - PENDING     → acesso com aviso ("período de carência" — pagamento em processamento)
- * - OVERDUE     → login permitido, recursos premium bloqueados
- * - CANCELED    → login permitido, recursos premium bloqueados
- *
- * @param currentPeriodEnd - ISO string do fim do período vigente. Se passado e no passado,
- *   trata ACTIVE como vencido (subscription_ended) para evitar acesso indevido.
- */
+/** Adaptadores legados: toda decisão comercial passa pelo mesmo resolver. */
 export function checkSubscriptionAccess(
   status: SubscriptionStatus,
   paymentLink?: string | null,
   currentPeriodEnd?: string | null,
+  isInternal = false,
+  subscription?: CommercialSubscription,
 ): SubscriptionAccessResult {
-  const link = paymentLink ?? null;
-
-  // Status ACTIVE com período vencido → trata como encerrado
-  if (
-    status === 'ACTIVE' &&
-    currentPeriodEnd &&
-    new Date(currentPeriodEnd) < new Date()
-  ) {
-    return { allowed: false, status: 'CANCELED', reason: 'subscription_ended', paymentLink: link };
-  }
-
-  switch (status) {
-    case 'ACTIVE':
-      return { allowed: true, status, paymentLink: null };
-
-    case 'TRIAL':
-      return { allowed: true, status, reason: 'grace_period', paymentLink: null };
-
-    case 'COURTESY':
-      return { allowed: true, status, reason: 'courtesy', paymentLink: null };
-
-    case 'INTERNAL_TEST':
-      return { allowed: true, status, reason: 'test_account', paymentLink: null };
-
-    case 'PENDING':
-      // Pagamento em processamento — mantém acesso por até 3 dias (lógica de carência)
-      return { allowed: true, status, reason: 'grace_period', paymentLink: link };
-
-    case 'OVERDUE':
-      return { allowed: false, status, reason: 'payment_required', paymentLink: link };
-
-    case 'CANCELED':
-      return { allowed: false, status, reason: 'subscription_ended', paymentLink: link };
-
-    default:
-      return { allowed: false, status: status as SubscriptionStatus, reason: 'payment_required', paymentLink: link };
-  }
+  const access = resolveSubscriptionAccess({
+    isInternal, subscription: subscription ?? { status, currentPeriodEnd },
+  });
+  return { ...access, status, paymentLink: access.isInternal ? null : paymentLink ?? null };
 }
 
-/**
- * Retorna true se o status indica que o usuário está com acesso pleno.
- * Útil para guards simples sem precisar do objeto completo.
- */
-export function isSubscriptionActive(status: SubscriptionStatus): boolean {
-  return ['ACTIVE', 'TRIAL', 'COURTESY', 'INTERNAL_TEST', 'PENDING'].includes(status);
+export function isSubscriptionActive(status: SubscriptionStatus, currentPeriodEnd?: string | null, isInternal = false): boolean {
+  return checkSubscriptionAccess(status, null, currentPeriodEnd, isInternal).allowed;
 }
 
-/**
- * Retorna true se o status deve exibir o banner de aviso.
- */
-export function shouldShowExpiredBanner(status: SubscriptionStatus): boolean {
-  return ['OVERDUE', 'CANCELED', 'TRIAL', 'PENDING'].includes(status);
+export function shouldShowExpiredBanner(status: SubscriptionStatus, currentPeriodEnd?: string | null, isInternal = false, subscription?: CommercialSubscription): boolean {
+  const access = checkSubscriptionAccess(status, null, currentPeriodEnd, isInternal, subscription);
+  return !access.isInternal && (!access.allowed || ['TRIAL', 'PENDING'].includes(status));
 }
 
 // ---------------------------------------------------------------------------

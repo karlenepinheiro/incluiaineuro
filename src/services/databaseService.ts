@@ -278,12 +278,13 @@ async function syncStudentDocumentsForSavedStudent(args: {
 // INTERNAL HELPERS
 // ---------------------------------------------------------------------------
 
-async function getActiveSubscriptionForTenant(tenantId: string) {
-  const { data } = await supabase
+async function getActiveSubscriptionForTenant(tenantId: string, isInternal = false) {
+  let query = supabase
     .from('subscriptions')
     .select('id, plan_id, status, current_period_end, current_period_start, billing_cycle, provider, created_at')
-    .eq('tenant_id', tenantId)
-    .in('status', ['ACTIVE', 'TRIAL', 'PENDING', 'COURTESY', 'INTERNAL_TEST'])
+    .eq('tenant_id', tenantId);
+  if (!isInternal) query = query.in('status', ['ACTIVE', 'TRIAL', 'PENDING', 'COURTESY', 'INTERNAL_TEST']);
+  const { data } = await query
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -426,7 +427,7 @@ export const databaseService = {
     // tenants: id, name, plan_id, is_active (sem type, status_assinatura etc.)
     const { data: tenantRow } = await supabase
       .from('tenants')
-      .select('id, name, plan_id, is_active')
+      .select('id, name, plan_id, is_active, is_internal')
       .eq('id', userRow.tenant_id)
       .maybeSingle();
 
@@ -482,6 +483,7 @@ export const databaseService = {
       isAdmin: !!(userRow.is_super_admin) || String(userRow.role ?? '').toUpperCase() === 'CEO',
       active: !!(userRow.is_active),
       subscriptionStatus,
+      isInternal: tenantRow?.is_internal === true,
       schoolConfigs: [],
       aiUsage: [],
       phone:                  (userRow as any).phone                  ?? null,
@@ -1542,10 +1544,10 @@ export const databaseService = {
     const tenantId = await getTenantIdForUser(userId);
 
     // Paraleliza as 3 queries independentes
-    const [tenantResult, studentsResult, sub] = await Promise.all([
+    const [tenantResult, studentsResult, initialSub] = await Promise.all([
       supabase
         .from('tenants')
-        .select('id, name, plan_id, is_active')
+        .select('id, name, plan_id, is_active, is_internal')
         .eq('id', tenantId)
         .single(),
       supabase
@@ -1561,6 +1563,9 @@ export const databaseService = {
     if (studentsResult.error) throw studentsResult.error;
 
     const tenant = tenantResult.data;
+    const sub = tenant.is_internal === true
+      ? await getActiveSubscriptionForTenant(tenantId, true)
+      : initialSub;
     const studentsCount = studentsResult.count;
     const subscriptionStatus = ((sub as any)?.status ?? 'ACTIVE') as any;
 
@@ -1685,6 +1690,7 @@ export const databaseService = {
     return {
       tenantId,
       tenantName: (tenant as any)?.name,
+      isInternal: tenant.is_internal === true,
       subscriptionStatus,
       planTier,
       aiCreditsRemaining: walletAvail,

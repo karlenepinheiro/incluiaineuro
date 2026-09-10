@@ -9,6 +9,7 @@
  *   - checkAccess: lógica de acesso por status da assinatura (independente do gateway)
  */
 
+import { resolveSubscriptionAccess, type CommercialSubscription } from './subscriptionAccess';
 import { AddOnProduct, PaymentProvider, PlanTier, User } from '../types';
 
 // ── Links oficiais Kiwify (fonte única de verdade — fallback quando env não definido) ──
@@ -189,25 +190,14 @@ export const PaymentService = {
    * @param currentPeriodEnd - ISO string do fim do período. Se passado e no passado,
    *   rejeita acesso mesmo com status ACTIVE para evitar acesso indevido em assinaturas vencidas.
    */
-  checkAccess(user: User, currentPeriodEnd?: string | null): { allowed: boolean; reason?: string } {
-    const status = user.subscriptionStatus;
-
-    // ACTIVE com período vencido → trata como encerrado
-    if (
-      status === 'ACTIVE' &&
-      currentPeriodEnd &&
-      new Date(currentPeriodEnd) < new Date()
-    ) {
-      return { allowed: false, reason: 'subscription_ended' };
-    }
-
-    if (status === 'ACTIVE')        return { allowed: true };
-    if (status === 'COURTESY')      return { allowed: true,  reason: 'courtesy' };
-    if (status === 'INTERNAL_TEST') return { allowed: true,  reason: 'test_account' };
-    if (status === 'TRIAL')         return { allowed: true,  reason: 'trial' };
-    if (status === 'PENDING')       return { allowed: true,  reason: 'grace_period' };
-    if (status === 'OVERDUE')       return { allowed: false, reason: 'payment_required' };
-    if (status === 'CANCELED')      return { allowed: false, reason: 'subscription_ended' };
-    return { allowed: false, reason: 'payment_required' };
+  checkAccess(user: User, currentPeriodEnd?: string | null, subscription?: CommercialSubscription | null) {
+    return resolveSubscriptionAccess({
+      isInternal: user.isInternal,
+      subscription: subscription ?? {
+        status: user.subscriptionStatus, currentPeriodEnd,
+        // Sem registro completo, não presumir que CANCELED foi cancelamento simples.
+        provider: 'kiwify', cancellationVerified: false,
+      },
+    });
   },
 };

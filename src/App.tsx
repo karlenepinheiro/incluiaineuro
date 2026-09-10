@@ -638,6 +638,7 @@ const App: React.FC = () => {
       try {
         const summaryDb = await databaseService.getTenantSummary(userId);
         setTenantSummary(summaryDb);
+        setUser(prev => ({ ...prev, isInternal: summaryDb.isInternal === true }));
       } catch {}
     };
     window.addEventListener('incluiai:credits-changed', handleCreditsChanged);
@@ -714,14 +715,18 @@ const App: React.FC = () => {
           setActiveSubscription(prev => prev ? {
             ...prev,
             status: row.status ?? prev.status,
+            cancellationVerified: false,
+            lastPaymentStatus: row.last_payment_status ?? prev.lastPaymentStatus,
             planCode: row.plan_code ?? prev.planCode,
             providerPaymentLink: row.provider_payment_link ?? prev.providerPaymentLink,
             providerUpdatePaymentLink: row.provider_update_payment_link ?? prev.providerUpdatePaymentLink,
             currentPeriodEnd: row.current_period_end ?? prev.currentPeriodEnd,
             nextDueDate: row.next_due_date ?? prev.nextDueDate,
-            lastPaymentStatus: row.last_payment_status ?? prev.lastPaymentStatus,
             isTestAccount: row.is_test_account ?? prev.isTestAccount,
           } : null);
+          getActiveSubscription(user.tenant_id).then(sub => {
+            if (sub) setActiveSubscription(sub);
+          }).catch(() => { /* mantém bloqueio conservador até atualizar */ });
           if (row.status) {
             setUser(prev => ({ ...prev, subscriptionStatus: row.status as SubscriptionStatus }));
           }
@@ -757,7 +762,7 @@ const App: React.FC = () => {
 
     // Upgrade pendente (fluxo login-first) — redireciona para Kiwify ANTES de mostrar o dashboard
     const pendingPlan = localStorage.getItem(PENDING_PLAN_KEY) as 'PRO' | 'MASTER' | null;
-    if (pendingPlan && profile.tenant_id) {
+    if (pendingPlan && profile.tenant_id && !profile.isInternal) {
       localStorage.removeItem(PENDING_PLAN_KEY);
       try {
         const url = await getSubscriptionCheckoutUrl(pendingPlan, profile.tenant_id);
@@ -777,7 +782,7 @@ const App: React.FC = () => {
 
     // ── Verifica compra aprovada pelo e-mail (pós-pagamento sem tenant_id) ─
     // Cobre: login normal, login com Google, retorno após confirmação de e-mail.
-    if (!DEMO_MODE && profile.email && profile.tenant_id) {
+    if (!DEMO_MODE && !profile.isInternal && profile.email && profile.tenant_id) {
       checkPurchaseByEmail(profile.email)
         .then(async (purchase) => {
           if (
@@ -822,6 +827,7 @@ const App: React.FC = () => {
     setStudents(studentsDb);
     setProtocols(protocolsDb);
     setTenantSummary(summaryDb);
+    setUser(prev => ({ ...prev, isInternal: summaryDb.isInternal === true }));
     setEffectivePlans(plansDb);
     setActiveSubscription(subInfo);
     setServiceRecords(serviceRecordsDb);
@@ -977,17 +983,15 @@ const App: React.FC = () => {
   };
 
   const checkPermission = (feature: 'add_student' | 'ai_gen') => {
-    const access = PaymentService.checkAccess(user, activeSubscription?.currentPeriodEnd ?? null);
+    const access = PaymentService.checkAccess(user, activeSubscription?.currentPeriodEnd ?? null, activeSubscription);
 
-    if (access.reason !== 'courtesy' && access.reason !== 'test_account') {
-      if (!access.allowed && access.reason === 'payment_required') {
-        alert('Sua assinatura está atrasada. Regularize para continuar.');
-        return false;
-      }
-      if (!access.allowed && access.reason === 'subscription_ended') {
-        alert('Sua assinatura foi cancelada. Reative para continuar.');
-        return false;
-      }
+    if (!access.allowed) {
+      alert(access.reason === 'expired'
+        ? 'O período da sua assinatura terminou. Regularize para continuar.'
+        : access.reason === 'canceled'
+          ? 'Sua assinatura foi cancelada. Reative para continuar.'
+          : 'Sua assinatura não permite esta operação. Consulte o Financeiro.');
+      return false;
     }
 
     const legacy = getPlanLimits(user.plan);
@@ -1001,7 +1005,11 @@ const App: React.FC = () => {
       // Só bloqueia se sabemos com certeza que os créditos são 0.
       // Se tenantSummary não carregou ainda (null), libera para não travar.
       if (tenantSummary === null) return true;
-      return creditsAvailable > 0;
+      if (creditsAvailable <= 0) {
+        alert('Créditos de IA insuficientes para gerar.');
+        return false;
+      }
+      return true;
     }
 
     return true;
@@ -1079,6 +1087,7 @@ const App: React.FC = () => {
       if (!DEMO_MODE && user?.id) {
         const summaryDb = await databaseService.getTenantSummary(user.id);
         setTenantSummary(summaryDb);
+        setUser(prev => ({ ...prev, isInternal: summaryDb.isInternal === true }));
       }
 
       showToast(
@@ -1131,6 +1140,7 @@ const App: React.FC = () => {
     if (!DEMO_MODE && user?.id) {
       const summaryDb = await databaseService.getTenantSummary(user.id);
       setTenantSummary(summaryDb);
+      setUser(prev => ({ ...prev, isInternal: summaryDb.isInternal === true }));
     }
     // Retorna o aluno recém-salvo (último adicionado com esse nome)
     const saved = fresh.find(s => s.name === full.name) ?? { ...full, id: 'new' };
@@ -1150,6 +1160,7 @@ const App: React.FC = () => {
       if (!DEMO_MODE && user?.id) {
         const summaryDb = await databaseService.getTenantSummary(user.id);
         setTenantSummary(summaryDb);
+        setUser(prev => ({ ...prev, isInternal: summaryDb.isInternal === true }));
       }
     } catch (e: any) {
       alert(e?.message || 'Erro ao excluir aluno.');
@@ -1309,7 +1320,7 @@ const App: React.FC = () => {
   };
 
   const handleGenerateAI = async (student: Student) => {
-    if (!checkPermission('ai_gen')) return triggerUpgrade();
+    if (!checkPermission('ai_gen')) return;
     if (!student) return alert('Erro: Aluno não identificado.');
 
     setGenerating(true);
@@ -1437,6 +1448,7 @@ const App: React.FC = () => {
         try {
           const summaryDb = await databaseService.getTenantSummary(user.id);
           setTenantSummary(summaryDb);
+          setUser(prev => ({ ...prev, isInternal: summaryDb.isInternal === true }));
         } catch {}
       }
     }
@@ -1713,7 +1725,7 @@ const App: React.FC = () => {
               isAuthenticated &&
               !user.isAdmin &&
               !activeSubscription?.isTestAccount &&
-              shouldShowExpiredBanner(resolvedStatus);
+              shouldShowExpiredBanner(resolvedStatus, activeSubscription?.currentPeriodEnd, user.isInternal, activeSubscription ?? undefined);
             return showBanner ? (
               <ExpiredPlanBanner
                 subscriptionStatus={resolvedStatus}
