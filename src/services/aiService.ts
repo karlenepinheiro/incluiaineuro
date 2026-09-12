@@ -1,3 +1,4 @@
+import { getAeeGenerationAttempt } from './aeeGenerationAttempt';
 import { canonicalOperation, creditCost } from '../../supabase/functions/_shared/creditCatalog';
 /**
  * aiService.ts — Serviço de IA do IncluiAI (Sub-etapa 2A)
@@ -2600,8 +2601,10 @@ IMPORTANTE: substitua os textos de exemplo por ações reais e específicas para
     versionNumber: number,
     operationId?: string,
   ): Promise<import('../types').AEEActionPlanJSON> {
+    const attempt = await getAeeGenerationAttempt({ student, userId: user.id, period, paeeContent, versionNumber }, operationId);
     const cost = AI_CREDIT_COSTS.PLANO_ACAO_AEE;
-    if (!(await this.checkCredits(user, cost))) {
+    if (!attempt.isRetry && !(await this.checkCredits(user, cost))) {
+      attempt.complete();
       throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
     }
 
@@ -2683,7 +2686,7 @@ Retorne SOMENTE o JSON abaixo. Preserve exatamente os nomes dos campos. Preencha
 
 {
   "period": "${period}",
-  "generatedAt": "${new Date().toISOString()}",
+  "generatedAt": "${attempt.generatedAt}",
   "generatedBy": "${(user as any)?.id ?? ''}",
   "generatedByName": "${(user as any)?.name ?? (user as any)?.email ?? 'Profissional AEE'}",
   "registrationNumber": "",
@@ -2830,7 +2833,8 @@ IMPORTANTE: substitua os textos de exemplo por ações reais e específicas para
         task: 'json', prompt,
         creditsRequired: cost,
         requestType: 'plano_acao_aee',
-        operationId,
+        operation: 'PLANO_AEE',
+        operationId: attempt.operationId,
         // Sprint IA-9: Edge monta contexto canônico via service_role
         studentId:          student.id,
         buildContextServer: true,
@@ -2854,6 +2858,7 @@ IMPORTANTE: substitua os textos de exemplo por ações reais e específicas para
 
     if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'json', content: JSON.stringify(plan).slice(0, 300) });
 
+    attempt.complete();
     return plan;
   },
 };

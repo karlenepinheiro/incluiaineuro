@@ -104,7 +104,7 @@ describe('Idempotência da geração (Seção 5)', () => {
     expect(aiService).toMatch(/generateIntelligentProfile\([\s\S]{0,140}operationId\?: string/);
     // cada callAIGateway com requestType dos 3 fluxos carrega operationId por perto
     expect(aiService).toMatch(/requestType: 'plano_acao',[\s\S]{0,40}operationId,/);
-    expect(aiService).toMatch(/requestType: 'plano_acao_aee',[\s\S]{0,40}operationId,/);
+    expect(aiService).toMatch(/requestType: 'plano_acao_aee',[\s\S]{0,80}operationId: attempt\.operationId,/);
     expect(aiService).toMatch(/requestType: 'perfil_inteligente',[\s\S]{0,40}operationId,/);
   });
 

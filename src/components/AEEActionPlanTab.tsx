@@ -387,7 +387,7 @@ const AEEPlanCard: React.FC<{
 
 // ── PrintModal ────────────────────────────────────────────────────────────────
 
-const AEEPrintModal: React.FC<{
+export const AEEPrintModal: React.FC<{
   plan: AEEActionPlanJSON;
   studentName: string;
   student: Student;
@@ -398,12 +398,15 @@ const AEEPrintModal: React.FC<{
   const periodLabel = PERIOD_CONFIG[plan.period]?.label ?? 'Mensal';
 
   const handlePrint = () => {
+    if (!ref.current) return;
     const win = window.open('', '_blank', 'width=900,height=700');
-    if (!win || !ref.current) return;
+    if (!win) { window.alert('Permita a abertura da janela para imprimir ou salvar o PDF.'); return; }
     win.document.write(`
       <html><head>
         <title>Plano de Ação AEE — ${studentName}</title>
         <style>
+          @page { size: A4; margin: 12mm; }
+          html { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
           * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; }
           body { background: #fff; color: #1f2937; font-size: 11px; padding: 20px 24px; }
           h1 { font-size: 17px; font-weight: 800; color: #0891B2; margin-bottom: 2px; }
@@ -425,7 +428,7 @@ const AEEPrintModal: React.FC<{
         </style>
       </head><body>
         ${ref.current.innerHTML}
-        <script>window.print(); window.close();</script>
+        <script>window.onload = async () => { await document.fonts.ready; window.print(); }; window.onafterprint = () => window.close();</script>
       </body></html>
     `);
     win.document.close();
@@ -631,6 +634,7 @@ export const AEEActionPlanTab: React.FC<AEEActionPlanTabProps> = ({ student, use
     setGenerating(true);
     try {
       const plan = await AIService.generateAEEActionPlan(student, user, period, paeeContent, 1, operationId);
+      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
       await persistPlan(plan);
     } catch (e: any) {
       setError(e?.message || 'Erro ao gerar plano AEE. Tente novamente.');

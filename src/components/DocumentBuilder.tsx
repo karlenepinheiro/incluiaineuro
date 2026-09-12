@@ -1,3 +1,4 @@
+import { DOCUMENT_TEMPLATE_UPLOAD_ENABLED } from '../config/features';
 import { creditCost } from '../../supabase/functions/_shared/creditCatalog';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -2829,7 +2830,8 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                     </div>
                   </button>
 
-                  {/* ── Upload de Documento ── */}
+                  {/* Infrastructure retained for future reactivation. */}
+                  {DOCUMENT_TEMPLATE_UPLOAD_ENABLED && <>
                   <label className="p-4 bg-white border border-dashed border-gray-300 rounded-xl hover:border-brand-400 hover:bg-gray-50 transition cursor-pointer flex items-center gap-4 text-left group">
                     <div className="shrink-0 w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center group-hover:bg-white transition">
                       <Upload size={20} className="text-gray-500"/>
@@ -2843,6 +2845,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                     {isUploading && <span className="text-brand-600 text-xs font-semibold mt-1 block animate-pulse">Analisando...</span>}
                   </label>
 
+                  </>}
                   {/* ── Usar Modelo Salvo (Premium) ── */}
                   {isPremiumUser ? (
                     <button

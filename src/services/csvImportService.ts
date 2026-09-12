@@ -1,3 +1,4 @@
+import { getStudentCompletionStatus } from './studentCompletionStatus';
 /**
  * csvImportService.ts
  * Serviço de importação de alunos por CSV.
@@ -768,6 +769,11 @@ export type BasicCompletionStatus = 'invalid' | 'valid_basic' | 'enriched';
 export type PedagogicalEnrichmentStatus = 'enriched' | 'partial' | 'empty';
 
 type StudentLike = {
+  age?: number | string;
+  shift?: string;
+  guardianEmail?: string;
+  isExternalStudent?: boolean;
+  externalSchoolName?: string;
   name?: string;
   birthDate?: string;
   grade?: string;
@@ -819,25 +825,14 @@ export function getStudentPedagogicalEnrichmentStatus(
 
 /**
  * Avalia o status de completude básica do cadastro do aluno.
- *   invalid     — sem nome ou <2 dados pessoais essenciais
- *   valid_basic — nome + ≥2 campos pessoais, perfil pedagógico pendente
+ *   invalid     — qualquer campo essencial ausente
+ *   valid_basic — todos os essenciais, perfil pedagógico pendente
  *   enriched    — valid_basic + ≥3 campos pedagógicos preenchidos
  */
 export function getStudentBasicCompletionStatus(
   student: StudentLike,
 ): BasicCompletionStatus {
-  if (!(student.name ?? '').trim()) return 'invalid';
-
-  const personalCount = [
-    student.birthDate,
-    student.grade,
-    student.schoolName || student.schoolId,
-    student.guardianName,
-    student.guardianPhone,
-  ].filter(v => (typeof v === 'string' ? v.trim().length > 0 : !!v)).length;
-
-  if (personalCount < 2) return 'invalid';
-
-  const pedagStatus = getStudentPedagogicalEnrichmentStatus(student);
-  return pedagStatus === 'enriched' ? 'enriched' : 'valid_basic';
+  const completion = getStudentCompletionStatus(student);
+  if (!completion.isComplete) return 'invalid';
+  return getStudentPedagogicalEnrichmentStatus(student) === 'enriched' ? 'enriched' : 'valid_basic';
 }

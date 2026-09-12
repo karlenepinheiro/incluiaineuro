@@ -1,12 +1,5 @@
-// components/fichas/PlanoAcaoExportRow.tsx
-// [FASE 2 · BLOCO B] Exportação dos Planos de Ação (Regente e AEE) —
-// PDF canônico (generateFromSections) + Word + Google Docs, TODOS a partir do
-// mesmo adaptador. Substitui a dependência de impressão de innerHTML para o
-// "Baixar PDF". "Imprimir" (HTML) segue separado, na tela.
-//
-// Regente e AEE são documentos DISTINTOS: o adaptador respeita a ordem e os
-// blocos próprios de cada um (ver documentModel/actionPlan.ts).
-
+// AEE PDF and print share the approved HTML preview. Word/Docs retain their adapters.
+// Regente exports are unchanged.
 import React, { useCallback } from 'react';
 import type { ActionPlanJSON, AEEActionPlanJSON, SchoolConfig, Student, User } from '../../types';
 import { generateDocumentCodeFromSeed } from '../../utils/documentCodes';
@@ -54,7 +47,12 @@ export const PlanoAcaoExportRow: React.FC<PlanoAcaoExportRowProps> = ({
     isolationKey: `plano:${variant}:${student.id}:${reg}`,
   });
 
-  return <DocumentExportActions {...exportActions} className={className} />;
+  return <div>
+    <DocumentExportActions {...exportActions}
+      {...(variant === 'aee' ? { onDownloadPdf: onPrint ?? (() => { throw new Error('Pré-visualização AEE indisponível'); }) } : {})}
+      className={className} />
+    {variant === 'aee' && <p className="text-xs text-gray-500 mt-1">Para salvar o PDF, escolha “Salvar como PDF” na janela de impressão.</p>}
+  </div>;
 };
 
 export default PlanoAcaoExportRow;

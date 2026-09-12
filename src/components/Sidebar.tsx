@@ -1,3 +1,4 @@
+import { DOCUMENT_TEMPLATE_UPLOAD_ENABLED } from '../config/features';
 import React, { useEffect, useState } from 'react';
 import {
   Users,
@@ -405,10 +406,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <NavItem viewId="protocols"      icon={FileText}      label="PEI" iconColor="#16A34A" />
               <NavItem viewId="documento_unificado" icon={FileText} label="Plano Unificado PAEE + PEI" title="Documento formal integrado para articular PAEE, PEI, apoios e acessibilidade curricular" iconColor="#0F766E" />
               <NavItem viewId="pdi"            icon={GraduationCap} label="PDI (opcional)"               title="Documento opcional para planejamento individual complementar" iconColor="#DB2777" />
-              {isPaid
+              {DOCUMENT_TEMPLATE_UPLOAD_ENABLED && (isPaid
                 ? <NavItem viewId="school_templates" icon={LayoutTemplate} label="Meus Modelos" iconColor="#C69214" />
                 : <LockedNavItemPro icon={LayoutTemplate} label="Meus Modelos" />
-              }
+              )}
               <NavItem viewId="printable_templates" icon={Printer} label="Modelos Imprimíveis" iconColor="#0D9488" />
 
               {/* Ferramentas IA */}

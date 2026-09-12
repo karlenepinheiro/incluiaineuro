@@ -275,7 +275,7 @@ export const StoredTemplateSelector: React.FC<StoredTemplateSelectorProps> = ({
                 {search ? 'Nenhum modelo encontrado para esta busca.' : `Nenhum modelo ${showAll ? '' : `de ${docType} `}salvo ainda.`}
               </p>
               <p style={{ margin: '6px 0 0', fontSize: 12 }}>
-                Vá até "Meus Modelos" para adicionar documentos à biblioteca.
+                Os modelos já salvos permanecem disponíveis nesta biblioteca.
               </p>
             </div>
           )}

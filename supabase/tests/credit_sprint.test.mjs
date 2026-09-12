@@ -105,6 +105,21 @@ await test('financial sprint integration',async t=>{
    await rpc('finish_ai_financial_job',['save-failure',j.attempt,{error:'save_failed'},false]);
    assert.equal(await bal(A),before);
   });
+  await t.test('PLANO_AEE: seven credits, failure net zero, same operation charged once', async () => {
+   const before = await bal(A);
+   const args = ['aee-regression', A, U, 'PLANO_AEE', 'same-input', 7];
+   let job = await rpc('begin_ai_financial_job', args);
+   assert.equal(await bal(A), before - 7);
+   await rpc('finish_ai_financial_job', [args[0], job.attempt, {error:'provider_failed'}, false]);
+   assert.equal(await bal(A), before);
+   job = await rpc('begin_ai_financial_job', args);
+   await rpc('finish_ai_financial_job', [args[0], job.attempt, {result:{nextStep:'AEE'}}, true]);
+   assert.equal(await bal(A), before - 7);
+   assert.equal((await rpc('begin_ai_financial_job', args)).state, 'cached');
+   const ledger = await db.query("SELECT amount FROM credits_ledger WHERE reservation_id=$1 AND type='usage_ai'", [job.reservation_id]);
+   assert.deepEqual(ledger.rows, [{amount:-7}]);
+   assert.equal(await bal(A), before - 7);
+  });
   await t.test('canonical amounts reserve and ledger; failure net zero; retry once; cached delivery',async()=>{
    for(const [code,cost] of Object.entries({ESTUDO_DE_CASO:3,PAEE:3,PEI:3,PDI:3,DOCUMENTO_UNICO_PAEE_PEI:5,PERFIL_INTELIGENTE:6,PLANO_REGENTE:6,PLANO_AEE:7,UPLOAD_MODELO:5,ANALISAR_MODELO_DOCX:5,INCLUILAB_ECONOMICO:2,INCLUILAB_VISUAL:8,INCLUILAB_PREMIUM:15})){
     const before=await bal(A); const args=[code,A,U,code,'hash',cost];

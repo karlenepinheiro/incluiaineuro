@@ -1,3 +1,4 @@
+import { StudentCompletionBadge } from '../components/StudentCompletionBadge';
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   Edit, Trash2, Search, Users, UserPlus,
@@ -8,7 +9,7 @@ import { Student, PlanTier, getPlanLimits, type User } from '../types';
 import { StudentCodeSearchModal } from '../components/StudentCodeSearchModal';
 import { StudentImportModal } from '../components/StudentImportModal';
 import { StudentsHeroBanner } from '../components/StudentsHeroBanner';
-import { getStudentBasicCompletionStatus } from '../services/csvImportService';
+import { getStudentCompletionStatus } from '../services/studentCompletionStatus';
 
 // ── TEA icon (Puzzle) ─────────────────────────────────────────────────────────
 const PuzzleIcon = (
@@ -211,8 +212,8 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
     if (filter === 'em_triagem')          return s.tipo_aluno === 'em_triagem';
     if (filter === 'com_laudo')           return s.tipo_aluno === 'com_laudo';
     if (filter === 'externo')             return s.isExternalStudent === true;
-    if (filter === 'incompleto')          return getStudentBasicCompletionStatus(s) === 'invalid';
-    if (filter === 'importado_incompleto') return s.importSource === 'csv' && getStudentBasicCompletionStatus(s) === 'invalid';
+    if (filter === 'incompleto')          return !getStudentCompletionStatus(s).isComplete;
+    if (filter === 'importado_incompleto') return s.importSource === 'csv' && !getStudentCompletionStatus(s).isComplete;
     return true;
   }), [students, search, filter]);
 
@@ -223,8 +224,8 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
     triagem:              students.filter(s => s.tipo_aluno === 'em_triagem').length,
     laudo:                students.filter(s => s.tipo_aluno === 'com_laudo').length,
     externo:              students.filter(s => s.isExternalStudent).length,
-    incompleto:           students.filter(s => getStudentBasicCompletionStatus(s) === 'invalid').length,
-    importado_incompleto: students.filter(s => s.importSource === 'csv' && getStudentBasicCompletionStatus(s) === 'invalid').length,
+    incompleto:           students.filter(s => !getStudentCompletionStatus(s).isComplete).length,
+    importado_incompleto: students.filter(s => s.importSource === 'csv' && !getStudentCompletionStatus(s).isComplete).length,
   }), [students]);
 
   const usagePct = maxStudents > 0 ? Math.min(100, (students.length / maxStudents) * 100) : 0;
@@ -473,21 +474,19 @@ export const StudentsListView: React.FC<StudentsListViewProps> = ({
 
 // ── Shared: student status flags ───────────────────────────────────────────────
 function studentStatus(s: Student) {
-  const basicStatus          = getStudentBasicCompletionStatus(s);
   const isTriagem            = s.tipo_aluno === 'em_triagem';
-  const isIncomplete         = basicStatus === 'invalid';
-  const isValidBasic         = basicStatus === 'valid_basic';
+  const isIncomplete         = !getStudentCompletionStatus(s).isComplete;
   const isImportedIncomplete = isIncomplete && s.importSource === 'csv';
   const accentColor = isImportedIncomplete ? '#7F1D1D'
     : isIncomplete  ? C.red
     : isTriagem     ? '#F59E0B'
-    : C.petrol;
+    : '#047857';
   const avatarBg = isImportedIncomplete
     ? 'linear-gradient(135deg,#7F1D1D,#B91C1C)'
     : isIncomplete
       ? `linear-gradient(135deg,${C.red},#F87171)`
-      : `linear-gradient(135deg,${isTriagem ? '#F59E0B' : C.petrol},${isTriagem ? '#FCD34D' : C.dark})`;
-  return { isTriagem, isIncomplete, isImportedIncomplete, isValidBasic, accentColor, avatarBg };
+      : `linear-gradient(135deg,#047857,#059669)`;
+  return { isTriagem, isIncomplete, isImportedIncomplete, accentColor, avatarBg };
 }
 
 // ── Shared: avatar ─────────────────────────────────────────────────────────────
@@ -539,21 +538,7 @@ function StatusBadges({ student: s }: { student: Student }) {
       </span>
     );
   }
-  if (isImportedIncomplete) {
-    badges.push(
-      <span key="csv" className="text-[10px] font-medium px-2 py-0.5 rounded-full flex items-center gap-0.5 whitespace-nowrap"
-        style={{ background: '#FEE2E2', color: '#7F1D1D', border: '1px solid #B91C1C40' }}>
-        <Upload size={9} /> CSV incompleto
-      </span>
-    );
-  } else if (isIncomplete) {
-    badges.push(
-      <span key="inc" className="text-[10px] font-medium px-2 py-0.5 rounded-full flex items-center gap-0.5 whitespace-nowrap"
-        style={{ background: C.redLight, color: C.red, border: `1px solid ${C.red}40` }}>
-        <AlertCircle size={9} /> Incompleto
-      </span>
-    );
-  }
+  badges.push(<StudentCompletionBadge key="completion" student={s} />);
 
   return <div className="flex flex-wrap gap-1">{badges}</div>;
 }

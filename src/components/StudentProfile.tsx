@@ -1,3 +1,4 @@
+import { StudentCompletionBadge } from './StudentCompletionBadge';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Student, Protocol, DocumentType, PlanTier, ServiceRecord, Appointment,
@@ -23,7 +24,7 @@ import {
   ObservationFormService, StudentProfileService, GeneratedActivityService,
 } from '../services/persistenceService';
 import { DEMO_MODE } from '../services/supabase';
-import { getStudentBasicCompletionStatus } from '../services/csvImportService';
+import { getStudentCompletionStatus } from '../services/studentCompletionStatus';
 import { formatDateBR, calculateAge } from '../utils/dateUtils';
 import { QuickDocModal, QuickDocType } from './QuickDocModal';
 import { FichaConfigModal, FichaConfig } from './FichaConfigModal';
@@ -1118,15 +1119,13 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
 
       {/* ── Hero Card ── */}
       {(() => {
-        const basicStatus          = getStudentBasicCompletionStatus(student);
-        const isIncomplete         = basicStatus === 'invalid';
-        const isValidBasic         = basicStatus === 'valid_basic';
+        const isIncomplete         = !getStudentCompletionStatus(student).isComplete;
         const isImportedIncomplete = isIncomplete && student.importSource === 'csv';
         const accentBar = isImportedIncomplete
           ? 'linear-gradient(90deg,#7F1D1D,#B91C1C,#DC2626)'
           : isIncomplete
             ? 'linear-gradient(90deg,#DC2626,#F87171)'
-            : 'linear-gradient(90deg,#1F4E5F,#2E3A59)';
+            : 'linear-gradient(90deg,#047857,#059669)';
         const cardBorder = isImportedIncomplete ? '#B91C1C60' : isIncomplete ? '#DC262660' : '#E5E7EB';
 
         return (
@@ -1199,61 +1198,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
           </div>
         </div>
 
-        {/* Banner de cadastro inválido — sem nome ou dados mínimos */}
-        {isIncomplete && (
-          <div
-            className="mx-6 mb-4 px-4 py-3 rounded-xl flex items-start gap-3 text-sm"
-            style={{
-              background: isImportedIncomplete ? '#FEE2E2' : '#FEF2F2',
-              border: `1px solid ${isImportedIncomplete ? '#B91C1C40' : '#DC262640'}`,
-            }}
-          >
-            <AlertCircle size={15} style={{ color: isImportedIncomplete ? '#7F1D1D' : '#DC2626', flexShrink: 0, marginTop: 1 }} />
-            <div>
-              <p className="font-bold" style={{ color: isImportedIncomplete ? '#7F1D1D' : '#DC2626' }}>
-                {isImportedIncomplete ? 'Cadastro importado via CSV — incompleto' : 'Cadastro incompleto'}
-              </p>
-              <p className="text-xs mt-0.5" style={{ color: isImportedIncomplete ? '#991B1B' : '#EF4444' }}>
-                {student.missingRequiredFields?.length
-                  ? `Campos faltantes: ${student.missingRequiredFields.join(', ')}. `
-                  : ''}
-                {isImportedIncomplete
-                  ? 'Complete os dados para liberar a ficha e os documentos institucionais.'
-                  : 'Complete o cadastro para liberar a ficha completa e os documentos.'}
-              </p>
-            </div>
-            <button
-              onClick={onEdit}
-              className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition"
-              style={{ background: isImportedIncomplete ? '#7F1D1D' : '#DC2626' }}
-            >
-              Completar
-            </button>
-          </div>
-        )}
-
-        {/* Banner de perfil pedagógico pendente — cadastro básico ok, sem vermelho */}
-        {isValidBasic && (
-          <div
-            className="mx-6 mb-4 px-4 py-3 rounded-xl flex items-start gap-3 text-sm"
-            style={{ background: '#FFFBEB', border: '1px solid #D9770640' }}
-          >
-            <Sparkles size={15} style={{ color: '#D97706', flexShrink: 0, marginTop: 1 }} />
-            <div>
-              <p className="font-bold" style={{ color: '#D97706' }}>Cadastro básico concluído</p>
-              <p className="text-xs mt-0.5" style={{ color: '#B45309' }}>
-                Para que a IA gere relatórios mais completos e personalizados, preencha também os dados pedagógicos, diagnósticos, barreiras, potencialidades e contexto familiar. Faça no seu tempo, professor(a).
-              </p>
-            </div>
-            <button
-              onClick={onEdit}
-              className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white transition"
-              style={{ background: '#D97706' }}
-            >
-              Enriquecer
-            </button>
-          </div>
-        )}
+        <div className="mx-6 mb-4"><StudentCompletionBadge student={student} /></div>
 
         {/* ── Potencialidades e Barreiras — parte do perfil-resumo do aluno ── */}
         {(student.abilities?.length > 0 || student.difficulties?.length > 0) && (
