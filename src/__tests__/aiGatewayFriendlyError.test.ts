@@ -149,18 +149,18 @@ describe('GARDA · C-1 (multipágina) e créditos permanecem intactos', () => {
 
   it('bloco multipágina do cea6ab8 permaneceu: validação antes da reserva + repasse ao provider', () => {
     const validateIdx = indexTs.indexOf('validateGatewayImages(rawImages)');
-    const reserveIdx = indexTs.indexOf('reserveCredits(adminDb');
+    const reserveIdx = indexTs.indexOf("adminDb.rpc('begin_ai_financial_job'");
     expect(validateIdx).toBeGreaterThan(0);
     expect(validateIdx).toBeLessThan(reserveIdx);
     expect(indexTs).toMatch(/generateGeminiJSON\(finalPrompt\.trim\(\),\s*img,\s*images,\s*pageNumbers\)/);
   });
 
   it('nenhuma função de crédito alterada: exatamente 1 reserve, 1 commit, releases derivados do operationId', () => {
-    expect(indexTs.match(/await reserveCredits\(adminDb/g) ?? []).toHaveLength(1);
-    expect(indexTs.match(/await commitReservedCredits\(adminDb/g) ?? []).toHaveLength(1);
-    expect(indexTs).toContain('`${baseOperationId}:reserve`');
-    expect(indexTs).toContain('`${baseOperationId}:commit`');
-    expect(indexTs).toContain('`${baseOperationId}:release`');
+    expect(indexTs.match(/adminDb.rpc\('begin_ai_financial_job'/g) ?? []).toHaveLength(1);
+    expect(indexTs.match(/await finish\(true,response\)/g) ?? []).toHaveLength(1);
+    expect(read('supabase/migrations/20260911000004_ai_financial_jobs.sql')).toContain("':reserve'");
+    expect(read('supabase/migrations/20260911000004_ai_financial_jobs.sql')).toContain("':commit'");
+    expect(read('supabase/migrations/20260911000004_ai_financial_jobs.sql')).toContain("':release'");
     expect(indexTs).not.toContain('expires_at');
   });
 

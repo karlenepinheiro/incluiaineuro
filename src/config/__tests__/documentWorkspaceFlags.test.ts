@@ -66,7 +66,7 @@ describe('shouldShowPaeeWorkspace (isolamento estrito do PAEE — Fase 1)', () =
 });
 
 describe('shouldShowFormalDocumentWorkspace (expansão das exportações — todos os documentos formais com Word canônico)', () => {
-  const FORMAIS = ['Estudo de Caso', 'PEI', 'PAEE', 'PDI', 'Documento Unificado PEI + PAEE'] as const;
+  const FORMAIS = ['Estudo de Caso', 'PEI', 'PAEE', 'PDI', 'DOCUMENTO ÚNICO PAEE + PEI'] as const;
 
   it('a lista canônica é exatamente os 5 documentos com renderer Word', () => {
     expect([...FORMAL_WORKSPACE_DOC_TYPES].sort()).toEqual([...FORMAIS].sort());

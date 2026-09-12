@@ -520,7 +520,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
   const studentProtocols = protocols.filter(p => p.studentId === student.id);
   const getProtocolDisplayLabel = (protocol: Protocol): string =>
     protocol.type === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE
-      ? 'Plano Unificado PAEE + PEI'
+      ? 'DOCUMENTO ÚNICO PAEE + PEI'
       : String(protocol.type);
 
 
@@ -560,7 +560,7 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
     { id: 'ESTUDO_CASO', label: 'Estudo de Caso', order: 1 },
     { id: 'PAEE', label: 'PAEE', order: 2 },
     { id: 'PEI', label: 'PEI', order: 3 },
-    { id: 'DOCUMENTO_UNIFICADO_PEI_PAEE', label: 'Plano Unificado PAEE + PEI', order: 4 },
+    { id: 'DOCUMENTO_UNIFICADO_PEI_PAEE', label: 'DOCUMENTO ÚNICO PAEE + PEI', order: 4 },
   ];
   const getBatchDocCost = (type: string): number => {
     if (type === 'ESTUDO_CASO' || type === 'ESTUDO_DE_CASO' || type === DocumentType.ESTUDO_CASO) return AI_CREDIT_COSTS.ESTUDO_DE_CASO;
@@ -3080,7 +3080,7 @@ ${['Comunica-se verbalmente','Usa gestos para comunicar','Usa recursos de CAA','
 
             {batchProgress.length === 0 ? (
               <>
-                <p className="text-sm text-gray-500 mb-4">Selecione os documentos a gerar para <strong>{student.name}</strong>. A ordem de geração é fixa: Estudo de Caso → PAEE → PEI → Plano Unificado PAEE + PEI.</p>
+                <p className="text-sm text-gray-500 mb-4">Selecione os documentos a gerar para <strong>{student.name}</strong>. A ordem de geração é fixa: Estudo de Caso → PAEE → PEI → DOCUMENTO ÚNICO PAEE + PEI.</p>
                 <div className="space-y-2 mb-5">
                   {BATCH_TYPES.map(t => (
                     <label key={t.id as string} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 cursor-pointer">

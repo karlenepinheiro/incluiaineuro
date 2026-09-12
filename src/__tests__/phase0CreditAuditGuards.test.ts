@@ -26,7 +26,6 @@ describe('FASE 0 — hotfixes C-1 e A-1 permanecem intactos', () => {
     'supabase/functions/ai-gateway/_vertex.ts',
     'supabase/functions/ai-gateway/_credits.ts',
     'supabase/functions/ai-gateway/_friendlyError.ts',
-    'src/services/aiService.ts',
   ];
 
   it.each(PROTECTED)('%s sem alterações na árvore de trabalho', (file) => {
@@ -34,21 +33,12 @@ describe('FASE 0 — hotfixes C-1 e A-1 permanecem intactos', () => {
     expect(diff.trim()).toBe('');
   });
 
-  it('index.ts só ganhou o cálculo de expiresAt técnico da reserva', () => {
-    const diff = execFileSync('git', ['diff', 'HEAD', '--', 'supabase/functions/ai-gateway/index.ts'], {
-      cwd: root, encoding: 'utf8',
-    });
-    const changed = diff
-      .split('\n')
-      .filter(l => (l.startsWith('+') || l.startsWith('-')) && !l.startsWith('+++') && !l.startsWith('---'));
-    expect(changed.length).toBeGreaterThan(0);
-    // toda linha alterada pertence ao bloco do expiresAt da reserva
-    const blockToken = /expiresAt|reserva|sweeper|deferCommit|comercial|Edge|Function|aba|Date\.now|toISOString|60 \* 1000|carimbo|Quando|null|\)\.|^.\s*\)\s*,?\s*$/i;
-    for (const line of changed) {
-      expect(line.replace(/^[+-]/, '')).toMatch(blockToken);
-    }
-    // nada ligado a C-1/A-1 ou às funções de crédito foi tocado
-    expect(diff).not.toMatch(/reserveCredits\(|commitReservedCredits\(|releaseReservedCredits\(|validateGatewayImages|friendlyError|generateGemini|multiPage/);
+  it('gateway mantém validação antes do job e cobra somente no servidor', () => {
+    const code=read('supabase/functions/ai-gateway/index.ts');
+    expect(code.indexOf('validateGatewayImages(rawImages)')).toBeLessThan(code.indexOf("adminDb.rpc('begin_ai_financial_job'"));
+    expect(code).toContain('serverCreditOperation(body)');
+    expect(code).not.toContain('Number(creditsRequired)');
+    expect(code).toContain('finish(true,response)');
   });
 });
 

@@ -1,3 +1,4 @@
+import { canonicalOperation, creditCost } from '../../supabase/functions/_shared/creditCatalog';
 /**
  * aiService.ts — Serviço de IA do IncluiAI (Sub-etapa 2A)
  *
@@ -372,36 +373,14 @@ export const AIService = {
   },
 
   // Mantido intacto para a 2A — será removido na 2B
-  async deductCredits(user: User, action: string | number, cost?: number, operationId?: string): Promise<void> {
-    if (!user?.tenant_id) return;
-    const resolvedAction = typeof action === 'string' ? action : 'IA';
-    const resolvedCost = typeof action === 'number' ? action : Number(cost ?? 0);
-    if (!(resolvedCost > 0)) return;
-    try {
-      const tenantId = (user as any).tenant_id;
-      const userId = (user as any).id ?? null;
-
-      await CreditTransactionService.atomicDebitCredits({
-        tenantId,
-        amount: resolvedCost,
-        description: `IA: ${resolvedAction}`,
-        userId,
-        operationId: operationId ?? CreditTransactionService.createOperationId(`ai_debit:${String(resolvedAction).toLowerCase()}`),
-        metadata: {
-          action: resolvedAction,
-          requested_by: 'AIService.deductCredits',
-        },
-        source: 'ai_service.deductCredits',
-      });
-    } catch (e) {
-      console.warn('[AIService] deductCredits unexpected error:', e);
-    }
+  async deductCredits(_user: User, _action: string | number, _cost?: number, _operationId?: string): Promise<void> {
+    throw new Error('Débito após geração desativado; use o gateway financeiro.');
   },
 
   // ── Protocolos ──────────────────────────────────────────────────────────────
 
   async generateProtocol(type: any, student: Student, user: User, laudo?: string): Promise<string> {
-    const cost = CREDIT_COSTS[type] || 1;
+    const cost = creditCost(type);
     if (!(await this.checkCredits(user, cost))) {
       throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
     }
@@ -418,14 +397,12 @@ ${GLOBAL_AI_GUARDRAILS}`;
     });
 
     // Guard anti-double-debit (2A): se servidor debitou, pula debit local
-    if (creditsRemaining === undefined) {
-      await this.deductCredits(user, type, cost);
-    }
+
     return result;
   },
 
   async generateProtocolJSON(type: any, student: Student, user: User, studentContext?: StudentContext): Promise<AIProtocolResult> {
-    const cost = CREDIT_COSTS[type] || 1;
+    const cost = creditCost(type);
     if (!(await this.checkCredits(user, cost))) {
       throw insufficientCreditsError(cost, await this.getCreditsBalance(user));
     }
@@ -478,8 +455,8 @@ IMPORTANTE: "Nome do aluno" refere-se APENAS ao estudante. "Responsável legal" 
     const isEstudoCaso   = typeUpper.includes('ESTUDO');
     const isPAEE         = typeUpper.includes('PAEE');
     const isPDI          = typeUpper.includes('PDI') && !typeUpper.includes('PLANO');
-    const isPlanoAcaoAEE = typeUpper.includes('PLANO_ACAO') || typeUpper.includes('PLANO_DE_ACAO');
-    const isDocumentoUnificadoPeiPaee =
+    const isPlanoAcaoAEE = canonicalOperation(type) === 'PLANO_AEE';
+    const isDocumentoUnificadoPeiPaee = canonicalOperation(type) === 'DOCUMENTO_UNICO_PAEE_PEI' ||
       typeUpper.includes('DOCUMENTO_UNIFICADO_PEI_PAEE') ||
       (typeUpper.includes('UNIFICADO') && typeUpper.includes('PEI') && typeUpper.includes('PAEE'));
 
@@ -1485,7 +1462,6 @@ Preencha os campos "value" somente com conteúdo sustentado por evidência nos d
       };
     }
 
-    if (!serverDebited) await this.deductCredits(user, type, cost);
     if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'json', content: jsonResult.slice(0, 500) });
     return { json: jsonResult, status: aiStatus, warning: aiWarning };
   },
@@ -1556,7 +1532,6 @@ Gere uma análise pedagógica. RETORNE SOMENTE o JSON válido:
     }
 
     // IA respondeu: debita créditos
-    if (!serverDebited) await this.deductCredits(user, 'ANALISE_DOCUMENTO', cost);
 
     try {
       return JSON.parse(gwResult!);
@@ -1676,7 +1651,6 @@ O bloco "Alinhamento BNCC" é OBRIGATÓRIO. Nunca invente código — use "Suger
       throw e;
     }
 
-    if (!serverDebited) await this.deductCredits(user, `ATIVIDADE:${modelCfg.id}`, cost);
     if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: modelCfg.output_type, content: textResult.slice(0, 500) });
     return textResult;
   },
@@ -1800,7 +1774,6 @@ RETORNE SOMENTE o JSON (sem markdown, sem explicações):
       throw new Error('O conteúdo gerado não atende ao formato pedagógico esperado. Tente novamente.');
     }
 
-    if (!serverDebited) await this.deductCredits(user, 'ATIVIDADE_ESTRUTURADA', cost);
     if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'text', content: raw.slice(0, 500) });
     return parsed as AtividadeJSON;
   },
@@ -1825,23 +1798,13 @@ Entregue em Markdown: 1) Objetivos pedagógicos 2) Como aplicar (passo a passo +
 
     // O custo total (ATIVIDADE_IMAGEM) é cobrado na chamada de imagem.
     // A chamada de guidance (texto) é auxiliar e não cobra créditos separados.
-    const [guidanceRes, imageRes] = await Promise.all([
-      callAIGateway({
-        task: 'text', prompt: guidancePrompt,
-        creditsRequired: 0,
-        requestType: 'activity_guidance',
-      }),
-      callAIGateway({
-        task: 'image', prompt: imagePrompt,
-        creditsRequired: cost,
-        requestType: 'activity_image',
-      }),
-    ]);
-
-    // Guard: só debita no frontend se o servidor não debitou (via chamada de imagem)
-    if (imageRes.creditsRemaining === undefined) {
-      await this.deductCredits(user, 'ATIVIDADE_IMAGEM', cost);
-    }
+    const delivery = await callAIGateway({task:'json',operation:'INCLUILAB_PREMIUM',
+      prompt: guidancePrompt + '\nRetorne JSON com guia_pedagogico (texto) e descricao_folha (texto).',
+      pipeline:{imagePrompt},
+    });
+    const bundle=JSON.parse(delivery.result);
+    const guidanceRes={result:typeof bundle.schema.guia_pedagogico==='string'?bundle.schema.guia_pedagogico:JSON.stringify(bundle.schema.guia_pedagogico)};
+    const imageRes={result:bundle.imageUrl};
 
     return { imageUrl: imageRes.result, guidance: guidanceRes.result };
   },
@@ -1868,7 +1831,6 @@ Retorne JSON com: resumo, achados (pedagógicos), recomendações (escolares), s
       requestType: 'analyze_uploaded_doc',
     });
 
-    if (creditsRemaining === undefined) await this.deductCredits(user, 'ANALISE_DOCUMENTO', cost);
     try { return JSON.parse(result); }
     catch { return { summary: result } as any; }
   },
@@ -1876,13 +1838,13 @@ Retorne JSON com: resumo, achados (pedagógicos), recomendações (escolares), s
   // ── Prompts genéricos ───────────────────────────────────────────────────────
   // Sem créditos obrigatórios — operações internas sem custo explícito por chamada
 
-  async generateFromPrompt(prompt: string, _user: User): Promise<string> {
-    const { result } = await callAIGateway({ task: 'json', prompt });
+  async generateFromPrompt(prompt: string, _user: User, operation = 'SUGESTAO_PEDAGOGICA'): Promise<string> {
+    const { result } = await callAIGateway({ task: 'json', prompt, operation });
     return result;
   },
 
-  async generateFromPromptWithImage(prompt: string, imageBase64: string, _user: User): Promise<string> {
-    const { result } = await callAIGateway({ task: 'text', prompt, imageBase64 });
+  async generateFromPromptWithImage(prompt: string, imageBase64: string, _user: User, operation = 'ANALISE_DOCUMENTO'): Promise<string> {
+    const { result } = await callAIGateway({ task: operation === 'UPLOAD_MODELO' ? 'json' : 'text', prompt, imageBase64, operation });
     return result;
   },
 
@@ -1896,7 +1858,7 @@ Retorne JSON com: resumo, achados (pedagógicos), recomendações (escolares), s
   },
 
   async generateTextFromPrompt(prompt: string, _user: User): Promise<string> {
-    const { result } = await callAIGateway({ task: 'text', prompt });
+    const { result } = await callAIGateway({ task: 'text', prompt, operation: 'SUGESTAO_PEDAGOGICA' });
     return result;
   },
 
@@ -1910,21 +1872,19 @@ Retorne JSON com: resumo, achados (pedagógicos), recomendações (escolares), s
 
     const { result, creditsRemaining } = await callAIGateway({
       task: 'image', prompt,
-      creditsRequired: skipDeduction ? 0 : cost,
+      operation: 'INCLUILAB_PREMIUM', creditsRequired: cost,
       requestType: 'incluilab_image',
     });
 
     // Guard: só debita localmente se o servidor não debitou e skipDeduction é falso
-    if (!skipDeduction && creditsRemaining === undefined) {
-      await this.deductCredits(user, 'INCLUILAB_IMAGE', cost);
-    }
+
     return result;
   },
 
   // ── OCR ─────────────────────────────────────────────────────────────────────
 
   async extractTextFromImage(base64: string, user: User): Promise<string> {
-    const cost = CREDIT_COSTS.OCR || 1;
+    const cost = creditCost('OCR');
     if (!(await this.checkCredits(user, cost))) throw insufficientCreditsError(cost);
 
     const prompt = `Extraia e transcreva TODO o texto visível nesta imagem, exatamente como aparece.
@@ -1937,7 +1897,6 @@ Retorne somente o texto extraído, sem comentários adicionais.`;
       requestType: 'ocr',
     });
 
-    if (creditsRemaining === undefined) await this.deductCredits(user, 'OCR', cost);
     return result;
   },
 
@@ -1963,7 +1922,6 @@ Retorne somente o texto extraído, sem comentários adicionais.`;
       requestType: `report_${modelCfg.id}`,
     });
 
-    if (creditsRemaining === undefined) await this.deductCredits(user, `RELATORIO:${modelCfg.id}`, cost);
     return result;
   },
 
@@ -1997,7 +1955,6 @@ Retorne SOMENTE a atividade adaptada, pronta para uso, em português brasileiro.
       requestType: 'adapt_activity',
     });
 
-    if (creditsRemaining === undefined) await this.deductCredits(user, 'ADAPTAR_ATIVIDADE', cost);
     return result;
   },
 
@@ -2293,7 +2250,6 @@ ESTRUTURA JSON OBRIGATÓRIA
       throw new Error('A IA retornou um formato inesperado. Tente novamente.');
     }
 
-    if (!serverDebited) await this.deductCredits(user, 'PERFIL_INTELIGENTE', cost);
     if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'json', content: JSON.stringify(parsed).slice(0, 500) });
 
     return parsed;
@@ -2629,7 +2585,6 @@ IMPORTANTE: substitua os textos de exemplo por ações reais e específicas para
       throw new Error('Resposta da IA em formato inválido. Tente novamente.');
     }
 
-    if (!serverDebited) await this.deductCredits(user, cost);
     if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'json', content: JSON.stringify(plan).slice(0, 300) });
 
     return plan;
@@ -2897,7 +2852,6 @@ IMPORTANTE: substitua os textos de exemplo por ações reais e específicas para
       throw new Error('Resposta da IA em formato inválido. Tente novamente.');
     }
 
-    if (!serverDebited) await this.deductCredits(user, cost);
     if (auditId) AiAuditService.completeRequest(auditId, { status: 'success', latencyMs: Date.now() - t0, outputType: 'json', content: JSON.stringify(plan).slice(0, 300) });
 
     return plan;

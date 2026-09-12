@@ -109,10 +109,10 @@ describe('Idempotência da geração (Seção 5)', () => {
   });
 
   it('Gateway já deriva reserve/commit/release do mesmo operationId base', () => {
-    expect(gatewayIndex).toContain(':reserve');
-    expect(gatewayIndex).toContain(':commit');
-    expect(gatewayIndex).toContain(':release');
-    expect(gatewayIndex).toMatch(/operationId\?\.trim\(\) \|\| crypto\.randomUUID\(\)/);
+    const jobs = read('supabase/migrations/20260911000004_ai_financial_jobs.sql');
+    for (const suffix of [':reserve', ':commit', ':release']) expect(jobs).toContain(suffix);
+    expect(gatewayIndex).toContain('begin_ai_financial_job');
+    expect(gatewayIndex).toContain('finish_ai_financial_job');
   });
 });
 
@@ -125,7 +125,7 @@ describe('Validação estrutural roda ANTES do commit do crédito (Seção 3)', 
     expect(sanitizeIdx).toBeGreaterThan(tryStart);
     expect(validateIdx).toBeGreaterThan(sanitizeIdx);
     // o commit acontece FORA/DEPOIS do bloco try onde a validação lança
-    expect(gatewayIndex.indexOf('creditsRemaining = await commitReservedCredits')).toBeGreaterThan(validateIdx);
+    expect(gatewayIndex.indexOf('finish(true,response)')).toBeGreaterThan(validateIdx);
   });
   it('index.ts: falha de validação lança UNUSABLE_RESULT (caminho de release já existente)', () => {
     expect(gatewayIndex).toMatch(/throw new Error\(\s*`UNUSABLE_RESULT/);

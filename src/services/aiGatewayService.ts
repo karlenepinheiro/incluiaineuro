@@ -1,3 +1,4 @@
+import { canonicalOperation } from '../../supabase/functions/_shared/creditCatalog';
 /**
  * aiGatewayService.ts — Cliente frontend para a Edge Function ai-gateway
  *
@@ -12,6 +13,8 @@ import { supabase } from './supabase';
 export type AITask = 'text' | 'json' | 'image' | 'document';
 
 export interface AIGatewayRequest {
+  operation?: string;
+  pipeline?: { analysisPrompt?: string; imagePrompt?: string };
   task:                AITask;
   prompt:              string;
   imageBase64?:        string;
@@ -75,6 +78,8 @@ export interface AIGatewayResponse {
 
 export async function callAIGateway(req: AIGatewayRequest): Promise<AIGatewayResponse> {
   let rawResponse: Response | undefined;
+  const operation = canonicalOperation(req.operation ?? req.requestType);
+  const canonical = {...req, operation};
 
   // supabase.functions.invoke não expõe o status HTTP diretamente.
   // Usamos fetch direto para ter acesso ao status e body em caso de erro.
@@ -84,6 +89,12 @@ export async function callAIGateway(req: AIGatewayRequest): Promise<AIGatewayRes
   const supabaseUrl = (supabase as any).supabaseUrl as string;
   const anonKey    = (supabase as any).supabaseKey as string;
 
+  const inputHash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({...canonical,operationId:undefined,creditsRequired:undefined})));
+  const retryKey='ai-retry:'+session?.user.id+':'+Array.from(new Uint8Array(inputHash),b=>b.toString(16).padStart(2,'0')).join('');
+  let retryId: string|null=null;
+  try {retryId=sessionStorage.getItem(retryKey);} catch {}
+  canonical.operationId=retryId??req.operationId??crypto.randomUUID();
+  try {sessionStorage.setItem(retryKey,canonical.operationId);} catch {}
   try {
     rawResponse = await fetch(`${supabaseUrl}/functions/v1/ai-gateway`, {
       method:  'POST',
@@ -92,7 +103,7 @@ export async function callAIGateway(req: AIGatewayRequest): Promise<AIGatewayRes
         'apikey':        anonKey,
         'Authorization': token ? `Bearer ${token}` : `Bearer ${anonKey}`,
       },
-      body: JSON.stringify(req),
+      body: JSON.stringify(canonical),
     });
   } catch (networkErr: any) {
     // Erro de rede (sem conexão, DNS, etc.)
@@ -132,6 +143,7 @@ export async function callAIGateway(req: AIGatewayRequest): Promise<AIGatewayRes
     ? body.result
     : JSON.stringify(body.result);
 
+  try {sessionStorage.removeItem(retryKey);} catch {}
   return {
     result,
     creditsRemaining:       body.creditsRemaining,

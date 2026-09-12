@@ -554,7 +554,7 @@ function isUnifiedPeiPaeeType(value: unknown): boolean {
     .replace(/^_+|_+$/g, '');
 
   return normalized === 'DOCUMENTO_UNIFICADO_PEI_PAEE'
-    || (normalized.includes('UNIFICADO') && normalized.includes('PEI') && normalized.includes('PAEE'));
+    || ((normalized.includes('UNIFICADO') || normalized.includes('UNICO')) && normalized.includes('PEI') && normalized.includes('PAEE'));
 }
 
 function normalizeSections(data: DocumentData | unknown): DocSection[] {

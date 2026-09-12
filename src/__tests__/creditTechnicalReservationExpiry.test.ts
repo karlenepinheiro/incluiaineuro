@@ -35,42 +35,16 @@ describe('FASE 0 / C-2 — _credits.reserveCredits repassa o expires_at recebido
   });
 });
 
-describe('FASE 0 / C-2 — ai-gateway/index.ts sempre reserva com validade técnica', () => {
-  const indexTs = read('supabase/functions/ai-gateway/index.ts');
-  const reserveBlock = indexTs.slice(
-    indexTs.indexOf('reserveCredits(adminDb'),
-    indexTs.indexOf('reservationId = reservation.reservationId'),
-  );
-
-  it('1 + 3. calcula expiresAt explícito e NUNCA passa null', () => {
-    expect(reserveBlock).toContain('expiresAt: new Date(');
-    expect(reserveBlock).toContain('.toISOString()');
-    // a linha do expiresAt não pode conter `null`
-    const expiresLine = reserveBlock
-      .split('\n')
-      .slice(
-        reserveBlock.split('\n').findIndex(l => l.includes('expiresAt:')),
-        reserveBlock.split('\n').findIndex(l => l.includes('expiresAt:')) + 4,
-      )
-      .join(' ');
-    expect(expiresLine).not.toMatch(/\bnull\b/);
+describe('gateway job reservation TTL',()=>{
+  const sql=read('supabase/migrations/20260911000004_ai_financial_jobs.sql');
+  it('always reserves with a server-owned 20 minute TTL',()=>{
+    expect(sql).toContain("p_expires_at=>now()+interval '20 minutes'");
+    expect(sql).toContain("reservation.expires_at>now()");
+    expect(sql).toContain("':timeout'");
   });
-
-  it('default técnico = 20 min; deferCommit = 30 min', () => {
-    expect(reserveBlock).toContain('(deferCommit ? 30 : 20) * 60 * 1000');
-  });
-
-  it('não confunde reserva técnica com validade comercial', () => {
-    expect(reserveBlock.toLowerCase()).toContain('não é');
-    expect(reserveBlock.toLowerCase()).toContain('comercial');
-  });
-
-  it('C-1/A-1 intactos: markers presentes, 1 reserve / 1 commit, sem "expires_at" snake', () => {
-    expect(indexTs).toContain("from './_friendlyError.ts'");
-    expect(indexTs).toContain("from './_imagesValidation.ts'");
-    expect(indexTs).toMatch(/_multiPageParts|multiPage/);
-    expect(indexTs.match(/await reserveCredits\(adminDb/g) ?? []).toHaveLength(1);
-    expect(indexTs.match(/await commitReservedCredits\(adminDb/g) ?? []).toHaveLength(1);
-    expect(indexTs).not.toContain('expires_at');
+  it('browser cannot defer settlement or change its amount',()=>{
+    const index=read('supabase/functions/ai-gateway/index.ts');
+    expect(index).toContain("if(deferCommit) return jsonError");
+    expect(index).toContain('const cost = financial.cost');
   });
 });

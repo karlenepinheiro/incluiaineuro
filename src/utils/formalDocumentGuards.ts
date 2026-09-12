@@ -60,7 +60,7 @@ export function normalizeFormalGuardDocType(type: unknown): FormalGuardDocKey | 
     .toUpperCase();
 
   if (!raw) return null;
-  if (raw.includes('UNIFICADO') && raw.includes('PEI') && raw.includes('PAEE')) return 'DOCUMENTO_UNIFICADO_PEI_PAEE';
+  if ((raw.includes('UNIFICADO') || raw.includes('UNICO')) && raw.includes('PEI') && raw.includes('PAEE')) return 'DOCUMENTO_UNIFICADO_PEI_PAEE';
   if (raw === 'DOCUMENTO UNIFICADO PEI PAEE') return 'DOCUMENTO_UNIFICADO_PEI_PAEE';
   if (raw.includes('ESTUDO') && raw.includes('CASO')) return 'ESTUDO_CASO';
   if (raw === 'ESTUDO DE CASO' || raw === 'ESTUDO CASO') return 'ESTUDO_CASO';

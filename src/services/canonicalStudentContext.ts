@@ -284,7 +284,7 @@ const CATEGORY_LABELS: Record<DocumentCategory, string> = {
   estudo_de_caso:     'Estudo de Caso',
   pei:                'PEI (Plano Educacional Individualizado)',
   paee:               'PAEE (Plano de AEE)',
-  documento_unificado_pei_paee: 'Documento Unificado PEI + PAEE',
+  documento_unificado_pei_paee: 'DOCUMENTO ÚNICO PAEE + PEI',
   pdi:                'PDI (Plano de Desenvolvimento Individual)',
   relatorio:          'Relatório',
   atividade_adaptada: 'Atividade Adaptada',
@@ -1368,7 +1368,7 @@ const DOC_PRIORITY_INSTRUCTIONS: Partial<Record<DocumentCategory, string>> = {
   pdi:
     'Baseie o PDI no Estudo de Caso, PEI, PAEE e Ficha do Aluno. O PDI deve integrar metas de desenvolvimento, indicadores e monitoramento; evolução, avanço, regressão ou manutenção só devem ser mencionados quando houver registros temporais comparáveis.',
   documento_unificado_pei_paee:
-    'Baseie o Documento Unificado PEI + PAEE prioritariamente no Estudo de Caso, PAEE e PEI. Sintetize e integre as fontes sem copiar integralmente. Use ficha do aluno, família registrada, laudos/documentos analisados, ficha cognitiva, observações e registros pedagógicos apenas como fontes secundárias. Perfil Inteligente, Planos de Ação e atividades geradas não devem ser base principal.',
+    'Baseie o DOCUMENTO ÚNICO PAEE + PEI prioritariamente no Estudo de Caso, PAEE e PEI. Sintetize e integre as fontes sem copiar integralmente. Use ficha do aluno, família registrada, laudos/documentos analisados, ficha cognitiva, observações e registros pedagógicos apenas como fontes secundárias. Perfil Inteligente, Planos de Ação e atividades geradas não devem ser base principal.',
   plano_acao_regente:
     'Baseie o Plano Regente prioritariamente no Estudo de Caso, PEI e PAEE quando existirem. Use o PAEE como fonte de acessibilidade, apoios e barreiras, sem transformar o documento em Plano AEE. Recursos e atividades só devem ser sugeridos quando houver relação com barreira, objetivo pedagógico, necessidade de acesso ou registro disponível.',
   plano_acao_aee:
@@ -2255,21 +2255,9 @@ export const CanonicalStudentContextService = {
       return { output: rawOutput, repaired: false, validation: initialValidation, audit };
     }
 
-    try {
-      const { callAIGateway } = await import('./aiGatewayService');
-      const repairPrompt = buildRepairPrompt(originalPrompt, rawOutput, initialValidation, ctx);
-      const { result } = await callAIGateway({ task: 'json', prompt: repairPrompt, creditsRequired: 0 });
-      const revalidation = validateAIOutput(result, docType, ctx);
-
-      audit.finalScore      = revalidation.score;
-      audit.finalIssues     = revalidation.issues;
-      audit.attempts        = 2;
-      audit.repairSucceeded = revalidation.valid;
-
-      return { output: result, repaired: true, validation: revalidation, audit };
-    } catch {
-      return { output: rawOutput, repaired: false, validation: initialValidation, audit };
-    }
+    // Validation after delivery is advisory. Provider repair belongs inside the paid
+    // server operation, never in an unpriced follow-up browser request.
+    return { output: rawOutput, repaired: false, validation: initialValidation, audit };
   },
 };
 
@@ -2277,7 +2265,7 @@ export const CanonicalStudentContextService = {
 
 export function mapDocTypeToCategory(type: string): DocumentCategory {
   const t = String(type).toUpperCase().replace(/\s+/g, '_').normalize('NFD').replace(/[̀-ͯ]/g, '');
-  if (t.includes('DOCUMENTO_UNIFICADO_PEI_PAEE') || (t.includes('UNIFICADO') && t.includes('PEI') && t.includes('PAEE'))) return 'documento_unificado_pei_paee';
+  if (t.includes('DOCUMENTO_UNIFICADO_PEI_PAEE') || ((t.includes('UNIFICADO') || t.includes('UNICO')) && t.includes('PEI') && t.includes('PAEE'))) return 'documento_unificado_pei_paee';
   if (t.includes('ESTUDO'))                                   return 'estudo_de_caso';
   if (t.includes('PEI'))                                      return 'pei';
   if (t.includes('PAEE'))                                     return 'paee';

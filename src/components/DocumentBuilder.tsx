@@ -1,3 +1,4 @@
+import { creditCost } from '../../supabase/functions/_shared/creditCatalog';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Plus, Trash2, Save, Printer, FileText, Sparkles, Edit3,
@@ -514,7 +515,7 @@ const DOC_CREDIT_COSTS: Record<string, number> = {
 };
 
 function CreditBadge({ type }: { type: string }) {
-  const cost = DOC_CREDIT_COSTS[type] ?? 2;
+  const cost = creditCost(type);
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -773,7 +774,7 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
   const isPremiumUser = ['MASTER', 'PREMIUM', 'INSTITUTIONAL'].includes(user.plan as string);
   const canExportWord = isWordExportSupported(type);
   const documentTitle = type === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE
-    ? 'Plano Unificado PAEE + PEI'
+    ? 'DOCUMENTO ÚNICO PAEE + PEI'
     : String(type);
   const getFormalSourceSnapshot = (): FormalSourceSnapshot => {
     const snapshot: FormalSourceSnapshot = { estudoCaso: false, paee: false, pei: false };
@@ -1986,7 +1987,7 @@ Regras obrigatórias:
 - Aluno: ${selectedStudent.name} | Diagnóstico: ${(selectedStudent.diagnosis || []).join(', ') || 'não informado'}
 - Idioma: português brasileiro formal`;
 
-                  sectionsJson = await AIService.generateFromPrompt(prompt, user);
+                  sectionsJson = await AIService.generateFromPrompt(prompt, user, 'UPLOAD_MODELO');
 
               } else {
                   // ── PDF / imagem: envia como base64 para Gemini Vision ──
@@ -2005,7 +2006,7 @@ RETORNE SOMENTE JSON:
 
 Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma: português.`;
 
-                  sectionsJson = await AIService.generateFromPromptWithImage(prompt, dataUrl, user);
+                  sectionsJson = await AIService.generateFromPromptWithImage(prompt, dataUrl, user, 'UPLOAD_MODELO');
               }
 
               // 3. Limpeza e parsing do JSON retornado pela IA
@@ -2270,7 +2271,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
   const showFormalWorkspace = shouldShowFormalDocumentWorkspace(DOCUMENT_WORKSPACE_ENABLED, type, isEditing);
   // Rótulo curto do documento para o painel lateral (nunca dados do aluno).
   const workspaceDocLabel =
-    type === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE ? 'Plano Unificado' : String(type);
+    type === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE ? 'DOCUMENTO ÚNICO PAEE + PEI' : String(type);
   // Espelha showFormalWorkspace para o chamador (App.tsx), que não tem
   // visibilidade sobre isEditing (estado interno deste componente). Usado somente
   // para liberar a largura do wrapper externo quando o workspace está realmente
@@ -2491,7 +2492,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
 
   const handleExportWord = async () => {
     if (!canExportWord) {
-      alert('Exportacao Word disponivel apenas para Estudo de Caso, PEI, PAEE, PDI e Plano Unificado PAEE + PEI.');
+      alert('Exportacao Word disponivel apenas para Estudo de Caso, PEI, PAEE, PDI e DOCUMENTO ÚNICO PAEE + PEI.');
       return;
     }
     if (!selectedStudent || sections.length === 0) {

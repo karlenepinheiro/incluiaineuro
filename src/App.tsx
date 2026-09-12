@@ -87,7 +87,7 @@ const getUnifiedPersistenceFields = (docType: DocumentType) =>
   docType === DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE
     ? {
         doc_type: 'DOCUMENTO_UNIFICADO_PEI_PAEE',
-        title: 'Plano Unificado PAEE + PEI',
+        title: 'DOCUMENTO ÚNICO PAEE + PEI',
       }
     : {};
 
@@ -102,7 +102,7 @@ const getFormalGeneratedPersistenceFields = (docType: DocumentType) => {
     case DocumentType.PDI:
       return { doc_type: 'PDI', title: 'PDI' };
     case DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE:
-      return { doc_type: 'DOCUMENTO_UNIFICADO_PEI_PAEE', title: 'Plano Unificado PAEE + PEI' };
+      return { doc_type: 'DOCUMENTO_UNIFICADO_PEI_PAEE', title: 'DOCUMENTO ÚNICO PAEE + PEI' };
     default:
       return null;
   }
@@ -367,7 +367,7 @@ const DocumentsHistoryView: React.FC<{
     [DocumentType.ESTUDO_CASO]:   'Estudo de Caso',
     [DocumentType.PAEE]:          'PAEE',
     [DocumentType.PEI]:           'PEI',
-    [DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE]: 'Plano Unificado PAEE + PEI',
+    [DocumentType.DOCUMENTO_UNIFICADO_PEI_PAEE]: 'DOCUMENTO ÚNICO PAEE + PEI',
     [DocumentType.PDI]:           'PDI',
     [DocumentType.PLANO_ACAO_AEE]:'Plano de Ação AEE',
   };

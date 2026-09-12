@@ -105,6 +105,8 @@ function mapDocTypeToUi(type: string): DocumentType {
       return DocumentType.PAEE;
     case 'PDI':
       return DocumentType.PDI;
+    case 'DOCUMENTO ÚNICO PAEE + PEI':
+    case 'DOCUMENTO UNICO PAEE + PEI':
     case 'DOCUMENTO_UNIFICADO_PEI_PAEE':
     case 'DOCUMENTO UNIFICADO PEI + PAEE':
     case 'DOCUMENTO UNIFICADO PAEE + PEI':
@@ -1433,6 +1435,8 @@ export const databaseService = {
       'PEI': 'PEI',
       'PAEE': 'PAEE',
       'PDI': 'PDI',
+      'DOCUMENTO ÚNICO PAEE + PEI': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
+      'DOCUMENTO UNICO PAEE + PEI': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
       'DOCUMENTO_UNIFICADO_PEI_PAEE': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
       'DOCUMENTO UNIFICADO PEI + PAEE': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
       'DOCUMENTO UNIFICADO PEI PAEE': 'DOCUMENTO_UNIFICADO_PEI_PAEE',
@@ -1602,34 +1606,10 @@ export const databaseService = {
       walletLastResetAt = undefined;
     }
 
-    // Se a wallet ainda não existe (conta nova) mas o plano dá créditos mensais,
-    // inicializa a wallet automaticamente para não bloquear o usuário.
     if (walletAvail === null) {
-      const planCredits = Number((planEff as any)?.ai_credits_per_month ?? (hardcodedLimits as any)?.ai_credits ?? 0);
-      if (planCredits > 0) {
-        try {
-          const { data: existingWallet } = await supabase
-            .from('credits_wallet')
-            .select('id')
-            .eq('tenant_id', tenantId)
-            .maybeSingle();
-
-          if (!existingWallet) {
-            // Cria wallet com saldo inicial do plano
-            await supabase.from('credits_wallet').insert({
-              tenant_id: tenantId,
-              balance: planCredits,
-            });
-            walletAvail = planCredits;
-          } else {
-            walletAvail = 0; // wallet existe mas balance era null — lê como 0
-          }
-        } catch {
-          walletAvail = planCredits; // falhou ao criar — usa créditos do plano como fallback de exibição
-        }
-      } else {
-        walletAvail = 0;
-      }
+      const { data, error } = await supabase.rpc('ensure_my_credit_wallet');
+      if (error || !data?.ok) throw error ?? new Error('Falha ao provisionar carteira.');
+      walletAvail = Number(data.balance);
     }
 
     // Créditos mensais do plano (lê do banco; fallback nos limites estáticos)
@@ -1780,40 +1760,8 @@ export const databaseService = {
   // =========================
   // CREDITS (debit + refresh)
   // =========================
-  async debitCredits(userId: string, cost: number, action: string): Promise<void> {
-    const tenantId = await getTenantIdForUser(userId);
-    try {
-      // credits_wallet.balance é a única coluna real (schema confirmado)
-      const { data: wallet } = await supabase
-        .from('credits_wallet')
-        .select('balance')
-        .eq('tenant_id', tenantId)
-        .maybeSingle();
-
-      if (wallet) {
-        const bal = Number((wallet as any)?.balance ?? 0);
-        const next = Math.max(0, bal - cost);
-        await supabase
-          .from('credits_wallet')
-          .update({ balance: next })
-          .eq('tenant_id', tenantId);
-      }
-
-      // Registrar no ledger de créditos
-      const { error: ledgerErr } = await supabase.from('credits_ledger').insert({
-        tenant_id:   tenantId,
-        user_id:     userId,
-        type:        'usage_ai',
-        amount:      -cost,
-        description: action,
-        source:      'app',
-      });
-      if (ledgerErr) {
-        console.warn('[databaseService.debitCredits] ledger insert falhou:', ledgerErr.message);
-      }
-    } catch (e) {
-      console.warn('[databaseService.debitCredits] erro (não crítico):', e);
-    }
+  async debitCredits(_userId: string, _cost: number, _action: string): Promise<void> {
+    throw new Error('Débito legado desativado. A operação de IA deve ser executada pelo gateway financeiro.');
   },
 
   async createPurchaseIntent(args: { tenantId: string; userId: string; planName: string }) {

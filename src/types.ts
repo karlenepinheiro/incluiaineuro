@@ -102,7 +102,7 @@ export enum DocumentType {
   PEI = 'PEI',
   PAEE = 'PAEE',
   PDI = 'PDI',
-  DOCUMENTO_UNIFICADO_PEI_PAEE = 'Documento Unificado PEI + PAEE',
+  DOCUMENTO_UNIFICADO_PEI_PAEE = 'DOCUMENTO ÚNICO PAEE + PEI',
   PLANO_ACAO_AEE = 'Plano de Ação AEE',
   FICHA = 'Ficha de Acompanhamento',
   ATIVIDADE = 'Atividade Adaptada',

@@ -1974,7 +1974,7 @@ Gere exatamente ${count} prompts em inglês para ilustrações pedagógicas incl
         // FIX: debita apenas as imagens que foram efetivamente geradas (sem double-billing)
         if (imagesGenerated > 0) {
           const totalImageCost = costPerImage * imagesGenerated;
-          await AIService.deductCredits(user, `ATIVAIAI_IMAGENS:${curFinal.model}:${imagesGenerated}`, totalImageCost);
+          // Cada imagem válida já foi confirmada pelo gateway.
         }
         step('composicao', 'done');
       }

@@ -79,7 +79,7 @@ export const FORMAL_WORKSPACE_DOC_TYPES: readonly string[] = [
   'PEI',
   'PAEE',
   'PDI',
-  'Documento Unificado PEI + PAEE',
+  'DOCUMENTO ÚNICO PAEE + PEI',
 ];
 
 /**

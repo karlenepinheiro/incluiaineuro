@@ -1,3 +1,4 @@
+import { creditCost } from '../../supabase/functions/_shared/creditCatalog';
 // IncluiLabView.tsx — IncluiLAB v5.0 Studio
 // Layout: Studio centralizado estilo Claude/Gemini — sem bolhas de chat
 
@@ -16,7 +17,6 @@ import {
 import { User, Student, ActivitySchema, ActivityVisualAsset } from '../types';
 import { AIService, friendlyAIError, cleanJsonString } from '../services/aiService';
 import { callAIGateway } from '../services/aiGatewayService';
-import { CreditTransactionService } from '../services/creditService';
 import { INCLUILAB_ACTIVITY_COSTS, CREDIT_INSUFFICIENT_MSG } from '../config/aiCosts';
 import { StudentContextService } from '../services/studentContextService';
 import { GeneratedActivityService } from '../services/persistenceService';
@@ -163,102 +163,6 @@ function exportActivityJson(activity: unknown, filename: string) {
 function downloadImage(dataUrl: string, filename = 'atividade.png') {
   const a = document.createElement('a');
   a.href = dataUrl; a.download = filename; a.click();
-}
-
-async function safeDeductCredits(user: User, action: string, cost: number) {
-  await (AIService as any).deductCredits(user, action, cost);
-  window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-}
-
-async function runReservedCreditFlow<T>(params: {
-  user: User;
-  amount: number;
-  actionKey: string;
-  description: string;
-  metadata?: Record<string, unknown>;
-  work: (reservationId: string, operationId: string) => Promise<T>;
-}): Promise<T> {
-  const tenantId = (params.user as any).tenant_id;
-  const userId = (params.user as any).id ?? null;
-  const operationId = CreditTransactionService.createOperationId(params.actionKey);
-
-  const reserve = await CreditTransactionService.atomicReserveCredits({
-    tenantId,
-    amount: params.amount,
-    description: params.description,
-    userId,
-    operationId,
-    metadata: params.metadata ?? {},
-    source: 'incluilab.reserve',
-  });
-
-  const reservationId = reserve.reservation_id;
-  if (!reservationId) throw new Error('Falha ao reservar créditos para a operação.');
-
-  try {
-    const result = await params.work(reservationId, operationId);
-    await CreditTransactionService.atomicCommitReservedCredits({
-      tenantId,
-      reservationId,
-      description: params.description,
-      userId,
-      operationId: `${operationId}:commit`,
-      metadata: params.metadata ?? {},
-      source: 'incluilab.commit',
-    });
-    window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: params.user.id } }));
-    return result;
-  } catch (error) {
-    try {
-      await CreditTransactionService.atomicReleaseReservedCredits({
-        tenantId,
-        reservationId,
-        description: `Falha em ${params.description}`,
-        userId,
-        operationId: `${operationId}:release`,
-        metadata: {
-          ...(params.metadata ?? {}),
-          failure_kind: 'multimodal_generation_failed',
-          error_message: error instanceof Error ? error.message : String(error),
-        },
-        source: 'incluilab.release',
-      });
-      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: params.user.id } }));
-    } catch (releaseError) {
-      console.error('[IncluiLAB] Falha ao liberar reserva de créditos:', releaseError);
-    }
-    throw error;
-  }
-}
-
-// Gera até `maxImages` imagens IA pequenas para os visualAssets do tipo placeholder.
-// Cobra `perImageCost` créditos por imagem bem-sucedida; falhas usam emoji/pictograma fallback sem cobrança.
-async function generateSmallImagesForAssets(
-  assets: ActivityVisualAsset[],
-  user: User,
-  perImageCost: number,
-  maxImages: number,
-): Promise<{ updatedAssets: ActivityVisualAsset[]; imagesGenerated: number }> {
-  const { ImageGenerationService } = await import('../services/imageGenerationService');
-  const tenantId = (user as any).tenant_id ?? user.id;
-  let imagesGenerated = 0;
-  const updatedAssets = assets.map(a => ({ ...a }));
-  const targets = updatedAssets.filter(a => a.type === 'placeholder').slice(0, maxImages);
-  for (const asset of targets) {
-    // Usa imagePrompt do JSON se disponível; caso contrário, monta prompt genérico
-    const imgPrompt = asset.imagePrompt
-      || `ilustracao educativa infantil premium, fundo branco, cores suaves, traco limpo, sem texto na imagem: ${asset.description || asset.title}`;
-    try {
-      const result = await ImageGenerationService.generate(imgPrompt, { tenantId, userId: user.id });
-      const idx = updatedAssets.findIndex(a => a.id === asset.id);
-      if (idx >= 0) updatedAssets[idx] = { ...updatedAssets[idx], url: result.base64DataUrl, type: 'image' };
-      await safeDeductCredits(user, 'INCLUILAB_VISUAL_IMAGE', perImageCost);
-      imagesGenerated++;
-    } catch {
-      // Imagem falhou — sem cobrança, renderer usa fallbackEmoji ou pictogramLibrary
-    }
-  }
-  return { updatedAssets, imagesGenerated };
 }
 
 function activitySchemaErrorMessage(err: unknown): string {
@@ -2317,432 +2221,40 @@ export const IncluiLabView: React.FC<IncluiLabViewProps> = ({
     }
   };
 
-  // ── 1. A4 Econômica (3 cr) — JSON + pictogramas/emoji, sem imagem IA ─────
-  async function generateA4Economica(topic: string) {
-    const cost = INCLUILAB_ACTIVITY_COSTS.A4_ECONOMICA;
-    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
-    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
+  // One server operation includes analysis, schema and image (when required).
+  async function generateServerActivity(mode: GenerationMode, topic: string, file?: AttachedFile, extras = '') {
+    const operationByMode = {
+      a4_economica:'INCLUILAB_ECONOMICO',a4_visual:'INCLUILAB_VISUAL',a4_premium:'INCLUILAB_PREMIUM',
+      adaptar_economico:'INCLUILAB_ADAPTAR_ECONOMICO',adaptar_visual:'INCLUILAB_ADAPTAR_VISUAL',adaptar_premium:'INCLUILAB_ADAPTAR_PREMIUM',
+    };
+    const operation=operationByMode[mode];
+    const visual=mode.includes('visual')||mode.includes('premium');
+    const adapting=mode.startsWith('adaptar');
     try {
-      const raw = await AIService.generateIncluiLabActivitySchema(buildPremiumActivityPrompt(topic, studentCtx), user);
-      const cleaned = cleanJsonString(raw);
-      let parsedForGuia: any = {};
-      try { parsedForGuia = JSON.parse(cleaned); } catch {}
-      const guiaText = extractGuiaText(parsedForGuia, topic);
-      const contentJson = normalizeIncluiLabActivity(cleaned, { title: topic, prompt: topic, grade: anoSerie });
-      await safeDeductCredits(user, 'INCLUILAB_A4_ECONOMICA', cost);
-      setResult({
-        id: uid(),
-        title: contentJson.title,
-        prompt: topic,
-        contentJson,
-        content: activityToJson(contentJson),
-        guiaText,
-        creditsUsed: cost,
-        mode: 'a4_economica',
+      const prompt=visual
+        ? adapting ? buildGuiaEConteudoAdaptarPrompt('{{analysis}}',targetType,anoSerie,studentCtx,studentName,extras)
+          : buildGuiaEConteudoPrompt(topic,targetType,anoSerie,studentCtx,studentName)
+        : adapting ? buildPremiumAdaptActivityPrompt('{{analysis}}',studentCtx,extras) : buildPremiumActivityPrompt(topic,studentCtx);
+      const delivery=await callAIGateway({task:'json',operation,prompt,imageBase64:file?.base64,
+        pipeline:{analysisPrompt:adapting?buildAdaptImagePrompt(studentCtx,extras):undefined,
+          imagePrompt:visual?buildOpenAIActivityImagePrompt(topic,targetType,anoSerie,studentCtx,studentName,'{{description}}',mode.includes('premium')?'premium':'visual'):undefined},
       });
-      setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
+      const bundle=JSON.parse(delivery.result);
+      const contentJson=normalizeIncluiLabActivity(visual
+        ? buildFallbackActivityContentFromVisualPayload(bundle.schema,topic,targetType,anoSerie)
+        : bundle.schema,{title:topic,prompt:topic,grade:anoSerie});
+      setResult({id:uid(),title:contentJson.title,prompt:extras||topic,contentJson,content:activityToJson(contentJson),
+        imageUrl:bundle.imageUrl,analysisText:bundle.analysisText,guiaText:extractGuiaText(bundle.schema,topic),creditsUsed:creditCost(operation),mode});
+      window.dispatchEvent(new CustomEvent('incluiai:credits-changed',{detail:{userId:user.id}}));
+      setLabState('result');setInputText('');setPendingFile(null);
+    }catch(err){setErrorMsg(activitySchemaErrorMessage(err));setLabState('idle');}
   }
-
-  // ── 2. A4 Visual (15 cr) — Guia Pedagógico (texto) + Folha do Aluno (imagem OpenAI) ─
-  async function generateA4Visual(topic: string) {
-    const cost = INCLUILAB_ACTIVITY_COSTS.A4_VISUAL_MAX;
-    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
-    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
-    const tenantId = (user as any).tenant_id;
-    const userId = (user as any).id ?? null;
-    const operationId = CreditTransactionService.createOperationId('incluilab_a4_visual');
-    let reservationId: string | undefined;
-    try {
-      // Passo 1: Gera guia pedagógico + descrição do conteúdo via Gemini
-      const reserve = await CreditTransactionService.atomicReserveCredits({
-        tenantId,
-        amount: cost,
-        description: 'IncluiLAB A4 Visual',
-        userId,
-        operationId,
-        metadata: { mode: 'a4_visual', topic, targetType, anoSerie },
-        source: 'incluilab.generateA4Visual',
-      });
-      reservationId = reserve.reservation_id;
-
-      const raw = await AIService.generateIncluiLabActivitySchema(
-        buildGuiaEConteudoPrompt(topic, targetType, anoSerie, studentCtx, studentName), user,
-      );
-      const parsed = safeParseGuiaJson(raw);
-
-      // Passo 2: Gera imagem A4 via ai-gateway Supabase (Vertex AI Imagen)
-      const { result: imageUrlVisual } = await callAIGateway({
-        task: 'image',
-        prompt: buildOpenAIActivityImagePrompt(topic, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'visual'),
-        creditsRequired: 0,
-        requestType: 'incluilab_activity_image',
-      });
-
-      // Só debita após ambos os passos com sucesso
-      await CreditTransactionService.atomicCommitReservedCredits({
-        tenantId,
-        reservationId: reservationId!,
-        description: 'IncluiLAB A4 Visual',
-        userId,
-        operationId: `${operationId}:commit`,
-        metadata: { mode: 'a4_visual', topic, targetType, anoSerie },
-        source: 'incluilab.generateA4Visual',
-      });
-      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-      const contentJson = normalizeIncluiLabActivity(
-        buildFallbackActivityContentFromVisualPayload(parsed, topic, targetType, anoSerie),
-        { title: topic },
-      );
-      setResult({
-        id: uid(),
-        title: contentJson.title,
-        prompt: topic,
-        contentJson,
-        content: activityToJson(contentJson),
-        imageUrl: imageUrlVisual,
-        guiaText: parsed.guia_pedagogico,
-        creditsUsed: cost,
-        mode: 'a4_visual',
-      });
-      setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) {
-      if (reservationId) {
-        try {
-          await CreditTransactionService.atomicReleaseReservedCredits({
-            tenantId,
-            reservationId,
-            description: 'Falha em IncluiLAB A4 Visual',
-            userId,
-            operationId: `${operationId}:release`,
-            metadata: {
-              mode: 'a4_visual',
-              topic,
-              failure_kind: 'multimodal_generation_failed',
-              error_message: err instanceof Error ? err.message : String(err),
-            },
-            source: 'incluilab.generateA4Visual',
-          });
-          window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-        } catch (releaseErr) {
-          console.error('[IncluiLAB] release A4 visual falhou:', releaseErr);
-        }
-      }
-      setErrorMsg(friendlyAIError(err)); setLabState('idle');
-    }
-  }
-
-  // ── 3. A4 Premium (50 cr) — Guia Pedagógico (texto) + Folha A4 premium (OpenAI) ─
-  async function generateA4Premium(topic: string) {
-    const cost = INCLUILAB_ACTIVITY_COSTS.A4_PREMIUM;
-    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
-    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
-    const tenantId = (user as any).tenant_id;
-    const userId = (user as any).id ?? null;
-    const operationId = CreditTransactionService.createOperationId('incluilab_a4_premium');
-    let reservationId: string | undefined;
-    try {
-      // Passo 1: Gera guia pedagógico + descrição do conteúdo via Gemini
-      const reserve = await CreditTransactionService.atomicReserveCredits({
-        tenantId,
-        amount: cost,
-        description: 'IncluiLAB A4 Premium',
-        userId,
-        operationId,
-        metadata: { mode: 'a4_premium', topic, targetType, anoSerie },
-        source: 'incluilab.generateA4Premium',
-      });
-      reservationId = reserve.reservation_id;
-
-      const raw = await AIService.generateIncluiLabActivitySchema(
-        buildGuiaEConteudoPrompt(topic, targetType, anoSerie, studentCtx, studentName), user,
-      );
-      const parsed = safeParseGuiaJson(raw);
-
-      // Passo 2: Gera imagem A4 premium via ai-gateway Supabase (Vertex AI Imagen)
-      const { result: imageUrlPremium } = await callAIGateway({
-        task: 'image',
-        prompt: buildOpenAIActivityImagePrompt(topic, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'premium'),
-        creditsRequired: 0,
-        requestType: 'incluilab_activity_image',
-      });
-
-      await CreditTransactionService.atomicCommitReservedCredits({
-        tenantId,
-        reservationId: reservationId!,
-        description: 'IncluiLAB A4 Premium',
-        userId,
-        operationId: `${operationId}:commit`,
-        metadata: { mode: 'a4_premium', topic, targetType, anoSerie },
-        source: 'incluilab.generateA4Premium',
-      });
-      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-      const contentJson = normalizeIncluiLabActivity(
-        buildFallbackActivityContentFromVisualPayload(parsed, topic, targetType, anoSerie),
-        { title: topic },
-      );
-      setResult({
-        id: uid(),
-        title: contentJson.title,
-        prompt: topic,
-        contentJson,
-        content: activityToJson(contentJson),
-        imageUrl: imageUrlPremium,
-        guiaText: parsed.guia_pedagogico,
-        creditsUsed: cost,
-        mode: 'a4_premium',
-      });
-      setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) {
-      if (reservationId) {
-        try {
-          await CreditTransactionService.atomicReleaseReservedCredits({
-            tenantId,
-            reservationId,
-            description: 'Falha em IncluiLAB A4 Premium',
-            userId,
-            operationId: `${operationId}:release`,
-            metadata: {
-              mode: 'a4_premium',
-              topic,
-              failure_kind: 'multimodal_generation_failed',
-              error_message: err instanceof Error ? err.message : String(err),
-            },
-            source: 'incluilab.generateA4Premium',
-          });
-          window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-        } catch (releaseErr) {
-          console.error('[IncluiLAB] release A4 premium falhou:', releaseErr);
-        }
-      }
-      setErrorMsg(friendlyAIError(err)); setLabState('idle');
-    }
-  }
-
-  // ── 4. Adaptar — Econômico (5 cr) — analisa + JSON, sem imagem IA ────────
-  async function generateAdaptarEconomico(file: AttachedFile, extraInstructions: string) {
-    const cost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_ECONOMICO;
-    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
-    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
-    try {
-      const analysisText = await AIService.generateFromPromptWithImage(buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user);
-      const raw = await AIService.generateIncluiLabActivitySchema(buildPremiumAdaptActivityPrompt(analysisText, studentCtx, extraInstructions), user);
-      const cleanedAdapt = cleanJsonString(raw);
-      let parsedAdaptForGuia: any = {};
-      try { parsedAdaptForGuia = JSON.parse(cleanedAdapt); } catch {}
-      const guiaTextAdapt = extractGuiaText(parsedAdaptForGuia, extraInstructions || file.name);
-      const contentJson = normalizeIncluiLabActivity(cleanedAdapt, { title: `Atividade Adaptada: ${file.name}`, prompt: extraInstructions, grade: anoSerie });
-      await safeDeductCredits(user, 'INCLUILAB_ADAPTAR_ECONOMICO', cost);
-      setResult({
-        id: uid(),
-        title: contentJson.title,
-        prompt: extraInstructions,
-        contentJson,
-        content: activityToJson(contentJson),
-        analysisText,
-        guiaText: guiaTextAdapt,
-        creditsUsed: cost,
-        mode: 'adaptar_economico',
-      });
-      setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) { setErrorMsg(activitySchemaErrorMessage(err)); setLabState('idle'); }
-  }
-
-  // ── 5. Adaptar — Visual (20 cr) — analisa + Guia (texto) + Folha A4 (OpenAI) ─
-  async function generateAdaptarVisual(file: AttachedFile, extraInstructions: string) {
-    const cost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_VISUAL_MAX;
-    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
-    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
-    const tenantId = (user as any).tenant_id;
-    const userId = (user as any).id ?? null;
-    const operationId = CreditTransactionService.createOperationId('incluilab_adaptar_visual');
-    let reservationId: string | undefined;
-    try {
-      // Passo 1: Análise da atividade original via Gemini (visão)
-      const reserve = await CreditTransactionService.atomicReserveCredits({
-        tenantId,
-        amount: cost,
-        description: 'IncluiLAB Adaptar Visual',
-        userId,
-        operationId,
-        metadata: { mode: 'adaptar_visual', fileName: file.name, targetType, anoSerie },
-        source: 'incluilab.generateAdaptarVisual',
-      });
-      reservationId = reserve.reservation_id;
-
-      const analysisText = await AIService.generateFromPromptWithImage(
-        buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user,
-      );
-
-      // Passo 2: Gera guia pedagógico + descrição do conteúdo adaptado via Gemini
-      const rawJson = await AIService.generateIncluiLabActivitySchema(
-        buildGuiaEConteudoAdaptarPrompt(analysisText, targetType, anoSerie, studentCtx, studentName, extraInstructions), user,
-      );
-      const parsed = safeParseGuiaJson(rawJson);
-
-      // Passo 3: Gera imagem A4 via ai-gateway Supabase (Vertex AI Imagen)
-      const { result: imageUrlAdaptVisual } = await callAIGateway({
-        task: 'image',
-        prompt: buildOpenAIActivityImagePrompt(
-          parsed.titulo_atividade || file.name, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'visual',
-        ),
-        creditsRequired: 0,
-        requestType: 'incluilab_activity_image',
-      });
-
-      await CreditTransactionService.atomicCommitReservedCredits({
-        tenantId,
-        reservationId: reservationId!,
-        description: 'IncluiLAB Adaptar Visual',
-        userId,
-        operationId: `${operationId}:commit`,
-        metadata: { mode: 'adaptar_visual', fileName: file.name, targetType, anoSerie },
-        source: 'incluilab.generateAdaptarVisual',
-      });
-      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-      const contentJson = normalizeIncluiLabActivity(
-        buildFallbackActivityContentFromVisualPayload(
-          { ...parsed, titulo_atividade: parsed.titulo_atividade || `Atividade Adaptada: ${file.name}`, descricao_folha: parsed.descricao_folha || analysisText },
-          file.name, targetType, anoSerie,
-        ),
-        { title: file.name },
-      );
-      setResult({
-        id: uid(),
-        title: contentJson.title,
-        prompt: extraInstructions,
-        contentJson,
-        content: activityToJson(contentJson),
-        imageUrl: imageUrlAdaptVisual,
-        guiaText: parsed.guia_pedagogico,
-        analysisText,
-        creditsUsed: cost,
-        mode: 'adaptar_visual',
-      });
-      setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) {
-      if (reservationId) {
-        try {
-          await CreditTransactionService.atomicReleaseReservedCredits({
-            tenantId,
-            reservationId,
-            description: 'Falha em IncluiLAB Adaptar Visual',
-            userId,
-            operationId: `${operationId}:release`,
-            metadata: {
-              mode: 'adaptar_visual',
-              fileName: file.name,
-              failure_kind: 'multimodal_generation_failed',
-              error_message: err instanceof Error ? err.message : String(err),
-            },
-            source: 'incluilab.generateAdaptarVisual',
-          });
-          window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-        } catch (releaseErr) {
-          console.error('[IncluiLAB] release adaptar visual falhou:', releaseErr);
-        }
-      }
-      setErrorMsg(friendlyAIError(err)); setLabState('idle');
-    }
-  }
-
-  // ── 6. Adaptar — Premium (50 cr) — analisa + Guia (texto) + Folha A4 premium (OpenAI) ─
-  async function generateAdaptarPremium(file: AttachedFile, extraInstructions: string) {
-    const cost = INCLUILAB_ACTIVITY_COSTS.ADAPTAR_PREMIUM;
-    const hasCredits = creditsAvailable !== undefined ? creditsAvailable >= cost : await AIService.checkCredits(user, cost);
-    if (!hasCredits) { setErrorMsg(CREDIT_INSUFFICIENT_MSG); setLabState('idle'); return; }
-    const tenantId = (user as any).tenant_id;
-    const userId = (user as any).id ?? null;
-    const operationId = CreditTransactionService.createOperationId('incluilab_adaptar_premium');
-    let reservationId: string | undefined;
-    try {
-      // Passo 1: Análise da atividade original
-      const reserve = await CreditTransactionService.atomicReserveCredits({
-        tenantId,
-        amount: cost,
-        description: 'IncluiLAB Adaptar Premium',
-        userId,
-        operationId,
-        metadata: { mode: 'adaptar_premium', fileName: file.name, targetType, anoSerie },
-        source: 'incluilab.generateAdaptarPremium',
-      });
-      reservationId = reserve.reservation_id;
-
-      const analysisText = await AIService.generateFromPromptWithImage(
-        buildAdaptImagePrompt(studentCtx, extraInstructions), file.base64, user,
-      );
-
-      // Passo 2: Gera guia + descrição do conteúdo
-      const rawJson = await AIService.generateIncluiLabActivitySchema(
-        buildGuiaEConteudoAdaptarPrompt(analysisText, targetType, anoSerie, studentCtx, studentName, extraInstructions), user,
-      );
-      const parsed = safeParseGuiaJson(rawJson);
-
-      // Passo 3: Gera imagem A4 premium via ai-gateway Supabase (Vertex AI Imagen)
-      const { result: imageUrlAdaptPremium } = await callAIGateway({
-        task: 'image',
-        prompt: buildOpenAIActivityImagePrompt(
-          parsed.titulo_atividade || file.name, targetType, anoSerie, studentCtx, studentName, parsed.descricao_folha, 'premium',
-        ),
-        creditsRequired: 0,
-        requestType: 'incluilab_activity_image',
-      });
-
-      await CreditTransactionService.atomicCommitReservedCredits({
-        tenantId,
-        reservationId: reservationId!,
-        description: 'IncluiLAB Adaptar Premium',
-        userId,
-        operationId: `${operationId}:commit`,
-        metadata: { mode: 'adaptar_premium', fileName: file.name, targetType, anoSerie },
-        source: 'incluilab.generateAdaptarPremium',
-      });
-      window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-      const contentJson = normalizeIncluiLabActivity(
-        buildFallbackActivityContentFromVisualPayload(
-          { ...parsed, titulo_atividade: parsed.titulo_atividade || `Atividade Adaptada Premium: ${file.name}`, descricao_folha: parsed.descricao_folha || analysisText },
-          file.name, targetType, anoSerie,
-        ),
-        { title: file.name },
-      );
-      setResult({
-        id: uid(),
-        title: contentJson.title,
-        prompt: extraInstructions,
-        contentJson,
-        content: activityToJson(contentJson),
-        imageUrl: imageUrlAdaptPremium,
-        guiaText: parsed.guia_pedagogico,
-        analysisText,
-        creditsUsed: cost,
-        mode: 'adaptar_premium',
-      });
-      setLabState('result'); setInputText(''); setPendingFile(null);
-    } catch (err: any) {
-      if (reservationId) {
-        try {
-          await CreditTransactionService.atomicReleaseReservedCredits({
-            tenantId,
-            reservationId,
-            description: 'Falha em IncluiLAB Adaptar Premium',
-            userId,
-            operationId: `${operationId}:release`,
-            metadata: {
-              mode: 'adaptar_premium',
-              fileName: file.name,
-              failure_kind: 'multimodal_generation_failed',
-              error_message: err instanceof Error ? err.message : String(err),
-            },
-            source: 'incluilab.generateAdaptarPremium',
-          });
-          window.dispatchEvent(new CustomEvent('incluiai:credits-changed', { detail: { userId: user.id } }));
-        } catch (releaseErr) {
-          console.error('[IncluiLAB] release adaptar premium falhou:', releaseErr);
-        }
-      }
-      setErrorMsg(friendlyAIError(err)); setLabState('idle');
-    }
-  }
+  const generateA4Economica=(topic:string)=>generateServerActivity('a4_economica',topic);
+  const generateA4Visual=(topic:string)=>generateServerActivity('a4_visual',topic);
+  const generateA4Premium=(topic:string)=>generateServerActivity('a4_premium',topic);
+  const generateAdaptarEconomico=(file:AttachedFile,extras:string)=>generateServerActivity('adaptar_economico',file.name,file,extras);
+  const generateAdaptarVisual=(file:AttachedFile,extras:string)=>generateServerActivity('adaptar_visual',file.name,file,extras);
+  const generateAdaptarPremium=(file:AttachedFile,extras:string)=>generateServerActivity('adaptar_premium',file.name,file,extras);
 
   // ── Salvar resultado ──────────────────────────────────────────────────────
   const handleSave = async () => {

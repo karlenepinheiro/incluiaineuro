@@ -37,7 +37,7 @@ describe('C-1 · index.ts aceita e repassa images[] / pageNumbers[]', () => {
 
   it('valida images ANTES de reservar crédito (falha cedo, 400, sem custo)', () => {
     const validateIdx = indexTs.indexOf('validateGatewayImages(rawImages)');
-    const reserveIdx = indexTs.indexOf('reserveCredits(adminDb');
+    const reserveIdx = indexTs.indexOf("adminDb.rpc('begin_ai_financial_job'");
     const providerIdx = indexTs.indexOf('generateGeminiJSON(');
     expect(validateIdx).toBeGreaterThan(0);
     expect(validateIdx).toBeLessThan(reserveIdx);
@@ -87,7 +87,7 @@ describe('C-1 · frontend JÁ envia os campos (nenhuma mudança de frontend nece
   it('aiGatewayService declara images[] e pageNumbers[] e serializa o req inteiro', () => {
     expect(gatewayService).toMatch(/images\?:\s*string\[\]/);
     expect(gatewayService).toMatch(/pageNumbers\?:\s*number\[\]/);
-    expect(gatewayService).toMatch(/body:\s*JSON\.stringify\(req\)/);
+    expect(gatewayService).toMatch(/body:\s*JSON\.stringify\(canonical\)/);
   });
 
   it('studentDocumentImportService envia images + pageNumbers na importação visual', () => {
@@ -102,12 +102,12 @@ describe('C-1 · frontend JÁ envia os campos (nenhuma mudança de frontend nece
 
 describe('I/J · fluxo de créditos NÃO foi tocado — uma importação é UMA operação', () => {
   it('exatamente uma reserva, um commit e o mesmo operationId base derivando reserve/commit/release', () => {
-    expect(indexTs.match(/await reserveCredits\(adminDb/g) ?? []).toHaveLength(1);
-    expect(indexTs.match(/await commitReservedCredits\(adminDb/g) ?? []).toHaveLength(1);
-    expect(indexTs).toMatch(/operationId\?\.trim\(\) \|\| crypto\.randomUUID\(\)/);
-    expect(indexTs).toContain('`${baseOperationId}:reserve`');
-    expect(indexTs).toContain('`${baseOperationId}:commit`');
-    expect(indexTs).toContain('`${baseOperationId}:release`');
+    expect(indexTs.match(/adminDb.rpc\('begin_ai_financial_job'/g) ?? []).toHaveLength(1);
+    expect(indexTs.match(/await finish\(true,response\)/g) ?? []).toHaveLength(1);
+    expect(indexTs).toContain('Stable operationId required');
+    expect(read('supabase/migrations/20260911000004_ai_financial_jobs.sql')).toContain("':reserve'");
+    expect(read('supabase/migrations/20260911000004_ai_financial_jobs.sql')).toContain("':commit'");
+    expect(read('supabase/migrations/20260911000004_ai_financial_jobs.sql')).toContain("':release'");
   });
 
   it('não existe reserva/commit por página (nenhuma reserva dentro de um loop de images)', () => {
@@ -117,7 +117,7 @@ describe('I/J · fluxo de créditos NÃO foi tocado — uma importação é UMA 
 
   it('a validação estrutural continua ANTES do commit (release já existente)', () => {
     const validateIdx = indexTs.indexOf('validateStructuredResult(parsedDocument');
-    const commitIdx = indexTs.indexOf('creditsRemaining = await commitReservedCredits');
+    const commitIdx = indexTs.indexOf('await finish(true,response)');
     expect(validateIdx).toBeGreaterThan(0);
     expect(commitIdx).toBeGreaterThan(validateIdx);
   });

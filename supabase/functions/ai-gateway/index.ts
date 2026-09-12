@@ -1,3 +1,6 @@
+import { serverCreditOperation } from '../_shared/creditCatalog.ts';
+import { runLabPipeline, type LabPipeline } from './_pipeline.ts';
+import { financialValidationKey, validateFinancialDelivery } from './_financialValidation.ts';
 /**
  * Edge Function: ai-gateway
  * Fluxo financeiro novo:
@@ -48,6 +51,8 @@ const CORS_HEADERS = {
 };
 
 interface GatewayPayload {
+  operation?: string;
+  pipeline?: LabPipeline;
   task: 'text' | 'json' | 'image' | 'document';
   prompt: string;
   imageBase64?: string;
@@ -198,8 +203,20 @@ Deno.serve(async (req: Request) => {
   }
   const pageNumbers = pageNumbersValidation.pageNumbers;
 
-  const cost = Number(creditsRequired) || 0;
-  const baseOperationId = operationId?.trim() || crypto.randomUUID();
+  let financial: ReturnType<typeof serverCreditOperation>;
+  try { financial = serverCreditOperation(body); } catch (e) { return jsonError((e as Error).message,400); }
+  if(deferCommit) return jsonError('Client-controlled credit completion is disabled',400);
+  if(!operationId?.trim() || operationId.length>160) return jsonError('Stable operationId required',400);
+  const cost = financial.cost;
+  const baseOperationId = tenantId + ':' + operationId.trim();
+  if(body.pipeline && (!financial.code.startsWith('INCLUILAB_') || task!=='json'))return jsonError('Invalid pipeline',400);
+  for(const value of [body.pipeline?.analysisPrompt,body.pipeline?.imagePrompt]) {
+    if(value !== undefined && (typeof value!=='string'||value.length>32000))return jsonError('Invalid pipeline prompt',400);
+  }
+  const canonicalInput = { ...body, operation: financial.code, creditsRequired: undefined, operationId: undefined, deferCommit: undefined };
+  const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(canonicalInput)));
+  const fingerprint = Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
+  let jobAttempt: number;
 
   let auditId: string | null = null;
   if (requestType) {
@@ -273,55 +290,19 @@ Deno.serve(async (req: Request) => {
   }
 
   let reservationId: string | null = null;
-  if (cost > 0) {
-    try {
-      const reservation = await reserveCredits(adminDb, {
-        operationId: `${baseOperationId}:reserve`,
-        tenantId,
-        userId,
-        amount: cost,
-        description: `IA: ${requestType ?? task}`,
-        requestType,
-        task,
-        // Validade TÉCNICA da reserva temporária da operação de IA — NÃO é validade
-        // comercial de crédito. Toda reserva nasce com este carimbo preenchido para que
-        // o sweeper (expire_stale_credit_reservations) recupere o crédito caso a Edge
-        // Function seja interrompida ou o frontend feche a aba. Nunca enviar null aqui.
-        // deferCommit aguarda confirmação do frontend → 30 min; demais fluxos → 20 min.
-        expiresAt: new Date(
-          Date.now() + (deferCommit ? 30 : 20) * 60 * 1000,
-        ).toISOString(),
-        metadata: {
-          audit_id: auditId,
-          student_id: studentId ?? null,
-          document_type: documentType ?? null,
-          target_doc_type: targetDocType || null,
-          defer_commit: deferCommit,
-        },
-      });
-      reservationId = reservation.reservationId;
-    } catch (e: unknown) {
-      const msg = (e as Error)?.message ?? '';
-      if (msg.startsWith('INSUFFICIENT_CREDITS:')) {
-        const [, balance, required] = msg.split(':');
-        return jsonError(
-          `Creditos insuficientes. Saldo atual: ${balance} credito(s). Necessario: ${required}.`,
-          402,
-        );
-      }
-
-      if (auditId) {
-        await completeAuditRecord(adminDb, auditId, {
-          status: 'failed',
-          latencyMs: 0,
-          content: `reserve_failed:${msg}`.slice(0, 500),
-        });
-      }
-
-      console.error('[ai-gateway] reserveCredits failed:', msg);
-      return jsonError('Nao foi possivel reservar creditos para esta operacao.', 500);
-    }
-  }
+  const { data: job, error: jobError } = await adminDb.rpc('begin_ai_financial_job', {
+    p_id: baseOperationId,p_tenant_id:tenantId,p_user_id:userId,p_operation:financial.code,p_fingerprint:fingerprint,p_amount:cost,
+  });
+  if(jobError) return jsonError('Nao foi possivel iniciar a operacao financeira.',409);
+  if(job.state==='cached') return jsonOk(job.response);
+  if(job.state==='busy') return jsonError('Operacao em andamento; repita com o mesmo identificador.',409);
+  if(job.state==='denied') return jsonError('Creditos insuficientes.',402);
+  reservationId=job.reservation_id; jobAttempt=job.attempt;
+  const finish = async (success: boolean, response: unknown) => {
+    const {data,error}=await adminDb.rpc('finish_ai_financial_job',{p_id:baseOperationId,p_attempt:jobAttempt,p_success:success,p_response:response});
+    if(error) throw error;
+    return data;
+  };
 
   const t0 = Date.now();
   let result: string;
@@ -330,6 +311,11 @@ Deno.serve(async (req: Request) => {
 
   try {
     const aiCall = async () => {
+      if(body.pipeline) {
+        return JSON.stringify(await runLabPipeline(financial.code,finalPrompt,imageBase64,body.pipeline,{
+          text:generateGeminiText,json:generateGeminiJSON,image:generateVertexImage,
+        },validateAndRepair));
+      }
       if (task === 'image') {
         return await generateVertexImage(finalPrompt.trim());
       }
@@ -345,15 +331,17 @@ Deno.serve(async (req: Request) => {
 
     result = await callAIWithRetryAndTimeout(aiCall, 0, 90_000);
 
+    if(!result || !result.trim()) throw new Error('EMPTY_DELIVERY');
     if (task === 'json' || task === 'document') {
       parsedDocument = await validateAndRepair(result);
 
+      if(!parsedDocument || typeof parsedDocument!=='object' || Object.keys(parsedDocument).length===0)throw new Error('EMPTY_DELIVERY');
       // Saneamento determinístico (auditoria 30/08/2026): remove itens/blocos
       // compostos apenas de texto-molde ("[Nome do jogo]", "[descrição
       // específica]"). Só REMOVE conteúdo claramente-placeholder — nunca
       // inventa nem reescreve. requestType fora de {plano_acao, plano_acao_aee,
       // perfil_inteligente} passa inalterado.
-      parsedDocument = sanitizeStructuredResult(parsedDocument, requestType);
+      parsedDocument = sanitizeStructuredResult(parsedDocument, financialValidationKey(financial.code));
       result = JSON.stringify(parsedDocument);
 
       // Gate de "resultado utilizável" — ver GatewayPayload.usabilityCheck e
@@ -370,37 +358,21 @@ Deno.serve(async (req: Request) => {
       // placeholders remanescentes em campo obrigatório, resposta truncada ou
       // estrutura de outro tipo de documento falham aqui e liberam a reserva.
       // Aplicada só aos 3 requestType da auditoria; todo o resto passa livre.
-      const structural = validateStructuredResult(parsedDocument, requestType, result.length);
+      const structural = validateStructuredResult(parsedDocument, financialValidationKey(financial.code), result.length);
       if (!structural.usable) {
         throw new Error(
           `UNUSABLE_RESULT: ${structural.reason ?? 'STRUCTURE'}` +
           (structural.detail ? ` [${structural.detail}]` : ''),
         );
       }
+      if(!body.pipeline) validateFinancialDelivery(financial.code,parsedDocument,task);
     }
   } catch (e: unknown) {
     providerError = (e instanceof Error ? e.message : String(e)) || 'PROVIDER_ERROR';
     const latencyMs = Date.now() - t0;
 
-    if (reservationId) {
-      try {
-        await releaseReservedCredits(adminDb, {
-          operationId: `${baseOperationId}:release`,
-          reservationId,
-          tenantId,
-          userId,
-          description: `Falha IA: ${requestType ?? task}`,
-          metadata: {
-            failure_kind: 'provider_or_parse',
-            provider_error: providerError,
-            audit_id: auditId,
-            latency_ms: latencyMs,
-          },
-        });
-      } catch (releaseErr) {
-        console.error('[ai-gateway] releaseReservedCredits failed:', releaseErr);
-      }
-    }
+    try { await finish(false,{error:'generation_failed'}); }
+    catch { console.error('[ai-gateway] Release pendente; sweeper recupera reserva.'); }
 
     if (auditId) {
       await completeAuditRecord(adminDb, auditId, {
@@ -415,108 +387,21 @@ Deno.serve(async (req: Request) => {
   }
 
   const latencyMs = Date.now() - t0;
-  let creditsRemaining: number | undefined = undefined;
-
-  if (cost > 0 && reservationId) {
-    if (deferCommit) {
-      // Não commita agora — o frontend vai confirmar/liberar após salvar no banco
-      console.info('[ai-gateway] deferCommit=true — reserva mantida:', reservationId);
-    } else {
-      try {
-        creditsRemaining = await commitReservedCredits(adminDb, {
-          operationId: `${baseOperationId}:commit`,
-          reservationId,
-          tenantId,
-          userId,
-          description: `IA: ${requestType ?? task}`,
-          metadata: {
-            audit_id: auditId,
-            latency_ms: latencyMs,
-            task,
-          },
-        });
-      } catch (e: unknown) {
-        console.error('[ai-gateway] commitReservedCredits failed:', (e as Error)?.message);
-
-        try {
-          await releaseReservedCredits(adminDb, {
-            operationId: `${baseOperationId}:release_after_commit_failure`,
-            reservationId,
-            tenantId,
-            userId,
-            description: `Rollback reserva: ${requestType ?? task}`,
-            metadata: {
-              failure_kind: 'commit_failed',
-              audit_id: auditId,
-            },
-          });
-        } catch (releaseErr) {
-          console.error('[ai-gateway] release after commit failure also failed:', releaseErr);
-        }
-
-        if (auditId) {
-          await completeAuditRecord(adminDb, auditId, {
-            status: 'failed',
-            latencyMs,
-            content: 'commit_failed',
-          });
-        }
-
-        return jsonError('Falha ao concluir a transacao de creditos.', 500);
-      }
-    }
+  const response: Record<string,unknown> = {result:parsedDocument ?? result};
+  if(contextWarnings.length)response.warnings=contextWarnings;
+  if(missingSources.length)response.missingOptionalSources=missingSources;
+  if(auditId)response.auditId=auditId;
+  // Durable delivery and credit commit share the same PostgreSQL transaction.
+  if(task==='document')response._document={studentId,docType:documentType,title:documentType};
+  try {
+    const delivered=await finish(true,response);
+    if(auditId) await completeAuditRecord(adminDb,auditId,{status:'success',latencyMs,outputType:outputTypeForTask(task),content:task==='image'?'[imagem gerada]':result.slice(0,500)}).catch(()=>{});
+    return jsonOk(delivered);
+  } catch {
+    // A successful commit whose HTTP response was lost is recovered by the same job id.
+    try {await finish(false,{error:'delivery_failed'});} catch {}
+    return jsonError('Falha ao salvar entrega; repita a mesma operacao.',500);
   }
-
-  if (auditId) {
-    const outputSample = task === 'image' ? '[imagem gerada]' : result.slice(0, 500);
-    await completeAuditRecord(adminDb, auditId, {
-      status: 'success',
-      latencyMs,
-      outputType: outputTypeForTask(task),
-      content: outputSample,
-    });
-  }
-
-  let documentId: string | undefined = undefined;
-  if (task === 'document' && parsedDocument) {
-    try {
-      const { data: docData, error: docErr } = await adminDb
-        .from('documents')
-        .insert({
-          tenant_id: tenantId,
-          student_id: studentId,
-          doc_type: documentType || 'RELATORIO',
-          structured_data: parsedDocument,
-          status: 'DRAFT',
-        })
-        .select('id')
-        .single();
-
-      if (docErr) {
-        console.error('[ai-gateway] Erro ao persistir documento na tabela:', docErr.message);
-      } else {
-        documentId = docData.id;
-      }
-    } catch (err) {
-      console.error('[ai-gateway] Excecao ao persistir documento:', err);
-    }
-  }
-
-  const response: Record<string, unknown> = {
-    result: parsedDocument !== null ? parsedDocument : result,
-  };
-
-  if (task === 'document' || (task === 'json' && buildContextServer && studentId)) {
-    if (contextWarnings.length > 0) response.warnings = contextWarnings;
-    if (missingSources.length > 0) response.missingOptionalSources = missingSources;
-    if (documentId) response.documentId = documentId;
-  }
-
-  if (creditsRemaining !== undefined) response.creditsRemaining = creditsRemaining;
-  if (deferCommit && reservationId) response.reservationId = reservationId;
-  if (auditId) response.auditId = auditId;
-
-  return jsonOk(response);
 });
 
 function jsonOk(data: unknown): Response {

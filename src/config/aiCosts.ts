@@ -1,3 +1,4 @@
+import { CREDIT_CATALOG } from '../../supabase/functions/_shared/creditCatalog';
 /**
  * FONTE ÚNICA DE VERDADE PARA CUSTOS DE CRÉDITOS E REGRAS DE IA
  * 
@@ -7,56 +8,56 @@
 
 export const AI_CREDIT_COSTS = {
   // Geração de Texto e Atividades
-  TEXTO_SIMPLES: 1,         // Sugestões pedagógicas
-  ATIVIDADE_TEXTO: 1,
-  ADAPTAR_ATIVIDADE: 2,     // Adaptação curricular texto
+  TEXTO_SIMPLES: CREDIT_CATALOG.SUGESTAO_PEDAGOGICA,         // Sugestões pedagógicas
+  ATIVIDADE_TEXTO: CREDIT_CATALOG.INCLUILAB_ECONOMICO,
+  ADAPTAR_ATIVIDADE: CREDIT_CATALOG.INCLUILAB_ADAPTAR_ECONOMICO,     // Adaptação curricular texto
 
   // Relatórios e Documentos
-  RELATORIO_ECONOMICO: 1,   // Relatório econômico
-  RELATORIO_PADRAO: 2,      // Relatório padrão
-  RELATORIO_PREMIUM: 4,     // Relatório premium
-  RELATORIO_INSS: 4,        // Relatório INSS / perícia
+  RELATORIO_ECONOMICO: CREDIT_CATALOG.RELATORIO_ECONOMICO,   // Relatório econômico
+  RELATORIO_PADRAO: CREDIT_CATALOG.RELATORIO_PADRAO,      // Relatório padrão
+  RELATORIO_PREMIUM: CREDIT_CATALOG.RELATORIO_PREMIUM,     // Relatório premium
+  RELATORIO_INSS: CREDIT_CATALOG.RELATORIO_INSS,        // Relatório INSS / perícia
 
   // Protocolos Pedagógicos
-  ESTUDO_DE_CASO: 3,
-  PEI: 3,
-  PAEE: 3,
-  PDI: 3,
-  DOCUMENTO_UNIFICADO_PEI_PAEE: 5,
+  ESTUDO_DE_CASO: CREDIT_CATALOG.ESTUDO_DE_CASO,
+  PEI: CREDIT_CATALOG.PEI,
+  PAEE: CREDIT_CATALOG.PAEE,
+  PDI: CREDIT_CATALOG.PDI,
+  DOCUMENTO_UNIFICADO_PEI_PAEE: CREDIT_CATALOG.DOCUMENTO_UNICO_PAEE_PEI,
 
   // Fichas e Checklists
-  CHECKLIST_OBSERVACAO: 2,  // Checklist observação (regente)
-  ROTINA_CUIDADORA: 2,      // Rotina cuidadora
-  FICHAS_PEDAGOGICAS: 2,    // Fichas pedagógicas
+  CHECKLIST_OBSERVACAO: CREDIT_CATALOG.FICHA_PEDAGOGICA_REGENTE,  // Checklist observação (regente)
+  ROTINA_CUIDADORA: CREDIT_CATALOG.PARECER_CUIDADORA,      // Rotina cuidadora
+  FICHAS_PEDAGOGICAS: CREDIT_CATALOG.FICHA_PEDAGOGICA_REGENTE,    // Fichas pedagógicas
 
   // Planos de Ação
-  PLANO_ACAO: 6,            // Plano Ação Professor Regente
-  PLANO_ACAO_AEE: 7,        // Plano Ação AEE
+  PLANO_ACAO: CREDIT_CATALOG.PLANO_REGENTE,            // Plano Ação Professor Regente
+  PLANO_ACAO_AEE: CREDIT_CATALOG.PLANO_AEE,        // Plano Ação AEE
 
   // Perfil Inteligente do Aluno
-  PERFIL_INTELIGENTE: 6,
+  PERFIL_INTELIGENTE: CREDIT_CATALOG.PERFIL_INTELIGENTE,
 
   // Processamento e OCR
-  OCR: 1,                   // OCR simples
-  ANALISE_DOCUMENTO: 3,     // Análise de documento
-  UPLOAD_MODELO: 5,
-  TEMPLATE: 5,
+  OCR: CREDIT_CATALOG.OCR,                   // OCR simples
+  ANALISE_DOCUMENTO: CREDIT_CATALOG.ANALISE_DOCUMENTO,     // Análise de documento
+  UPLOAD_MODELO: CREDIT_CATALOG.UPLOAD_MODELO,
+  TEMPLATE: CREDIT_CATALOG.UPLOAD_MODELO,
 
   // Importação de alunos por documento (StudentImportModal)
-  IMPORTAR_DOCUMENTO_TEXTO: 3,    // DOCX / PDF com texto extraível
-  IMPORTAR_DOCUMENTO_VISUAL: 5,   // Imagem / PDF escaneado (leitura visual IA)
+  IMPORTAR_DOCUMENTO_TEXTO: CREDIT_CATALOG.IMPORTAR_DOCUMENTO_TEXTO,    // DOCX / PDF com texto extraível
+  IMPORTAR_DOCUMENTO_VISUAL: CREDIT_CATALOG.IMPORTAR_DOCUMENTO_VISUAL,   // Imagem / PDF escaneado (leitura visual IA)
 
   // Imagens e Design (EduLens / NeuroDesign / AtivaIA / IncluiLAB)
-  IMAGEM_LEVE: 8,           // Imagem visual (IncluiLAB Visual)
-  IMAGEM_INTERMEDIARIA: 8,
-  IMAGEM_PREMIUM: 15,       // Imagem premium (IncluiLAB Premium / Imagen 4.0)
+  IMAGEM_LEVE: CREDIT_CATALOG.INCLUILAB_VISUAL,           // Imagem visual (IncluiLAB Visual)
+  IMAGEM_INTERMEDIARIA: CREDIT_CATALOG.INCLUILAB_VISUAL,
+  IMAGEM_PREMIUM: CREDIT_CATALOG.INCLUILAB_PREMIUM,       // Imagem premium (IncluiLAB Premium / Imagen 4.0)
 
   // Mapeamento específico por ferramenta (Compatibilidade Legada)
-  EDULEISIA_ADAPTAR: 2,     // EduLensIA adaptação texto
-  EDULEISIA_IMAGEM: 15,     // EduLensIA geração de imagem
-  NEURODESIGN_REDESIGN: 2,  // NeuroDesign redesign texto
-  NEURODESIGN_IMAGEM: 15,   // NeuroDesign geração de imagem
-  ATIVIDADE_IMAGEM: 15,     // Atividade com imagem IA
+  EDULEISIA_ADAPTAR: CREDIT_CATALOG.INCLUILAB_ADAPTAR_ECONOMICO,     // EduLensIA adaptação texto
+  EDULEISIA_IMAGEM: CREDIT_CATALOG.INCLUILAB_PREMIUM,     // EduLensIA geração de imagem
+  NEURODESIGN_REDESIGN: CREDIT_CATALOG.INCLUILAB_ADAPTAR_ECONOMICO,  // NeuroDesign redesign texto
+  NEURODESIGN_IMAGEM: CREDIT_CATALOG.INCLUILAB_PREMIUM,   // NeuroDesign geração de imagem
+  ATIVIDADE_IMAGEM: CREDIT_CATALOG.INCLUILAB_PREMIUM,     // Atividade com imagem IA
 };
 
 export const SUBSCRIPTION_PLANS = {
@@ -86,9 +87,9 @@ export const SUBSCRIPTION_PLANS = {
  *  GPT_IMAGE   → Imagem premium / Imagen 4.0 (alta qualidade): 15 créditos
  */
 export const INCLUILAB_MODEL_COSTS = {
-  TEXT:        2,   // Texto simples (IA Gemini) — IncluiLAB Texto
-  NANO_BANANA: 8,   // Nano Banana Pro — IncluiLAB Visual
-  GPT_IMAGE:   15,  // Imagen 4.0 / ChatGPT Imagem — IncluiLAB Premium
+  TEXT: CREDIT_CATALOG.INCLUILAB_ECONOMICO,   // Texto simples (IA Gemini) — IncluiLAB Texto
+  NANO_BANANA: CREDIT_CATALOG.INCLUILAB_VISUAL,   // Nano Banana Pro — IncluiLAB Visual
+  GPT_IMAGE: CREDIT_CATALOG.INCLUILAB_PREMIUM,  // Imagen 4.0 / ChatGPT Imagem — IncluiLAB Premium
 } as const;
 
 /**
@@ -107,16 +108,16 @@ export const INCLUILAB_MODEL_COSTS = {
  * Regra: imagem individual não é cobrada se a geração falhar (cai em emoji fallback).
  */
 export const INCLUILAB_ACTIVITY_COSTS = {
-  A4_ECONOMICA:             2,
+  A4_ECONOMICA:             CREDIT_CATALOG.INCLUILAB_ECONOMICO,
   A4_VISUAL_BASE:           2,
   A4_VISUAL_PER_IMAGE:      2,
-  A4_VISUAL_MAX:            8,
-  A4_PREMIUM:              15,
-  ADAPTAR_ECONOMICO:        2,
+  A4_VISUAL_MAX:            CREDIT_CATALOG.INCLUILAB_VISUAL,
+  A4_PREMIUM:              CREDIT_CATALOG.INCLUILAB_PREMIUM,
+  ADAPTAR_ECONOMICO:        CREDIT_CATALOG.INCLUILAB_ADAPTAR_ECONOMICO,
   ADAPTAR_VISUAL_BASE:      2,
   ADAPTAR_VISUAL_PER_IMAGE: 2,
-  ADAPTAR_VISUAL_MAX:       8,
-  ADAPTAR_PREMIUM:         15,
+  ADAPTAR_VISUAL_MAX:       CREDIT_CATALOG.INCLUILAB_ADAPTAR_VISUAL,
+  ADAPTAR_PREMIUM:         CREDIT_CATALOG.INCLUILAB_ADAPTAR_PREMIUM,
 } as const;
 
 /** Mensagem padrão exibida em TODAS as telas quando o saldo é insuficiente. */

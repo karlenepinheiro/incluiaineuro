@@ -242,7 +242,7 @@ RESPONDA APENAS COM JSON NO FORMATO:
   let rawJson: string;
   try {
     // generateFromPrompt usa o aiProvider interno (Gemini) sem exigir User
-    rawJson = await AIService.generateFromPrompt(prompt, null as unknown as User);
+    rawJson = await AIService.generateFromPrompt(prompt, null as unknown as User, 'ANALISAR_MODELO_DOCX');
   } catch (err: any) {
     throw new Error(`IA não disponível: ${err?.message ?? err}`);
   }
