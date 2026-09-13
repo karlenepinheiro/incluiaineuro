@@ -12,24 +12,24 @@ vi.mock('../services/supabase', () => ({ supabase: {} }));
 const read = (p: string) => fs.readFileSync(p, 'utf8');
 describe('post-validation UX', () => {
   it('requires every essential field and lists only missing essentials', () => {
-    const student = { name: 'Ana', birthDate: '2015-01-01', grade: ' ' };
-    expect(getStudentCompletionStatus(student)).toEqual({ isComplete: false, missingFields: [
+    const student = { name: 'Ana', birthDate: '2015-01-01', grade: ' ', schoolHistory:'Registro escolar', abilities:['Comunicação'], difficulties:['Atenção'] };
+    expect(getStudentCompletionStatus(student)).toMatchObject({ isComplete: false, missingFields: [
       {key:'grade',label:'Série/ano/turma'}, {key:'schoolName',label:'Escola'}, {key:'shift',label:'Turno'},
       {key:'guardianName',label:'Nome do responsável'}, {key:'guardianPhone',label:'Telefone ou e-mail do responsável'},
     ] });
     expect(getStudentBasicCompletionStatus(student)).toBe('invalid');
   });
   it('complete has no missing fields and is green with accessible text', () => {
-    const student = {name:'Ana',birthDate:'2015-01-01',grade:'3',schoolId:'school',shift:'Manhã',guardianName:'Maria',guardianPhone:'63999999999'};
+    const student = {name:'Ana',birthDate:'2015-01-01',grade:'3',schoolId:'school',shift:'Manhã',guardianName:'Maria',guardianPhone:'63999999999',schoolHistory:'Registro escolar',abilities:['Comunicação'],difficulties:['Atenção']};
     expect(getStudentCompletionStatus(student)).toMatchObject({isComplete:true,missingFields:[]});
-    expect(getStudentBasicCompletionStatus(student)).toBe('valid_basic');
+    expect(getStudentBasicCompletionStatus(student)).toBe('enriched');
     const html=renderToStaticMarkup(<StudentCompletionBadge student={student as any}/>);
     expect(html).toContain('text-emerald-800'); expect(html).toContain('Cadastro completo'); expect(html).not.toContain('<ul');
   });
   it('incomplete is red and uses an auto-dismiss keyboard-accessible popover', () => {
     const html=renderToStaticMarkup(<StudentCompletionBadge student={{name:' '} as any}/>);
     expect(html).toContain('text-red-800'); expect(html).toContain('popover="auto"');
-    expect(html).toContain('Nome do aluno'); expect(html.toLowerCase()).toContain('popovertarget');
+    expect(html).toContain('Identificação / dados pessoais'); expect(html.toLowerCase()).toContain('popovertarget');
   });
   it('hides upload and navigation while preserving canonical historical price', () => {
     expect(DOCUMENT_TEMPLATE_UPLOAD_ENABLED).toBe(false);

@@ -547,11 +547,11 @@ function StatusBadges({ student: s }: { student: Student }) {
 function InfoCell({ label, value, span2 = false }: { label: string; value: string; span2?: boolean }) {
   const isEmpty = !value || value === '—';
   return (
-    <div style={span2 ? { gridColumn: '1 / -1' } : {}}>
+    <div className="min-w-0" style={span2 ? { gridColumn: '1 / -1' } : {}}>
       <p style={{ fontSize: '10px', color: C.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600, marginBottom: 2 }}>
         {label}
       </p>
-      <p className="truncate" style={{ fontSize: '12px', color: isEmpty ? '#CBD5E1' : C.text, fontWeight: 400 }}>
+      <p style={{ overflowWrap: 'anywhere', whiteSpace: 'normal', fontSize: '12px', color: isEmpty ? '#CBD5E1' : C.text, fontWeight: 400 }}>
         {isEmpty ? '—' : value}
       </p>
     </div>
@@ -561,7 +561,7 @@ function InfoCell({ label, value, span2 = false }: { label: string; value: strin
 // ══════════════════════════════════════════════════════════════════════════════
 // VISUALIZAÇÃO QUADRO — StudentGridCard
 // ══════════════════════════════════════════════════════════════════════════════
-function StudentGridCard({
+export function StudentGridCard({
   student: s,
   onSelect,
   onEdit,
@@ -586,7 +586,8 @@ function StudentGridCard({
 
   return (
     <div
-      className="rounded-2xl cursor-pointer group flex flex-col transition-all duration-150"
+      data-testid="student-grid-card"
+      className="min-w-0 rounded-2xl cursor-pointer group flex flex-col transition-all duration-150"
       style={{
         background: C.surface,
         border: `1px solid ${isIncomplete ? accentColor + '40' : C.border}`,
@@ -607,7 +608,7 @@ function StudentGridCard({
       {/* Top color bar */}
       <div className="h-1 rounded-t-2xl" style={{ background: topBarColor }} />
 
-      <div className="p-4 flex flex-col flex-1">
+      <div className="p-4 min-w-0 flex flex-col flex-1">
 
         {/* Header: avatar + name + support icon */}
         <div className="flex items-start gap-3 mb-3">
@@ -615,13 +616,10 @@ function StudentGridCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 min-w-0">
               <h3
-                className="font-semibold text-sm leading-tight"
+                className="min-w-0 font-semibold text-sm leading-tight"
                 style={{
                   color: C.text,
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
+                  overflowWrap: 'anywhere',
                 }}
               >
                 {s.name}
@@ -637,7 +635,7 @@ function StudentGridCard({
               )}
             </div>
             {(s.unique_code || s.registrationDate) && (
-              <p style={{ fontSize: 10, color: C.textMuted, marginTop: 3, lineHeight: 1.3 }}>
+              <p style={{ overflowWrap: 'anywhere', fontSize: 10, color: C.textMuted, marginTop: 3, lineHeight: 1.3 }}>
                 {s.unique_code ? `#${s.unique_code}` : ''}
                 {s.unique_code && s.registrationDate ? ' · ' : ''}
                 {s.registrationDate ? fmtDate(s.registrationDate) : ''}
@@ -672,7 +670,7 @@ function StudentGridCard({
         <div
           className="flex-1 grid gap-x-3 gap-y-2.5 mb-3 pt-3"
           style={{
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
             borderTop: `1px solid ${C.border}`,
           }}
         >
