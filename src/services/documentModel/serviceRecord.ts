@@ -20,7 +20,7 @@ export function serviceRecordTitle(): string {
 export function serviceRecordToSections(record: ServiceRecord): DocSection[] {
   resetFieldSeq();
   const c = record.dailyChecklist;
-  const dateStr = record.date ? new Date(record.date).toLocaleDateString('pt-BR') : '';
+  const dateStr = record.date ? record.date.split('-').reverse().join('/') : '';
   const createdStr = record.createdAt ? new Date(record.createdAt).toLocaleString('pt-BR') : '';
 
   return buildSections([
@@ -31,6 +31,14 @@ export function serviceRecordToSections(record: ServiceRecord): DocSection[] {
       kvField('at', 'Duração (minutos)', record.duration != null ? String(record.duration) : ''),
       kvField('at', 'Presença', record.attendance),
       ...(createdStr ? [kvField('at', 'Registrado em', createdStr)] : []),
+    ]),
+
+    record.pedagogical && section('Registro Pedagógico', [
+      proseField('ped', 'Objetivo do atendimento', record.pedagogical.objective, { optional: true }),
+      proseField('ped', 'Atividades realizadas', record.pedagogical.activities, { optional: true }),
+      proseField('ped', 'Resposta/comportamento do aluno', record.pedagogical.studentResponse, { optional: true }),
+      proseField('ped', 'Estratégias utilizadas', record.pedagogical.strategies, { optional: true }),
+      proseField('ped', 'Próximos encaminhamentos', record.pedagogical.nextSteps, { optional: true }),
     ]),
 
     section('Observações do Atendimento', [
@@ -54,6 +62,8 @@ export function serviceRecordToSections(record: ServiceRecord): DocSection[] {
 /** Lista explícita dos campos que o adaptador DEVE cobrir (usada pelo teste anti-regressão). */
 export const SERVICE_RECORD_FIELD_KEYS = [
   'date', 'type', 'professional', 'duration', 'attendance', 'createdAt', 'observation',
+  'pedagogical.objective', 'pedagogical.activities', 'pedagogical.studentResponse',
+  'pedagogical.strategies', 'pedagogical.nextSteps',
   'dailyChecklist.desempenho', 'dailyChecklist.interacao', 'dailyChecklist.comportamento',
   'dailyChecklist.progressoAtividade', 'dailyChecklist.estrategiasUsadas', 'dailyChecklist.proximosPassos',
 ] as const;

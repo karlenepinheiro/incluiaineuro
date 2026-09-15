@@ -1,3 +1,5 @@
+import { CaseStudySaveNotice } from './CaseStudySaveNotice';
+import { createCaseStudySaveRecovery } from '../services/caseStudySaveRecovery';
 import { DOCUMENT_TEMPLATE_UPLOAD_ENABLED } from '../config/features';
 import { creditCost } from '../../supabase/functions/_shared/creditCatalog';
 import React, { useState, useEffect, useRef } from 'react';
@@ -487,7 +489,7 @@ interface DocumentBuilderProps {
   user: UserType;
   initialData?: DocumentData;
   initialProtocol?: Protocol | null;
-  onSave: (data: DocumentData, student: Student, versionLog?: string, status?: ProtocolStatus) => Promise<void>;
+  onSave: (data: DocumentData, student: Student, versionLog?: string, status?: ProtocolStatus, persistenceId?: string) => Promise<Protocol | void>;
   onDelete?: (protocolId: string) => void;
   onCancel: () => void;
   onGenerateAI: (student: Student) => void;
@@ -794,6 +796,21 @@ export const DocumentBuilder: React.FC<DocumentBuilderProps> = ({
   const [isDirty, setIsDirty] = useState(false);
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const [showSaveToast, setShowSaveToast] = useState(false);
+  const [, refreshCaseSave] = useState(0);
+  const isCaseStudy = type === DocumentType.ESTUDO_CASO;
+  const caseRecovery = React.useMemo(() => createCaseStudySaveRecovery(
+    'case-study-pending:' + user.tenant_id + ':' + user.id + ':' + (selectedStudent?.id ?? ''),
+    initialProtocol?.id,
+    () => refreshCaseSave(value => value + 1),
+  ), [user.id, user.tenant_id, selectedStudent?.id, initialProtocol?.id]);
+  const caseSaveState = caseRecovery.state;
+  const caseUnsaved = isCaseStudy && (caseSaveState.pendingSave || isDirty || initialProtocol?.status !== 'FINAL');
+
+  useEffect(() => {
+    if (isCaseStudy && selectedStudent && step === 'editor' && sections.length && caseUnsaved) {
+      caseRecovery.capture({ sections, auditCode: currentAuditCode });
+    }
+  }, [isCaseStudy, selectedStudent?.id, step, sections, currentAuditCode, caseUnsaved, caseRecovery]);
 
   // Custom Fields & Reordering
   const [isReordering, setIsReordering] = useState(false);
@@ -838,6 +855,7 @@ const planLimits = getPlanLimits(user.plan);
   useEffect(() => {
     if (step !== 'editor') return;
     if (type !== DocumentType.ESTUDO_CASO) return;
+    if (caseRecovery.state.restored) return;
     if (!selectedStudent?.id) return;
     // Só enriquece documentos novos (sem initialData)
     if (initialData && (initialData.sections?.length ?? 0) > 0) return;
@@ -903,6 +921,14 @@ const planLimits = getPlanLimits(user.plan);
   }, [step, selectedStudent?.id, type]);
 
   useEffect(() => {
+      if (isCaseStudy && caseRecovery.state.restored) {
+          setSections(caseRecovery.state.restored.sections);
+          setCurrentAuditCode(caseRecovery.state.restored.auditCode || '');
+          setStep('editor');
+          setIsEditing(true);
+          setIsDirty(true);
+          return;
+      }
       // Logic to determine if we are loading an existing doc or starting fresh
       const isExistingDoc = initialData && (initialData.sections?.length ?? 0) > 0;
 
@@ -1878,7 +1904,8 @@ const planLimits = getPlanLimits(user.plan);
   const handleAddSection = () => setShowSectionModal(true);
 
   const handleSaveWrapper = async (status?: ProtocolStatus) => {
-     if (!selectedStudent) return;
+     if (!selectedStudent) return false;
+     if (isCaseStudy && caseSaveState.saving) return false;
      const log = initialProtocol ? `Editado por ${user.name}` : `Criado por ${user.name}`;
 
      let finalAuditCode = currentAuditCode;
@@ -1892,10 +1919,17 @@ const planLimits = getPlanLimits(user.plan);
      const protectedSections = removeEditableStudentCodeFields(sections, type);
      if (protectedSections !== sections) setSections(protectedSections);
      const dataToSave = { sections: protectedSections, auditCode: finalAuditCode };
-     await onSave(dataToSave, selectedStudent, log, status);
+     if (isCaseStudy) {
+       const saved = await caseRecovery.save(dataToSave, (data, id) => onSave(data, selectedStudent, log, status, id));
+       if (!saved) { setIsDirty(true); return false; }
+       setCurrentAuditCode(caseSaveState.lastSavedDocument?.auditCode || finalAuditCode);
+     } else {
+       await onSave(dataToSave, selectedStudent, log, status);
+     }
      setIsDirty(false);
      setShowSaveToast(true);
      setTimeout(() => setShowSaveToast(false), 2200);
+     return true;
   };
 
   const handleCloseEditing = () => {
@@ -2951,6 +2985,8 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
   return (
     <div className="bg-gray-100 min-h-screen pb-20 flex flex-col items-center">
         
+        {isCaseStudy && <CaseStudySaveNotice unsaved={caseUnsaved} failed={caseSaveState.failed}
+          saving={caseSaveState.saving} onRetry={() => { void handleSaveWrapper(); }} />}
         {/* Versão completa — sem banner de modo reduzido */}
 
         {/* RECOMMENDATION BANNER */}
@@ -2978,6 +3014,8 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                   variant="primary"
                   icon={<Save size={15}/>}
                   onClick={() => { void handleSaveWrapper(); }}
+                  loading={isCaseStudy && caseSaveState.saving}
+                  disabled={isCaseStudy && caseSaveState.saving}
                   title="Salvar alterações"
                 >
                   <span className="hidden sm:inline">Salvar</span>
@@ -3272,7 +3310,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
               <DocumentWorkspace
                 docLabel={workspaceDocLabel}
                 studentName={selectedStudent.name}
-                statusLabel={initialProtocol ? (initialProtocol.status === 'FINAL' ? 'Concluído' : 'Rascunho') : null}
+                statusLabel={caseUnsaved ? 'RASCUNHO — NÃO SALVO' : initialProtocol ? (initialProtocol.status === 'FINAL' ? 'Concluído' : 'Rascunho') : null}
                 onDownloadPdf={handleGeneratePDF}
                 isDownloadingPdf={generatingPDF}
                 onDownloadWord={canExportWord ? handleExportWord : undefined}
@@ -3331,7 +3369,7 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                   </div>
                 )}
 
-                {initialProtocol?.status === 'FINAL' && <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-bold border border-green-200 print:hidden mt-2 inline-block">CONCLUÍDO</span>}
+                {initialProtocol?.status === 'FINAL' && !caseUnsaved && <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-bold border border-green-200 print:hidden mt-2 inline-block">CONCLUÍDO</span>}
             </div>
 
             {/* Banner de status da IA — exibido apenas quando há problema na geração */}
@@ -3601,7 +3639,8 @@ Regras: use type "textarea" para textos longos, "text" para dados curtos. Idioma
                   className="w-full py-2.5 rounded-xl text-sm font-medium text-white transition"
                   style={{ background: '#1F4E5F' }}
                   onClick={async () => {
-                    await handleSaveWrapper();
+                    const saved = await handleSaveWrapper();
+                    if (isCaseStudy && !saved) return;
                     setShowCloseConfirm(false);
                     setIsEditing(false);
                   }}

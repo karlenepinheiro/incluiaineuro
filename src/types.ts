@@ -764,6 +764,14 @@ export interface ServiceRecord {
   attendance: 'Presente' | 'Falta' | 'Reposição';
   dailyChecklist?: ServiceDailyChecklist; // Ficha avaliativa diária (opcional)
   createdAt?: string; // ISO 8601 — data/hora exata em que o registro foi criado
+  updatedAt?: string;
+  pedagogical?: {
+    objective?: string;
+    activities?: string;
+    studentResponse?: string;
+    strategies?: string;
+    nextSteps?: string;
+  };
 }
 
 export interface DocField {

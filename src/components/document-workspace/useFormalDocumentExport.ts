@@ -51,12 +51,13 @@ export interface UseFormalDocumentExportParams {
   isolationKey: string;
   /** Força desligar o Word/Google Docs (ex.: documento em estado que bloqueia exportação). */
   disabled?: boolean;
+  compactServiceRecord?: boolean;
 }
 
 export function useFormalDocumentExport(params: UseFormalDocumentExportParams): DocumentExportActionsProps {
   const {
     docLabel, title, student, user, school, auditCode,
-    getSections, onDownloadPdf, pdfFromSections = false, onPrint, isolationKey, disabled = false,
+    getSections, onDownloadPdf, pdfFromSections = false, onPrint, isolationKey, disabled = false, compactServiceRecord = false,
   } = params;
 
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -75,9 +76,10 @@ export function useFormalDocumentExport(params: UseFormalDocumentExportParams): 
         fields: s.fields.map(f => ({ label: f.label, value: f.value, type: f.type, maxScale: f.maxScale })),
       })),
       auditCode: auditCode ?? '',
+      compactServiceRecord,
     });
     PDFGenerator.download(blob, `${buildGenericWordFilename(docLabel, student, auditCode).replace(/\.docx$/, '')}.pdf`);
-  }, [getSections, docLabel, title, student, user, school, auditCode]);
+  }, [getSections, docLabel, title, student, user, school, auditCode, compactServiceRecord]);
 
   const effectiveOnDownloadPdf = pdfFromSections ? downloadPdfFromSections : onDownloadPdf;
 
@@ -90,8 +92,9 @@ export function useFormalDocumentExport(params: UseFormalDocumentExportParams): 
       user,
       school: school ?? null,
       auditCode: auditCode ?? null,
+      compactServiceRecord,
     });
-  }, [getSections, title, student, user, school, auditCode]);
+  }, [getSections, title, student, user, school, auditCode, compactServiceRecord]);
 
   const displayName = useMemo(
     () => buildGoogleDocsDisplayName(docLabel, student?.name ?? 'Aluno', auditCode ?? undefined),

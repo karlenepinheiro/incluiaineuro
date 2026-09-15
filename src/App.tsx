@@ -1,3 +1,4 @@
+import { persistConfirmedCaseStudy } from './services/caseStudySaveRecovery';
 import React, { useMemo, useEffect, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { SchoolSetupBanner } from './components/SchoolSetupBanner';
@@ -1209,7 +1210,8 @@ const App: React.FC = () => {
     data: DocumentData,
     student: Student,
     logMessage?: string,
-    status?: ProtocolStatus
+    status?: ProtocolStatus,
+    persistenceId?: string
   ) => {
     const timestamp = new Date().toISOString();
     const school = user.schoolConfigs[0];
@@ -1217,6 +1219,8 @@ const App: React.FC = () => {
     const documentCode = generateAuditCode(protocolType, (data as any)?.auditCode || currentProtocol?.auditCode);
     const dataToPersist = { ...(data as any), auditCode: documentCode } as DocumentData;
     const resolvedStatus = resolveProtocolStatus(status, currentProtocol, dataToPersist);
+
+    const isCaseStudySave = protocolType === DocumentType.ESTUDO_CASO;
 
     if (currentProtocol && currentProtocol.id !== 'temp') {
       const newVersion: DocumentVersion = {
@@ -1237,6 +1241,15 @@ const App: React.FC = () => {
         lastEditedAt: timestamp,
         lastEditedBy: user.name,
       };
+
+      if (isCaseStudySave) {
+        const confirmed = await persistConfirmedCaseStudy(updatedProtocol, candidate => databaseService.saveDocument({
+          ...candidate, tenant_id: user.tenant_id, structured_data: dataToPersist,
+        }));
+        setProtocols(prev => [confirmed, ...prev.filter(p => p.id !== currentProtocol.id && p.id !== confirmed.id)]);
+        setCurrentProtocol(confirmed);
+        return confirmed;
+      }
 
       setProtocols(prev => prev.map(p => (p.id === currentProtocol.id ? updatedProtocol : p)));
       setCurrentProtocol(updatedProtocol);
@@ -1264,7 +1277,7 @@ const App: React.FC = () => {
       };
 
       const newProtocol: Protocol = {
-        id: crypto.randomUUID(),
+        id: persistenceId || crypto.randomUUID(),
         studentId: student.id,
         studentName: student.name,
         type: activeDocumentType,
@@ -1287,6 +1300,15 @@ const App: React.FC = () => {
           manager: school?.managerName || '',
         },
       };
+
+      if (isCaseStudySave) {
+        const confirmed = await persistConfirmedCaseStudy(newProtocol, candidate => databaseService.saveDocument({
+          ...candidate, tenant_id: user.tenant_id, structured_data: dataToPersist,
+        }));
+        setProtocols(prev => [confirmed, ...prev.filter(p => p.id !== confirmed.id)]);
+        setCurrentProtocol(confirmed);
+        return confirmed;
+      }
 
       setProtocols(prev => [newProtocol, ...prev]);
       setCurrentProtocol(newProtocol);
@@ -1401,7 +1423,10 @@ const App: React.FC = () => {
       };
 
       const persistenceFields = getFormalGeneratedPersistenceFields(activeDocumentType);
-      if (parsedSuccessfully && persistenceFields && hasGeneratedDocumentContent(dataToPersist)) {
+      if (activeDocumentType === DocumentType.ESTUDO_CASO) {
+        // Generation is a local draft; only the explicit save can confirm completion.
+        setCurrentProtocol(generatedProtocol);
+      } else if (parsedSuccessfully && persistenceFields && hasGeneratedDocumentContent(dataToPersist)) {
         try {
           const savedDoc = await databaseService.saveDocument({
             ...generatedProtocol,
@@ -2088,20 +2113,14 @@ const App: React.FC = () => {
                 students={students}
                 serviceRecords={serviceRecords}
                 onAddRecord={async record => {
-                  setServiceRecords(prev => [record, ...prev]);
-                  if (user.tenant_id) {
-                    ServiceRecordService.save(record, user.tenant_id).catch(e =>
-                      console.error('[ServiceRecord] save error:', e)
-                    );
-                  }
+                  if (!user.tenant_id) throw new Error('Escola não identificada. Entre novamente.');
+                  const saved = await ServiceRecordService.save(record, user.tenant_id);
+                  setServiceRecords(prev => [saved, ...prev.filter(r => r.id !== saved.id)]);
                 }}
                 onUpdateRecord={async record => {
-                  setServiceRecords(prev => prev.map(r => r.id === record.id ? record : r));
-                  if (user.tenant_id) {
-                    ServiceRecordService.save(record, user.tenant_id).catch(e =>
-                      console.error('[ServiceRecord] update error:', e)
-                    );
-                  }
+                  if (!user.tenant_id) throw new Error('Escola não identificada. Entre novamente.');
+                  const saved = await ServiceRecordService.save(record, user.tenant_id);
+                  setServiceRecords(prev => prev.map(r => r.id === saved.id ? saved : r));
                 }}
                 onDeleteRecord={async id => {
                   setServiceRecords(prev => prev.filter(r => r.id !== id));

@@ -430,8 +430,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 : <LockedNavItemPro icon={Brain} label="Perfil Cognitivo" />
               }
               {isPremium
-                ? <NavItem viewId="service_control" icon={Activity} label="Controle de Atendimento" iconColor="#10B981" />
-                : <LockedNavItem icon={Activity} label="Controle de Atendimento" />
+                ? <NavItem viewId="service_control" icon={Activity} label="Registro de Atendimento" iconColor="#10B981" />
+                : <LockedNavItem icon={Activity} label="Registro de Atendimento" />
               }
               <NavItem viewId="fichas_historicos" icon={History} label="Fichas e Históricos" iconColor="#C69214" />
 

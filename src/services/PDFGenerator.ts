@@ -6087,6 +6087,7 @@ export const PDFGenerator = {
 
   // ── Seções livres (PEI / PAEE / PDI / Estudo de Caso — DocumentBuilder) ──────
   async generateFromSections(params: {
+    compactServiceRecord?: boolean;
     docType:  string;
     title?:   string;
     student:  Student;
@@ -6190,6 +6191,41 @@ export const PDFGenerator = {
       doc.addPage();
       return sharedAddDocumentHeader(doc, sharedHeaderOptions);
     };
+
+    if (params.compactServiceRecord) {
+      // Registro curto: mesmos campos canônicos do Word, sem capa ou ficha completa do aluno.
+      y = sharedAddDocumentHeader(doc, sharedHeaderOptions);
+      const line = (text: string, bold = false) => {
+        doc.setFont(_docFont, bold ? 'bold' : 'normal');
+        doc.setFontSize(10.5);
+        sc(doc, DARK);
+        for (const part of doc.splitTextToSize(text, maxW)) {
+          if (y > cBot(doc.internal.pageSize.getHeight()) - 6) y = newPage();
+          doc.setFont(_docFont, bold ? 'bold' : 'normal');
+          doc.setFontSize(10.5);
+          sc(doc, DARK);
+          doc.text(part, ML, y);
+          y += 4.8;
+        }
+        y += 1;
+      };
+      line(`Aluno(a): ${student.name}`);
+      line(`Série/Turma: ${[student.grade, student.shift].filter(Boolean).join(' - ') || 'Não informado'}`);
+      line(`Escola: ${school?.schoolName || student.schoolName || student.externalSchoolName || 'Não informado'}`);
+      for (const section of sections) {
+        if (y > cBot(doc.internal.pageSize.getHeight()) - 16) y = newPage();
+        y += 2;
+        line(section.title, true);
+        for (const field of section.fields) {
+          const value = field.type === 'scale' ? `${field.value}/${field.maxScale || 8}` : String(field.value ?? '');
+          line(`${field.label ? field.label + ': ' : ''}${value}`);
+        }
+      }
+      y += 3;
+      line(`Profissional responsável: ${user.name} — Assinatura: ____________________`);
+      applySharedFooterAllPages(doc);
+      return doc.output('blob') as Blob;
+    }
 
     if (isEstudoCasoDocType(docType)) {
       await renderEstudoCasoPremiumV2(doc, sections, student, user, school, auditCode, sigOpts, qrUrl, circularPhoto);

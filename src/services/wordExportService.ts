@@ -11,6 +11,7 @@ import {
 } from '../types';
 
 export interface WordExportParams {
+  compactServiceRecord?: boolean;
   docType: DocumentType;
   title?: string;
   data: DocumentData;
@@ -83,6 +84,7 @@ export async function exportDocumentToWord(params: WordExportParams): Promise<Bl
 }
 
 export interface GenericWordExportParams {
+  compactServiceRecord?: boolean;
   /** Título do documento (ex.: "Relatório Técnico", "Escuta da Família"). */
   title: string;
   /** Seções canônicas já montadas pelo adaptador do documento (ver src/services/documentModel). */
@@ -110,6 +112,7 @@ export async function exportGenericDocumentToWord(params: GenericWordExportParam
   const generatedAt = params.generatedAt ?? new Date();
   const title = (params.title || 'Documento IncluiAI').trim();
   const wordParams: WordExportParams = {
+    compactServiceRecord: params.compactServiceRecord,
     // `documentXml`/`signaturesXml` não ramificam por `docType`; passamos um
     // valor só para satisfazer o tipo. O título vem sempre de `params.title`.
     docType: DocumentType.ESTUDO_CASO,
@@ -183,10 +186,17 @@ function documentXml(params: WordExportParams, title: string, generatedAt: Date)
   body.push(paragraph(''));
 
   for (const section of normalizeSections(params.data)) {
-    body.push(sectionXml(section));
+    body.push(params.compactServiceRecord
+      ? paragraph(section.title, { style: 'Heading1' }) + section.fields.map(field => {
+          const value = field.type === 'scale' ? `${field.value}/${field.maxScale || 8}` : String(field.value ?? '');
+          return paragraph(`${field.label ? field.label + ': ' : ''}${value}`, { preserveBreaks: true });
+        }).join('')
+      : sectionXml(section));
   }
 
-  body.push(signaturesXml(params));
+  body.push(params.compactServiceRecord
+    ? paragraph(`Profissional responsável: ${params.user?.name || ''} — Assinatura: ____________________`)
+    : signaturesXml(params));
   body.push(sectionPropertiesXml());
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>

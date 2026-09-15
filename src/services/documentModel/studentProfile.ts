@@ -137,7 +137,7 @@ export function studentProfileToSections(
       : null,
 
     cfg.controleAtendimento && extra.serviceRecords?.length
-      ? section('Controle de Atendimentos (resumo)', [
+      ? section('Registro de Atendimento (resumo)', [
           kvField('ca', 'Total de registros', String(extra.serviceRecords.length)),
           kvField('ca', 'Presenças', String(extra.serviceRecords.filter((r: any) => r.attendance === 'Presente').length)),
         ])

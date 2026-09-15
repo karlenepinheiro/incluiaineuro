@@ -680,6 +680,9 @@ export const ServiceRecordService = {
       observation:     rec.observation,
       attendance:      rec.attendance,
       daily_checklist: rec.dailyChecklist ? JSON.stringify(rec.dailyChecklist) : null,
+      pedagogical:     rec.pedagogical ?? null,
+      ...(rec.createdAt ? { created_at: rec.createdAt } : {}),
+      updated_at:      rec.updatedAt ?? new Date().toISOString(),
     };
   },
 
@@ -700,6 +703,9 @@ export const ServiceRecordService = {
       observation:    row.observation ?? '',
       attendance:     row.attendance,
       dailyChecklist,
+      pedagogical:    row.pedagogical ?? undefined,
+      createdAt:      row.created_at,
+      updatedAt:      row.updated_at,
     };
   },
 
@@ -718,17 +724,19 @@ export const ServiceRecordService = {
   },
 
   /** Cria ou atualiza um atendimento (upsert por id) e emite evento na timeline */
-  async save(rec: ServiceRecord, tenantId: string): Promise<void> {
+  async save(rec: ServiceRecord, tenantId: string): Promise<ServiceRecord> {
     const row = ServiceRecordService.toRow(rec, tenantId);
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('service_records')
-      .upsert(row, { onConflict: 'id' });
+      .upsert(row, { onConflict: 'id' })
+      .select('*').single();
     if (error) throw error;
+    if (!data?.id) throw new Error('Salvamento do atendimento não confirmado.');
 
     // Emite evento na timeline do aluno para alimentar o histórico evolutivo
     if (rec.studentId && rec.attendance === 'Presente') {
       const checklistDesc = rec.dailyChecklist
-        ? `Desempenho: ${rec.dailyChecklist.desempenho}/5 · Interação: ${rec.dailyChecklist.interacao}/5 · ${rec.dailyChecklist.comportamento === 'adequado' ? 'Comportamento adequado' : rec.dailyChecklist.comportamento === 'regular' ? 'Comportamento regular' : 'Necessita suporte'}`
+        ? `Desempenho: ${rec.dailyChecklist.desempenho}/8 · Interação: ${rec.dailyChecklist.interacao}/8 · ${rec.dailyChecklist.comportamento === 'adequado' ? 'Comportamento adequado' : rec.dailyChecklist.comportamento === 'regular' ? 'Comportamento regular' : 'Necessita suporte'}`
         : '';
       await TimelineService.add({
         tenantId,
@@ -742,6 +750,7 @@ export const ServiceRecordService = {
         author:      rec.professional,
       }).catch(() => { /* timeline é não-crítica */ });
     }
+    return ServiceRecordService.fromRow(data);
   },
 
   /** Remove um atendimento */

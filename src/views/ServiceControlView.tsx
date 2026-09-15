@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { User, Student, ServiceRecord, ServiceDailyChecklist } from '../types';
 import { Plus, Calendar, GripVertical, CheckCircle, Edit, Trash2, Download, ClipboardList, ChevronDown, ChevronUp } from 'lucide-react';
 import { AudioEnhancedTextarea } from '../components/AudioEnhancedTextarea';
@@ -8,8 +8,8 @@ interface Props {
   user: User;
   students: Student[];
   serviceRecords?: ServiceRecord[]; // Added prop
-  onAddRecord?: (record: ServiceRecord) => void; // Added prop
-  onUpdateRecord?: (record: ServiceRecord) => void;
+  onAddRecord?: (record: ServiceRecord) => Promise<void>;
+  onUpdateRecord?: (record: ServiceRecord) => Promise<void>;
   onDeleteRecord?: (id: string) => void;
 }
 
@@ -25,63 +25,63 @@ const DEFAULT_CHECKLIST: ServiceDailyChecklist = {
 export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRecords = [], onAddRecord, onUpdateRecord, onDeleteRecord }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [showChecklist, setShowChecklist] = useState(false);
   const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
   const [newRecord, setNewRecord] = useState<Partial<ServiceRecord>>({
       date: new Date().toISOString().split('T')[0],
       duration: 50,
       attendance: 'Presente',
-      dailyChecklist: { ...DEFAULT_CHECKLIST },
   });
 
   const setChecklist = (updates: Partial<ServiceDailyChecklist>) =>
     setNewRecord(prev => ({ ...prev, dailyChecklist: { ...(prev.dailyChecklist ?? DEFAULT_CHECKLIST), ...updates } as ServiceDailyChecklist }));
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
+      if (savingRef.current) return;
       if(!newRecord.studentId || !newRecord.type) return alert("Preencha os campos obrigatórios");
-      if(!onAddRecord) return; // Guard
-
+      const persist = editingId ? onUpdateRecord : onAddRecord;
+      if (!persist) { setSaveError('Salvamento indisponível.'); return; }
       const student = students.find(s => s.id === newRecord.studentId);
-      
-      if (editingId && onUpdateRecord) {
-          // Update existing
-          const updatedRecord: ServiceRecord = {
-              id: editingId,
-              studentId: newRecord.studentId,
-              studentName: student?.name || 'Desconhecido',
-              date: newRecord.date || '',
-              type: newRecord.type as any,
-              professional: user.name,
-              duration: newRecord.duration || 50,
-              observation: newRecord.observation || '',
-              attendance: newRecord.attendance || 'Presente'
-          };
-          onUpdateRecord(updatedRecord);
+      const record: ServiceRecord = {
+          ...newRecord,
+          id: editingId ?? newRecord.id ?? crypto.randomUUID(),
+          studentId: newRecord.studentId,
+          studentName: student?.name || newRecord.studentName || 'Desconhecido',
+          date: newRecord.date || '',
+          type: newRecord.type,
+          professional: newRecord.professional ?? user.name,
+          duration: newRecord.duration ?? 50,
+          observation: newRecord.observation || '',
+          attendance: newRecord.attendance || 'Presente',
+          createdAt: newRecord.createdAt ?? (editingId ? undefined : new Date().toISOString()),
+          updatedAt: new Date().toISOString(),
+      };
+      // Preserve the ID for retries, even if the server saved before a connection failure.
+      setNewRecord(record);
+      savingRef.current = true;
+      setSaving(true);
+      setSaveError('');
+      try {
+          await persist(record);
           setEditingId(null);
-      } else {
-          // Add new
-          const record: ServiceRecord = {
-              id: crypto.randomUUID(),
-              studentId: newRecord.studentId,
-              studentName: student?.name || 'Desconhecido',
-              date: newRecord.date || '',
-              type: newRecord.type as any,
-              professional: user.name,
-              duration: newRecord.duration || 50,
-              observation: newRecord.observation || '',
-              attendance: newRecord.attendance || 'Presente',
-              createdAt: new Date().toISOString(),
-          };
-          onAddRecord(record);
+          setIsAdding(false);
+          setShowChecklist(false);
+          setNewRecord({ date: new Date().toISOString().split('T')[0], duration: 50, attendance: 'Presente' });
+      } catch (error) {
+          setSaveError(`Não foi possível salvar. Seus dados foram mantidos para tentar novamente. ${error instanceof Error ? error.message : ''}`);
+      } finally {
+          savingRef.current = false;
+          setSaving(false);
       }
-      
-      setIsAdding(false);
-      setShowChecklist(false);
-      setNewRecord({ date: new Date().toISOString().split('T')[0], duration: 50, attendance: 'Presente', dailyChecklist: { ...DEFAULT_CHECKLIST } });
   };
 
   const handleEdit = (record: ServiceRecord) => {
-      setNewRecord({ ...record, dailyChecklist: record.dailyChecklist ?? { ...DEFAULT_CHECKLIST } });
+      if (savingRef.current) return;
+      setSaveError('');
+      setNewRecord({ ...record });
       setEditingId(record.id);
       setShowChecklist(!!record.dailyChecklist);
       setIsAdding(true);
@@ -104,11 +104,11 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                 <div className="inline-flex items-center gap-2 bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-xs font-bold mb-2">
                     <CheckCircle size={12}/> Módulo Master
                 </div>
-                <h1 className="text-2xl font-bold text-gray-800">Controle de Atendimentos</h1>
+                <h1 className="text-2xl font-bold text-gray-800">Registro de Atendimento</h1>
                 <p className="text-gray-500">Registro diário de atendimentos clínicos e AEE com controle de presença.</p>
             </div>
             <div className="flex gap-2">
-                <button onClick={() => { setIsAdding(true); setEditingId(null); setNewRecord({ date: new Date().toISOString().split('T')[0], duration: 50, attendance: 'Presente' }); }} className="bg-brand-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-brand-700">
+                <button disabled={saving} onClick={() => { setSaveError(''); setShowChecklist(false); setIsAdding(true); setEditingId(null); setNewRecord({ date: new Date().toISOString().split('T')[0], duration: 50, attendance: 'Presente' }); }} className="bg-brand-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-brand-700">
                     <Plus size={18}/> Novo Atendimento
                 </button>
             </div>
@@ -123,6 +123,7 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
         {isAdding && (
             <div className="bg-white p-6 rounded-xl shadow-lg border border-brand-200 mb-8 animate-fade-in-up print:hidden">
                 <h3 className="font-bold text-gray-800 mb-4 border-b pb-2">{editingId ? 'Editar Registro' : 'Novo Registro'}</h3>
+                <fieldset disabled={saving}>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase">Aluno</label>
@@ -146,6 +147,7 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                              <option>AEE</option>
                              <option>Psicologia</option>
                              <option>Fonoaudiologia</option>
+                             <option>Terapia Ocupacional</option>
                              <option>Psicopedagogia</option>
                          </select>
                     </div>
@@ -157,6 +159,24 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                              <option>Reposição</option>
                          </select>
                     </div>
+                </div>
+                <div className="mb-4">
+                    <label className="block text-xs font-bold text-gray-500 uppercase">Duração (minutos)</label>
+                    <input type="number" min={1} className="border p-2 rounded-lg" value={newRecord.duration ?? 50} onChange={e => setNewRecord({ ...newRecord, duration: Number(e.target.value) })}/>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    {([
+                        ['objective', 'Objetivo do atendimento'],
+                        ['activities', 'Atividades realizadas'],
+                        ['studentResponse', 'Resposta/comportamento do aluno'],
+                        ['strategies', 'Estratégias utilizadas'],
+                        ['nextSteps', 'Próximos encaminhamentos'],
+                    ] as const).map(([key, label]) => (
+                        <AudioEnhancedTextarea key={key} fieldId={`at_${key}`} label={label}
+                            value={newRecord.pedagogical?.[key] ?? ''} rows={2} hideChips
+                            placeholder="Registre de forma breve e objetiva..."
+                            onChange={value => setNewRecord(prev => ({ ...prev, pedagogical: { ...prev.pedagogical, [key]: value } }))}/>
+                    ))}
                 </div>
                 <div className="mb-4">
                     <AudioEnhancedTextarea
@@ -266,8 +286,10 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
 
                 <div className="flex justify-end gap-2">
                     <button onClick={() => { setIsAdding(false); setShowChecklist(false); }} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded-lg">Cancelar</button>
-                    <button onClick={handleAdd} className="px-4 py-2 bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700">{editingId ? 'Atualizar' : 'Salvar Registro'}</button>
+                    <button onClick={handleAdd} className="px-4 py-2 bg-brand-600 text-white font-bold rounded-lg hover:bg-brand-700">{saving ? 'Salvando…' : editingId ? 'Atualizar' : 'Salvar Registro'}</button>
                 </div>
+                </fieldset>
+                {saveError && <p role="alert" className="mt-3 text-sm text-red-600">{saveError}</p>}
             </div>
         )}
 
@@ -294,7 +316,7 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                                 <td className="px-4 py-4 text-gray-300 cursor-move hover:text-gray-500 print:hidden">
                                     <GripVertical size={16}/>
                                 </td>
-                                <td className="px-6 py-4 font-mono text-gray-600">{new Date(r.date).toLocaleDateString()}</td>
+                                <td className="px-6 py-4 font-mono text-gray-600">{r.date.split('-').reverse().join('/')}</td>
                                 <td className="px-6 py-4 font-bold text-gray-800">{r.studentName}</td>
                                 <td className="px-6 py-4">
                                     <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold print:border print:border-black print:bg-transparent print:text-black">{r.type}</span>
@@ -308,7 +330,7 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                                 </td>
                                 <td className="px-6 py-4 text-gray-500 max-w-xs truncate print:whitespace-normal">{r.observation}</td>
                                 <td className="px-6 py-4 text-right print:hidden">
-                                    <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <div className="flex justify-end items-center gap-2">
                                         {r.dailyChecklist && (
                                           <button onClick={() => setExpandedRecordId(expandedRecordId === r.id ? null : r.id)} className="p-1.5 text-gray-500 hover:text-brand-600 hover:bg-brand-50 rounded" title="Ficha avaliativa">
                                               <ClipboardList size={16}/>
@@ -317,9 +339,10 @@ export const ServiceControlView: React.FC<Props> = ({ user, students, serviceRec
                                         <button onClick={() => toggleExport(r.id)} className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded" title="Exportar (PDF / Word / Google Docs)">
                                             <Download size={16}/>
                                         </button>
-                                        <button onClick={() => handleEdit(r)} className="p-1.5 text-gray-500 hover:text-brand-600 hover:bg-brand-50 rounded" title="Editar">
-                                            <Edit size={16}/>
-                                        </button>
+                                        <ServiceRecordExportRow record={r}
+                                            student={students.find(s => s.id === r.studentId) || ({ id: r.studentId, name: r.studentName } as Student)}
+                                            user={user} school={user.schoolConfigs?.[0] ?? null}
+                                            onEdit={() => handleEdit(r)} compact />
                                         <button onClick={() => handleDelete(r.id)} className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded" title="Excluir">
                                             <Trash2 size={16}/>
                                         </button>

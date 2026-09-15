@@ -1731,10 +1731,10 @@ export const ExportService = {
         y += 4;
       }
 
-      // Secao IX: Controle de Atendimento
+      // Secao IX: Registro de Atendimento
       if (cfg.controleAtendimento && extra.serviceRecords && extra.serviceRecords.length > 0) {
         if (y > pBottom - 42) { doc.addPage(); y = pfHeader(); }
-        y = pf_sectionTitle(doc, 'IX', 'Controle de Atendimento', FL, y);
+        y = pf_sectionTitle(doc, 'IX', 'Registro de Atendimento', FL, y);
         const total    = extra.serviceRecords.length;
         const presente = extra.serviceRecords.filter((r: any) => r.attendance === 'Presente').length;
         const taxa     = total > 0 ? Math.round((presente / total) * 100) : 0;

@@ -2204,12 +2204,12 @@ export const StudentProfile: React.FC<StudentProfileProps> = ({
               )}
             </div>
 
-            {/* ── Controle de Atendimento (ServiceControlView) ── */}
+            {/* ── Registro de Atendimento (ServiceControlView) ── */}
             {serviceRecords.length > 0 && (
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
                 <SectionHeader
                   icon={<CheckCircle size={16} style={{ color: '#1F4E5F' }}/>}
-                  title="Controle de Atendimentos"
+                  title="Registro de Atendimento"
                   subtitle={`${totalServices} atendimentos · ${presenceRate}% de presença`}
                 />
                 <div className="overflow-x-auto">
